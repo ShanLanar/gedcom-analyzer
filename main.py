@@ -5,13 +5,13 @@ GUI-Einstiegspunkt (tkinter, Dark Theme, Task-Registry, Threading).
 Architektur nach ARCHITECTURE.md (ABE Tool-Framework).
 """
 
+import argparse
 import importlib
 import inspect
 import os
+import sys
 import threading
 import time
-import tkinter as tk
-from tkinter import filedialog, scrolledtext, ttk
 
 # ── Config laden (Overrides vor allem anderen) ─────────────────────────────────
 from config import apply_overrides
@@ -148,6 +148,14 @@ TASKS = [
         "default": True,
         "group":   "Export",
     },
+    {
+        "id":      "export_html",
+        "name":    "HTML-Übersicht",
+        "desc":    f"Selbsterklärende Übersicht nach {cfg.FILES['interactive_html']}.",
+        "fn":      "tasks._runner:run_export_html",
+        "default": False,
+        "group":   "Export",
+    },
 ]
 
 GROUP_ORDER = {"Vorbereitung": 0, "Analysen": 1, "Extras": 2, "Export": 3}
@@ -167,6 +175,9 @@ def _call_task(fn_spec: str, progress_cb, stop_event=None):
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
+import tkinter as tk
+from tkinter import filedialog, scrolledtext, ttk
+
 
 class AhnenApp(tk.Tk):
 
@@ -445,9 +456,87 @@ class AhnenApp(tk.Tk):
         self._set_status(msg)
 
 
+# ── CLI-Modus ──────────────────────────────────────────────────────────────────
+
+def _cli_main(argv: list[str] | None = None) -> int | None:
+    """Headless-Batch-Modus. Gibt einen Exit-Code zurück oder None, falls
+    die GUI gestartet werden soll."""
+    parser = argparse.ArgumentParser(
+        prog="gedcom-analyzer",
+        description="GEDCOM-Analyse-Framework (GUI oder Headless)")
+    parser.add_argument("--batch", action="store_true",
+                        help="GUI überspringen und Tasks in der Konsole ausführen")
+    parser.add_argument("--tasks", default="",
+                        help="Komma-getrennte Task-IDs (leer = alle Default-Tasks)")
+    parser.add_argument("--gedfile", help="Pfad zur GEDCOM-Datei (override config)")
+    parser.add_argument("--root-id", help="Root-Person-ID (override config)")
+    parser.add_argument("--exclude-id", help="Exclude-ID (override config)")
+    parser.add_argument("--list-tasks", action="store_true",
+                        help="Verfügbare Tasks ausgeben und beenden")
+    args = parser.parse_args(argv)
+
+    if args.list_tasks:
+        for t in TASKS:
+            default = "*" if t["default"] else " "
+            print(f"  {default} {t['id']:25s} [{t['group']:13s}] {t['name']}")
+        print("\n* = Default-Task. Mit --tasks <id1,id2,…> einschränken.")
+        return 0
+
+    if not args.batch:
+        return None
+
+    # Konfig-Overrides aus CLI
+    if args.gedfile:
+        cfg.DEFAULT_CONFIG["gedfile"] = args.gedfile
+        cfg.FILES["gedfile"] = args.gedfile
+    if args.root_id:
+        cfg.DEFAULT_CONFIG["root_id"] = args.root_id
+        cfg.ROOT_ID = args.root_id
+    if args.exclude_id:
+        cfg.DEFAULT_CONFIG["exclude_id"] = args.exclude_id
+        cfg.EXCLUDE_ID = args.exclude_id
+
+    if args.tasks:
+        wanted = {x.strip() for x in args.tasks.split(",") if x.strip()}
+        unknown = wanted - {t["id"] for t in TASKS}
+        if unknown:
+            print(f"Unbekannte Task-ID(s): {', '.join(sorted(unknown))}",
+                  file=sys.stderr)
+            return 2
+        selected = [t for t in TASKS if t["id"] in wanted]
+    else:
+        selected = [t for t in TASKS if t["default"]]
+    selected.sort(key=lambda t: (GROUP_ORDER.get(t.get("group", ""), 9),
+                                  t["id"]))
+
+    _PREFIX = {"ok": "[OK]  ", "err": "[ERR] ", "warn": "[WARN]"}
+
+    def cb(msg, tag=""):
+        ts = time.strftime("%H:%M:%S")
+        print(f"[{ts}] {_PREFIX.get(tag, '      ')}{msg}", flush=True)
+
+    print(f"Starte {len(selected)} Task(s) im CLI-Modus")
+    had_errors = False
+    from tasks._runner import AbortedError
+    for i, task in enumerate(selected):
+        print(f"\n── [{i + 1}/{len(selected)}] {task['name']} ──", flush=True)
+        try:
+            _call_task(task["fn"], progress_cb=cb)
+        except AbortedError as exc:
+            print(f"[WARN] {exc}", file=sys.stderr)
+            return 130
+        except Exception as exc:
+            print(f"[ERR] FEHLER in '{task['name']}': {exc}", file=sys.stderr)
+            had_errors = True
+    return 1 if had_errors else 0
+
+
 # ── Entry-Point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    rc = _cli_main()
+    if rc is not None:
+        sys.exit(rc)
     # Sicherstellen, dass Verzeichnisse existieren
     for d in cfg.DIRS.values():
         os.makedirs(d, exist_ok=True)

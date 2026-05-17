@@ -110,6 +110,28 @@ Der **Abbrechen**-Button setzt ein `threading.Event`, das die teuren
 Loops (Cousins, Inzucht, Migration) kooperativ pollen — Tasks können
 also mitten in der Berechnung abgebrochen werden.
 
+## CLI-Modus
+
+Für Batch-Läufe ohne GUI (z.B. Scheduled Task / Cron):
+
+```cmd
+python main.py --list-tasks                       :: alle Task-IDs anzeigen
+python main.py --batch                            :: alle Default-Tasks ausführen
+python main.py --batch --tasks=load_gedcom,migration,export_excel
+python main.py --batch --gedfile=D:\ahn\family.ged --root-id=@I42@
+```
+
+Exit-Code: `0` = OK, `1` = Tasks meldeten Fehler, `2` = unbekannte Task-ID,
+`130` = User-Abbruch.
+
+## HTML-Übersicht
+
+Optionaler Task „HTML-Übersicht" (in der GUI standardmäßig **aus**, im
+CLI per `--tasks=export_html` aktivierbar) erzeugt eine selbst­erklärende
+HTML-Datei mit Gesamtstatistik, Top-20 Familiennamen, Top-10 Geburtsländern,
+Demografie pro Epoche und Migrationswellen. Pfad steuerbar über
+`FILES["interactive_html"]` in `config.py`.
+
 ## Tests
 
 ```bash

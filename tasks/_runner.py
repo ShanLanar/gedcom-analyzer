@@ -407,6 +407,13 @@ def run_export_excel(progress_cb=None, stop_event=None):
 
 # ── Schritt 15: JSON-Export ───────────────────────────────────────────────────
 
+def run_export_html(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.export import export_html_overview
+    export_html_overview(_state, cfg.FILES["interactive_html"],
+                          progress_cb=progress_cb)
+
+
 def run_export_json(progress_cb=None, stop_event=None):
     _set_stop_event(stop_event)
     from tasks.export import export_to_json
