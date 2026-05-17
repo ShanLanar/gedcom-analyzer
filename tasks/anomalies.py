@@ -92,10 +92,16 @@ def detect_anomalies(individuals, families, progress_cb=None):
                 if marr_age < 14:
                     _add(rows, husb_id, husb, "Heirat mit niedrigem Alter", "WARNUNG",
                          f"Heiratsalter ca. {marr_age} Jahre (Heirat {marr_y})")
+                elif marr_age > 90:
+                    _add(rows, husb_id, husb, "Heirat im hohen Alter", "HINWEIS",
+                         f"Heiratsalter ca. {marr_age} Jahre (Heirat {marr_y})")
             if wife and wife_by:
                 marr_age = marr_y - wife_by
                 if marr_age < 14:
                     _add(rows, wife_id, wife, "Heirat mit niedrigem Alter", "WARNUNG",
+                         f"Heiratsalter ca. {marr_age} Jahre (Heirat {marr_y})")
+                elif marr_age > 90:
+                    _add(rows, wife_id, wife, "Heirat im hohen Alter", "HINWEIS",
                          f"Heiratsalter ca. {marr_age} Jahre (Heirat {marr_y})")
 
             # Heirat nach Tod eines Ehepartners
