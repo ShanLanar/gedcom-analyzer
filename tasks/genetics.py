@@ -13,12 +13,16 @@ from lib.places import format_place_for_display
 # in Stammbäumen mit starker Implosion drei Größenordnungen Laufzeit.
 _ANCESTORS_DEPTH_CACHE: dict = {}
 _F_CACHE: dict = {}
+_KINSHIP_CACHE: dict = {}
+_DEPTH_CACHE: dict = {}
 
 
 def clear_genetics_cache() -> None:
     """Aufrufen, wenn die GEDCOM-Daten neu geladen werden."""
     _ANCESTORS_DEPTH_CACHE.clear()
     _F_CACHE.clear()
+    _KINSHIP_CACHE.clear()
+    _DEPTH_CACHE.clear()
 
 
 def _ancestors_with_depth(start_id, individuals, families, max_d):
@@ -233,35 +237,90 @@ PEDIGREE_MULTI_HEADERS = [
 
 # ── Kinship-Koeffizient ───────────────────────────────────────────────────────
 
+def _max_ancestor_depth(person_id, individuals, families, max_d=10,
+                          _seen=None) -> int:
+    """Längste bekannte Vorfahren-Kette von ``person_id``. Zyklen-sicher."""
+    if person_id in _DEPTH_CACHE:
+        return _DEPTH_CACHE[person_id]
+    if _seen is None:
+        _seen = set()
+    if person_id in _seen:
+        return 0
+    _seen = _seen | {person_id}
+    d = 0
+    cd = individuals.get(person_id, {})
+    for fid in cd.get("FAMC", []):
+        fam = families.get(fid, {})
+        for par in (fam.get("HUSB"), fam.get("WIFE")):
+            if par and par in individuals:
+                pd = 1 + _max_ancestor_depth(par, individuals, families,
+                                               max_d, _seen)
+                if pd > max_d:
+                    pd = max_d
+                if pd > d:
+                    d = pd
+    _DEPTH_CACHE[person_id] = d
+    return d
+
+
+def _parents_of(person_id, individuals, families) -> list:
+    """Eindeutige Eltern-IDs aus FAMC (kann 0, 1 oder 2 zurückgeben)."""
+    seen, out = set(), []
+    for fid in individuals.get(person_id, {}).get("FAMC", []):
+        fam = families.get(fid, {})
+        for par in (fam.get("HUSB"), fam.get("WIFE")):
+            if par and par in individuals and par not in seen:
+                seen.add(par)
+                out.append(par)
+        if seen:
+            break   # nur erste FAMC-Familie
+    return out
+
+
 def _kinship_coefficient(id_a, id_b, individuals, families, max_depth=10) -> float:
-    """Computes kinship coefficient Φ(A,B).
+    """Kinship-Koeffizient Φ(A,B) via Tabular-Methode (Henderson).
 
-    Φ(A,B) = (1/2) × Σ_{C ∈ common_ancestors(A,B)} Σ_{l_a, l_b}
-              (1/2)^(l_a + l_b) × (1 + F_C)
+    Φ(A,A) = (1 + F_A) / 2
+    Φ(A,B) = (1/2) × Σ_{P ∈ parents(jüngere)} Φ(P, andere)
 
-    Each person is included at depth 0 (themselves) so that, e.g.,
-    Φ(parent, child) = 0.25 is correct.
+    Die "jüngere" Person wird über ihre maximale Ahnen-Tiefe ermittelt:
+    wer mehr bekannte Vorfahren hat, ist topologisch jünger. Diese
+    Rekursion vermeidet die Doppel-Zählung der naiven Path-Sum-Variante
+    (Bug aus älteren Revisionen: Φ(Vater, Kind) lieferte 0.375 statt 0.25).
     """
-    # Build ancestor maps including self at depth 0.
-    raw_a = _ancestors_with_depth(id_a, individuals, families, max_depth)
-    anc_a = defaultdict(list, {k: list(v) for k, v in raw_a.items()})
-    anc_a[id_a].append(0)
+    if id_a == id_b:
+        F = compute_inbreeding_coefficient(id_a, individuals, families,
+                                            max_depth)
+        return (1.0 + F) / 2.0
 
-    raw_b = _ancestors_with_depth(id_b, individuals, families, max_depth)
-    anc_b = defaultdict(list, {k: list(v) for k, v in raw_b.items()})
-    anc_b[id_b].append(0)
+    key = (id_a, id_b) if id_a < id_b else (id_b, id_a)
+    cached = _KINSHIP_CACHE.get(key)
+    if cached is not None:
+        return cached
 
-    common = set(anc_a) & set(anc_b)
-    if not common:
+    a_data = individuals.get(id_a, {})
+    b_data = individuals.get(id_b, {})
+    if not a_data or not b_data:
+        _KINSHIP_CACHE[key] = 0.0
         return 0.0
 
-    phi = 0.0
-    for anc in common:
-        F_C = compute_inbreeding_coefficient(anc, individuals, families, max_depth)
-        for l_a in anc_a[anc]:
-            for l_b in anc_b[anc]:
-                phi += (0.5 ** (l_a + l_b)) * (1 + F_C)
-    return phi * 0.5
+    da = _max_ancestor_depth(id_a, individuals, families, max_depth)
+    db = _max_ancestor_depth(id_b, individuals, families, max_depth)
+    younger, older = (id_a, id_b) if da >= db else (id_b, id_a)
+
+    parents = _parents_of(younger, individuals, families)
+    if not parents:
+        _KINSHIP_CACHE[key] = 0.0
+        return 0.0
+
+    # Anti-Rekursions-Marker (für theoretische Zyklen)
+    _KINSHIP_CACHE[key] = 0.0
+    result = 0.5 * sum(
+        _kinship_coefficient(p, older, individuals, families, max_depth)
+        for p in parents
+    )
+    _KINSHIP_CACHE[key] = result
+    return result
 
 
 # ── DNA-cM-Schätzung ──────────────────────────────────────────────────────────
