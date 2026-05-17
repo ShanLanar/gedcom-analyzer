@@ -284,7 +284,8 @@ def run_export_excel(progress_cb=None, stop_event=None):
     from tasks import export as _exp
     from tasks import (cousins, endogamy, migration, military, demographics,
                         genetics, history, names, data_quality, network, osnabrueck,
-                        anomalies)
+                        anomalies, seasonality, snapshot, spatial,
+                        family_structure, lineage, naming, imputation)
 
     _p(progress_cb, "Baue Sheet-Liste …")
     indiv = _state["individuals"]
@@ -401,6 +402,74 @@ def run_export_excel(progress_cb=None, stop_event=None):
 
         ("Namensdrift (Vornamen)", demographics.NAMEDRIFT_HEADERS,
          _state.get("namedrift_results", [])[:500]),
+
+        # ── Saisonalität ───────────────────────────────────────────────────────
+        ("Geburts-Monate", seasonality.BIRTH_MONTH_HEADERS,
+         _state.get("birth_months", [])),
+        ("Heirats-Monate", seasonality.MARRIAGE_MONTH_HEADERS,
+         _state.get("marriage_months", [])),
+        ("Sterbe-Monate", seasonality.DEATH_MONTH_HEADERS,
+         _state.get("death_months", [])),
+        ("Empfängnis-Monate (geschätzt)", seasonality.CONCEPTION_MONTH_HEADERS,
+         _state.get("conception_months", [])),
+
+        # ── Stichjahr-Snapshot + Generationen-Overlap ─────────────────────────
+        ("Stichjahr-Snapshot", snapshot.SNAPSHOT_HEADERS,
+         _state.get("snapshot_rows", [])),
+        ("Lebende Generationen", snapshot.GEN_OVERLAP_HEADERS,
+         _state.get("gen_overlap_rows", [])),
+
+        # ── Räumliche Lebensgeschichte ────────────────────────────────────────
+        ("Heirats-Migration", spatial.MARRIAGE_MIGRATION_HEADERS,
+         _state.get("marriage_migration", [])[:50_000]),
+        ("Lebens-Triangulation", spatial.LIFE_TRIANGULATION_HEADERS,
+         _state.get("life_triangulation", [])[:50_000]),
+        ("Sesshaftigkeit pro Familie", spatial.SEDENTARINESS_HEADERS,
+         _state.get("sedentariness", [])[:30_000]),
+        ("Nachname × Region", spatial.SURNAME_REGION_HEADERS,
+         _state.get("surname_region_matrix", [])[:10_000]),
+
+        # ── Familienstruktur ───────────────────────────────────────────────────
+        ("Mehrfach-Ehen", family_structure.MULTIPLE_MARRIAGES_HEADERS,
+         _state.get("multiple_marriages", [])[:10_000]),
+        ("Alters-Differenz Ehepaare", family_structure.SPOUSE_AGE_GAP_HEADERS,
+         _state.get("spouse_age_gap", [])),
+        ("Reproduktive Spanne (Mütter)", family_structure.REPRODUCTIVE_SPAN_HEADERS,
+         _state.get("reproductive_span", [])[:30_000]),
+        ("Kinderlosigkeits-Rate", family_structure.CHILDLESSNESS_HEADERS,
+         _state.get("childlessness", [])),
+        ("Zwillinge / Mehrfachgeburten", family_structure.TWIN_HEADERS,
+         _state.get("twin_results", [])[:10_000]),
+
+        # ── Linien (Y, Mt, Quartile, Aussterben, Verzweigung) ─────────────────
+        ("Y-Linie (paternal)", lineage.Y_LINE_HEADERS,
+         _state.get("y_line", [])),
+        ("Mt-Linie (maternal)", lineage.MT_LINE_HEADERS,
+         _state.get("mt_line", [])),
+        ("Großeltern-Quartile", lineage.QUARTILE_HEADERS,
+         _state.get("quartile_results", [])),
+        ("Linien-Aussterben", lineage.EXTINCTION_HEADERS,
+         _state.get("extinction_results", [])[:10_000]),
+        ("Verzweigungs-Faktor", lineage.BRANCHING_HEADERS,
+         _state.get("branching_factor", [])),
+
+        # ── Namens-Soziologie ─────────────────────────────────────────────────
+        ("Patronyme", naming.PATRONYM_HEADERS,
+         _state.get("patronyms", [])[:30_000]),
+        ("Junior-Detektor", naming.JUNIOR_HEADERS,
+         _state.get("juniors", [])[:30_000]),
+        ("Familien-Vornamen-Pool", naming.FAMILY_NAME_POOL_HEADERS,
+         _state.get("family_name_pool", [])[:200]),
+
+        # ── Daten-Imputation ──────────────────────────────────────────────────
+        ("Geschätzte fehlende Daten", imputation.IMPUTATION_HEADERS,
+         _state.get("imputation_results", [])[:50_000]),
+
+        # ── Krisen-Kohorten + Eltern-Verlust ──────────────────────────────────
+        ("Krisen-Kohorten Folge", history.CRISIS_COHORT_HEADERS,
+         _state.get("crisis_cohort", [])),
+        ("Eltern-Verlust-Alter", history.PARENTAL_LOSS_HEADERS,
+         _state.get("parental_loss", [])),
     ]
 
     # Osnabrück-Sheets
@@ -525,3 +594,137 @@ def run_export_timeline(progress_cb=None, stop_event=None):
         cfg.FILES["timeline_html"],
         root_related_ids=_state.get("root_related_ids"),
         progress_cb=progress_cb)
+
+
+# ── Schritt 21: Saisonalität (Geburts-/Heirats-/Sterbe-/Empfängnis-Monate) ───
+
+def run_seasonality(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.seasonality import (analyze_birth_months, analyze_marriage_months,
+                                    analyze_death_months, analyze_conception_months)
+    _state["birth_months"]      = analyze_birth_months(_state["individuals"],
+                                                        progress_cb=progress_cb)
+    _state["marriage_months"]   = analyze_marriage_months(_state["families"],
+                                                          progress_cb=progress_cb)
+    _state["death_months"]      = analyze_death_months(_state["individuals"],
+                                                       progress_cb=progress_cb)
+    _state["conception_months"] = analyze_conception_months(_state["individuals"],
+                                                            progress_cb=progress_cb)
+
+
+# ── Schritt 22: Stichjahr-Snapshot + Lebende-Generationen-Overlap ────────────
+
+def run_snapshot(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.snapshot import snapshot_at_years, analyze_living_generations
+    _state["snapshot_rows"]    = snapshot_at_years(_state["individuals"],
+                                                    progress_cb=progress_cb)
+    _state["gen_overlap_rows"] = analyze_living_generations(
+        _state["individuals"], _state["families"],
+        cfg.DEFAULT_CONFIG["root_id"], progress_cb=progress_cb)
+
+
+# ── Schritt 23: Räumliche Analysen ────────────────────────────────────────────
+
+def run_spatial(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.spatial import (analyze_marriage_migration, analyze_life_triangulation,
+                                analyze_sedentariness, analyze_surname_region_matrix)
+    indiv = _state["individuals"]
+    fams  = _state["families"]
+    ld    = _state["location_data"]
+    rid   = cfg.DEFAULT_CONFIG["root_id"]
+
+    _state["marriage_migration"]   = analyze_marriage_migration(
+        indiv, fams, ld, progress_cb=progress_cb)
+    _state["life_triangulation"]   = analyze_life_triangulation(
+        indiv, fams, progress_cb=progress_cb)
+    _state["sedentariness"]        = analyze_sedentariness(
+        indiv, fams, rid, ld, progress_cb=progress_cb)
+    _state["surname_region_matrix"] = analyze_surname_region_matrix(
+        indiv, ld, progress_cb=progress_cb)
+
+
+# ── Schritt 24: Familienstruktur ──────────────────────────────────────────────
+
+def run_family_structure(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.family_structure import (analyze_multiple_marriages,
+                                         analyze_spouse_age_gap,
+                                         analyze_reproductive_span,
+                                         analyze_childlessness, detect_twins)
+    indiv = _state["individuals"]
+    fams  = _state["families"]
+    _state["multiple_marriages"]   = analyze_multiple_marriages(
+        indiv, fams, progress_cb=progress_cb)
+    _state["spouse_age_gap"]       = analyze_spouse_age_gap(
+        indiv, fams, progress_cb=progress_cb)
+    _state["reproductive_span"]    = analyze_reproductive_span(
+        indiv, fams, progress_cb=progress_cb)
+    _state["childlessness"]        = analyze_childlessness(
+        indiv, fams, progress_cb=progress_cb)
+    _state["twin_results"]         = detect_twins(
+        indiv, fams, progress_cb=progress_cb)
+
+
+# ── Schritt 25: Linien-Analysen (Y/Mt, Quartile, Aussterben, Verzweigung) ───
+
+def run_lineage(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.lineage import (trace_y_line, trace_mt_line,
+                                analyze_grandparent_quartiles,
+                                detect_lineage_extinction, analyze_branching_factor)
+    indiv = _state["individuals"]
+    fams  = _state["families"]
+    ld    = _state["location_data"]
+    rid   = cfg.DEFAULT_CONFIG["root_id"]
+
+    _state["y_line"]             = trace_y_line(rid, indiv, fams,
+                                                 progress_cb=progress_cb)
+    _state["mt_line"]            = trace_mt_line(rid, indiv, fams,
+                                                  progress_cb=progress_cb)
+    _state["quartile_results"]   = analyze_grandparent_quartiles(
+        rid, indiv, fams, ld, progress_cb=progress_cb)
+    _state["extinction_results"] = detect_lineage_extinction(
+        indiv, fams, progress_cb=progress_cb)
+    _state["branching_factor"]   = analyze_branching_factor(
+        rid, indiv, fams, progress_cb=progress_cb)
+
+
+# ── Schritt 26: Namens-Soziologie (Patronyme, Junioren, Vornamen-Pool) ───────
+
+def run_naming_sociology(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.naming import (detect_patronyms, detect_juniors,
+                               analyze_family_name_pool)
+    indiv = _state["individuals"]
+    fams  = _state["families"]
+    _state["patronyms"]         = detect_patronyms(indiv, fams,
+                                                    progress_cb=progress_cb)
+    _state["juniors"]           = detect_juniors(indiv, fams,
+                                                  progress_cb=progress_cb)
+    _state["family_name_pool"]  = analyze_family_name_pool(indiv, fams,
+                                                            progress_cb=progress_cb)
+
+
+# ── Schritt 27: Daten-Imputation ──────────────────────────────────────────────
+
+def run_imputation(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.imputation import impute_missing_dates
+    _state["imputation_results"] = impute_missing_dates(
+        _state["individuals"], _state["families"], progress_cb=progress_cb)
+
+
+# ── Schritt 28: Krisen-Kohorten + Eltern-Verlust ─────────────────────────────
+
+def run_cohort_extensions(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.history import (analyze_crisis_cohort_followup,
+                                analyze_parental_loss_age)
+    indiv = _state["individuals"]
+    fams  = _state["families"]
+    _state["crisis_cohort"] = analyze_crisis_cohort_followup(
+        indiv, fams, progress_cb=progress_cb)
+    _state["parental_loss"] = analyze_parental_loss_age(
+        indiv, fams, progress_cb=progress_cb)
