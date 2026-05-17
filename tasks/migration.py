@@ -15,31 +15,32 @@ from lib.places import (extract_country_from_place, format_place_for_display,
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 
-def _relationship_to_root(root_id, pid, individuals, families, root_paths=None):
+def _relationship_to_root(root_id, pid, individuals, families,
+                           root_paths=None, cache=None):
     if pid == root_id:
         return "root", "self"
-    if not root_paths:
-        root_paths = get_ancestor_paths(root_id, individuals, families)
+    if root_paths is None:
+        root_paths = get_ancestor_paths(root_id, individuals, families, cache)
     if pid in root_paths:
         sp = min(root_paths[pid], key=len)
         return relationship_label(len(sp) - 1, 0, True), "ancestor"
-    person_paths = get_ancestor_paths(pid, individuals, families)
+    if pid not in individuals:
+        return "unrelated", "unknown"
+    person_paths = get_ancestor_paths(pid, individuals, families, cache)
     if root_id in person_paths:
         sp = min(person_paths[root_id], key=len)
         return relationship_label(0, len(sp) - 1, False), "descendant"
-    if pid in individuals:
-        tp = get_ancestor_paths(pid, individuals, families)
-        common = set(root_paths) & set(tp)
-        if common:
-            best = None
-            for anc in common:
-                r = min(len(p) - 1 for p in root_paths[anc])
-                t = min(len(p) - 1 for p in tp[anc])
-                s = max(r, t)
-                if best is None or s < best[0]:
-                    best = (s, r, t)
-            if best:
-                return relationship_label(best[1], best[2]), "cousin"
+    common = set(root_paths) & set(person_paths)
+    if common:
+        best = None
+        for anc in common:
+            r = min(len(p) - 1 for p in root_paths[anc])
+            t = min(len(p) - 1 for p in person_paths[anc])
+            s = max(r, t)
+            if best is None or s < best[0]:
+                best = (s, r, t)
+        if best:
+            return relationship_label(best[1], best[2]), "cousin"
     return "unrelated", "unknown"
 
 
@@ -53,13 +54,14 @@ LINEAGE_MAP = {
 
 def analyze_detailed_migration_routes(individuals, families, root_id,
                                        location_data, root_related_ids=None,
-                                       root_paths=None, progress_cb=None):
+                                       root_paths=None, cache=None,
+                                       progress_cb=None):
     p = progress_cb or (lambda m, **kw: None)
     p("Analysiere Migrationsrouten …")
     if root_related_ids is None:
         root_related_ids = set(individuals)
     if root_paths is None:
-        root_paths = get_ancestor_paths(root_id, individuals, families)
+        root_paths = get_ancestor_paths(root_id, individuals, families, cache)
 
     migrations = []
 
@@ -137,7 +139,7 @@ def analyze_detailed_migration_routes(individuals, families, root_id,
                         fam_mig = True
 
         rel, lin_raw = _relationship_to_root(root_id, pid, individuals, families,
-                                              root_paths)
+                                              root_paths, cache=cache)
         lineage = LINEAGE_MAP.get(lin_raw, lin_raw)
 
         migrations.append([

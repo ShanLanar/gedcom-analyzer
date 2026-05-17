@@ -147,6 +147,7 @@ def run_migration(progress_cb=None):
         indiv, fams, rid, ld,
         root_related_ids=_state.get("root_related_ids"),
         root_paths=_state.get("root_paths"),
+        cache=_state.get("cache"),
         progress_cb=progress_cb)
     _state["migration_results"] = mr
 
