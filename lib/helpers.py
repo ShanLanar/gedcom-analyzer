@@ -70,29 +70,55 @@ def extract_emigration_data_from_gedcom(pdata: dict):
 
 # ── Migrationsstatus ───────────────────────────────────────────────────────────
 
+# Modul-lokaler Cache: dieselben (Geburtsort, Sterbeort, marker, in-battle)-
+# Kombinationen wiederholen sich tausendfach über alle Tasks; Memoization
+# spart das Re-Parsen der Orte.
+_MIGRATION_STATUS_CACHE: dict = {}
+
+
+def clear_migration_status_cache() -> None:
+    """Aufrufen, wenn die GEDCOM-Daten neu geladen werden."""
+    _MIGRATION_STATUS_CACHE.clear()
+
+
 def safe_determine_migration_status(pdata: dict, name: str, location_data) -> str:
     try:
         name_str = name or ""
         has_marker = "mig." in name_str.lower()
         birth_place = (pdata.get("BIRT") or {}).get("PLAC") or ""
-        death_place  = (pdata.get("DEAT") or {}).get("PLAC") or ""
-        if not birth_place or not death_place:
-            return "unbekannt (markiert)" if has_marker else "unbekannt"
-        bc = extract_country_from_place(birth_place, location_data)
-        dc = extract_country_from_place(death_place, location_data)
-        if not dc and "australia" in death_place.lower():
-            dc = "Australien"
-        if not bc or not dc:
-            return "unbekannt (markiert)" if has_marker else "unbekannt"
-        if bc != dc:
-            if pdata.get("DIED_IN_BATTLE"):
-                return f"nein (in {dc} gefallen)"
-            prefix = "ja (markiert: " if has_marker else "ja ("
-            return f"{prefix}{bc} → {dc})"
-        return (f"nein (markiert, aber in {bc} geblieben)" if has_marker
-                else f"nein (in {bc})")
+        death_place = (pdata.get("DEAT") or {}).get("PLAC") or ""
+        died_in_battle = bool(pdata.get("DIED_IN_BATTLE"))
+        key = (birth_place, death_place, has_marker, died_in_battle)
+        cached = _MIGRATION_STATUS_CACHE.get(key)
+        if cached is not None:
+            return cached
+        result = _compute_migration_status(birth_place, death_place,
+                                            has_marker, died_in_battle,
+                                            location_data)
+        _MIGRATION_STATUS_CACHE[key] = result
+        return result
     except Exception:
         return "unbekannt (Fehler)"
+
+
+def _compute_migration_status(birth_place: str, death_place: str,
+                               has_marker: bool, died_in_battle: bool,
+                               location_data) -> str:
+    if not birth_place or not death_place:
+        return "unbekannt (markiert)" if has_marker else "unbekannt"
+    bc = extract_country_from_place(birth_place, location_data)
+    dc = extract_country_from_place(death_place, location_data)
+    if not dc and "australia" in death_place.lower():
+        dc = "Australien"
+    if not bc or not dc:
+        return "unbekannt (markiert)" if has_marker else "unbekannt"
+    if bc != dc:
+        if died_in_battle:
+            return f"nein (in {dc} gefallen)"
+        prefix = "ja (markiert: " if has_marker else "ja ("
+        return f"{prefix}{bc} → {dc})"
+    return (f"nein (markiert, aber in {bc} geblieben)" if has_marker
+            else f"nein (in {bc})")
 
 
 # ── Verwandtschaft ─────────────────────────────────────────────────────────────

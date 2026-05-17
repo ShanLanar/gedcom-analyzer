@@ -114,23 +114,30 @@ def analyze_family_network_parallel(individuals, families, root_id,
 
         closeness = 1 / (sum(distances.values()) / len(distances)) \
                     if len(distances) > 1 else 0
-        betweenness = deg / 100
         cluster = ("Root-Linie" if pid == root_id
                    else "Hauptlinie" if root_id in conns
                    else "Nahe Hauptlinie" if any(root_id in adj.get(nb, set())
                                                   for nb in conns)
                    else "unbekannt")
-        is_bridge = len({families.get(
-                            next(iter(individuals.get(nb, {}).get("FAMS", [])), None),
-                            {}).get("HUSB", ""): 1
-                         for nb in conns if individuals.get(nb, {}).get("FAMS")}) >= 2
+        # Brücke (Heuristik): Nachbarn gehören zu mindestens zwei verschiedenen
+        # Haushalten, identifiziert über den HUSB der jeweils ersten FAMS-
+        # Familie eines Nachbarn. Eine echte Edge-Cut-Berechnung wäre teurer.
+        neighbor_household_heads: set = set()
+        for nb in conns:
+            nb_fams = individuals.get(nb, {}).get("FAMS", [])
+            if not nb_fams:
+                continue
+            head = families.get(nb_fams[0], {}).get("HUSB", "")
+            if head:
+                neighbor_household_heads.add(head)
+        is_bridge = len(neighbor_household_heads) >= 2
 
         cn = [
             f"{(individuals.get(c, {}).get('NAME', '') or '')[:15]}…"
             for c in list(conns)[:5] if c in individuals
         ]
         return [pid, individuals[pid].get("NAME", "") or "",
-                deg, round(dc, 4), round(betweenness, 4), round(closeness, 4),
+                deg, round(dc, 4), round(closeness, 4),
                 cluster, _social_role(pid, root_id, deg),
                 "Ja" if is_bridge else "Nein", ", ".join(cn)]
 
@@ -176,18 +183,18 @@ def analyze_family_network_optimized(individuals, families, root_id,
         if pid not in adj: return None
         conns = adj[pid]; deg = len(conns)
         dc = deg / (len(individuals) - 1) if len(individuals) > 1 else 0
-        reachable = set([pid])
+        # 2-Hop-Erreichbarkeit als grobes Vernetzungsmaß
+        reachable: set = {pid}
         for nb in conns:
             reachable.add(nb)
             reachable.update(adj.get(nb, set()))
-        closeness = len(reachable) / 100
         conn_to_root = ("Root" if pid == root_id
                         else "Direkt" if root_id in conns
                         else "Indirekt (1 Schritt)" if any(
                             root_id in adj.get(nb, set()) for nb in conns)
                         else "Nein")
         return [pid, individuals[pid].get("NAME", "") or "", deg,
-                round(dc, 4), round(closeness, 4),
+                round(dc, 4), len(reachable),
                 conn_to_root, _social_role(pid, root_id, deg),
                 "Hoch" if deg >= 10 else "Mittel" if deg >= 5 else "Niedrig",
                 ", ".join(list(conns)[:3])]
@@ -230,6 +237,6 @@ NETWORK_HEADERS_FAST = [
 ]
 NETWORK_HEADERS_FULL = [
     "ID", "Name", "Degree (Verbindungen)", "Degree Centrality",
-    "Betweenness Centrality", "Closeness Centrality", "Cluster/Familienzweig",
+    "Closeness Centrality", "Cluster/Familienzweig",
     "Soziale Rolle", "Brückenperson", "Wichtige Verbindungen (Beispiele)"
 ]
