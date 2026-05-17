@@ -8,16 +8,33 @@ from lib.places import format_place_for_display
 
 # ── Wright's F ────────────────────────────────────────────────────────────────
 
+# Modul-lokale Caches: Stammbaumdaten ändern sich pro Run nicht, also
+# ist Memoization über (person_id, max_d) bzw. (person_id) sicher und spart
+# in Stammbäumen mit starker Implosion drei Größenordnungen Laufzeit.
+_ANCESTORS_DEPTH_CACHE: dict = {}
+_F_CACHE: dict = {}
+
+
+def clear_genetics_cache() -> None:
+    """Aufrufen, wenn die GEDCOM-Daten neu geladen werden."""
+    _ANCESTORS_DEPTH_CACHE.clear()
+    _F_CACHE.clear()
+
+
 def _ancestors_with_depth(start_id, individuals, families, max_d):
+    key = (start_id, max_d)
+    cached = _ANCESTORS_DEPTH_CACHE.get(key)
+    if cached is not None:
+        return cached
     result = defaultdict(list)
     queue = deque([(start_id, 0)])
     visited = set()
     while queue:
         cur, depth = queue.popleft()
         if depth > max_d: continue
-        key = (cur, depth)
-        if key in visited: continue
-        visited.add(key)
+        vkey = (cur, depth)
+        if vkey in visited: continue
+        visited.add(vkey)
         if depth > 0:
             result[cur].append(depth)
         cd = individuals.get(cur, {})
@@ -28,13 +45,18 @@ def _ancestors_with_depth(start_id, individuals, families, max_d):
             for par in (fam.get("HUSB"), fam.get("WIFE")):
                 if par and par in individuals:
                     queue.append((par, depth + 1))
+    _ANCESTORS_DEPTH_CACHE[key] = result
     return result
 
 
 def compute_inbreeding_coefficient(person_id, individuals, families,
                                     max_depth=12) -> float:
+    if person_id in _F_CACHE:
+        return _F_CACHE[person_id]
     pdata = individuals.get(person_id, {})
-    if not pdata: return 0.0
+    if not pdata:
+        _F_CACHE[person_id] = 0.0
+        return 0.0
     father_id = mother_id = None
     for fid in pdata.get("FAMC", []):
         fam = families.get(fid, {})
@@ -42,21 +64,29 @@ def compute_inbreeding_coefficient(person_id, individuals, families,
             father_id = fam.get("HUSB")
             mother_id = fam.get("WIFE")
             break
-    if not father_id or not mother_id: return 0.0
+    if not father_id or not mother_id:
+        _F_CACHE[person_id] = 0.0
+        return 0.0
 
     fa = _ancestors_with_depth(father_id, individuals, families, max_depth)
     ma = _ancestors_with_depth(mother_id, individuals, families, max_depth)
     common = set(fa) & set(ma)
-    if not common: return 0.0
+    if not common:
+        _F_CACHE[person_id] = 0.0
+        return 0.0
 
+    # Markierung gegen Rekursion über Zyklen (in echten Pedigrees nicht
+    # vorhanden, defensiv aber harmlos).
+    _F_CACHE[person_id] = 0.0
     F = 0.0
     for anc in common:
-        F_A = (compute_inbreeding_coefficient(anc, individuals, families, max_depth - 2)
-               if max_depth > 4 else 0.0)
+        F_A = compute_inbreeding_coefficient(anc, individuals, families, max_depth)
         for l1 in fa[anc]:
             for l2 in ma[anc]:
                 F += (0.5 ** (l1 + l2 + 1)) * (1 + F_A)
-    return round(min(F, 1.0), 6)
+    F = round(min(F, 1.0), 6)
+    _F_CACHE[person_id] = F
+    return F
 
 
 def analyze_inbreeding_all(individuals, families, root_related_ids=None,

@@ -86,10 +86,12 @@ def load_gedcom(progress_cb=None, stop_event=None):
     from lib.gedcom import robust_load_gedcom, set_logger as gl_set
     from lib.places import load_location_data, set_logger as pl_set
     from lib.helpers import clear_migration_status_cache
+    from tasks.genetics import clear_genetics_cache
 
     lg = setup_logging(cfg.FILES.get("log_file"))
     gl_set(lg); pl_set(lg)
     clear_migration_status_cache()
+    clear_genetics_cache()
 
     _p(progress_cb, "Lade Ortsdaten …")
     _state["location_data"] = load_location_data(cfg.DEFAULT_CONFIG["location_data_json"])
