@@ -285,7 +285,9 @@ def run_export_excel(progress_cb=None, stop_event=None):
     from tasks import (cousins, endogamy, migration, military, demographics,
                         genetics, history, names, data_quality, network, osnabrueck,
                         anomalies, seasonality, snapshot, spatial,
-                        family_structure, lineage, naming, imputation)
+                        family_structure, lineage, naming, imputation,
+                        brickwalls, research_suggestions, sources,
+                        onomastics, endogamy_network)
 
     _p(progress_cb, "Baue Sheet-Liste …")
     indiv = _state["individuals"]
@@ -470,6 +472,23 @@ def run_export_excel(progress_cb=None, stop_event=None):
          _state.get("crisis_cohort", [])),
         ("Eltern-Verlust-Alter", history.PARENTAL_LOSS_HEADERS,
          _state.get("parental_loss", [])),
+
+        # ── Forschungs-Helfer (Brickwalls, Vorschläge, Quellen) ──────────────
+        ("Brick-Wall-Detektor", brickwalls.BRICKWALL_HEADERS,
+         _state.get("brickwall_results", [])[:10_000]),
+        ("Forschungs-Vorschläge", research_suggestions.RESEARCH_SUGGESTION_HEADERS,
+         _state.get("research_suggestions", [])[:5_000]),
+        ("Quellen-Inventar", sources.SOURCE_INVENTORY_HEADERS,
+         _state.get("source_inventory", [])[:10_000]),
+        ("Quellen-Qualität pro Person", sources.SOURCE_QUALITY_HEADERS,
+         _state.get("source_quality", [])[:50_000]),
+
+        # ── Onomastik + Endogamie-Bigraph ─────────────────────────────────────
+        ("Onomastik (Namensmuster)", onomastics.ONOMASTICS_HEADERS,
+         _state.get("onomastics_results", [])[:1_000]),
+        ("Endogamie-Netzwerk (Nachname×Nachname)",
+         endogamy_network.ENDOGAMY_NETWORK_HEADERS,
+         _state.get("endogamy_network", [])[:500]),
     ]
 
     # Osnabrück-Sheets
@@ -728,3 +747,201 @@ def run_cohort_extensions(progress_cb=None, stop_event=None):
         indiv, fams, progress_cb=progress_cb)
     _state["parental_loss"] = analyze_parental_loss_age(
         indiv, fams, progress_cb=progress_cb)
+
+
+# ── Schritt 29: Brick-Wall-Detektor + Forschungs-Vorschläge + Quellen ───────
+
+def run_research_helpers(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.brickwalls import detect_brickwalls
+    from tasks.research_suggestions import generate_research_suggestions
+    from tasks.sources import analyze_sources
+
+    indiv = _state["individuals"]
+    fams  = _state["families"]
+    _state["brickwall_results"]   = detect_brickwalls(indiv, fams,
+                                                       progress_cb=progress_cb)
+    _state["research_suggestions"] = generate_research_suggestions(
+        indiv, fams, progress_cb=progress_cb)
+    inv, qual = analyze_sources(
+        indiv, fams, cfg.DEFAULT_CONFIG["gedfile"], progress_cb=progress_cb)
+    _state["source_inventory"] = inv
+    _state["source_quality"]   = qual
+
+
+# ── Schritt 30: Onomastik + Endogamie-Bigraph ────────────────────────────────
+
+def run_onomastics_and_endogamy_net(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.onomastics import analyze_onomastics
+    from tasks.endogamy_network import (analyze_endogamy_bigraph,
+                                          export_endogamy_graphml)
+    indiv = _state["individuals"]
+    fams  = _state["families"]
+    _state["onomastics_results"] = analyze_onomastics(indiv,
+                                                       progress_cb=progress_cb)
+    _state["endogamy_network"]   = analyze_endogamy_bigraph(
+        indiv, fams, progress_cb=progress_cb)
+    # GraphML-Datei der Endogamie-Bigraph mit ausgeben
+    out_path = os.path.join(cfg.DIRS.get("output", "."), "endogamy_network.graphml")
+    export_endogamy_graphml(indiv, fams, out_path, progress_cb=progress_cb)
+
+
+# ── Schritt 31: Visualisierungs-Exporte ──────────────────────────────────────
+
+def run_export_fanchart(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.export_fanchart import export_fanchart_svg
+    out_path = os.path.join(cfg.DIRS.get("output", "."), "fan_chart.svg")
+    export_fanchart_svg(cfg.DEFAULT_CONFIG["root_id"],
+                        _state["individuals"], _state["families"],
+                        out_path, progress_cb=progress_cb)
+
+
+def run_export_dashboard(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.export_dashboard import export_dashboard_html
+    out_path = os.path.join(cfg.DIRS.get("output", "."), "dashboard.html")
+    export_dashboard_html(_state, out_path, progress_cb=progress_cb)
+
+
+def run_export_heatmap(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.export_heatmap import export_birth_heatmap
+    out_path = os.path.join(cfg.DIRS.get("output", "."), "birth_heatmap.html")
+    export_birth_heatmap(_state["individuals"], _state["location_data"],
+                          out_path, progress_cb=progress_cb)
+
+
+def run_export_subtree_descendants(progress_cb=None, stop_event=None):
+    """Exportiert die Nachfahren der Root als eigene GEDCOM."""
+    _set_stop_event(stop_event)
+    from tasks.extract_subtree import extract_descendants, write_gedcom
+    indiv_sub, fams_sub = extract_descendants(
+        cfg.DEFAULT_CONFIG["root_id"],
+        _state["individuals"], _state["families"],
+        progress_cb=progress_cb)
+    out_path = os.path.join(cfg.DIRS.get("output", "."), "descendants.ged")
+    write_gedcom(indiv_sub, fams_sub, out_path, progress_cb=progress_cb)
+
+
+def run_export_subtree_ancestors(progress_cb=None, stop_event=None):
+    """Exportiert die Vorfahren der Root als eigene GEDCOM."""
+    _set_stop_event(stop_event)
+    from tasks.extract_subtree import extract_ancestors, write_gedcom
+    indiv_sub, fams_sub = extract_ancestors(
+        cfg.DEFAULT_CONFIG["root_id"],
+        _state["individuals"], _state["families"],
+        progress_cb=progress_cb)
+    out_path = os.path.join(cfg.DIRS.get("output", "."), "ancestors.ged")
+    write_gedcom(indiv_sub, fams_sub, out_path, progress_cb=progress_cb)
+
+
+def run_export_sankey(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.export_sankey import export_migration_sankey
+    from tasks.migration import DETAIL_HEADERS
+    # Spalten-Indizes aus DETAIL_HEADERS suchen (fallback 4/7)
+    header_map = {}
+    for key, name in (("from_country", "Geburtsland"),
+                       ("to_country", "Sterbeland")):
+        for i, h in enumerate(DETAIL_HEADERS):
+            if name in str(h):
+                header_map[key] = i
+                break
+    out_path = os.path.join(cfg.DIRS.get("output", "."), "migration_sankey.html")
+    export_migration_sankey(_state.get("migration_results", []), header_map,
+                             out_path, progress_cb=progress_cb)
+
+
+# ── Schritt 32: State-Cache (Incremental Run) ────────────────────────────────
+
+def _cache_path() -> str:
+    return os.path.join(os.path.expanduser("~"), ".ahnen-cache.pkl")
+
+
+def _gedcom_hash(filepath: str) -> str | None:
+    """SHA-256 des GEDCOM-Inhalts; None wenn die Datei fehlt."""
+    import hashlib
+    if not os.path.exists(filepath):
+        return None
+    h = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def save_state_cache(progress_cb=None, stop_event=None):
+    """Persistiert _state nach ~/.ahnen-cache.pkl. Cache und stop_event werden
+    vorher genullt, da sie nicht sinnvoll persistierbar sind."""
+    _set_stop_event(stop_event)
+    p = progress_cb or (lambda m, **kw: None)
+    import pickle
+    path = _cache_path()
+    indiv_count = len(_state.get("individuals", {}))
+    if indiv_count == 0:
+        p("Kein State zum Speichern (lade vorher GEDCOM)", tag="warn")
+        return
+    p(f"Speichere State-Cache: {path} …")
+    # Nicht-serialisierbare Felder zwischenspeichern und nullen
+    saved_cache = _state.cache
+    saved_stop  = _state.stop_event
+    _state.cache = None
+    _state.stop_event = None
+    try:
+        gh = _gedcom_hash(cfg.DEFAULT_CONFIG["gedfile"])
+        payload = {
+            "version":    1,
+            "gedcom_hash": gh,
+            "gedfile":     cfg.DEFAULT_CONFIG["gedfile"],
+            "state":       _state,
+        }
+        with open(path, "wb") as f:
+            pickle.dump(payload, f, protocol=pickle.HIGHEST_PROTOCOL)
+        size_mb = os.path.getsize(path) / 1_048_576
+        p(f"State-Cache gespeichert ({size_mb:.1f} MB, {indiv_count:,} Personen)",
+          tag="ok")
+    except Exception as e:
+        p(f"State-Cache fehlgeschlagen: {e}", tag="err")
+    finally:
+        _state.cache = saved_cache
+        _state.stop_event = saved_stop
+
+
+def load_state_cache(progress_cb=None, stop_event=None):
+    """Lädt _state aus ~/.ahnen-cache.pkl, wenn der GEDCOM-Hash passt.
+    Ersetzt den globalen _state. Macht keine GEDCOM-Re-Analyse, wenn der
+    Cache aktuell ist — danach reicht es, nur die Export-Tasks zu wählen."""
+    global _state
+    _set_stop_event(stop_event)
+    p = progress_cb or (lambda m, **kw: None)
+    import pickle
+    path = _cache_path()
+    if not os.path.exists(path):
+        p("Kein State-Cache vorhanden", tag="warn")
+        return
+    try:
+        with open(path, "rb") as f:
+            payload = pickle.load(f)
+    except Exception as e:
+        p(f"State-Cache lesen fehlgeschlagen: {e}", tag="err")
+        return
+
+    cached_hash = payload.get("gedcom_hash")
+    cur_hash    = _gedcom_hash(cfg.DEFAULT_CONFIG["gedfile"])
+    if cached_hash and cur_hash and cached_hash != cur_hash:
+        p("Cache ist veraltet (GEDCOM hat sich geändert) — bitte voll neu rechnen",
+          tag="warn")
+        return
+    cached_state = payload.get("state")
+    if cached_state is None:
+        p("Cache ist leer oder beschädigt", tag="err")
+        return
+
+    _state = cached_state
+    _state.stop_event = stop_event
+    indiv = len(_state.get("individuals", {}))
+    fams  = len(_state.get("families", {}))
+    p(f"State-Cache geladen: {indiv:,} Personen, {fams:,} Familien (GEDCOM unverändert)",
+      tag="ok")

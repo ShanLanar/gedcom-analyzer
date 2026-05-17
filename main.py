@@ -34,6 +34,22 @@ TASKS = [
         "default": True,
         "group":   "Vorbereitung",
     },
+    {
+        "id":      "load_cache",
+        "name":    "State-Cache laden (Inkrementell)",
+        "desc":    "Lädt zwischengespeicherten _state — übersprigt alle Analysen, wenn GEDCOM unverändert.",
+        "fn":      "tasks._runner:load_state_cache",
+        "default": False,
+        "group":   "Vorbereitung",
+    },
+    {
+        "id":      "save_cache",
+        "name":    "State-Cache speichern",
+        "desc":    "Persistiert den aktuellen _state nach ~/.ahnen-cache.pkl.",
+        "fn":      "tasks._runner:save_state_cache",
+        "default": False,
+        "group":   "Export",
+    },
     # ── Hauptanalysen ──────────────────────────────────────────────────────────
     {
         "id":      "cousins",
@@ -220,6 +236,22 @@ TASKS = [
         "default": True,
         "group":   "Analysen",
     },
+    {
+        "id":      "research_helpers",
+        "name":    "Forschungs-Helfer (Brickwalls, Vorschläge, Quellen)",
+        "desc":    "Personen-Recherche-Ziele, automat. Forschungs-Vorschläge, SOUR/OBJE-Inventar.",
+        "fn":      "tasks._runner:run_research_helpers",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "onomastics_endogamy",
+        "name":    "Onomastik & Endogamie-Bigraph",
+        "desc":    "Religiöse/regionale Namensmuster + Surname×Surname-Heirats-Netz.",
+        "fn":      "tasks._runner:run_onomastics_and_endogamy_net",
+        "default": True,
+        "group":   "Analysen",
+    },
     # ── Export ─────────────────────────────────────────────────────────────────
     {
         "id":      "export_excel",
@@ -258,6 +290,54 @@ TASKS = [
         "name":    "GraphML-Export",
         "desc":    f"Netzwerk für Gephi/yEd nach {cfg.FILES['output_graphml']}.",
         "fn":      "tasks._runner:run_export_graphml",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_fanchart",
+        "name":    "Fan-Chart SVG",
+        "desc":    "Radialer Ahnenfächer (Generationen 1–7) als SVG.",
+        "fn":      "tasks._runner:run_export_fanchart",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_dashboard",
+        "name":    "HTML-Dashboard mit Charts",
+        "desc":    "Interaktives Single-File-Dashboard (Chart.js, Tabs).",
+        "fn":      "tasks._runner:run_export_dashboard",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_heatmap",
+        "name":    "Geburts-Heatmap (Leaflet)",
+        "desc":    "Welt-Karte der Geburtsorte nach Land + Jahrhundert.",
+        "fn":      "tasks._runner:run_export_heatmap",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_descendants",
+        "name":    "Subtree: Nachfahren der Root als GEDCOM",
+        "desc":    "Schreibt nur Nachfahren-Stammbaum als eigene .ged-Datei.",
+        "fn":      "tasks._runner:run_export_subtree_descendants",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_ancestors",
+        "name":    "Subtree: Vorfahren der Root als GEDCOM",
+        "desc":    "Schreibt nur Vorfahren-Stammbaum als eigene .ged-Datei.",
+        "fn":      "tasks._runner:run_export_subtree_ancestors",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_sankey",
+        "name":    "Migrations-Sankey (HTML)",
+        "desc":    "Migrationsflüsse als SVG-Sankey-Diagramm.",
+        "fn":      "tasks._runner:run_export_sankey",
         "default": False,
         "group":   "Export",
     },
@@ -646,7 +726,40 @@ def _cli_main(argv: list[str] | None = None) -> int | None:
     parser.add_argument("--exclude-id", help="Exclude-ID (override config)")
     parser.add_argument("--list-tasks", action="store_true",
                         help="Verfügbare Tasks ausgeben und beenden")
+    # Interaktive Sub-Tools (eigene Befehle, kein Task-Run nötig)
+    parser.add_argument("--mrca", nargs=2, metavar=("ID_A", "ID_B"),
+                        help="Most-Recent-Common-Ancestor zweier Personen finden")
+    parser.add_argument("--merge", nargs=2, metavar=("FILE_A", "FILE_B"),
+                        help="Zwei GEDCOM-Dateien zusammenführen")
+    parser.add_argument("--merge-out", default="merged.ged",
+                        help="Output-Pfad für --merge (default: merged.ged)")
+    parser.add_argument("--predict-cm", type=float, metavar="CM",
+                        help="DNA-cM-Wert in Verwandtschafts-Wahrscheinlichkeiten umrechnen")
     args = parser.parse_args(argv)
+
+    # ── Eigenständige CLI-Sub-Tools ────────────────────────────────────────
+    if args.predict_cm is not None:
+        from tasks.dna_predict import predict_relationship_from_cm
+        result = predict_relationship_from_cm(args.predict_cm)
+        print(f"\nDNA-Vorhersage für {args.predict_cm:.0f} cM:")
+        for label, prob in result:
+            bar = "█" * int(prob * 30)
+            print(f"  {label:35s} {prob*100:5.1f}%  {bar}")
+        return 0
+
+    if args.mrca:
+        from tasks.mrca import mrca_cli
+        ged = args.gedfile or cfg.DEFAULT_CONFIG["gedfile"]
+        return mrca_cli(["--gedfile", ged,
+                          "--id-a", args.mrca[0],
+                          "--id-b", args.mrca[1]])
+
+    if args.merge:
+        from tasks.merge_trees import merge_gedcoms
+        _, n_merged = merge_gedcoms(args.merge[0], args.merge[1], args.merge_out,
+                                     progress_cb=lambda m, **k: print(m))
+        print(f"\nMerge abgeschlossen: {args.merge_out} (Doubletten gemerged: {n_merged})")
+        return 0
 
     if args.list_tasks:
         for t in TASKS:

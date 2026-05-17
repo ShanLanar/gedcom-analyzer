@@ -179,20 +179,26 @@ def calculate_generation_lengths(individuals, families, root_id,
     p = progress_cb or (lambda m, **kw: None)
     p("Generationenlängen-Analyse …")
 
-    # Generationen von Root aus (BFS durch FAMS)
+    # Bidirektional: Vorfahren (FAMC, +1) UND Nachfahren (FAMS, -1) von Root.
+    # Notwendig, weil Root meist die jüngste Person ist und der frühere
+    # FAMS-only-Walk fast leer blieb.
     gen_map = {root_id: 0}
     queue = deque([root_id])
-    seen = {root_id}
     while queue:
         cur = queue.popleft()
         g = gen_map[cur]
-        for fid in individuals.get(cur, {}).get("FAMS", []):
+        cd = individuals.get(cur, {})
+        for fid in cd.get("FAMC", []):
+            fam = families.get(fid, {})
+            for par in (fam.get("HUSB"), fam.get("WIFE")):
+                if par and par in individuals and par not in gen_map:
+                    gen_map[par] = g + 1
+                    queue.append(par)
+        for fid in cd.get("FAMS", []):
             for cid in families.get(fid, {}).get("CHIL", []):
-                if cid not in gen_map:
-                    gen_map[cid] = g + 1
-                    if cid not in seen:
-                        queue.append(cid)
-                        seen.add(cid)
+                if cid in individuals and cid not in gen_map:
+                    gen_map[cid] = g - 1
+                    queue.append(cid)
 
     gen_stats: dict = {}
     for pid, pdata in individuals.items():
