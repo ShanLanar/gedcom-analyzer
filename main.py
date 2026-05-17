@@ -11,7 +11,7 @@ import os
 import threading
 import time
 import tkinter as tk
-from tkinter import scrolledtext, ttk
+from tkinter import filedialog, scrolledtext, ttk
 
 # ── Config laden (Overrides vor allem anderen) ─────────────────────────────────
 from config import apply_overrides
@@ -244,7 +244,27 @@ class AhnenApp(tk.Tk):
                  font=cfg.FONT_MONO).pack(side="left", padx=8)
         self._path_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["gedfile"])
         tk.Entry(path_frame, textvariable=self._path_var, bg=cfg.BG3, fg=cfg.FG,
-                 font=cfg.FONT_MONO, relief="flat", width=55).pack(side="left", padx=4)
+                 font=cfg.FONT_MONO, relief="flat", width=48).pack(
+            side="left", padx=4)
+        tk.Button(path_frame, text="Durchsuchen…", bg=cfg.BG3, fg=cfg.FG,
+                  font=cfg.FONT_MAIN, relief="flat",
+                  command=self._browse_gedcom).pack(side="left", padx=4)
+
+        # Root-/Exclude-ID
+        ids_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
+        ids_frame.pack(fill="x")
+        tk.Label(ids_frame, text="Root-ID:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=cfg.FONT_MONO).pack(side="left", padx=8)
+        self._root_id_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["root_id"])
+        tk.Entry(ids_frame, textvariable=self._root_id_var, bg=cfg.BG3,
+                 fg=cfg.FG, font=cfg.FONT_MONO, relief="flat",
+                 width=12).pack(side="left", padx=4)
+        tk.Label(ids_frame, text="Exclude-ID:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=cfg.FONT_MONO).pack(side="left", padx=(16, 8))
+        self._excl_id_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["exclude_id"])
+        tk.Entry(ids_frame, textvariable=self._excl_id_var, bg=cfg.BG3,
+                 fg=cfg.FG, font=cfg.FONT_MONO, relief="flat",
+                 width=12).pack(side="left", padx=4)
 
         self._log = scrolledtext.ScrolledText(
             right, bg="#13131f", fg=cfg.FG, font=cfg.FONT_MONO,
@@ -304,6 +324,18 @@ class AhnenApp(tk.Tk):
 
     # ── Selektion ──────────────────────────────────────────────────────────────
 
+    # ── Datei-Auswahl ──────────────────────────────────────────────────────────
+
+    def _browse_gedcom(self):
+        initial = self._path_var.get() or cfg.DEFAULT_CONFIG.get("gedfile", "")
+        initial_dir = os.path.dirname(initial) if initial else ""
+        path = filedialog.askopenfilename(
+            title="GEDCOM-Datei wählen",
+            initialdir=initial_dir or None,
+            filetypes=[("GEDCOM-Dateien", "*.ged *.GED"), ("Alle Dateien", "*.*")])
+        if path:
+            self._path_var.set(path)
+
     def _sel_all(self):
         for v in self._task_vars.values(): v.set(True)
 
@@ -343,15 +375,27 @@ class AhnenApp(tk.Tk):
             return
         selected.sort(key=lambda t: (GROUP_ORDER.get(t.get("group", ""), 9),
                                      t["id"]))
-        # GEDCOM-Pfad in Config einpflegen
-        cfg.DEFAULT_CONFIG["gedfile"] = self._path_var.get()
-        cfg.FILES["gedfile"] = self._path_var.get()
+        # GUI-Werte in Config einpflegen
+        gedfile = self._path_var.get().strip()
+        root_id = self._root_id_var.get().strip() or cfg.DEFAULT_CONFIG["root_id"]
+        excl_id = self._excl_id_var.get().strip() or cfg.DEFAULT_CONFIG["exclude_id"]
+        cfg.DEFAULT_CONFIG["gedfile"]    = gedfile
+        cfg.FILES["gedfile"]              = gedfile
+        cfg.DEFAULT_CONFIG["root_id"]    = root_id
+        cfg.DEFAULT_CONFIG["exclude_id"] = excl_id
+        cfg.ROOT_ID    = root_id
+        cfg.EXCLUDE_ID = excl_id
+        # Persistieren, damit der nächste Start dieselben Werte hat
+        cfg.save_overrides({
+            "gedfile":    gedfile,
+            "root_id":    root_id,
+            "exclude_id": excl_id,
+        })
         self._running = True
         self._stop_event.clear()
         self._btn_start.configure(state="disabled")
-        self._btn_stop.configure(state="normal")
-        self._pbar.configure(mode="indeterminate")
-        self._pbar.start(10)
+        self._btn_stop.configure(state="normal", text="■ Abbrechen")
+        self._pbar.configure(mode="determinate", maximum=len(selected), value=0)
 
         thread = threading.Thread(target=self._worker, args=(selected,), daemon=True)
         thread.start()
@@ -379,6 +423,7 @@ class AhnenApp(tk.Tk):
             except Exception as exc:
                 self._append_log(f"FEHLER in '{task['name']}': {exc}", tag="err")
                 had_errors = True
+            self.after(0, lambda v=i + 1: self._pbar.configure(value=v))
         if aborted or not self._running:
             self._append_log("Abgebrochen.", tag="warn")
         self.after(0, self._finish, had_errors)
@@ -386,13 +431,14 @@ class AhnenApp(tk.Tk):
     def _stop(self):
         self._running = False
         self._stop_event.set()
+        # Sofortiges Feedback, ohne auf den nächsten is_aborted()-Check zu warten.
+        self._btn_stop.configure(state="disabled", text="… stoppt")
         self._set_status("Abbrechen …")
 
     def _finish(self, had_errors: bool):
-        self._pbar.stop()
-        self._pbar.configure(mode="determinate", value=0)
+        self._pbar.configure(value=0)
         self._btn_start.configure(state="normal")
-        self._btn_stop.configure(state="disabled")
+        self._btn_stop.configure(state="disabled", text="■ Abbrechen")
         tag = "warn" if had_errors else "ok"
         msg = "Abgeschlossen mit Warnungen." if had_errors else "Alle Tasks erfolgreich."
         self._append_log(msg, tag=tag)

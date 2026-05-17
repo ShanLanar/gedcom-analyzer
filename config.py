@@ -104,6 +104,53 @@ _GLOBAL_KEY_MAP = {
 }
 
 
+def _overrides_path(json_path=None) -> str:
+    """Pfad zur config_user.json: explizit, sonst BASE_DIR/config_user.json
+    falls beschreibbar, sonst neben config.py."""
+    if json_path:
+        return json_path
+    candidates = [
+        os.path.join(BASE_DIR, "config_user.json"),
+        os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                     "config_user.json"),
+    ]
+    # Bevorzuge bestehende Datei
+    for p in candidates:
+        if os.path.exists(p):
+            return p
+    # Sonst: ersten beschreibbaren Pfad
+    for p in candidates:
+        d = os.path.dirname(p)
+        if d and os.path.isdir(d) and os.access(d, os.W_OK):
+            return p
+    return candidates[-1]
+
+
+def save_overrides(updates: dict, json_path: str | None = None) -> bool:
+    """Mischt `updates` in eine bestehende config_user.json (oder erzeugt sie)
+    und schreibt das Ergebnis atomar zurück. Gibt True bei Erfolg."""
+    import json as _json
+    path = _overrides_path(json_path)
+    existing: dict = {}
+    if os.path.exists(path):
+        try:
+            with open(path, "r", encoding="utf-8") as f:
+                existing = _json.load(f)
+        except (OSError, _json.JSONDecodeError):
+            existing = {}
+    existing.update(updates)
+    try:
+        tmp = path + ".tmp"
+        with open(tmp, "w", encoding="utf-8") as f:
+            _json.dump(existing, f, ensure_ascii=False, indent=2)
+        os.replace(tmp, path)
+        return True
+    except OSError as e:
+        print(f"[config] Warnung: config_user.json konnte nicht "
+              f"geschrieben werden: {e}")
+        return False
+
+
 def apply_overrides(json_path=None):
     """
     Liest config_user.json und überschreibt Werte in DEFAULT_CONFIG sowie
