@@ -30,6 +30,9 @@ def analyze_demographic_statistics(individuals, families, location_data,
              for sx in ("M", "F", "U")}
         for ep in EPOCHS
     }
+    # Dedupe set per (epoch, sex) slot: verhindert Doppelzählung wenn beide
+    # Eltern eines Kindes in denselben Slot fallen.
+    slot_seen_children: dict = defaultdict(set)
 
     for pid, pdata in individuals.items():
         sex = pdata.get("SEX", "U")
@@ -60,9 +63,13 @@ def analyze_demographic_statistics(individuals, families, location_data,
                        for fid in pdata.get("FAMS", []))
         if children > 0:
             st["children_count"].append(children)
-            st["total_children"] += children
+            seen = slot_seen_children[(ep, sex)]
             for fid in pdata.get("FAMS", []):
                 for cid in families.get(fid, {}).get("CHIL", []):
+                    if cid in seen:
+                        continue
+                    seen.add(cid)
+                    st["total_children"] += 1
                     cd = individuals.get(cid, {})
                     if cd:
                         dcy = safe_extract_year((cd.get("DEAT") or {}).get("DATE"))

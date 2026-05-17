@@ -84,10 +84,38 @@ DEFAULT_CONFIG = {
 }
 
 
+# Mapping flacher DEFAULT_CONFIG-Keys auf ihre kanonische Quelle in FILES/etc.
+# Wird von apply_overrides() benutzt, damit Overrides auch bei Modulen ankommen,
+# die direkt auf cfg.FILES / cfg.ROOT_ID etc. zugreifen.
+_FILE_KEY_MAP = {
+    "gedfile":            "gedfile",
+    "output_xlsx":        "output_xlsx",
+    "output_json":        "output_json",
+    "location_data_json": "location_data",
+    "log_file":           "log_file",
+    "interactive_html":   "interactive_html",
+}
+_GLOBAL_KEY_MAP = {
+    "root_id":               "ROOT_ID",
+    "exclude_id":            "EXCLUDE_ID",
+    "cache_enabled":         "CACHE_ENABLED",
+    "max_cache_size":        "MAX_CACHE_SIZE",
+    "max_tree_depth":        "MAX_TREE_DEPTH",
+    "enable_ki_predictions": "ENABLE_KI",
+    "progress_display":      "PROGRESS_DISPLAY",
+    "military_symbols":      "MILITARY_SYMBOLS",
+}
+
+
 def apply_overrides(json_path=None):
     """
-    Liest config_user.json und überschreibt Werte in DEFAULT_CONFIG.
-    Muss vor dem ersten Import von config aufgerufen werden.
+    Liest config_user.json und überschreibt Werte in DEFAULT_CONFIG sowie
+    in den kanonischen Konstanten (FILES, DIRS, ROOT_ID, …), damit Module,
+    die direkt auf diese zugreifen, ebenfalls die Overrides sehen.
+    Muss vor dem ersten Modulzugriff auf cfg.FILES / cfg.ROOT_ID erfolgen.
+
+    Akzeptiert sowohl flache Keys ("gedfile", "root_id", …) als auch
+    Top-Level-Dicts ("FILES", "DIRS").
     """
     import json as _json
     path = json_path or os.path.join(BASE_DIR, "config_user.json")
@@ -96,6 +124,24 @@ def apply_overrides(json_path=None):
     try:
         with open(path, "r", encoding="utf-8") as f:
             overrides = _json.load(f)
-        DEFAULT_CONFIG.update(overrides)
-    except Exception as e:
+    except (OSError, _json.JSONDecodeError) as e:
         print(f"[config] Warnung: config_user.json konnte nicht geladen werden: {e}")
+        return
+
+    g = globals()
+    for key, val in overrides.items():
+        if key in _FILE_KEY_MAP:
+            FILES[_FILE_KEY_MAP[key]] = val
+            DEFAULT_CONFIG[key] = val
+        elif key in _GLOBAL_KEY_MAP:
+            g[_GLOBAL_KEY_MAP[key]] = val
+            DEFAULT_CONFIG[key] = val
+        elif key in ("FILES", "DIRS") and isinstance(val, dict):
+            g[key].update(val)
+            # Spiegelung der bekannten FILES-Keys nach DEFAULT_CONFIG
+            if key == "FILES":
+                for flat_k, files_k in _FILE_KEY_MAP.items():
+                    if files_k in val:
+                        DEFAULT_CONFIG[flat_k] = val[files_k]
+        else:
+            DEFAULT_CONFIG[key] = val

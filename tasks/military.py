@@ -71,9 +71,9 @@ def analyze_military_service_detailed(individuals, families, progress_cb=None):
             pid, name, force, rank,
             ", ".join(units[:2]), ", ".join(wars) or "unbekannt",
             death_year or "", age_at_death or "",
-            ("kurz (<5J.)" if age_at_death and age_at_death <= 25
-             else "mittel (5-15J.)" if age_at_death and age_at_death <= 35
-             else "lang (>15J.)" if age_at_death else ""),
+            ("kurz (≤25J.)" if age_at_death and age_at_death <= 25
+             else "mittel (26-35J.)" if age_at_death and age_at_death <= 35
+             else "lang (>35J.)" if age_at_death else ""),
             format_place_for_display(death_place),
             "ja" if died_battle else "nein",
             "ja" if pdata.get("VETERAN") else "nein",

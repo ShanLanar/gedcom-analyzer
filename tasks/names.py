@@ -77,7 +77,7 @@ def _split_by_levenshtein(variants: set) -> list:
         cluster = {v}; assigned.add(v)
         for w in vs:
             if w in assigned: continue
-            if all(_similar(v, w) for v in cluster):
+            if all(_similar(c, w) for c in cluster):
                 cluster.add(w); assigned.add(w)
         if len(cluster) >= 2:
             clusters.append(frozenset(cluster))
