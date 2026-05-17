@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+
+# IDE / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+
+# Projekt-spezifisch
+config_user.json
+
+# Laufzeit-Artefakte (Build-/Output-Dateien)
+logs/*.log
+output/*.xlsx
+output/*.json
+output/*.html
