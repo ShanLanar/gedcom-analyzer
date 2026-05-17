@@ -12,10 +12,12 @@ import config as cfg
 from lib.logger import setup_logging
 from lib import gedcom as _gedcom_mod
 from lib import places as _places_mod
+from tasks.context import AnalysisContext
 
 # ── Shared State ───────────────────────────────────────────────────────────────
 # Wird zwischen den Funktionen dieses Moduls geteilt.
-_state = {
+# Das Schema lebt in tasks/context.py.
+_state: AnalysisContext = {
     "individuals":   {},
     "families":      {},
     "location_data": {},
