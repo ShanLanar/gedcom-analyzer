@@ -59,12 +59,19 @@ if not exist "%REPO_DIR%\.git" (
     git fetch --prune origin "%BRANCH%"
     if errorlevel 1 ( echo [FEHLER] git fetch fehlgeschlagen. & popd >nul & pause & exit /b 1 )
     git checkout "%BRANCH%" >nul 2>&1
-    git pull --ff-only origin "%BRANCH%"
+    REM Hard-Reset macht den Updater idempotent: lokale Aenderungen an
+    REM getrackten Dateien (z.B. neu kompilierte __pycache__-Reste) werden
+    REM ueberschrieben, der untrackte data/-Ordner bleibt unangetastet.
+    git reset --hard "origin/%BRANCH%"
     if errorlevel 1 (
-        echo [FEHLER] git pull fehlgeschlagen ^(lokale Aenderungen oder Konflikte?^).
-        echo          Tipp: git status im Repo-Ordner pruefen.
+        echo [FEHLER] git reset fehlgeschlagen.
         popd >nul & pause & exit /b 1
     )
+    REM Altlast: __pycache__ war frueher getrackt und wurde ggf. lokal
+    REM neu erzeugt. Entfernen, damit kein altes Bytecode rumliegt.
+    if exist "__pycache__" rmdir /s /q "__pycache__"
+    if exist "lib\__pycache__" rmdir /s /q "lib\__pycache__"
+    if exist "tasks\__pycache__" rmdir /s /q "tasks\__pycache__"
     popd >nul
 )
 echo.
