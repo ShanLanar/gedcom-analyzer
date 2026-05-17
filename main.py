@@ -8,7 +8,6 @@ Architektur nach ARCHITECTURE.md (ABE Tool-Framework).
 import importlib
 import inspect
 import os
-import sys
 import threading
 import time
 import tkinter as tk
@@ -178,7 +177,6 @@ class AhnenApp(tk.Tk):
         self.configure(bg=cfg.BG)
         self._running = False
         self._task_vars: dict[str, tk.BooleanVar] = {}
-        self._results: dict = {}   # Shared state zwischen Tasks
         self._build_ui()
 
     # ── UI-Aufbau ──────────────────────────────────────────────────────────────
@@ -218,7 +216,10 @@ class AhnenApp(tk.Tk):
 
         def _scroll(e):
             canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
-        canvas.bind_all("<MouseWheel>", _scroll)
+        # Mausrad nur binden, wenn der Cursor über der Task-Liste ist —
+        # bind_all würde sonst das Scrollen im Log-Widget kapern.
+        inner.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", _scroll))
+        inner.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
 
         self._build_task_list(inner)
 
@@ -348,10 +349,28 @@ class AhnenApp(tk.Tk):
         self._btn_stop.configure(state="normal")
         self._pbar.configure(mode="indeterminate")
         self._pbar.start(10)
-        self._results.clear()
 
         thread = threading.Thread(target=self._worker, args=(selected,), daemon=True)
         thread.start()
+
+    # ── Worker ─────────────────────────────────────────────────────────────────
+    def _worker(self, tasks):
+        had_errors = False
+        total = len(tasks)
+        for i, task in enumerate(tasks):
+            if not self._running:
+                self._append_log("Abgebrochen.", tag="warn")
+                break
+            self._append_log(f"── {task['name']} …", tag="info")
+            self._set_status(f"[{i+1}/{total}] {task['name']}")
+            try:
+                def cb(msg, tag=""):
+                    self._append_log(msg, tag=tag)
+                _call_task(task["fn"], progress_cb=cb)
+            except Exception as exc:
+                self._append_log(f"FEHLER in '{task['name']}': {exc}", tag="err")
+                had_errors = True
+        self.after(0, self._finish, had_errors)
 
     def _stop(self):
         self._running = False
@@ -366,35 +385,6 @@ class AhnenApp(tk.Tk):
         msg = "Abgeschlossen mit Warnungen." if had_errors else "Alle Tasks erfolgreich."
         self._append_log(msg, tag=tag)
         self._set_status(msg)
-
-    # ── Worker ─────────────────────────────────────────────────────────────────
-
-    def _worker(self, tasks):
-        had_errors = False
-        total = len(tasks)
-        for i, task in enumerate(tasks):
-            if not self._running:
-                self._append_log("Abgebrochen.", tag="warn")
-                break
-            self._append_log(f"── {task['name']} …", tag="info")
-            self._set_status(f"[{i+1}/{total}] {task['name']}")
-            try:
-                # Shared-State mitgeben via progress_cb closure
-                def make_cb(task_id):
-                    def cb(msg, tag=""):
-                        self._append_log(msg, tag=tag)
-                    return cb
-                # Importiere Runner-Modul
-                _call_task(task["fn"],
-                           progress_cb=make_cb(task["id"]))
-            except Exception as exc:
-                self._append_log(f"FEHLER in '{task['name']}': {exc}", tag="err")
-                had_errors = True
-        self.after(0, self._finish, had_errors)
-
-
-# ── Runner-Modul (tasks/_runner.py) kann nicht vorher existieren ───────────────
-# Wir registrieren die Funktionen direkt in tasks/_runner.py weiter unten.
 
 
 # ── Entry-Point ────────────────────────────────────────────────────────────────

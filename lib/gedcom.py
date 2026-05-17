@@ -25,12 +25,16 @@ def _log(level, msg):
 
 # ── Datum ──────────────────────────────────────────────────────────────────────
 
+# Einheitlicher Jahres-Regex für die ganze Codebase (1000–2099).
+_YEAR_RE = re.compile(r"\b(1[0-9]{3}|20\d{2})\b")
+
+
 def safe_parse_gedcom_date(date_str: str) -> dict:
     try:
         if not date_str:
             return {"DATE": None, "YEAR": None, "DATE_QUAL": "unknown"}
         text = date_str.strip().upper()
-        year_match = re.search(r"\b(1[6-9]\d{2}|20\d{2})\b", text)
+        year_match = re.search(_YEAR_RE, text)
         year_val = int(year_match.group(0)) if year_match else None
         if text.startswith("ABT"):   qual = "about"
         elif text.startswith("EST"): qual = "estimated"
@@ -49,7 +53,7 @@ def safe_extract_year(date_str) -> int | None:
     try:
         if not date_str:
             return None
-        m = re.search(r"\b(1[0-9]{3}|20[0-9]{2})\b", str(date_str))
+        m = re.search(_YEAR_RE, str(date_str))
         return int(m.group(1)) if m else None
     except Exception:
         return None

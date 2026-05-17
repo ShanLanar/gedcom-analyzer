@@ -37,7 +37,6 @@ EXCLUDE_ID = "@I2475@"
 CACHE_ENABLED    = True
 MAX_CACHE_SIZE   = 1000
 MAX_TREE_DEPTH   = 4
-ENABLE_KI        = True     # scikit-learn (optional)
 PROGRESS_DISPLAY = True
 
 # ── Symbole ────────────────────────────────────────────────────────────────────
@@ -78,7 +77,6 @@ DEFAULT_CONFIG = {
     "max_cache_size":     MAX_CACHE_SIZE,
     "progress_display":   PROGRESS_DISPLAY,
     "interactive_html":   FILES["interactive_html"],
-    "enable_ki_predictions": ENABLE_KI,
     "max_tree_depth":     MAX_TREE_DEPTH,
     "military_symbols":   MILITARY_SYMBOLS,
 }
@@ -101,7 +99,6 @@ _GLOBAL_KEY_MAP = {
     "cache_enabled":         "CACHE_ENABLED",
     "max_cache_size":        "MAX_CACHE_SIZE",
     "max_tree_depth":        "MAX_TREE_DEPTH",
-    "enable_ki_predictions": "ENABLE_KI",
     "progress_display":      "PROGRESS_DISPLAY",
     "military_symbols":      "MILITARY_SYMBOLS",
 }

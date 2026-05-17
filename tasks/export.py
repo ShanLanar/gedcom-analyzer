@@ -3,20 +3,6 @@
 
 import json
 import os
-from datetime import datetime
-
-_logger = None
-
-def set_logger(lg):
-    global _logger
-    _logger = lg
-
-def _p(msg, tag=""):
-    if _logger:
-        {"ok": _logger.info, "warn": _logger.warning,
-         "err": _logger.error}.get(tag, _logger.info)(msg)
-    else:
-        print(msg)
 
 
 # ── Excel-Export ───────────────────────────────────────────────────────────────
@@ -48,11 +34,27 @@ def export_to_excel(all_sheets: list, output_path: str,
     alt_fill    = PatternFill(start_color="F2F2F2", end_color="F2F2F2",
                                fill_type="solid")
 
+    used_titles: set = set()
+
+    def _unique_title(name: str) -> str:
+        base = name[:31]
+        if base not in used_titles:
+            used_titles.add(base)
+            return base
+        for n in range(2, 100):
+            suffix = f" ({n})"
+            cand = base[: 31 - len(suffix)] + suffix
+            if cand not in used_titles:
+                used_titles.add(cand)
+                return cand
+        used_titles.add(base)
+        return base
+
     for sheet_name, headers, data in all_sheets:
         if not data:
             continue
         try:
-            ws = wb.create_sheet(title=sheet_name[:31])
+            ws = wb.create_sheet(title=_unique_title(sheet_name))
             ws.append(headers)
             for cell in ws[1]:
                 cell.fill = header_fill
@@ -74,7 +76,7 @@ def export_to_excel(all_sheets: list, output_path: str,
                 ws.column_dimensions[get_column_letter(ci)].width = min(max_len + 2, 50)
 
             ws.freeze_panes = "A2"
-            p(f"  ✓ Sheet '{sheet_name[:31]}': {len(data)} Zeilen")
+            p(f"  ✓ Sheet '{ws.title}': {len(data)} Zeilen")
 
         except Exception as e:
             p(f"Fehler bei Sheet '{sheet_name}': {e}", tag="warn")

@@ -1,28 +1,14 @@
 # -*- coding: utf-8 -*-
 """tasks/cousins.py – Cousin- und Verwandtschaftsanalyse"""
 
-from collections import Counter
 from lib.helpers import (get_ancestor_paths, relationship_label,
                           extract_military_force_from_name,
                           safe_determine_migration_status)
 from lib.places import format_place_for_display
-from lib import logger as _log_module
-
-_logger = None
-
-def _p(msg, tag=""):
-    if _logger:
-        {"ok": _logger.info, "warn": _logger.warning,
-         "err": _logger.error}.get(tag, _logger.info)(msg)
-    else:
-        print(msg)
 
 
 def run(individuals, families, location_data, root_id, cache=None,
         progress_cb=None, **_kw):
-    global _logger
-    if progress_cb:
-        _logger = None  # nutze progress_cb direkt
     p = progress_cb or (lambda m, **kw: None)
 
     p("Starte Cousin-Analyse …")

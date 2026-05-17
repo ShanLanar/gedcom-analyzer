@@ -5,40 +5,39 @@ from collections import defaultdict, deque
 
 
 class GenealogyCache:
-    """LRU-ähnlicher Cache für Ahnen- und Verwandtschaftspfade."""
+    """LRU-Cache für Ahnenpfade (per Person-ID)."""
 
     def __init__(self, max_size: int = 1000):
         self.max_size = max_size
-        self.ancestor_cache: dict = {}
-        self.descendant_cache: dict = {}
-        self.relationship_cache: dict = {}
-        self.stats = {"hits": 0, "misses": 0, "size": 0}
+        # Echter LRU: OrderedDict + move_to_end on hit.
+        from collections import OrderedDict
+        self.ancestor_cache: "OrderedDict[str, dict]" = OrderedDict()
+        self.stats = {"hits": 0, "misses": 0}
 
     # ── Public API ─────────────────────────────────────────────────────────────
 
-    def get_ancestors(self, person_id, individuals, families, force_recalc=False):
-        key = f"ancestors_{person_id}"
-        if not force_recalc and key in self.ancestor_cache:
+    def get_ancestors(self, person_id, individuals, families):
+        cache = self.ancestor_cache
+        if person_id in cache:
             self.stats["hits"] += 1
-            return self.ancestor_cache[key]
+            cache.move_to_end(person_id)
+            return cache[person_id]
         self.stats["misses"] += 1
         result = self._compute_ancestors(person_id, individuals, families)
-        if len(self.ancestor_cache) >= self.max_size:
-            self._evict_oldest()
-        self.ancestor_cache[key] = result
-        self.stats["size"] = len(self.ancestor_cache)
+        cache[person_id] = result
+        if len(cache) > self.max_size:
+            cache.popitem(last=False)
         return result
 
     def clear(self):
         self.ancestor_cache.clear()
-        self.descendant_cache.clear()
-        self.relationship_cache.clear()
-        self.stats = {"hits": 0, "misses": 0, "size": 0}
+        self.stats = {"hits": 0, "misses": 0}
 
     def get_stats(self) -> dict:
         hits = self.stats["hits"]
         total = hits + self.stats["misses"]
-        return {**self.stats, "hit_rate": round(hits / max(1, total) * 100, 2),
+        return {**self.stats,
+                "hit_rate": round(hits / max(1, total) * 100, 2),
                 "cache_size": len(self.ancestor_cache)}
 
     # ── Internal ───────────────────────────────────────────────────────────────
@@ -61,7 +60,3 @@ class GenealogyCache:
                         paths[parent].append(new_path)
                         queue.append(new_path)
         return paths
-
-    def _evict_oldest(self):
-        if self.ancestor_cache:
-            del self.ancestor_cache[next(iter(self.ancestor_cache))]
