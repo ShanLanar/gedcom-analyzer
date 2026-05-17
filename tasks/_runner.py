@@ -58,8 +58,15 @@ def load_gedcom(progress_cb=None, stop_event=None):
     _p(progress_cb, "Lade Ortsdaten …")
     _state["location_data"] = load_location_data(cfg.DEFAULT_CONFIG["location_data_json"])
 
-    _p(progress_cb, f"Lade GEDCOM: {cfg.DEFAULT_CONFIG['gedfile']} …")
-    indiv, fams = robust_load_gedcom(cfg.DEFAULT_CONFIG["gedfile"])
+    gedfile = cfg.DEFAULT_CONFIG["gedfile"]
+    from tasks.import_ftm import is_ftm_file, load_ftm, set_logger as ftm_set
+    ftm_set(lg)
+    if is_ftm_file(gedfile):
+        _p(progress_cb, f"Lade FTM-Datei: {gedfile} …")
+        indiv, fams = load_ftm(gedfile, progress_cb=progress_cb)
+    else:
+        _p(progress_cb, f"Lade GEDCOM: {gedfile} …")
+        indiv, fams = robust_load_gedcom(gedfile)
     _state["individuals"] = indiv
     _state["families"]    = fams
 

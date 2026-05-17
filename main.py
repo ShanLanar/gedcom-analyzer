@@ -29,7 +29,7 @@ TASKS = [
     {
         "id":      "load_gedcom",
         "name":    "GEDCOM laden",
-        "desc":    "Liest family.ged und bereitet Daten vor (Pflicht).",
+        "desc":    "Liest GEDCOM (.ged) oder Family Tree Maker (.ftm) – Pflicht.",
         "fn":      "tasks._runner:load_gedcom",
         "default": True,
         "group":   "Vorbereitung",
@@ -251,7 +251,7 @@ class AhnenApp(tk.Tk):
 
         path_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
         path_frame.pack(fill="x")
-        tk.Label(path_frame, text="GEDCOM:", bg=cfg.BG2, fg=cfg.FG_DIM,
+        tk.Label(path_frame, text="Stammbaumdatei:", bg=cfg.BG2, fg=cfg.FG_DIM,
                  font=cfg.FONT_MONO).pack(side="left", padx=8)
         self._path_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["gedfile"])
         tk.Entry(path_frame, textvariable=self._path_var, bg=cfg.BG3, fg=cfg.FG,
@@ -341,9 +341,15 @@ class AhnenApp(tk.Tk):
         initial = self._path_var.get() or cfg.DEFAULT_CONFIG.get("gedfile", "")
         initial_dir = os.path.dirname(initial) if initial else ""
         path = filedialog.askopenfilename(
-            title="GEDCOM-Datei wählen",
+            title="Stammbaumdatei wählen",
             initialdir=initial_dir or None,
-            filetypes=[("GEDCOM-Dateien", "*.ged *.GED"), ("Alle Dateien", "*.*")])
+            filetypes=[
+                ("Alle unterstützten Formate",
+                 "*.ged *.GED *.ftm *.FTM *.ftmb *.FTMB"),
+                ("GEDCOM-Dateien", "*.ged *.GED"),
+                ("Family Tree Maker", "*.ftm *.ftmb"),
+                ("Alle Dateien", "*.*"),
+            ])
         if path:
             self._path_var.set(path)
 
