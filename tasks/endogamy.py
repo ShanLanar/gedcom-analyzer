@@ -5,8 +5,8 @@ import math
 import re
 from collections import defaultdict
 from lib.gedcom import safe_extract_year
-from lib.places import (format_place_for_display, get_place_with_fallback,
-                         parse_detailed_place)
+from lib.places import (clean_place_part, format_place_for_display,
+                         get_place_with_fallback, parse_detailed_place)
 from lib.helpers import (get_ancestor_paths, relationship_label,
                           safe_determine_migration_status,
                           safe_extract_family_name,
@@ -34,19 +34,12 @@ def compute_endogamy_with_detailed_places(individuals, families, root_id,
         bp = (pdata.get("BIRT") or {}).get("PLAC", "")
         if not bp: continue
 
-        # Letzte 4 Komma-Teile; Hof-/Farm-Namen vorangestellt entfernen
+        # Letzte 4 Komma-Teile; Hof-/Farm-Namen + Zusätze vorangestellt entfernen.
+        # Cleanup-Regeln zentral in lib/places.clean_place_part.
         raw = [pt.strip() for pt in str(bp).split(",") if pt.strip()]
-        cleaned = []
-        for part in raw:
-            pt = re.sub(r'\([^)]*\)', '', part)
-            pt = re.sub(r'\b(hof|farm|anwesen|gut|haus|nr\.?|no\.?|number)\b', '',
-                        pt, flags=re.IGNORECASE)
-            pt = re.sub(r'\b\d+\b', '', pt)
-            for z in zusatz:
-                pt = re.sub(fr'\b{re.escape(z)}\b', '', pt, flags=re.IGNORECASE)
-            pt = pt.strip(' ,.-')
-            if pt and len(pt) >= 2:
-                cleaned.append(pt)
+        cleaned = [c for c in (clean_place_part(part, extra_remove=zusatz)
+                                for part in raw)
+                   if c and len(c) >= 2]
 
         if not cleaned or len(cleaned) < 2: continue
         place_parts = cleaned[-4:]

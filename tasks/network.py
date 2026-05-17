@@ -2,7 +2,6 @@
 """tasks/network.py – Familiennetzwerkanalyse"""
 
 from collections import defaultdict, deque
-from concurrent.futures import ThreadPoolExecutor, as_completed
 
 
 def _build_adjacency(individuals, families) -> dict:
@@ -81,12 +80,15 @@ def analyze_family_network_fast(individuals, families, root_id,
     return results
 
 
-# ── Parallele Version ──────────────────────────────────────────────────────────
+# ── Detail-Version ─────────────────────────────────────────────────────────────
 
-def analyze_family_network_parallel(individuals, families, root_id,
-                                     max_workers=4, progress_cb=None):
+def analyze_family_network_detailed(individuals, families, root_id,
+                                     progress_cb=None):
+    """Detail-Analyse mit Closeness und Brücken. Single-threaded —
+    der frühere ThreadPoolExecutor brachte wegen des GIL keinen echten
+    Speedup und kostete pro 1000er-Batch zusätzlichen Setup-Overhead."""
     p = progress_cb or (lambda m, **kw: None)
-    p("Parallele Netzwerkanalyse …")
+    p("Detail-Netzwerkanalyse …")
     adj = _build_adjacency(individuals, families)
     dist_cache: dict = {}
 
@@ -141,31 +143,31 @@ def analyze_family_network_parallel(individuals, families, root_id,
                 cluster, _social_role(pid, root_id, deg),
                 "Ja" if is_bridge else "Nein", ", ".join(cn)]
 
-    all_pids = list(individuals)
-    results  = []
-    batch    = 1000
-    for i in range(0, len(all_pids), batch):
-        bpids = [pid for pid in all_pids[i:i+batch] if pid in adj]
-        with ThreadPoolExecutor(max_workers=max_workers) as ex:
-            futs = {ex.submit(_analyze, pid): pid for pid in bpids}
-            for fut in as_completed(futs):
-                try:
-                    r = fut.result(timeout=5)
-                    if r: results.append(r)
-                except Exception:
-                    pass
-        if len(dist_cache) > 5000: dist_cache.clear()
+    from tasks._runner import is_aborted, AbortedError
+    results = []
+    pids = [pid for pid in individuals if pid in adj]
+    for idx, pid in enumerate(pids):
+        if idx % 200 == 0 and is_aborted():
+            raise AbortedError("Netzwerkanalyse abgebrochen")
+        try:
+            r = _analyze(pid)
+        except Exception:
+            r = None
+        if r:
+            results.append(r)
+        # Distanz-Cache periodisch begrenzen
+        if len(dist_cache) > 5000:
+            dist_cache.clear()
 
     results.sort(key=lambda x: x[3], reverse=True)
-    p(f"Parallele Netzwerkanalyse: {len(results)} Personen", tag="ok")
+    p(f"Detail-Netzwerkanalyse: {len(results)} Personen", tag="ok")
     return results
 
 
 # ── Optimierte Version (Sampling) ─────────────────────────────────────────────
 
 def analyze_family_network_optimized(individuals, families, root_id,
-                                      sample_size=2000, max_workers=4,
-                                      progress_cb=None):
+                                      sample_size=2000, progress_cb=None):
     p = progress_cb or (lambda m, **kw: None)
     p("Optimierte Netzwerkanalyse (Sampling) …")
     adj = _build_adjacency(individuals, families)
@@ -199,15 +201,17 @@ def analyze_family_network_optimized(individuals, families, root_id,
                 "Hoch" if deg >= 10 else "Mittel" if deg >= 5 else "Niedrig",
                 ", ".join(list(conns)[:3])]
 
+    from tasks._runner import is_aborted, AbortedError
     results = []
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        futs = [ex.submit(_analyze_opt, pid) for pid in sample]
-        for fut in futs:
-            try:
-                r = fut.result(timeout=3)
-                if r: results.append(r)
-            except Exception:
-                pass
+    for idx, pid in enumerate(sample):
+        if idx % 200 == 0 and is_aborted():
+            raise AbortedError("Netzwerkanalyse abgebrochen")
+        try:
+            r = _analyze_opt(pid)
+        except Exception:
+            r = None
+        if r:
+            results.append(r)
 
     results.sort(key=lambda x: x[3], reverse=True)
     p(f"Optimierte Netzwerkanalyse: {len(results)} Personen", tag="ok")
@@ -224,7 +228,7 @@ def run(individuals, families, root_id, progress_cb=None):
             individuals, families, root_id,
             sample_size=min(3000, total // 3), progress_cb=progress_cb)
     elif total > 3000:
-        return analyze_family_network_parallel(
+        return analyze_family_network_detailed(
             individuals, families, root_id, progress_cb=progress_cb)
     else:
         return analyze_family_network_fast(

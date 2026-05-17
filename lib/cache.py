@@ -4,6 +4,14 @@
 from collections import defaultdict, deque
 
 
+# Begrenzt die Anzahl gespeicherter Pfade zu demselben Ahnen — bei
+# Stammbaum-Implosion (Cousin-Ehen über viele Generationen) kann diese
+# Zahl exponentiell explodieren. Für alle Analysen, die nur "kürzester
+# Pfad" oder "wie viele Wege" auf Wortgröße brauchen, reicht ein Cap weit
+# unter der Praxiszahl: das MULT_MAP für Cousins geht z.B. nur bis 9.
+_MAX_PATHS_PER_ANCESTOR = 64
+
+
 class GenealogyCache:
     """LRU-Cache für Ahnenpfade (per Person-ID)."""
 
@@ -55,8 +63,11 @@ class GenealogyCache:
                 if not fam:
                     continue
                 for parent in (fam.get("HUSB"), fam.get("WIFE")):
-                    if parent and parent in individuals:
-                        new_path = path + [parent]
-                        paths[parent].append(new_path)
-                        queue.append(new_path)
+                    if not parent or parent not in individuals:
+                        continue
+                    if len(paths[parent]) >= _MAX_PATHS_PER_ANCESTOR:
+                        continue
+                    new_path = path + [parent]
+                    paths[parent].append(new_path)
+                    queue.append(new_path)
         return paths

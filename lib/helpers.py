@@ -128,9 +128,12 @@ def _compute_migration_status(birth_place: str, death_place: str,
 # ── Verwandtschaft ─────────────────────────────────────────────────────────────
 
 def get_ancestor_paths(start_id: str, individuals, families, cache=None):
-    """Gibt {person_id: [liste von Pfaden]} zurück."""
+    """Gibt {person_id: [liste von Pfaden]} zurück. Die Pfadanzahl pro
+    Ahne wird auf MAX_PATHS_PER_ANCESTOR begrenzt, damit Pedigree
+    Collapse keinen exponentiellen Speicheraufbau erzeugt."""
     if cache:
         return cache.get_ancestors(start_id, individuals, families)
+    from lib.cache import _MAX_PATHS_PER_ANCESTOR
     paths = defaultdict(list)
     if start_id not in individuals:
         return paths
@@ -143,10 +146,13 @@ def get_ancestor_paths(start_id: str, individuals, families, cache=None):
             if not fam:
                 continue
             for parent in (fam.get("HUSB"), fam.get("WIFE")):
-                if parent and parent in individuals:
-                    new_path = path + [parent]
-                    paths[parent].append(new_path)
-                    queue.append(new_path)
+                if not parent or parent not in individuals:
+                    continue
+                if len(paths[parent]) >= _MAX_PATHS_PER_ANCESTOR:
+                    continue
+                new_path = path + [parent]
+                paths[parent].append(new_path)
+                queue.append(new_path)
     return paths
 
 

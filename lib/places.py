@@ -50,6 +50,27 @@ def load_location_data(json_path: str) -> dict:
 
 # ── Ortsparsing ────────────────────────────────────────────────────────────────
 
+_HOF_KEYWORDS = ('hof', 'farm', 'anwesen', 'gut', 'haus', 'house', 'farmhouse')
+
+
+def clean_place_part(part: str, extra_remove=()) -> str:
+    """Entfernt Klammern, Hausnummern und Hof-/Farm-Begriffe aus einer
+    Ortskomponente. Wird sowohl von parse_detailed_place als auch von
+    tasks/endogamy.py genutzt — Single Source of Truth für die Cleanup-
+    Regeln."""
+    if not part:
+        return ""
+    p = re.sub(r'\([^)]*\)', '', part)
+    p = re.sub(r'\[[^\]]*\]', '', p)
+    p = re.sub(r'\b(nr\.?|no\.?|number)\s*\d+\b', '', p, flags=re.IGNORECASE)
+    p = re.sub(r'\b\d+\b', '', p)
+    for w in _HOF_KEYWORDS:
+        p = re.sub(fr'\b{w}\b', '', p, flags=re.IGNORECASE)
+    for w in extra_remove:
+        p = re.sub(fr'\b{re.escape(w)}\b', '', p, flags=re.IGNORECASE)
+    return ' '.join(p.split()).strip(' ,.-')
+
+
 def parse_detailed_place(place_str, location_data, include_city=True,
                          include_zusatz=False) -> list:
     """
@@ -83,17 +104,8 @@ def parse_detailed_place(place_str, location_data, include_city=True,
             return [None, None, None, None, place_str[:80]]
 
         parts = [p.strip() for p in place.split(",") if p.strip()] if "," in place else [place]
-        cleaned = []
-        for part in parts:
-            p = re.sub(r'\([^)]*\)', '', part)
-            p = re.sub(r'\[[^\]]*\]', '', p)
-            p = re.sub(r'\b(nr\.?|no\.?|number)\s*\d+\b', '', p, flags=re.IGNORECASE)
-            p = re.sub(r'\b\d+\b', '', p)
-            for w in ['hof', 'farm', 'anwesen', 'gut', 'haus', 'house', 'farmhouse']:
-                p = re.sub(fr'\b{w}\b', '', p, flags=re.IGNORECASE)
-            p = p.strip()
-            if p and len(p) >= 2:
-                cleaned.append(' '.join(p.split()))
+        cleaned = [c for c in (clean_place_part(part) for part in parts)
+                   if c and len(c) >= 2]
 
         if not cleaned:
             return [None, None, None, None, place[:80]]
