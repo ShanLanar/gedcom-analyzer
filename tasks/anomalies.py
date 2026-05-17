@@ -186,6 +186,61 @@ def detect_anomalies(individuals, families, progress_cb=None):
 
 # ── Duplikat-Erkennung ─────────────────────────────────────────────────────────
 
+# Vornamen-Synonyme für die Doubletten-Heuristik. Mappt regionale/dialektale
+# Kurz- und Variantenformen auf einen kanonischen Stammnamen. Quelle: gängige
+# deutsche Namens-Synonyme aus genealogischen Standard-Werken.
+_GIVEN_SYNONYMS = {
+    # Johannes-Familie
+    "HANS": "JOHANNES", "JOHANN": "JOHANNES", "JOHANNES": "JOHANNES",
+    "HANNES": "JOHANNES", "HENNES": "JOHANNES", "JOH": "JOHANNES",
+    "JOHN": "JOHANNES", "JEAN": "JOHANNES",
+    # Heinrich
+    "HEINRICH": "HEINRICH", "HEINZ": "HEINRICH", "HENRY": "HEINRICH",
+    "HEIN": "HEINRICH", "HENRI": "HEINRICH", "HARRY": "HEINRICH",
+    # Friedrich
+    "FRIEDRICH": "FRIEDRICH", "FRITZ": "FRIEDRICH", "FREDI": "FRIEDRICH",
+    "FRIEDEL": "FRIEDRICH",
+    # Wilhelm
+    "WILHELM": "WILHELM", "WILLI": "WILHELM", "WILLY": "WILHELM",
+    "WILLEM": "WILHELM",
+    # Karl
+    "KARL": "KARL", "CARL": "KARL", "CHARLES": "KARL", "KARLI": "KARL",
+    # Jakob
+    "JAKOB": "JAKOB", "JACOB": "JAKOB", "KOBI": "JAKOB",
+    # Georg
+    "GEORG": "GEORG", "JÖRG": "GEORG", "JÜRGEN": "GEORG", "GEORGE": "GEORG",
+    # Peter / Paul
+    "PETER": "PETER", "PETRUS": "PETER",
+    "PAUL": "PAUL", "PAULUS": "PAUL",
+    # Michael
+    "MICHAEL": "MICHAEL", "MICHEL": "MICHAEL", "MIKE": "MICHAEL",
+    # August
+    "AUGUST": "AUGUST", "AUGUSTE": "AUGUST", "GUSTL": "AUGUST",
+    # Anna / Maria / Elisabeth
+    "ANNA": "ANNA", "ANNE": "ANNA", "ÄNNE": "ANNA", "ANNI": "ANNA",
+    "MARIA": "MARIA", "MARIE": "MARIA", "MAREN": "MARIA", "MARI": "MARIA",
+    "ELISABETH": "ELISABETH", "ELISE": "ELISABETH", "LISBETH": "ELISABETH",
+    "LIESE": "ELISABETH", "BETTY": "ELISABETH", "ELSE": "ELISABETH",
+    "ELLA": "ELISABETH",
+    "KATHARINA": "KATHARINA", "KÄTHE": "KATHARINA", "KATRIN": "KATHARINA",
+    "TRINE": "KATHARINA", "KATE": "KATHARINA",
+    "MARGARETHA": "MARGARETHA", "MARGARETE": "MARGARETHA", "GRETE": "MARGARETHA",
+    "MARGRET": "MARGARETHA", "GRETCHEN": "MARGARETHA",
+    "GERTRUD": "GERTRUD", "TRUDE": "GERTRUD", "TRUDI": "GERTRUD",
+    "WILHELMINE": "WILHELMINE", "MINNA": "WILHELMINE", "MINA": "WILHELMINE",
+    "FRIEDA": "FRIEDA", "FRIEDERIKE": "FRIEDA", "FRIEDL": "FRIEDA",
+}
+
+
+def _canonical_given(first_given: str) -> str:
+    """Bringt einen Vornamen auf seinen Stamm-Namen (z.B. Hans → JOHANNES).
+    Gibt den Original-Vornamen zurück, wenn kein Synonym hinterlegt ist."""
+    if not first_given:
+        return ""
+    key = first_given.strip().upper()
+    return _GIVEN_SYNONYMS.get(key, key)
+
+
 def _levenshtein(a: str, b: str) -> int:
     """Berechnet die Levenshtein-Distanz zwischen zwei Strings."""
     if a == b:
@@ -319,12 +374,20 @@ def detect_duplicates(individuals, progress_cb=None):
                 sn_a, gn_a, by_a = parsed[pid_a]
                 sn_b, gn_b, by_b = parsed[pid_b]
 
-                # Vorfilter: Levenshtein beider Namen muss klein sein
+                # Vorfilter: Nachname muss Levenshtein-nah sein
                 if _levenshtein(sn_a, sn_b) > 2:
                     continue
+
+                # Vorname: erst Levenshtein, dann Synonym-Vergleich als Fallback
                 fn_a = gn_a.split()[0] if gn_a.split() else gn_a
                 fn_b = gn_b.split()[0] if gn_b.split() else gn_b
-                if fn_a and fn_b and _levenshtein(fn_a, fn_b) > 2:
+                fn_a_canon = _canonical_given(fn_a)
+                fn_b_canon = _canonical_given(fn_b)
+                # Synonym-Pfad: kanonische Form stimmt überein, aber die
+                # Schreibung unterscheidet sich (z. B. Karl/Carl, Hans/Johannes)
+                via_synonym = (fn_a_canon and fn_a_canon == fn_b_canon
+                                 and fn_a.upper() != fn_b.upper())
+                if fn_a and fn_b and _levenshtein(fn_a, fn_b) > 2 and not via_synonym:
                     continue
 
                 # Geburtsjahr-Filter (falls beide bekannt)
@@ -333,6 +396,10 @@ def detect_duplicates(individuals, progress_cb=None):
                         continue
 
                 conf, reasons = _confidence(sn_a, sn_b, gn_a, gn_b, by_a, by_b)
+                # Synonym-Treffer gibt zusätzlichen Konfidenz-Boost
+                if via_synonym:
+                    conf = min(99, conf + 20)
+                    reasons.append(f"Vornamen-Synonym ({fn_a}↔{fn_b}→{fn_a_canon})")
                 if conf < 40:
                     continue
 

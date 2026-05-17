@@ -25,8 +25,11 @@ def _log(level, msg):
 
 # ── Datum ──────────────────────────────────────────────────────────────────────
 
-# Einheitlicher Jahres-Regex für die ganze Codebase (1000–2099).
-_YEAR_RE = re.compile(r"\b(1[0-9]{3}|20\d{2})\b")
+# Einheitlicher Jahres-Regex für die ganze Codebase.
+# Akzeptiert 1000–2199 (genealogisch-relevante Spanne inkl. Schätzungen
+# weit in der Zukunft). 3-stellige Zahlen werden nicht gematcht, um Haus-
+# nummern und ähnliche Störer zu vermeiden.
+_YEAR_RE = re.compile(r"\b(1[0-9]{3}|2[01]\d{2})\b")
 
 
 def safe_parse_gedcom_date(date_str: str) -> dict:
