@@ -9,6 +9,7 @@ from lib.places import format_place_for_display
 
 def run(individuals, families, location_data, root_id, cache=None,
         progress_cb=None, **_kw):
+    from tasks._runner import is_aborted, AbortedError
     p = progress_cb or (lambda m, **kw: None)
 
     p("Starte Cousin-Analyse …")
@@ -24,9 +25,11 @@ def run(individuals, families, location_data, root_id, cache=None,
     MULT_MAP = {2: "double", 3: "triple", 4: "quadruple", 5: "quintuple",
                 6: "sextuple", 7: "septuple", 8: "octuple", 9: "nonuple"}
 
-    for tid, tdata in individuals.items():
+    for idx, (tid, tdata) in enumerate(individuals.items()):
         if tid == root_id:
             continue
+        if idx % 200 == 0 and is_aborted():
+            raise AbortedError("Cousin-Analyse abgebrochen")
         target_paths = get_ancestor_paths(tid, individuals, families, cache)
         common = set(root_paths) & set(target_paths)
         if not common:

@@ -155,15 +155,15 @@ GROUP_ORDER = {"Vorbereitung": 0, "Analysen": 1, "Extras": 2, "Export": 3}
 
 # ── Task-Dispatch ──────────────────────────────────────────────────────────────
 
-def _call_task(fn_spec: str, progress_cb, file_progress_cb=None):
+def _call_task(fn_spec: str, progress_cb, stop_event=None):
     module_path, func_name = fn_spec.rsplit(":", 1)
     mod  = importlib.import_module(module_path)
     fn   = getattr(mod, func_name)
     sig  = inspect.signature(fn)
-    if "file_progress_cb" in sig.parameters:
-        fn(progress_cb=progress_cb, file_progress_cb=file_progress_cb)
-    else:
-        fn(progress_cb=progress_cb)
+    kwargs = {"progress_cb": progress_cb}
+    if "stop_event" in sig.parameters and stop_event is not None:
+        kwargs["stop_event"] = stop_event
+    fn(**kwargs)
 
 
 # ── App ────────────────────────────────────────────────────────────────────────
@@ -176,6 +176,7 @@ class AhnenApp(tk.Tk):
         self.geometry("1100x720")
         self.configure(bg=cfg.BG)
         self._running = False
+        self._stop_event = threading.Event()
         self._task_vars: dict[str, tk.BooleanVar] = {}
         self._build_ui()
 
@@ -344,7 +345,9 @@ class AhnenApp(tk.Tk):
                                      t["id"]))
         # GEDCOM-Pfad in Config einpflegen
         cfg.DEFAULT_CONFIG["gedfile"] = self._path_var.get()
+        cfg.FILES["gedfile"] = self._path_var.get()
         self._running = True
+        self._stop_event.clear()
         self._btn_start.configure(state="disabled")
         self._btn_stop.configure(state="normal")
         self._pbar.configure(mode="indeterminate")
@@ -355,25 +358,34 @@ class AhnenApp(tk.Tk):
 
     # ── Worker ─────────────────────────────────────────────────────────────────
     def _worker(self, tasks):
+        from tasks._runner import AbortedError
         had_errors = False
+        aborted = False
         total = len(tasks)
         for i, task in enumerate(tasks):
             if not self._running:
-                self._append_log("Abgebrochen.", tag="warn")
                 break
             self._append_log(f"── {task['name']} …", tag="info")
             self._set_status(f"[{i+1}/{total}] {task['name']}")
             try:
                 def cb(msg, tag=""):
                     self._append_log(msg, tag=tag)
-                _call_task(task["fn"], progress_cb=cb)
+                _call_task(task["fn"], progress_cb=cb,
+                           stop_event=self._stop_event)
+            except AbortedError as exc:
+                self._append_log(str(exc), tag="warn")
+                aborted = True
+                break
             except Exception as exc:
                 self._append_log(f"FEHLER in '{task['name']}': {exc}", tag="err")
                 had_errors = True
+        if aborted or not self._running:
+            self._append_log("Abgebrochen.", tag="warn")
         self.after(0, self._finish, had_errors)
 
     def _stop(self):
         self._running = False
+        self._stop_event.set()
         self._set_status("Abbrechen …")
 
     def _finish(self, had_errors: bool):

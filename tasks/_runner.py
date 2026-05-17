@@ -54,6 +54,7 @@ _state = {
     "generation_lengths":     [],
     "root_paths":             {},
     "root_related_ids":       None,
+    "stop_event":             None,
 }
 
 
@@ -62,9 +63,25 @@ def _p(progress_cb, msg, tag=""):
         progress_cb(msg, tag=tag)
 
 
+def is_aborted() -> bool:
+    """True wenn der Benutzer Stop gedrückt hat. Tasks mit langen
+    Schleifen sollen das periodisch prüfen."""
+    ev = _state.get("stop_event")
+    return ev is not None and ev.is_set()
+
+
+class AbortedError(Exception):
+    """Wird geworfen, wenn ein Task wegen User-Stop abgebrochen wird."""
+
+
+def _set_stop_event(stop_event):
+    _state["stop_event"] = stop_event
+
+
 # ── Schritt 1: GEDCOM + Ortsdaten ──────────────────────────────────────────────
 
-def load_gedcom(progress_cb=None):
+def load_gedcom(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from lib.cache import GenealogyCache
     from lib.gedcom import robust_load_gedcom, set_logger as gl_set
     from lib.places import load_location_data, set_logger as pl_set
@@ -90,7 +107,8 @@ def load_gedcom(progress_cb=None):
 
 # ── Schritt 2: Cousins ────────────────────────────────────────────────────────
 
-def run_cousins(progress_cb=None):
+def run_cousins(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.cousins import run as _run
     from lib.helpers import get_ancestor_paths
 
@@ -114,7 +132,8 @@ def run_cousins(progress_cb=None):
 
 # ── Schritt 3: Endogamie & Top-Ahnen ──────────────────────────────────────────
 
-def run_endogamy(progress_cb=None):
+def run_endogamy(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.endogamy import (compute_endogamy_with_detailed_places,
                                  get_top_ancestors_with_info)
     _state["endogamy_results"] = compute_endogamy_with_detailed_places(
@@ -132,7 +151,8 @@ def run_endogamy(progress_cb=None):
 
 # ── Schritt 4: Migration ───────────────────────────────────────────────────────
 
-def run_migration(progress_cb=None):
+def run_migration(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.migration import (
         analyze_detailed_migration_routes,
         create_compressed_migration_routes,
@@ -161,7 +181,8 @@ def run_migration(progress_cb=None):
 
 # ── Schritt 5: Militär ────────────────────────────────────────────────────────
 
-def run_military(progress_cb=None):
+def run_military(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.military import analyze_military_service_detailed
     _state["military_results"] = analyze_military_service_detailed(
         _state["individuals"], _state["families"], progress_cb=progress_cb)
@@ -169,7 +190,8 @@ def run_military(progress_cb=None):
 
 # ── Schritt 6: Demografie ─────────────────────────────────────────────────────
 
-def run_demographics(progress_cb=None):
+def run_demographics(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.demographics import (
         analyze_demographic_statistics,
         calculate_comprehensive_statistics,
@@ -183,7 +205,8 @@ def run_demographics(progress_cb=None):
 
 # ── Schritt 7: Nachnamen & Geburtsländer ──────────────────────────────────────
 
-def run_surnames_and_countries(progress_cb=None):
+def run_surnames_and_countries(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.demographics import (analyze_surname_frequency,
                                      analyze_birth_country_distribution)
     _state["surname_results"] = analyze_surname_frequency(
@@ -194,7 +217,8 @@ def run_surnames_and_countries(progress_cb=None):
 
 # ── Schritt 8: Genetik ────────────────────────────────────────────────────────
 
-def run_genetics(progress_cb=None):
+def run_genetics(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.genetics import analyze_inbreeding_all, analyze_pedigree_collapse
     _state["inbreeding_results"] = analyze_inbreeding_all(
         _state["individuals"], _state["families"],
@@ -210,7 +234,8 @@ def run_genetics(progress_cb=None):
 
 # ── Schritt 9: Historischer Kontext + Überlebenszeit + Generationen + Trends ──
 
-def run_history(progress_cb=None):
+def run_history(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.history import (analyze_historical_context, analyze_survival_curves,
                                 calculate_generation_lengths,
                                 analyze_historical_trends)
@@ -236,7 +261,8 @@ def run_history(progress_cb=None):
 
 # ── Schritt 10: Namensmorphologie ─────────────────────────────────────────────
 
-def run_names(progress_cb=None):
+def run_names(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.names import analyze_name_morphology
     vr, pr = analyze_name_morphology(_state["individuals"], progress_cb=progress_cb)
     _state["soundex_variant_rows"] = vr
@@ -245,7 +271,8 @@ def run_names(progress_cb=None):
 
 # ── Schritt 11: Datenvollständigkeit ──────────────────────────────────────────
 
-def run_data_quality(progress_cb=None):
+def run_data_quality(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.data_quality import analyze_data_completeness
     cr, sr, er = analyze_data_completeness(
         _state["individuals"], _state["families"], progress_cb=progress_cb)
@@ -256,7 +283,8 @@ def run_data_quality(progress_cb=None):
 
 # ── Schritt 12: Netzwerk ──────────────────────────────────────────────────────
 
-def run_network(progress_cb=None):
+def run_network(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.network import run as _run
     _state["network_results"] = _run(
         _state["individuals"], _state["families"],
@@ -265,7 +293,8 @@ def run_network(progress_cb=None):
 
 # ── Schritt 13: Osnabrück ─────────────────────────────────────────────────────
 
-def run_osnabrueck(progress_cb=None):
+def run_osnabrueck(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.osnabrueck import (analyze_persons_by_municipality,
                                    create_municipality_summary)
     res = analyze_persons_by_municipality(
@@ -277,7 +306,8 @@ def run_osnabrueck(progress_cb=None):
 
 # ── Schritt 14: Excel-Export ──────────────────────────────────────────────────
 
-def run_export_excel(progress_cb=None):
+def run_export_excel(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks import export as _exp
     from tasks import (cousins, endogamy, migration, military, demographics,
                         genetics, history, names, data_quality, network, osnabrueck)
@@ -411,7 +441,8 @@ def run_export_excel(progress_cb=None):
 
 # ── Schritt 15: JSON-Export ───────────────────────────────────────────────────
 
-def run_export_json(progress_cb=None):
+def run_export_json(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
     from tasks.export import export_to_json
     from datetime import datetime
     summary = {

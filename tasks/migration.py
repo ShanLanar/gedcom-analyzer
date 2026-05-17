@@ -56,6 +56,7 @@ def analyze_detailed_migration_routes(individuals, families, root_id,
                                        location_data, root_related_ids=None,
                                        root_paths=None, cache=None,
                                        progress_cb=None):
+    from tasks._runner import is_aborted, AbortedError
     p = progress_cb or (lambda m, **kw: None)
     p("Analysiere Migrationsrouten …")
     if root_related_ids is None:
@@ -65,7 +66,9 @@ def analyze_detailed_migration_routes(individuals, families, root_id,
 
     migrations = []
 
-    for pid in root_related_ids:
+    for idx, pid in enumerate(root_related_ids):
+        if idx % 200 == 0 and is_aborted():
+            raise AbortedError("Migrationsanalyse abgebrochen")
         if pid not in individuals:
             continue
         pdata = individuals[pid]

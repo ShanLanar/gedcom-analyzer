@@ -61,12 +61,15 @@ def compute_inbreeding_coefficient(person_id, individuals, families,
 
 def analyze_inbreeding_all(individuals, families, root_related_ids=None,
                             progress_cb=None):
+    from tasks._runner import is_aborted, AbortedError
     p = progress_cb or (lambda m, **kw: None)
     p("Inzuchtkoeffizient-Analyse (Wright's F) …")
     pids = list(root_related_ids if root_related_ids else individuals)
     results_inbred, results_clean = [], []
 
     for i, pid in enumerate(pids):
+        if i % 100 == 0 and is_aborted():
+            raise AbortedError("Inzucht-Analyse abgebrochen")
         if i % 500 == 0 and i > 0:
             p(f"  Inzucht: {i}/{len(pids)} …")
         pdata = individuals.get(pid, {})
