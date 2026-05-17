@@ -182,18 +182,33 @@ DETAIL_HEADERS = [
 # ── Compressed ────────────────────────────────────────────────────────────────
 
 def _rel_distance(rel: str) -> int:
-    if not rel: return 999
+    """Numerische Distanz zur Root-Person aus einem deutschen
+    Verwandtschafts-Label. Kleinere Werte = enger verwandt."""
+    if not rel:
+        return 999
     rl = rel.lower()
-    if "self" in rl or "root" in rl: return 0
-    if "parent" in rl: return 1
-    if "grandparent" in rl: return 2
-    if "greatgrandparent" in rl: return 2 + rl.count("great")
-    if "sibling" in rl: return 1
-    if "uncle" in rl or "aunt" in rl: return 3 if "grand" in rl else 2
+    if "selbst" in rl or "root" in rl:
+        return 0
+    # Reihenfolge: spezifischer vor allgemeiner (urgroß enthält "großeltern").
+    if "urgroß" in rl and "eltern" in rl:
+        # "3-fach Urgroßelternteil" → 3 great-Stufen + 2 Großeltern-Basis
+        m = re.search(r'(\d+)-fach', rl)
+        return 2 + (int(m.group(1)) if m else 1)
+    if "großeltern" in rl:
+        return 2
+    if "eltern" in rl:
+        return 1
+    if "geschwister" in rl:
+        return 1
+    if "onkel" in rl or "tante" in rl:
+        if "urgroß" in rl:
+            m = re.search(r'(\d+)-fach', rl)
+            return 3 + (int(m.group(1)) if m else 1)
+        return 3 if "groß" in rl else 2
     if "cousin" in rl:
-        m = re.search(r'(\d+)(?:st|nd|rd|th)?\s*cousin', rl)
+        m = re.search(r'cousin\s+(\d+)\.\s*grades', rl)
         g = int(m.group(1)) if m else 1
-        rm = re.search(r'(\d+)\s*(?:x\s*)?removed', rl)
+        rm = re.search(r'(\d+)x\s*entfernt', rl)
         rv = int(rm.group(1)) if rm else 0
         return g * 2 + rv + 3
     return 999

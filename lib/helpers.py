@@ -70,6 +70,27 @@ def extract_emigration_data_from_gedcom(pdata: dict):
 
 # ── Migrationsstatus ───────────────────────────────────────────────────────────
 
+class MigrationStatus(str):
+    """String-Subklasse mit strukturierten Feldern.
+
+    Bestehende Aufrufer können weiterhin `.startswith("ja")` o.ä. machen —
+    die Instanz ist semantisch ein String. Neuere Aufrufer greifen direkt
+    auf `migrated`, `from_country`, `to_country`, `died_in_battle`,
+    `has_marker` zu, statt den Text zu parsen.
+    """
+
+    def __new__(cls, text: str, *, migrated: bool = False,
+                has_marker: bool = False, from_country: str = "",
+                to_country: str = "", died_in_battle: bool = False):
+        obj = super().__new__(cls, text)
+        obj.migrated = migrated
+        obj.has_marker = has_marker
+        obj.from_country = from_country
+        obj.to_country = to_country
+        obj.died_in_battle = died_in_battle
+        return obj
+
+
 # Modul-lokaler Cache: dieselben (Geburtsort, Sterbeort, marker, in-battle)-
 # Kombinationen wiederholen sich tausendfach über alle Tasks; Memoization
 # spart das Re-Parsen der Orte.
@@ -107,22 +128,31 @@ def safe_determine_migration_status(pdata: dict, name: str, location_data,
 def _compute_migration_status(birth_place: str, death_place: str,
                                has_marker: bool, died_in_battle: bool,
                                battle_counts_as_migration: bool,
-                               location_data) -> str:
+                               location_data) -> MigrationStatus:
+    def _mk(text: str, *, migrated: bool, bc: str = "", dc: str = ""):
+        return MigrationStatus(text, migrated=migrated, has_marker=has_marker,
+                                from_country=bc, to_country=dc,
+                                died_in_battle=died_in_battle)
+
     if not birth_place or not death_place:
-        return "unbekannt (markiert)" if has_marker else "unbekannt"
+        return _mk("unbekannt (markiert)" if has_marker else "unbekannt",
+                   migrated=False)
     bc = extract_country_from_place(birth_place, location_data)
     dc = extract_country_from_place(death_place, location_data)
     if not dc and "australia" in death_place.lower():
         dc = "Australien"
     if not bc or not dc:
-        return "unbekannt (markiert)" if has_marker else "unbekannt"
+        return _mk("unbekannt (markiert)" if has_marker else "unbekannt",
+                   migrated=False)
     if bc != dc:
         if died_in_battle and not battle_counts_as_migration:
-            return f"nein (in {dc} gefallen)"
+            return _mk(f"nein (in {dc} gefallen)", migrated=False,
+                       bc=bc, dc=dc)
         prefix = "ja (markiert: " if has_marker else "ja ("
-        return f"{prefix}{bc} → {dc})"
-    return (f"nein (markiert, aber in {bc} geblieben)" if has_marker
-            else f"nein (in {bc})")
+        return _mk(f"{prefix}{bc} → {dc})", migrated=True, bc=bc, dc=dc)
+    return _mk(f"nein (markiert, aber in {bc} geblieben)" if has_marker
+               else f"nein (in {bc})",
+               migrated=False, bc=bc, dc=dc)
 
 
 # ── Verwandtschaft ─────────────────────────────────────────────────────────────
@@ -158,22 +188,24 @@ def get_ancestor_paths(start_id: str, individuals, families, cache=None):
 
 def relationship_label(root_d: int, target_d: int,
                         is_target_ancestor: bool = False) -> str:
+    """Liefert eine deutsche Verwandtschaftsbezeichnung.
+    Wird gleichermaßen in Excel-Spalten und in tasks/migration._rel_distance
+    konsumiert; letztere Funktion parst die deutschen Begriffe."""
     if is_target_ancestor:
-        if root_d == 1: return "parent"
-        if root_d == 2: return "grandparent"
-        if root_d == 3: return "greatgrandparent"
-        return f"{root_d-2}x greatgrandparent"
-    if root_d == 1 and target_d == 1: return "sibling"
+        if root_d == 1: return "Elternteil"
+        if root_d == 2: return "Großelternteil"
+        if root_d == 3: return "Urgroßelternteil"
+        return f"{root_d-2}-fach Urgroßelternteil"
+    if root_d == 1 and target_d == 1: return "Geschwister"
     if target_d == 1 and root_d > 1:
-        if root_d == 2: return "uncle/aunt"
-        if root_d == 3: return "granduncle/aunt"
-        return f"{root_d-1}x great-uncle/aunt"
+        if root_d == 2: return "Onkel/Tante"
+        if root_d == 3: return "Großonkel/-tante"
+        return f"{root_d-1}-fach Urgroßonkel/-tante"
     if root_d == 1 and target_d > 1:
-        if target_d == 2: return "nephew/niece"
-        if target_d == 3: return "grandnephew/niece"
-        return f"{target_d-1}x great-nephew/niece"
+        if target_d == 2: return "Neffe/Nichte"
+        if target_d == 3: return "Großneffe/-nichte"
+        return f"{target_d-1}-fach Urgroßneffe/-nichte"
     removed = abs(root_d - target_d)
     grade   = max(0, min(root_d, target_d) - 1)
-    suffix  = {0: "0th", 1: "1st", 2: "2nd", 3: "3rd"}.get(grade, f"{grade}th")
-    base    = f"{suffix} cousin"
-    return f"{base} {removed}x removed" if removed else base
+    base    = f"Cousin {grade}. Grades"
+    return f"{base}, {removed}x entfernt" if removed else base

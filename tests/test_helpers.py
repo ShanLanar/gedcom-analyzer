@@ -9,23 +9,24 @@ from lib.helpers import (relationship_label, get_ancestor_paths,
 # ── relationship_label ────────────────────────────────────────────────────────
 
 def test_relationship_label_direct_line():
-    assert relationship_label(1, 0, True) == "parent"
-    assert relationship_label(2, 0, True) == "grandparent"
-    assert relationship_label(3, 0, True) == "greatgrandparent"
+    assert relationship_label(1, 0, True) == "Elternteil"
+    assert relationship_label(2, 0, True) == "Großelternteil"
+    assert relationship_label(3, 0, True) == "Urgroßelternteil"
+    assert relationship_label(4, 0, True) == "2-fach Urgroßelternteil"
 
 
 def test_relationship_label_sibling_and_uncle():
-    assert relationship_label(1, 1, False) == "sibling"
-    assert relationship_label(2, 1, False) == "uncle/aunt"
-    assert relationship_label(3, 1, False) == "granduncle/aunt"
+    assert relationship_label(1, 1, False) == "Geschwister"
+    assert relationship_label(2, 1, False) == "Onkel/Tante"
+    assert relationship_label(3, 1, False) == "Großonkel/-tante"
 
 
 def test_relationship_label_cousins():
     # 1st cousin: beide Großeltern gemeinsam, Tiefe 2 bei beiden.
-    assert relationship_label(2, 2, False) == "1st cousin"
-    assert relationship_label(3, 3, False) == "2nd cousin"
+    assert relationship_label(2, 2, False) == "Cousin 1. Grades"
+    assert relationship_label(3, 3, False) == "Cousin 2. Grades"
     # 1st cousin 1x removed: einer Tiefe 2, anderer Tiefe 3.
-    assert relationship_label(2, 3, False) == "1st cousin 1x removed"
+    assert relationship_label(2, 3, False) == "Cousin 1. Grades, 1x entfernt"
 
 
 # ── get_ancestor_paths ────────────────────────────────────────────────────────
@@ -82,3 +83,45 @@ def test_migration_status_memoized():
     assert r1.startswith("ja")
     assert r1 == r2
     assert len(_MIGRATION_STATUS_CACHE) == 1
+
+
+def test_migration_status_structured_fields():
+    clear_migration_status_cache()
+    ld = {"countries": {
+        "Deutschland": {"aliases": ["deutschland"], "states": {}},
+        "USA":         {"aliases": ["usa"], "states": {}},
+    }}
+    pdata = {"BIRT": {"PLAC": "Berlin, Deutschland"},
+             "DEAT": {"PLAC": "New York, USA"},
+             "DIED_IN_BATTLE": False}
+    status = safe_determine_migration_status(pdata, "Hans Müller", ld)
+    # Backward-Compat: ist immer noch ein String.
+    assert isinstance(status, str)
+    assert status.startswith("ja")
+    # Neu: strukturierte Felder.
+    assert status.migrated is True
+    assert status.from_country == "Deutschland"
+    assert status.to_country == "USA"
+    assert status.died_in_battle is False
+    assert status.has_marker is False
+
+
+def test_migration_status_battle_flag():
+    clear_migration_status_cache()
+    ld = {"countries": {
+        "Deutschland": {"aliases": ["deutschland"], "states": {}},
+        "Frankreich":  {"aliases": ["frankreich"], "states": {}},
+    }}
+    pdata = {"BIRT": {"PLAC": "Köln, Deutschland"},
+             "DEAT": {"PLAC": "Paris, Frankreich"},
+             "DIED_IN_BATTLE": True}
+    # Default: gefallen → nicht als Migration werten
+    s_default = safe_determine_migration_status(pdata, "Hans", ld)
+    assert not s_default.startswith("ja")
+    assert s_default.migrated is False
+    assert s_default.died_in_battle is True
+    # Migration-Task-Modus: Länderwechsel zählt trotz Tod
+    s_mig = safe_determine_migration_status(pdata, "Hans", ld,
+                                             battle_counts_as_migration=True)
+    assert s_mig.startswith("ja")
+    assert s_mig.migrated is True

@@ -15,49 +15,9 @@ from lib import places as _places_mod
 from tasks.context import AnalysisContext
 
 # ── Shared State ───────────────────────────────────────────────────────────────
-# Wird zwischen den Funktionen dieses Moduls geteilt.
-# Das Schema lebt in tasks/context.py.
-_state: AnalysisContext = {
-    "individuals":   {},
-    "families":      {},
-    "location_data": {},
-    "cache":         None,
-
-    # Analyseergebnisse
-    "output_rows":            [],   # Cousins
-    "endogamy_results":       [],
-    "top_ancestors":          [],
-    "migration_results":      [],
-    "compressed_migration":   [],
-    "migration_waves":        [],
-    "correlation_results":    [],
-    "military_results":       [],
-    "demographic_results":    [],
-    "surname_results":        [],
-    "country_dist_results":   [],
-    "comprehensive_stats":    [],
-    "inbreeding_results":     [],
-    "pedigree_gen_rows":      [],
-    "pedigree_multi_rows":    [],
-    "hist_event_rows":        [],
-    "hist_person_rows":       [],
-    "completeness_rows":      [],
-    "completeness_surname":   [],
-    "completeness_epoch":     [],
-    "soundex_variant_rows":   [],
-    "soundex_person_rows":    [],
-    "survival_curve_rows":    [],
-    "survival_summary_rows":  [],
-    "survival_cohort_names":  [],
-    "network_results":        [],
-    "osnabrueck_results":     {},
-    "osnabrueck_summaries":   {},
-    "historical_trends":      {},
-    "generation_lengths":     [],
-    "root_paths":             {},
-    "root_related_ids":       None,
-    "stop_event":             None,
-}
+# Dataclass in tasks/context.py; unterstützt sowohl Attribut- als auch
+# dict-Zugriff, damit alle bestehenden _state["x"]-Aufrufe weiterlaufen.
+_state: AnalysisContext = AnalysisContext()
 
 
 def _p(progress_cb, msg, tag=""):
