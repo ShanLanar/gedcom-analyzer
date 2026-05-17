@@ -87,7 +87,9 @@ def analyze_military_service_detailed(individuals, families, progress_cb=None):
 
 
 MILITARY_HEADERS = [
-    "ID", "Name", "Streitkraft", "Dienstgrad", "Einheit", "Krieg",
-    "Todesjahr", "Alter", "Dienstzeit", "Sterbeort", "Gefallen",
-    "Veteran", "Eltern", "Kinderanzahl", "Ehepartner", "Geburtsjahr"
+    "ID", "Name", "Streitkraft", "Dienstgrad",
+    "Sterbe-Region (Heuristik)", "Krieg",
+    "Todesjahr", "Sterbealter", "Sterbealter-Klasse",
+    "Sterbeort", "Gefallen", "Veteran",
+    "Hat Kinder", "Kinderanzahl", "Ehepartner", "Geburtsjahr"
 ]

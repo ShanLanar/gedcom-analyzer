@@ -76,14 +76,11 @@ def analyze_detailed_migration_routes(individuals, families, root_id,
         birth_place = (pdata.get("BIRT") or {}).get("PLAC") or ""
         death_place  = (pdata.get("DEAT") or {}).get("PLAC") or ""
 
-        mig_status = safe_determine_migration_status(pdata, name, location_data)
-        if not mig_status.startswith("ja"):
-            bc = extract_country_from_place(birth_place, location_data)
-            dc = extract_country_from_place(death_place, location_data)
-            if not dc and "australia" in death_place.lower():
-                dc = "Australien"
-            if bc and dc and bc != dc:
-                mig_status = f"ja ({bc} → {dc})"
+        # Für die Migrationsanalyse zählt jeder Länderwechsel als Migration,
+        # auch wenn die Person dort gefallen ist.
+        mig_status = safe_determine_migration_status(
+            pdata, name, location_data,
+            battle_counts_as_migration=True)
         if not mig_status.startswith("ja"):
             continue
 

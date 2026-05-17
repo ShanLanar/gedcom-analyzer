@@ -81,19 +81,22 @@ def clear_migration_status_cache() -> None:
     _MIGRATION_STATUS_CACHE.clear()
 
 
-def safe_determine_migration_status(pdata: dict, name: str, location_data) -> str:
+def safe_determine_migration_status(pdata: dict, name: str, location_data,
+                                     battle_counts_as_migration: bool = False) -> str:
     try:
         name_str = name or ""
         has_marker = "mig." in name_str.lower()
         birth_place = (pdata.get("BIRT") or {}).get("PLAC") or ""
         death_place = (pdata.get("DEAT") or {}).get("PLAC") or ""
         died_in_battle = bool(pdata.get("DIED_IN_BATTLE"))
-        key = (birth_place, death_place, has_marker, died_in_battle)
+        key = (birth_place, death_place, has_marker, died_in_battle,
+               battle_counts_as_migration)
         cached = _MIGRATION_STATUS_CACHE.get(key)
         if cached is not None:
             return cached
         result = _compute_migration_status(birth_place, death_place,
                                             has_marker, died_in_battle,
+                                            battle_counts_as_migration,
                                             location_data)
         _MIGRATION_STATUS_CACHE[key] = result
         return result
@@ -103,6 +106,7 @@ def safe_determine_migration_status(pdata: dict, name: str, location_data) -> st
 
 def _compute_migration_status(birth_place: str, death_place: str,
                                has_marker: bool, died_in_battle: bool,
+                               battle_counts_as_migration: bool,
                                location_data) -> str:
     if not birth_place or not death_place:
         return "unbekannt (markiert)" if has_marker else "unbekannt"
@@ -113,7 +117,7 @@ def _compute_migration_status(birth_place: str, death_place: str,
     if not bc or not dc:
         return "unbekannt (markiert)" if has_marker else "unbekannt"
     if bc != dc:
-        if died_in_battle:
+        if died_in_battle and not battle_counts_as_migration:
             return f"nein (in {dc} gefallen)"
         prefix = "ja (markiert: " if has_marker else "ja ("
         return f"{prefix}{bc} → {dc})"
