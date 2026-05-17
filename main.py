@@ -1,0 +1,407 @@
+# -*- coding: utf-8 -*-
+"""
+main.py – Ahnen-Analyse-Framework
+GUI-Einstiegspunkt (tkinter, Dark Theme, Task-Registry, Threading).
+Architektur nach ARCHITECTURE.md (ABE Tool-Framework).
+"""
+
+import importlib
+import inspect
+import os
+import sys
+import threading
+import time
+import tkinter as tk
+from tkinter import scrolledtext, ttk
+
+# ── Config laden (Overrides vor allem anderen) ─────────────────────────────────
+from config import apply_overrides
+apply_overrides()
+import config as cfg
+
+# ── Logger initialisieren ──────────────────────────────────────────────────────
+from lib.logger import setup_logging
+logger = setup_logging(cfg.FILES.get("log_file"), log_level="INFO")
+
+# ── Task-Registry ──────────────────────────────────────────────────────────────
+
+TASKS = [
+    # ── Vorbereitung ───────────────────────────────────────────────────────────
+    {
+        "id":      "load_gedcom",
+        "name":    "GEDCOM laden",
+        "desc":    "Liest family.ged und bereitet Daten vor (Pflicht).",
+        "fn":      "tasks._runner:load_gedcom",
+        "default": True,
+        "group":   "Vorbereitung",
+    },
+    # ── Hauptanalysen ──────────────────────────────────────────────────────────
+    {
+        "id":      "cousins",
+        "name":    "Verwandtschafts-/Cousin-Analyse",
+        "desc":    "Berechnet Beziehungen aller Personen zur Root-Person.",
+        "fn":      "tasks._runner:run_cousins",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "endogamy",
+        "name":    "Endogamie & Top-Ahnen",
+        "desc":    "Endogamie-Score pro Ort, Ahnen ohne eigene Eltern.",
+        "fn":      "tasks._runner:run_endogamy",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "migration",
+        "name":    "Migrationsrouten (Detail + Compressed + Wellen + Korrelation)",
+        "desc":    "Vollständige Migrationsanalyse inkl. Emigrationsjahre.",
+        "fn":      "tasks._runner:run_migration",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "military",
+        "name":    "Militäranalyse",
+        "desc":    "Erkennt ✠ ★ ⚔-Symbole, Kriege, Einheiten, Dienstgrade.",
+        "fn":      "tasks._runner:run_military",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "demographics",
+        "name":    "Demografische Statistiken",
+        "desc":    "Lebenserwartung, Heiratsalter, Kindersterblichkeit nach Epoche.",
+        "fn":      "tasks._runner:run_demographics",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "surnames",
+        "name":    "Familiennamen & Geburtsländer",
+        "desc":    "Häufigkeits- und Länderanalyse.",
+        "fn":      "tasks._runner:run_surnames_and_countries",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "genetics",
+        "name":    "Genetik (Inzucht + Pedigree Collapse)",
+        "desc":    "Wright's F Inzuchtkoeffizient und Stammbaum-Implosion.",
+        "fn":      "tasks._runner:run_genetics",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "history",
+        "name":    "Historischer Kontext & Überlebenszeitanalyse",
+        "desc":    "19 Ereignisse 1618–1973, Kaplan-Meier-Kohorten.",
+        "fn":      "tasks._runner:run_history",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "names",
+        "name":    "Namensmorphologie (Kölner Phonetik)",
+        "desc":    "Schreibvarianten automatisch gruppiert.",
+        "fn":      "tasks._runner:run_names",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "data_quality",
+        "name":    "Datenvollständigkeits-Score",
+        "desc":    "0–100 Punkte pro Person, Nachname, Epoche.",
+        "fn":      "tasks._runner:run_data_quality",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "network",
+        "name":    "Familiennetzwerkanalyse",
+        "desc":    "Degree Centrality, Betweenness, Brückenpersonen.",
+        "fn":      "tasks._runner:run_network",
+        "default": False,
+        "group":   "Extras",
+    },
+    {
+        "id":      "osnabrueck",
+        "name":    "Osnabrück-Region Spezialanalyse",
+        "desc":    "Wallenhorst, GMH, Hagen a.T.W., Osnabrück u.a.",
+        "fn":      "tasks._runner:run_osnabrueck",
+        "default": True,
+        "group":   "Extras",
+    },
+    # ── Export ─────────────────────────────────────────────────────────────────
+    {
+        "id":      "export_excel",
+        "name":    "Excel-Export",
+        "desc":    f"Schreibt alle Sheets nach {cfg.FILES['output_xlsx']}.",
+        "fn":      "tasks._runner:run_export_excel",
+        "default": True,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_json",
+        "name":    "JSON-Export",
+        "desc":    f"Speichert Metadaten nach {cfg.FILES['output_json']}.",
+        "fn":      "tasks._runner:run_export_json",
+        "default": True,
+        "group":   "Export",
+    },
+]
+
+GROUP_ORDER = {"Vorbereitung": 0, "Analysen": 1, "Extras": 2, "Export": 3}
+
+
+# ── Task-Dispatch ──────────────────────────────────────────────────────────────
+
+def _call_task(fn_spec: str, progress_cb, file_progress_cb=None):
+    module_path, func_name = fn_spec.rsplit(":", 1)
+    mod  = importlib.import_module(module_path)
+    fn   = getattr(mod, func_name)
+    sig  = inspect.signature(fn)
+    if "file_progress_cb" in sig.parameters:
+        fn(progress_cb=progress_cb, file_progress_cb=file_progress_cb)
+    else:
+        fn(progress_cb=progress_cb)
+
+
+# ── App ────────────────────────────────────────────────────────────────────────
+
+class AhnenApp(tk.Tk):
+
+    def __init__(self):
+        super().__init__()
+        self.title("Ahnen-Analyse v9.0")
+        self.geometry("1100x720")
+        self.configure(bg=cfg.BG)
+        self._running = False
+        self._task_vars: dict[str, tk.BooleanVar] = {}
+        self._results: dict = {}   # Shared state zwischen Tasks
+        self._build_ui()
+
+    # ── UI-Aufbau ──────────────────────────────────────────────────────────────
+
+    def _build_ui(self):
+        # Header
+        hdr = tk.Frame(self, bg=cfg.BG2, pady=6)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="🧬 Ahnen-Analyse v9.0", bg=cfg.BG2, fg=cfg.ACCENT,
+                 font=cfg.FONT_HEAD).pack(side="left", padx=12)
+        self._status_lbl = tk.Label(hdr, text="Bereit", bg=cfg.BG2, fg=cfg.FG_DIM,
+                                     font=cfg.FONT_MAIN)
+        self._status_lbl.pack(side="right", padx=12)
+
+        # Hauptbereich
+        main = tk.Frame(self, bg=cfg.BG)
+        main.pack(fill="both", expand=True)
+
+        # Linke Spalte
+        left = tk.Frame(main, bg=cfg.BG2, width=260)
+        left.pack(side="left", fill="y")
+        left.pack_propagate(False)
+
+        canvas = tk.Canvas(left, bg=cfg.BG2, highlightthickness=0)
+        sb = ttk.Scrollbar(left, orient="vertical", command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+        inner = tk.Frame(canvas, bg=cfg.BG2)
+        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_resize(e):
+            canvas.itemconfig(win_id, width=e.width)
+        canvas.bind("<Configure>", _on_resize)
+        inner.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+
+        def _scroll(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _scroll)
+
+        self._build_task_list(inner)
+
+        # Schaltflächen
+        btn_frame = tk.Frame(left, bg=cfg.BG2, pady=6)
+        btn_frame.pack(fill="x", side="bottom")
+        for text, cmd in [("Alle", self._sel_all),
+                           ("Keine", self._sel_none),
+                           ("Standard", self._sel_default)]:
+            tk.Button(btn_frame, text=text, bg=cfg.BG3, fg=cfg.FG,
+                      font=cfg.FONT_MAIN, relief="flat",
+                      command=cmd).pack(side="left", padx=4, pady=4)
+
+        # Rechte Seite: Pfad + Log + Fortschritt
+        right = tk.Frame(main, bg=cfg.BG)
+        right.pack(side="left", fill="both", expand=True)
+
+        path_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
+        path_frame.pack(fill="x")
+        tk.Label(path_frame, text="GEDCOM:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=cfg.FONT_MONO).pack(side="left", padx=8)
+        self._path_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["gedfile"])
+        tk.Entry(path_frame, textvariable=self._path_var, bg=cfg.BG3, fg=cfg.FG,
+                 font=cfg.FONT_MONO, relief="flat", width=55).pack(side="left", padx=4)
+
+        self._log = scrolledtext.ScrolledText(
+            right, bg="#13131f", fg=cfg.FG, font=cfg.FONT_MONO,
+            state="disabled", relief="flat")
+        self._log.pack(fill="both", expand=True, padx=4, pady=4)
+        for tag, color in [("ok", cfg.GREEN), ("err", cfg.RED),
+                             ("warn", cfg.YELLOW), ("info", cfg.ORANGE),
+                             ("dim", cfg.FG_DIM)]:
+            self._log.tag_configure(tag, foreground=color)
+
+        # Fortschritt
+        prog_frame = tk.Frame(right, bg=cfg.BG, pady=2)
+        prog_frame.pack(fill="x")
+        self._prog_lbl = tk.Label(prog_frame, text="", bg=cfg.BG,
+                                   fg=cfg.FG_DIM, font=cfg.FONT_MONO)
+        self._prog_lbl.pack(side="left", padx=8)
+        self._pbar = ttk.Progressbar(right, mode="determinate",
+                                      style="Accent.Horizontal.TProgressbar")
+        self._pbar.pack(fill="x", padx=8, pady=2)
+
+        # Footer
+        footer = tk.Frame(self, bg=cfg.BG2, pady=6)
+        footer.pack(fill="x", side="bottom")
+        self._btn_start = tk.Button(
+            footer, text="▶ Starten", bg=cfg.ACCENT, fg="#fff",
+            font=cfg.FONT_HEAD, relief="flat", padx=16,
+            command=self._start)
+        self._btn_start.pack(side="left", padx=8)
+        self._btn_stop = tk.Button(
+            footer, text="■ Abbrechen", bg=cfg.RED, fg="#fff",
+            font=cfg.FONT_HEAD, relief="flat", padx=16,
+            command=self._stop, state="disabled")
+        self._btn_stop.pack(side="left", padx=4)
+        tk.Button(footer, text="Log löschen", bg=cfg.BG3, fg=cfg.FG,
+                  font=cfg.FONT_MAIN, relief="flat",
+                  command=self._clear_log).pack(side="right", padx=8)
+
+    def _build_task_list(self, parent):
+        grouped: dict = {}
+        for task in TASKS:
+            grouped.setdefault(task["group"], []).append(task)
+        for group in sorted(grouped, key=lambda g: GROUP_ORDER.get(g, 9)):
+            tk.Label(parent, text=group.upper(), bg=cfg.BG2,
+                     fg=cfg.ACCENT, font=cfg.FONT_HEAD,
+                     anchor="w").pack(fill="x", padx=8, pady=(10, 2))
+            for task in grouped[group]:
+                var = tk.BooleanVar(value=task["default"])
+                self._task_vars[task["id"]] = var
+                cb = tk.Checkbutton(parent, text=task["name"], variable=var,
+                                    bg=cfg.BG2, fg=cfg.FG, selectcolor=cfg.BG3,
+                                    activebackground=cfg.BG2,
+                                    font=cfg.FONT_MAIN, anchor="w")
+                cb.pack(fill="x", padx=8)
+                tk.Label(parent, text=f"  {task['desc']}", bg=cfg.BG2,
+                         fg=cfg.FG_DIM, font=("Segoe UI", 8),
+                         anchor="w", wraplength=220).pack(fill="x", padx=16)
+
+    # ── Selektion ──────────────────────────────────────────────────────────────
+
+    def _sel_all(self):
+        for v in self._task_vars.values(): v.set(True)
+
+    def _sel_none(self):
+        for v in self._task_vars.values(): v.set(False)
+
+    def _sel_default(self):
+        for task in TASKS:
+            self._task_vars[task["id"]].set(task["default"])
+
+    # ── Log-Ausgabe ────────────────────────────────────────────────────────────
+
+    def _append_log(self, msg: str, tag: str = ""):
+        def _do():
+            self._log.configure(state="normal")
+            ts = time.strftime("%H:%M:%S")
+            self._log.insert("end", f"[{ts}] {msg}\n", tag or "")
+            self._log.see("end")
+            self._log.configure(state="disabled")
+        self.after(0, _do)
+
+    def _clear_log(self):
+        self._log.configure(state="normal")
+        self._log.delete("1.0", "end")
+        self._log.configure(state="disabled")
+
+    def _set_status(self, text: str):
+        self.after(0, lambda: self._status_lbl.configure(text=text))
+
+    # ── Start / Stop ───────────────────────────────────────────────────────────
+
+    def _start(self):
+        selected = [t for t in TASKS
+                    if self._task_vars.get(t["id"], tk.BooleanVar()).get()]
+        if not selected:
+            self._append_log("Kein Task ausgewählt.", tag="warn")
+            return
+        selected.sort(key=lambda t: (GROUP_ORDER.get(t.get("group", ""), 9),
+                                     t["id"]))
+        # GEDCOM-Pfad in Config einpflegen
+        cfg.DEFAULT_CONFIG["gedfile"] = self._path_var.get()
+        self._running = True
+        self._btn_start.configure(state="disabled")
+        self._btn_stop.configure(state="normal")
+        self._pbar.configure(mode="indeterminate")
+        self._pbar.start(10)
+        self._results.clear()
+
+        thread = threading.Thread(target=self._worker, args=(selected,), daemon=True)
+        thread.start()
+
+    def _stop(self):
+        self._running = False
+        self._set_status("Abbrechen …")
+
+    def _finish(self, had_errors: bool):
+        self._pbar.stop()
+        self._pbar.configure(mode="determinate", value=0)
+        self._btn_start.configure(state="normal")
+        self._btn_stop.configure(state="disabled")
+        tag = "warn" if had_errors else "ok"
+        msg = "Abgeschlossen mit Warnungen." if had_errors else "Alle Tasks erfolgreich."
+        self._append_log(msg, tag=tag)
+        self._set_status(msg)
+
+    # ── Worker ─────────────────────────────────────────────────────────────────
+
+    def _worker(self, tasks):
+        had_errors = False
+        total = len(tasks)
+        for i, task in enumerate(tasks):
+            if not self._running:
+                self._append_log("Abgebrochen.", tag="warn")
+                break
+            self._append_log(f"── {task['name']} …", tag="info")
+            self._set_status(f"[{i+1}/{total}] {task['name']}")
+            try:
+                # Shared-State mitgeben via progress_cb closure
+                def make_cb(task_id):
+                    def cb(msg, tag=""):
+                        self._append_log(msg, tag=tag)
+                    return cb
+                # Importiere Runner-Modul
+                _call_task(task["fn"],
+                           progress_cb=make_cb(task["id"]))
+            except Exception as exc:
+                self._append_log(f"FEHLER in '{task['name']}': {exc}", tag="err")
+                had_errors = True
+        self.after(0, self._finish, had_errors)
+
+
+# ── Runner-Modul (tasks/_runner.py) kann nicht vorher existieren ───────────────
+# Wir registrieren die Funktionen direkt in tasks/_runner.py weiter unten.
+
+
+# ── Entry-Point ────────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    # Sicherstellen, dass Verzeichnisse existieren
+    for d in cfg.DIRS.values():
+        os.makedirs(d, exist_ok=True)
+    app = AhnenApp()
+    app.mainloop()
