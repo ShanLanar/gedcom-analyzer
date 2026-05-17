@@ -299,3 +299,175 @@ def calculate_comprehensive_statistics(individuals, families, progress_cb=None):
 
 
 STATS_HEADERS = ["Statistik", "Wert", "Prozent"]
+
+
+# ── Geschwister-Statistiken ────────────────────────────────────────────────────
+
+SIBLING_HEADERS = [
+    "Familie-ID", "Vater", "Mutter", "Kinder gesamt", "Kinder mit Geburtsjahr",
+    "Früheste Geburt", "Späteste Geburt", "Spanne (J.)", "Ø Abstand (J.)",
+    "Min. Abstand (J.)", "Max. Abstand (J.)", "Zwillinge/nah (J.=0/1)"
+]
+
+
+def analyze_sibling_statistics(individuals, families, progress_cb=None) -> list:
+    """For each family with ≥ 2 children who have known birth years, compute
+    birth interval statistics and flag potential twins / very-close births.
+    Returns one row per qualifying family, sorted by number of children with
+    a birth year (descending).
+    """
+    p = progress_cb or (lambda m, **kw: None)
+    p("Geschwister-Statistiken …")
+
+    rows = []
+    for fid, fam in families.items():
+        children = fam.get("CHIL", [])
+        if len(children) < 2:
+            continue
+
+        birth_years = []
+        for cid in children:
+            cd = individuals.get(cid)
+            if not cd:
+                continue
+            by = safe_extract_year((cd.get("BIRT") or {}).get("DATE"))
+            if by:
+                birth_years.append(by)
+
+        if len(birth_years) < 2:
+            continue
+
+        birth_years_sorted = sorted(birth_years)
+        intervals = [birth_years_sorted[i + 1] - birth_years_sorted[i]
+                     for i in range(len(birth_years_sorted) - 1)]
+
+        min_interval = min(intervals)
+        max_interval = max(intervals)
+        avg_interval = sum(intervals) / len(intervals)
+        span = birth_years_sorted[-1] - birth_years_sorted[0]
+        near_count = sum(1 for iv in intervals if iv <= 1)
+
+        husb_id = fam.get("HUSB")
+        wife_id = fam.get("WIFE")
+        father_name = ""
+        mother_name = ""
+        if husb_id and husb_id in individuals:
+            father_name = (individuals[husb_id].get("NAME") or "")[:40]
+        if wife_id and wife_id in individuals:
+            mother_name = (individuals[wife_id].get("NAME") or "")[:40]
+
+        rows.append([
+            fid, father_name, mother_name,
+            len(children), len(birth_years),
+            birth_years_sorted[0], birth_years_sorted[-1],
+            span,
+            round(avg_interval, 2),
+            min_interval, max_interval,
+            near_count,
+        ])
+
+    rows.sort(key=lambda x: x[4], reverse=True)
+    p(f"Geschwister-Statistiken: {len(rows)} Familien analysiert", tag="ok")
+    return rows
+
+
+# ── Vorname-Drift ──────────────────────────────────────────────────────────────
+
+NAMEDRIFT_HEADERS = [
+    "Vorname", "Gesamt", "Männer", "Frauen",
+    "Erstbeleg (J.)", "Letzter Beleg (J.)", "Spanne (J.)",
+    "Peak-Dekade", "Peak-Anzahl"
+]
+
+
+def analyze_name_drift(individuals, progress_cb=None, top_n=150) -> list:
+    """For each distinct given name, compute temporal spread and peak decade.
+
+    Given name extraction: take the part of NAME before the first "/",
+    strip whitespace, take the first word.  Names are grouped
+    case-insensitively; the display form is taken from the most common
+    capitalisation variant found.
+    """
+    p = progress_cb or (lambda m, **kw: None)
+    p("Vorname-Drift-Analyse …")
+
+    # key → uppercase normalised given name
+    # value → dict with aggregation data
+    name_data: dict = {}
+    # track raw-case variants for display: upper_key → Counter of raw forms
+    name_variants: dict = {}
+
+    for pid, pdata in individuals.items():
+        name_field = pdata.get("NAME", "") or ""
+        # Extract given name: everything before first "/"
+        slash_idx = name_field.find("/")
+        given_part = name_field[:slash_idx].strip() if slash_idx != -1 else name_field.strip()
+        # Take the first word
+        words = given_part.split()
+        if not words:
+            continue
+        given = words[0]
+
+        # Validation
+        if len(given) < 2 or len(given) > 25:
+            continue
+        if given.isdigit():
+            continue
+
+        upper_key = given.upper()
+        by = safe_extract_year((pdata.get("BIRT") or {}).get("DATE"))
+        sex = pdata.get("SEX", "U")
+        if sex not in ("M", "F"):
+            sex = "U"
+
+        if upper_key not in name_data:
+            name_data[upper_key] = {
+                "total": 0, "M": 0, "F": 0, "U": 0,
+                "birth_years": [],
+                "decade_counter": Counter(),
+            }
+            name_variants[upper_key] = Counter()
+
+        nd = name_data[upper_key]
+        nd["total"] += 1
+        nd[sex] += 1
+        name_variants[upper_key][given] += 1
+        if by:
+            nd["birth_years"].append(by)
+            decade = (by // 10) * 10
+            nd["decade_counter"][decade] += 1
+
+    rows = []
+    for upper_key, nd in name_data.items():
+        # Display name: most common capitalisation variant
+        display_name = name_variants[upper_key].most_common(1)[0][0]
+
+        bys = nd["birth_years"]
+        if bys:
+            first_year = min(bys)
+            last_year = max(bys)
+            span = last_year - first_year
+        else:
+            first_year = last_year = span = ""
+
+        if nd["decade_counter"]:
+            peak_decade, peak_count = nd["decade_counter"].most_common(1)[0]
+        else:
+            peak_decade = peak_count = ""
+
+        rows.append([
+            display_name,
+            nd["total"],
+            nd["M"],
+            nd["F"],
+            first_year,
+            last_year,
+            span,
+            peak_decade,
+            peak_count,
+        ])
+
+    rows.sort(key=lambda x: x[1], reverse=True)
+    rows = rows[:top_n]
+    p(f"Vorname-Drift: {len(rows)} Vornamen analysiert", tag="ok")
+    return rows

@@ -229,3 +229,112 @@ PEDIGREE_MULTI_HEADERS = [
     "Gesamt-Auftreten", "Anzahl Generationen",
     "Früheste Generation", "Späteste Generation", "Generationen-Detail"
 ]
+
+
+# ── Kinship-Koeffizient ───────────────────────────────────────────────────────
+
+def _kinship_coefficient(id_a, id_b, individuals, families, max_depth=10) -> float:
+    """Computes kinship coefficient Φ(A,B).
+
+    Φ(A,B) = (1/2) × Σ_{C ∈ common_ancestors(A,B)} Σ_{l_a, l_b}
+              (1/2)^(l_a + l_b) × (1 + F_C)
+
+    Each person is included at depth 0 (themselves) so that, e.g.,
+    Φ(parent, child) = 0.25 is correct.
+    """
+    # Build ancestor maps including self at depth 0.
+    raw_a = _ancestors_with_depth(id_a, individuals, families, max_depth)
+    anc_a = defaultdict(list, {k: list(v) for k, v in raw_a.items()})
+    anc_a[id_a].append(0)
+
+    raw_b = _ancestors_with_depth(id_b, individuals, families, max_depth)
+    anc_b = defaultdict(list, {k: list(v) for k, v in raw_b.items()})
+    anc_b[id_b].append(0)
+
+    common = set(anc_a) & set(anc_b)
+    if not common:
+        return 0.0
+
+    phi = 0.0
+    for anc in common:
+        F_C = compute_inbreeding_coefficient(anc, individuals, families, max_depth)
+        for l_a in anc_a[anc]:
+            for l_b in anc_b[anc]:
+                phi += (0.5 ** (l_a + l_b)) * (1 + F_C)
+    return phi * 0.5
+
+
+# ── DNA-cM-Schätzung ──────────────────────────────────────────────────────────
+
+DNA_CM_HEADERS = [
+    "ID", "Name", "Geschlecht", "Geburtsjahr", "Kinship Φ", "Erw. cM (Ø)", "DNA-Klasse"
+]
+
+
+def analyze_dna_cm_estimates(root_id, individuals, families,
+                              root_related_ids=None, progress_cb=None) -> list:
+    """For each person in root_related_ids (or all, capped at 50 000), compute
+    the kinship coefficient Φ and the expected shared cM, then classify the
+    relationship.  Only persons with Φ > 0 are included in the output.
+    """
+    from tasks._runner import is_aborted, AbortedError
+
+    p = progress_cb or (lambda m, **kw: None)
+    p("DNA-cM-Schätzungs-Analyse …")
+
+    pids = list(root_related_ids if root_related_ids else individuals)
+    if len(pids) > 50_000:
+        pids = pids[:50_000]
+
+    results = []
+    for i, pid in enumerate(pids):
+        if i % 500 == 0 and is_aborted():
+            raise AbortedError("DNA-cM-Analyse abgebrochen")
+        if i % 2000 == 0 and i > 0:
+            p(f"  DNA-cM: {i}/{len(pids)} …")
+
+        if pid == root_id:
+            continue
+        pdata = individuals.get(pid)
+        if not pdata:
+            continue
+
+        phi = _kinship_coefficient(root_id, pid, individuals, families, max_depth=10)
+        if phi == 0.0:
+            continue
+
+        expected_cm = round(phi * 2 * 7000, 1)
+
+        if expected_cm >= 2400:
+            klasse = "Elternteil/Geschwister"
+        elif expected_cm >= 1300:
+            klasse = "Großelternteil/Halbgeschwister/Tante/Onkel"
+        elif expected_cm >= 600:
+            klasse = "Cousin 1. Grades"
+        elif expected_cm >= 200:
+            klasse = "Cousin 2. Grades"
+        elif expected_cm >= 60:
+            klasse = "Cousin 3. Grades"
+        elif expected_cm >= 20:
+            klasse = "Cousin 4. Grades"
+        elif expected_cm > 0:
+            klasse = "Entfernter Verwandter"
+        else:
+            klasse = "Kein Nachweis"
+
+        name = pdata.get("NAME", "") or ""
+        sex = pdata.get("SEX", "U")
+        birth_year = safe_extract_year((pdata.get("BIRT") or {}).get("DATE")) or ""
+
+        results.append([
+            pid, name,
+            "Männlich" if sex == "M" else "Weiblich" if sex == "F" else "Unbekannt",
+            birth_year,
+            round(phi, 6),
+            expected_cm,
+            klasse,
+        ])
+
+    results.sort(key=lambda x: x[5], reverse=True)
+    p(f"DNA-cM: {len(results)} verwandte Personen gefunden", tag="ok")
+    return results

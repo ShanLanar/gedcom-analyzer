@@ -283,7 +283,8 @@ def run_export_excel(progress_cb=None, stop_event=None):
     _set_stop_event(stop_event)
     from tasks import export as _exp
     from tasks import (cousins, endogamy, migration, military, demographics,
-                        genetics, history, names, data_quality, network, osnabrueck)
+                        genetics, history, names, data_quality, network, osnabrueck,
+                        anomalies)
 
     _p(progress_cb, "Baue Sheet-Liste …")
     indiv = _state["individuals"]
@@ -381,6 +382,25 @@ def run_export_excel(progress_cb=None, stop_event=None):
         _exp.build_symbol_sheet(indiv),
         _exp.build_gedcom_events_sheet(indiv),
         _exp.build_location_info_sheet(ld),
+
+        # Neue Analysen (nur wenn Task gelaufen)
+        ("Daten-Anomalien", anomalies.ANOMALY_HEADERS,
+         _state.get("anomaly_results", [])[:50_000]),
+
+        ("Potenzielle Doubletten", anomalies.DUPLICATE_HEADERS,
+         _state.get("duplicate_results", [])[:10_000]),
+
+        ("Unerreichbare Personen", anomalies.ISLAND_HEADERS,
+         _state.get("island_results", [])[:50_000]),
+
+        ("DNA-cM-Schätzung", genetics.DNA_CM_HEADERS,
+         _state.get("dna_cm_results", [])[:50_000]),
+
+        ("Geschwister-Statistiken", demographics.SIBLING_HEADERS,
+         _state.get("sibling_results", [])[:20_000]),
+
+        ("Namensdrift (Vornamen)", demographics.NAMEDRIFT_HEADERS,
+         _state.get("namedrift_results", [])[:500]),
     ]
 
     # Osnabrück-Sheets
@@ -443,3 +463,65 @@ def run_export_json(progress_cb=None, stop_event=None):
     }
     export_to_json(summary, cfg.DEFAULT_CONFIG["output_json"],
                    progress_cb=progress_cb)
+
+
+# ── Schritt 16: Anomalien / Doubletten / Inseln ───────────────────────────────
+
+def run_anomalies(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.anomalies import detect_anomalies, detect_duplicates, detect_islands
+    _state["anomaly_results"]   = detect_anomalies(
+        _state["individuals"], _state["families"], progress_cb=progress_cb)
+    _state["duplicate_results"] = detect_duplicates(
+        _state["individuals"], progress_cb=progress_cb)
+    _state["island_results"]    = detect_islands(
+        cfg.DEFAULT_CONFIG["root_id"],
+        _state["individuals"], _state["families"], progress_cb=progress_cb)
+
+
+# ── Schritt 17: DNA-cM-Schätzung ─────────────────────────────────────────────
+
+def run_dna_cm(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.genetics import analyze_dna_cm_estimates
+    _state["dna_cm_results"] = analyze_dna_cm_estimates(
+        cfg.DEFAULT_CONFIG["root_id"],
+        _state["individuals"], _state["families"],
+        root_related_ids=_state.get("root_related_ids"),
+        progress_cb=progress_cb)
+
+
+# ── Schritt 18: Geschwister-Statistiken + Namensdrift ────────────────────────
+
+def run_sibling_and_namedrift(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.demographics import analyze_sibling_statistics, analyze_name_drift
+    _state["sibling_results"]   = analyze_sibling_statistics(
+        _state["individuals"], _state["families"], progress_cb=progress_cb)
+    _state["namedrift_results"] = analyze_name_drift(
+        _state["individuals"], progress_cb=progress_cb)
+
+
+# ── Schritt 19: GraphML-Export ────────────────────────────────────────────────
+
+def run_export_graphml(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.export_graphml import export_graphml
+    export_graphml(
+        _state["individuals"], _state["families"],
+        cfg.FILES["output_graphml"],
+        root_id=cfg.DEFAULT_CONFIG["root_id"],
+        root_related_ids=_state.get("root_related_ids"),
+        progress_cb=progress_cb)
+
+
+# ── Schritt 20: Timeline-HTML ────────────────────────────────────────────────
+
+def run_export_timeline(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.export import export_timeline_html
+    export_timeline_html(
+        _state["individuals"], _state["families"],
+        cfg.FILES["timeline_html"],
+        root_related_ids=_state.get("root_related_ids"),
+        progress_cb=progress_cb)

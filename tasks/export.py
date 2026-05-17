@@ -98,12 +98,17 @@ def export_to_excel(all_sheets: list, output_path: str,
             p(f"Fehler bei Sheet '{sheet_name}': {e}", tag="warn")
 
     p("Speichere Excel-Datei (kann bei großen Workbooks etwas dauern) …")
+    tmp_path = output_path + ".tmp"
     try:
-        wb.save(output_path)
+        wb.save(tmp_path)
+        os.replace(tmp_path, output_path)   # atomarer Rename – kein halbfertiges File
         size_mb = os.path.getsize(output_path) / 1_048_576
         p(f"Excel gespeichert: {output_path} ({size_mb:.1f} MB)", tag="ok")
         return True
     except Exception as e:
+        if os.path.exists(tmp_path):
+            try: os.unlink(tmp_path)
+            except OSError: pass
         p(f"Fehler beim Speichern von Excel: {e}", tag="err")
         return False
 
@@ -252,6 +257,97 @@ def export_html_overview(state: dict, output_path: str,
         return True
     except OSError as e:
         p(f"Fehler beim HTML-Export: {e}", tag="err")
+        return False
+
+
+def export_timeline_html(individuals: dict, families: dict, output_path: str,
+                          root_related_ids: set | None = None,
+                          progress_cb=None) -> bool:
+    """Chronologische HTML-Zeitlinie aller Ereignisse aller (oder verwandter) Personen."""
+    p = progress_cb or (lambda m, **kw: None)
+    p(f"Timeline-HTML: {output_path} …")
+
+    scope = root_related_ids if root_related_ids else set(individuals)
+    events: list = []
+    for iid in scope:
+        indi = individuals.get(iid)
+        if not indi:
+            continue
+        name = html.escape((indi.get("NAME") or "Unbekannt")[:50])
+        sex  = indi.get("SEX", "U")
+        for ev_tag, ev_label in (("BIRT", "Geburt"), ("DEAT", "Tod"),
+                                  ("EMIG", "Auswanderung"), ("IMMI", "Einwanderung")):
+            ev = indi.get(ev_tag) or {}
+            year = ev.get("YEAR")
+            if not year:
+                continue
+            place = html.escape((ev.get("PLAC") or "")[:40])
+            events.append((year, ev_label, iid, name, sex, place))
+
+    events.sort(key=lambda e: e[0])
+    p(f"  {len(events):,} Ereignisse sortiert …")
+
+    _sex_color = {"M": "#7eb8f7", "F": "#f7a8c4", "U": "#b0b0b0"}
+    rows_html = "\n".join(
+        f'<tr><td>{year}</td><td class="ev-{ev_label[:3].lower()}">{ev_label}</td>'
+        f'<td style="color:{_sex_color.get(sex, "#b0b0b0")}">{name}</td>'
+        f'<td><small>{place}</small></td></tr>'
+        for year, ev_label, iid, name, sex, place in events
+    )
+    doc = f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Ahnen-Zeitlinie</title>
+  <style>
+    :root {{--bg:#1e1e2e;--bg2:#2a2a3e;--accent:#7c7cf8;--fg:#cdd6f4;--dim:#6c7086;}}
+    body {{font-family:'Segoe UI',sans-serif;max-width:1100px;margin:2em auto;
+           padding:0 1em;background:var(--bg);color:var(--fg);}}
+    h1 {{color:var(--accent);border-bottom:2px solid var(--accent);padding-bottom:.3em;}}
+    input {{background:var(--bg2);color:var(--fg);border:1px solid var(--accent);
+            padding:4px 8px;width:220px;border-radius:4px;font-size:.9em;}}
+    table {{border-collapse:collapse;width:100%;margin-top:.8em;font-size:.88em;}}
+    th,td {{border:1px solid var(--bg2);padding:4px 8px;text-align:left;}}
+    th {{background:var(--accent);color:#fff;position:sticky;top:0;z-index:1;}}
+    tr:nth-child(even) {{background:#232336;}}
+    .ev-geb {{color:#50fa7b;}} .ev-tod {{color:#ff5555;}}
+    .ev-aus {{color:#ffb86c;}} .ev-imm {{color:#7c7cf8;}}
+    .meta {{color:var(--dim);font-size:.9em;}}
+    #filter {{margin:.6em 0;}}
+  </style>
+</head>
+<body>
+  <h1>🕰 Ahnen-Zeitlinie</h1>
+  <p class="meta">{len(events):,} Ereignisse · {len(scope):,} Personen ·
+    Stand: {html.escape(datetime.now().strftime('%Y-%m-%d %H:%M'))}</p>
+  <div id="filter">
+    <input type="text" id="q" placeholder="Person oder Ort filtern …" oninput="filterTable()">
+  </div>
+  <table id="tbl">
+    <thead><tr><th>Jahr</th><th>Ereignis</th><th>Person</th><th>Ort</th></tr></thead>
+    <tbody id="tbody">{rows_html}</tbody>
+  </table>
+  <script>
+    function filterTable(){{
+      const q=document.getElementById('q').value.toLowerCase();
+      document.querySelectorAll('#tbody tr').forEach(r=>{{
+        r.style.display=r.textContent.toLowerCase().includes(q)?'':'none';
+      }});
+    }}
+  </script>
+</body>
+</html>"""
+    try:
+        d = os.path.dirname(output_path)
+        if d and not os.path.exists(d):
+            os.makedirs(d, exist_ok=True)
+        with open(output_path, "w", encoding="utf-8") as f:
+            f.write(doc)
+        size_kb = os.path.getsize(output_path) / 1024
+        p(f"Timeline gespeichert: {output_path} ({size_kb:.1f} KB)", tag="ok")
+        return True
+    except OSError as e:
+        p(f"Fehler beim Timeline-Export: {e}", tag="err")
         return False
 
 

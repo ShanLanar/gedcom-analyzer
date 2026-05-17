@@ -131,6 +131,31 @@ TASKS = [
         "default": True,
         "group":   "Extras",
     },
+    # ── Neue Analysen ──────────────────────────────────────────────────────────
+    {
+        "id":      "anomalies",
+        "name":    "Anomalien & Doubletten & Inseln",
+        "desc":    "Implausible Daten, potenzielle Duplikate, unverbundene Personen.",
+        "fn":      "tasks._runner:run_anomalies",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "dna_cm",
+        "name":    "DNA-cM-Schätzung",
+        "desc":    "Erwartete gemeinsame cM pro Verwandten (aus Kinship-Koeffizient).",
+        "fn":      "tasks._runner:run_dna_cm",
+        "default": False,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "sibling_namedrift",
+        "name":    "Geschwister-Statistiken & Namensdrift",
+        "desc":    "Geburtsabstände in Familien + Vor-/Namenstrends über Zeit.",
+        "fn":      "tasks._runner:run_sibling_and_namedrift",
+        "default": True,
+        "group":   "Analysen",
+    },
     # ── Export ─────────────────────────────────────────────────────────────────
     {
         "id":      "export_excel",
@@ -153,6 +178,22 @@ TASKS = [
         "name":    "HTML-Übersicht",
         "desc":    f"Selbsterklärende Übersicht nach {cfg.FILES['interactive_html']}.",
         "fn":      "tasks._runner:run_export_html",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_timeline",
+        "name":    "HTML-Timeline",
+        "desc":    f"Chronologische Ereignis-Zeitlinie nach {cfg.FILES['timeline_html']}.",
+        "fn":      "tasks._runner:run_export_timeline",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_graphml",
+        "name":    "GraphML-Export",
+        "desc":    f"Netzwerk für Gephi/yEd nach {cfg.FILES['output_graphml']}.",
+        "fn":      "tasks._runner:run_export_graphml",
         "default": False,
         "group":   "Export",
     },
@@ -261,6 +302,21 @@ class AhnenApp(tk.Tk):
                   font=cfg.FONT_MAIN, relief="flat",
                   command=self._browse_gedcom).pack(side="left", padx=4)
 
+        # Zuletzt geöffnete Dateien + Ancestry-Vorschlag
+        recent_frame = tk.Frame(right, bg=cfg.BG2, pady=2)
+        recent_frame.pack(fill="x")
+        tk.Label(recent_frame, text="Zuletzt:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=("Segoe UI", 8)).pack(side="left", padx=8)
+        self._recent_var = tk.StringVar(value="")
+        self._recent_menu = ttk.Combobox(
+            recent_frame, textvariable=self._recent_var,
+            state="readonly", width=55, font=("Segoe UI", 8))
+        self._recent_menu.pack(side="left", padx=4)
+        self._recent_menu.bind("<<ComboboxSelected>>", self._on_recent_select)
+        self._refresh_recent()
+        # Ancestry-Export im Download-Ordner suchen und vorschlagen
+        self.after(600, self._suggest_ancestry_export)
+
         # Root-/Exclude-ID
         ids_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
         ids_frame.pack(fill="x")
@@ -337,6 +393,51 @@ class AhnenApp(tk.Tk):
 
     # ── Datei-Auswahl ──────────────────────────────────────────────────────────
 
+    def _refresh_recent(self):
+        recent = cfg.get_recent_files()
+        self._recent_menu["values"] = recent
+        if recent and not self._recent_var.get():
+            self._recent_var.set("")
+
+    def _on_recent_select(self, _event=None):
+        val = self._recent_var.get()
+        if val:
+            self._path_var.set(val)
+            self._recent_var.set("")
+
+    def _suggest_ancestry_export(self):
+        """Sucht im Download-Ordner nach aktuellen Ancestry-GEDCOM-Exporten."""
+        import glob
+        downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+        if not os.path.isdir(downloads):
+            return
+        now = time.time()
+        candidates = []
+        for p in glob.glob(os.path.join(downloads, "*.ged")):
+            try:
+                age_days = (now - os.path.getmtime(p)) / 86400
+                if age_days > 7:
+                    continue
+                # Ancestry-Header prüfen (erste 256 Bytes)
+                with open(p, "rb") as f:
+                    head = f.read(256).decode("utf-8-sig", errors="ignore")
+                if "ancestry" in head.lower() or "SOUR Ancestry" in head:
+                    candidates.append((age_days, p))
+            except OSError:
+                continue
+        if not candidates:
+            return
+        candidates.sort()
+        newest = candidates[0][1]
+        current = self._path_var.get()
+        if current and os.path.exists(current):
+            return  # Bereits eine gültige Datei gesetzt
+        self._path_var.set(newest)
+        self._append_log(
+            f"Ancestry-Export gefunden: {os.path.basename(newest)} "
+            f"(letzte {candidates[0][0]:.1f} Tage) → automatisch gesetzt.",
+            tag="info")
+
     def _browse_gedcom(self):
         initial = self._path_var.get() or cfg.DEFAULT_CONFIG.get("gedfile", "")
         initial_dir = os.path.dirname(initial) if initial else ""
@@ -352,6 +453,7 @@ class AhnenApp(tk.Tk):
             ])
         if path:
             self._path_var.set(path)
+            self._refresh_recent()
 
     def _sel_all(self):
         for v in self._task_vars.values(): v.set(True)
@@ -402,12 +504,13 @@ class AhnenApp(tk.Tk):
         cfg.DEFAULT_CONFIG["exclude_id"] = excl_id
         cfg.ROOT_ID    = root_id
         cfg.EXCLUDE_ID = excl_id
-        # Persistieren, damit der nächste Start dieselben Werte hat
+        # Persistieren + Recent-Files-Liste aktualisieren
         cfg.save_overrides({
             "gedfile":    gedfile,
             "root_id":    root_id,
             "exclude_id": excl_id,
         })
+        self.after(0, self._refresh_recent)
         self._running = True
         self._stop_event.clear()
         self._btn_start.configure(state="disabled")
