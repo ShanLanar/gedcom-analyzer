@@ -25,8 +25,11 @@ def _log(level, msg):
 
 # ── Datum ──────────────────────────────────────────────────────────────────────
 
-# Einheitlicher Jahres-Regex für die ganze Codebase (1000–2099).
-_YEAR_RE = re.compile(r"\b(1[0-9]{3}|20\d{2})\b")
+# Einheitlicher Jahres-Regex für die ganze Codebase.
+# Akzeptiert 1000–2199 (genealogisch-relevante Spanne inkl. Schätzungen
+# weit in der Zukunft). 3-stellige Zahlen werden nicht gematcht, um Haus-
+# nummern und ähnliche Störer zu vermeiden.
+_YEAR_RE = re.compile(r"\b(1[0-9]{3}|2[01]\d{2})\b")
 
 
 def safe_parse_gedcom_date(date_str: str) -> dict:
@@ -169,6 +172,13 @@ def robust_load_gedcom(filepath: str) -> tuple[dict, dict]:
                                          "EVEN", "EMIG", "IMMI"):
                                 current_event = tag
                                 current_event_level = level
+                            # GEDCOM 7: GIVN/SURN sub-tags unter NAME
+                            elif tag == "GIVN" and not current_event:
+                                if not ind.get("_GIVN"):
+                                    ind["_GIVN"] = data
+                            elif tag == "SURN" and not current_event:
+                                if not ind.get("_SURN"):
+                                    ind["_SURN"] = data
                             elif tag == "DATE" and current_event and \
                                     current_event_level is not None and \
                                     level == current_event_level + 1:
@@ -216,6 +226,20 @@ def robust_load_gedcom(filepath: str) -> tuple[dict, dict]:
 
                 except Exception as e:
                     errors.append(f"Zeile {line_num}: Unbekannter Fehler – {e}")
+
+        # GEDCOM 7: NAME aus GIVN/SURN aufbauen, wenn NAME leer blieb
+        for ind in individuals.values():
+            if not ind.get("NAME"):
+                givn = ind.pop("_GIVN", None)
+                surn = ind.pop("_SURN", None)
+                if givn or surn:
+                    parts = []
+                    if givn: parts.append(givn)
+                    if surn: parts.append(f"/{surn}/")
+                    ind["NAME"] = " ".join(parts)
+            else:
+                ind.pop("_GIVN", None)
+                ind.pop("_SURN", None)
 
         # Leere Fehlerlisten entfernen
         for rec in list(individuals.values()) + list(families.values()):

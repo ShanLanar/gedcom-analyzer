@@ -24,6 +24,8 @@ FILES = {
     "output_json":      r"C:\ahnen\output\genealogy_results.json",
     "log_file":         r"C:\ahnen\logs\genealogy_analysis.log",
     "interactive_html": r"C:\ahnen\output\family_tree.html",
+    "timeline_html":    r"C:\ahnen\output\timeline.html",
+    "output_graphml":   r"C:\ahnen\output\family_network.graphml",
     "osnabrueck_xlsx":  r"C:\ahnen\output\osnabrueck_region_analysis.xlsx",
     "osnabrueck_html":  r"C:\ahnen\output\osnabrueck_region_report.html",
     "osnabrueck_json":  r"C:\ahnen\output\osnabrueck_region_analysis.json",
@@ -92,6 +94,8 @@ _FILE_KEY_MAP = {
     "location_data_json": "location_data",
     "log_file":           "log_file",
     "interactive_html":   "interactive_html",
+    "timeline_html":      "timeline_html",
+    "output_graphml":     "output_graphml",
 }
 _GLOBAL_KEY_MAP = {
     "root_id":               "ROOT_ID",
@@ -128,7 +132,9 @@ def _overrides_path(json_path=None) -> str:
 
 def save_overrides(updates: dict, json_path: str | None = None) -> bool:
     """Mischt `updates` in eine bestehende config_user.json (oder erzeugt sie)
-    und schreibt das Ergebnis atomar zurück. Gibt True bei Erfolg."""
+    und schreibt das Ergebnis atomar zurück. Gibt True bei Erfolg.
+    Wenn `updates` einen 'gedfile'-Key enthält, wird die Datei automatisch
+    in die Recent-Files-Liste aufgenommen (max. 5 Einträge)."""
     import json as _json
     path = _overrides_path(json_path)
     existing: dict = {}
@@ -139,6 +145,11 @@ def save_overrides(updates: dict, json_path: str | None = None) -> bool:
         except (OSError, _json.JSONDecodeError):
             existing = {}
     existing.update(updates)
+    # Recent-Files-Rotation: neue gedfile an Anfang, max. 5 Einträge
+    if "gedfile" in updates and updates["gedfile"]:
+        recent = [p for p in existing.get("recent_files", [])
+                  if p != updates["gedfile"]]
+        existing["recent_files"] = [updates["gedfile"]] + recent[:4]
     try:
         tmp = path + ".tmp"
         with open(tmp, "w", encoding="utf-8") as f:
@@ -149,6 +160,20 @@ def save_overrides(updates: dict, json_path: str | None = None) -> bool:
         print(f"[config] Warnung: config_user.json konnte nicht "
               f"geschrieben werden: {e}")
         return False
+
+
+def get_recent_files(json_path: str | None = None) -> list[str]:
+    """Gibt die zuletzt geöffneten Dateien aus config_user.json zurück."""
+    import json as _json
+    path = _overrides_path(json_path)
+    if not os.path.exists(path):
+        return []
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            data = _json.load(f)
+        return [p for p in data.get("recent_files", []) if os.path.exists(p)]
+    except (OSError, _json.JSONDecodeError):
+        return []
 
 
 def apply_overrides(json_path=None):

@@ -179,20 +179,26 @@ def calculate_generation_lengths(individuals, families, root_id,
     p = progress_cb or (lambda m, **kw: None)
     p("Generationenlängen-Analyse …")
 
-    # Generationen von Root aus (BFS durch FAMS)
+    # Bidirektional: Vorfahren (FAMC, +1) UND Nachfahren (FAMS, -1) von Root.
+    # Notwendig, weil Root meist die jüngste Person ist und der frühere
+    # FAMS-only-Walk fast leer blieb.
     gen_map = {root_id: 0}
     queue = deque([root_id])
-    seen = {root_id}
     while queue:
         cur = queue.popleft()
         g = gen_map[cur]
-        for fid in individuals.get(cur, {}).get("FAMS", []):
+        cd = individuals.get(cur, {})
+        for fid in cd.get("FAMC", []):
+            fam = families.get(fid, {})
+            for par in (fam.get("HUSB"), fam.get("WIFE")):
+                if par and par in individuals and par not in gen_map:
+                    gen_map[par] = g + 1
+                    queue.append(par)
+        for fid in cd.get("FAMS", []):
             for cid in families.get(fid, {}).get("CHIL", []):
-                if cid not in gen_map:
-                    gen_map[cid] = g + 1
-                    if cid not in seen:
-                        queue.append(cid)
-                        seen.add(cid)
+                if cid in individuals and cid not in gen_map:
+                    gen_map[cid] = g - 1
+                    queue.append(cid)
 
     gen_stats: dict = {}
     for pid, pdata in individuals.items():
@@ -370,3 +376,244 @@ DECADE_HEADERS = [
     "Jahrzehnt", "Ereignisse", "Migrationen", "Migrationsrate %",
     "Historische Ereignisse"
 ]
+
+
+# ── Krisen-Kohorten-Follow-up ──────────────────────────────────────────────────
+
+CRISIS_COHORT_HEADERS = [
+    "Ereignis", "Zeitraum", "Kohorte-Anzahl",
+    "Kohorte Ø Lebenserwartung", "Δ Lebenserwartung vs. Vor-Kohorte",
+    "Kohorte Ø Heiratsalter", "Δ Heiratsalter",
+    "Kohorte Ø Kinder", "Δ Kinderzahl",
+    "Baseline-Anzahl",
+]
+
+
+def _avg(xs):
+    return (sum(xs) / len(xs)) if xs else None
+
+
+def _delta(a, b):
+    if a is None or b is None:
+        return ""
+    return round(a - b, 2)
+
+
+def _first_marriage_year(pdata, families):
+    years = []
+    for fid in pdata.get("FAMS", []) or []:
+        fam = families.get(fid)
+        if not fam:
+            continue
+        my = safe_extract_year(fam.get("MARR_DATE"))
+        if my:
+            years.append(my)
+    return min(years) if years else None
+
+
+def _children_count(pdata, families):
+    total = 0
+    for fid in pdata.get("FAMS", []) or []:
+        fam = families.get(fid)
+        if not fam:
+            continue
+        total += len(fam.get("CHIL", []) or [])
+    return total
+
+
+def _cohort_stats(pids, individuals, families):
+    """Liefert (n, avg_lifespan, avg_first_marr_age, avg_children)."""
+    lifespans = []
+    marr_ages = []
+    children = []
+    for pid in pids:
+        pdata = individuals.get(pid) or {}
+        by = safe_extract_year((pdata.get("BIRT") or {}).get("DATE"))
+        dy = safe_extract_year((pdata.get("DEAT") or {}).get("DATE"))
+        if by and dy:
+            ls = dy - by
+            if 0 <= ls <= 115:
+                lifespans.append(ls)
+        my = _first_marriage_year(pdata, families)
+        if by and my:
+            age = my - by
+            if 10 <= age <= 90:
+                marr_ages.append(age)
+        children.append(_children_count(pdata, families))
+    return (
+        len(pids),
+        _avg(lifespans),
+        _avg(marr_ages),
+        _avg(children),
+    )
+
+
+def analyze_crisis_cohort_followup(individuals, families, progress_cb=None) -> list:
+    """Vergleicht die während eines historischen Ereignisses geborene Kohorte
+    mit einer Baseline-Kohorte (20 Jahre vor dem Ereignis)."""
+    p = progress_cb or (lambda m, **kw: None)
+    p("Krisen-Kohorten-Follow-up …")
+
+    # Vorberechnung: Geburtsjahr pro Person
+    birth_by_pid: dict = {}
+    for pid, pdata in individuals.items():
+        by = safe_extract_year((pdata.get("BIRT") or {}).get("DATE"))
+        if by:
+            birth_by_pid[pid] = by
+
+    rows = []
+    for start, end, name, _kat, _reg in HISTORICAL_EVENTS:
+        cohort = [pid for pid, by in birth_by_pid.items() if start <= by <= end]
+        base_start = start - 20
+        base_end = start - 1
+        baseline = [pid for pid, by in birth_by_pid.items()
+                    if base_start <= by <= base_end]
+
+        if not cohort and not baseline:
+            continue
+
+        n_c, ls_c, ma_c, ch_c = _cohort_stats(cohort, individuals, families)
+        n_b, ls_b, ma_b, ch_b = _cohort_stats(baseline, individuals, families)
+
+        rows.append([
+            name,
+            f"{start}–{end}",
+            n_c,
+            round(ls_c, 2) if ls_c is not None else "",
+            _delta(ls_c, ls_b),
+            round(ma_c, 2) if ma_c is not None else "",
+            _delta(ma_c, ma_b),
+            round(ch_c, 2) if ch_c is not None else "",
+            _delta(ch_c, ch_b),
+            n_b,
+        ])
+
+    p(f"Krisen-Kohorten: {len(rows)} Ereignisse", tag="ok")
+    return rows
+
+
+# ── Eltern-Verlust-Alter ───────────────────────────────────────────────────────
+
+PARENTAL_LOSS_HEADERS = [
+    "Epoche", "Anzahl Personen",
+    "Median Alter Vatertod", "Median Alter Muttertod",
+    "Vollwaisen vor 18 (Anzahl)", "Vollwaisen-Rate %",
+]
+
+EPOCHS = {
+    "vor_1800":  (1500, 1799),
+    "1800-1850": (1800, 1849),
+    "1850-1900": (1850, 1899),
+    "1900-1950": (1900, 1949),
+    "nach_1950": (1950, 2024),
+}
+
+
+def _epoch_for(year: int) -> str | None:
+    for ep, (s, e) in EPOCHS.items():
+        if s <= year <= e:
+            return ep
+    return None
+
+
+def _parents_of(pdata, families):
+    father = mother = None
+    for fid in pdata.get("FAMC", []) or []:
+        fam = families.get(fid)
+        if not fam:
+            continue
+        if fam.get("HUSB") and not father:
+            father = fam["HUSB"]
+        if fam.get("WIFE") and not mother:
+            mother = fam["WIFE"]
+        if father and mother:
+            break
+    return father, mother
+
+
+def analyze_parental_loss_age(individuals, families, progress_cb=None) -> list:
+    """Aggregiert pro Geburts-Epoche das Alter beim Tod der Eltern und die
+    Vollwaisen-Rate vor dem 18. Lebensjahr."""
+    p = progress_cb or (lambda m, **kw: None)
+    p("Eltern-Verlust-Alter …")
+
+    buckets: dict = {ep: {
+        "n": 0,
+        "father_ages": [],
+        "mother_ages": [],
+        "orphans_before_18": 0,
+    } for ep in EPOCHS}
+
+    for pid, pdata in individuals.items():
+        by = safe_extract_year((pdata.get("BIRT") or {}).get("DATE"))
+        if not by:
+            continue
+        if not pdata.get("FAMC"):
+            continue
+        ep = _epoch_for(by)
+        if ep is None:
+            continue
+
+        own_dy = safe_extract_year((pdata.get("DEAT") or {}).get("DATE"))
+
+        father_id, mother_id = _parents_of(pdata, families)
+        if not father_id and not mother_id:
+            continue
+
+        buckets[ep]["n"] += 1
+
+        father_loss_age = None
+        if father_id:
+            f = individuals.get(father_id) or {}
+            fdy = safe_extract_year((f.get("DEAT") or {}).get("DATE"))
+            if fdy is not None:
+                if own_dy is not None and fdy > own_dy:
+                    pass  # Verlust nach eigenem Tod – ignorieren
+                else:
+                    age = fdy - by
+                    if -1 <= age <= 115:
+                        father_loss_age = age
+                        buckets[ep]["father_ages"].append(age)
+
+        mother_loss_age = None
+        if mother_id:
+            m = individuals.get(mother_id) or {}
+            mdy = safe_extract_year((m.get("DEAT") or {}).get("DATE"))
+            if mdy is not None:
+                if own_dy is not None and mdy > own_dy:
+                    pass
+                else:
+                    age = mdy - by
+                    if -1 <= age <= 115:
+                        mother_loss_age = age
+                        buckets[ep]["mother_ages"].append(age)
+
+        if (father_loss_age is not None and father_loss_age < 18 and
+                mother_loss_age is not None and mother_loss_age < 18):
+            buckets[ep]["orphans_before_18"] += 1
+
+    def _median(xs):
+        if not xs:
+            return ""
+        sx = sorted(xs)
+        n = len(sx)
+        mid = n // 2
+        return (sx[mid - 1] + sx[mid]) / 2 if n % 2 == 0 else sx[mid]
+
+    rows = []
+    for ep in EPOCHS:
+        b = buckets[ep]
+        n = b["n"]
+        if n == 0:
+            continue
+        rows.append([
+            ep,
+            n,
+            _median(b["father_ages"]),
+            _median(b["mother_ages"]),
+            b["orphans_before_18"],
+            round(b["orphans_before_18"] / n * 100, 1),
+        ])
+
+    p(f"Eltern-Verlust: {len(rows)} Epochen", tag="ok")
+    return rows

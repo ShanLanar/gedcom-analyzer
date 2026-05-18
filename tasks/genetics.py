@@ -13,12 +13,16 @@ from lib.places import format_place_for_display
 # in Stammbäumen mit starker Implosion drei Größenordnungen Laufzeit.
 _ANCESTORS_DEPTH_CACHE: dict = {}
 _F_CACHE: dict = {}
+_KINSHIP_CACHE: dict = {}
+_DEPTH_CACHE: dict = {}
 
 
 def clear_genetics_cache() -> None:
     """Aufrufen, wenn die GEDCOM-Daten neu geladen werden."""
     _ANCESTORS_DEPTH_CACHE.clear()
     _F_CACHE.clear()
+    _KINSHIP_CACHE.clear()
+    _DEPTH_CACHE.clear()
 
 
 def _ancestors_with_depth(start_id, individuals, families, max_d):
@@ -229,3 +233,167 @@ PEDIGREE_MULTI_HEADERS = [
     "Gesamt-Auftreten", "Anzahl Generationen",
     "Früheste Generation", "Späteste Generation", "Generationen-Detail"
 ]
+
+
+# ── Kinship-Koeffizient ───────────────────────────────────────────────────────
+
+def _max_ancestor_depth(person_id, individuals, families, max_d=10,
+                          _seen=None) -> int:
+    """Längste bekannte Vorfahren-Kette von ``person_id``. Zyklen-sicher."""
+    if person_id in _DEPTH_CACHE:
+        return _DEPTH_CACHE[person_id]
+    if _seen is None:
+        _seen = set()
+    if person_id in _seen:
+        return 0
+    _seen = _seen | {person_id}
+    d = 0
+    cd = individuals.get(person_id, {})
+    for fid in cd.get("FAMC", []):
+        fam = families.get(fid, {})
+        for par in (fam.get("HUSB"), fam.get("WIFE")):
+            if par and par in individuals:
+                pd = 1 + _max_ancestor_depth(par, individuals, families,
+                                               max_d, _seen)
+                if pd > max_d:
+                    pd = max_d
+                if pd > d:
+                    d = pd
+    _DEPTH_CACHE[person_id] = d
+    return d
+
+
+def _parents_of(person_id, individuals, families) -> list:
+    """Eindeutige Eltern-IDs aus FAMC (kann 0, 1 oder 2 zurückgeben)."""
+    seen, out = set(), []
+    for fid in individuals.get(person_id, {}).get("FAMC", []):
+        fam = families.get(fid, {})
+        for par in (fam.get("HUSB"), fam.get("WIFE")):
+            if par and par in individuals and par not in seen:
+                seen.add(par)
+                out.append(par)
+        if seen:
+            break   # nur erste FAMC-Familie
+    return out
+
+
+def _kinship_coefficient(id_a, id_b, individuals, families, max_depth=10) -> float:
+    """Kinship-Koeffizient Φ(A,B) via Tabular-Methode (Henderson).
+
+    Φ(A,A) = (1 + F_A) / 2
+    Φ(A,B) = (1/2) × Σ_{P ∈ parents(jüngere)} Φ(P, andere)
+
+    Die "jüngere" Person wird über ihre maximale Ahnen-Tiefe ermittelt:
+    wer mehr bekannte Vorfahren hat, ist topologisch jünger. Diese
+    Rekursion vermeidet die Doppel-Zählung der naiven Path-Sum-Variante
+    (Bug aus älteren Revisionen: Φ(Vater, Kind) lieferte 0.375 statt 0.25).
+    """
+    if id_a == id_b:
+        F = compute_inbreeding_coefficient(id_a, individuals, families,
+                                            max_depth)
+        return (1.0 + F) / 2.0
+
+    key = (id_a, id_b) if id_a < id_b else (id_b, id_a)
+    cached = _KINSHIP_CACHE.get(key)
+    if cached is not None:
+        return cached
+
+    a_data = individuals.get(id_a, {})
+    b_data = individuals.get(id_b, {})
+    if not a_data or not b_data:
+        _KINSHIP_CACHE[key] = 0.0
+        return 0.0
+
+    da = _max_ancestor_depth(id_a, individuals, families, max_depth)
+    db = _max_ancestor_depth(id_b, individuals, families, max_depth)
+    younger, older = (id_a, id_b) if da >= db else (id_b, id_a)
+
+    parents = _parents_of(younger, individuals, families)
+    if not parents:
+        _KINSHIP_CACHE[key] = 0.0
+        return 0.0
+
+    # Anti-Rekursions-Marker (für theoretische Zyklen)
+    _KINSHIP_CACHE[key] = 0.0
+    result = 0.5 * sum(
+        _kinship_coefficient(p, older, individuals, families, max_depth)
+        for p in parents
+    )
+    _KINSHIP_CACHE[key] = result
+    return result
+
+
+# ── DNA-cM-Schätzung ──────────────────────────────────────────────────────────
+
+DNA_CM_HEADERS = [
+    "ID", "Name", "Geschlecht", "Geburtsjahr", "Kinship Φ", "Erw. cM (Ø)", "DNA-Klasse"
+]
+
+
+def analyze_dna_cm_estimates(root_id, individuals, families,
+                              root_related_ids=None, progress_cb=None) -> list:
+    """For each person in root_related_ids (or all, capped at 50 000), compute
+    the kinship coefficient Φ and the expected shared cM, then classify the
+    relationship.  Only persons with Φ > 0 are included in the output.
+    """
+    from tasks._runner import is_aborted, AbortedError
+
+    p = progress_cb or (lambda m, **kw: None)
+    p("DNA-cM-Schätzungs-Analyse …")
+
+    pids = list(root_related_ids if root_related_ids else individuals)
+    if len(pids) > 50_000:
+        pids = pids[:50_000]
+
+    results = []
+    for i, pid in enumerate(pids):
+        if i % 500 == 0 and is_aborted():
+            raise AbortedError("DNA-cM-Analyse abgebrochen")
+        if i % 2000 == 0 and i > 0:
+            p(f"  DNA-cM: {i}/{len(pids)} …")
+
+        if pid == root_id:
+            continue
+        pdata = individuals.get(pid)
+        if not pdata:
+            continue
+
+        phi = _kinship_coefficient(root_id, pid, individuals, families, max_depth=10)
+        if phi == 0.0:
+            continue
+
+        expected_cm = round(phi * 2 * 7000, 1)
+
+        if expected_cm >= 2400:
+            klasse = "Elternteil/Geschwister"
+        elif expected_cm >= 1300:
+            klasse = "Großelternteil/Halbgeschwister/Tante/Onkel"
+        elif expected_cm >= 600:
+            klasse = "Cousin 1. Grades"
+        elif expected_cm >= 200:
+            klasse = "Cousin 2. Grades"
+        elif expected_cm >= 60:
+            klasse = "Cousin 3. Grades"
+        elif expected_cm >= 20:
+            klasse = "Cousin 4. Grades"
+        elif expected_cm > 0:
+            klasse = "Entfernter Verwandter"
+        else:
+            klasse = "Kein Nachweis"
+
+        name = pdata.get("NAME", "") or ""
+        sex = pdata.get("SEX", "U")
+        birth_year = safe_extract_year((pdata.get("BIRT") or {}).get("DATE")) or ""
+
+        results.append([
+            pid, name,
+            "Männlich" if sex == "M" else "Weiblich" if sex == "F" else "Unbekannt",
+            birth_year,
+            round(phi, 6),
+            expected_cm,
+            klasse,
+        ])
+
+    results.sort(key=lambda x: x[5], reverse=True)
+    p(f"DNA-cM: {len(results)} verwandte Personen gefunden", tag="ok")
+    return results

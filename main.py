@@ -29,10 +29,26 @@ TASKS = [
     {
         "id":      "load_gedcom",
         "name":    "GEDCOM laden",
-        "desc":    "Liest family.ged und bereitet Daten vor (Pflicht).",
+        "desc":    "Liest GEDCOM (.ged) oder Family Tree Maker (.ftm) – Pflicht.",
         "fn":      "tasks._runner:load_gedcom",
         "default": True,
         "group":   "Vorbereitung",
+    },
+    {
+        "id":      "load_cache",
+        "name":    "State-Cache laden (Inkrementell)",
+        "desc":    "Lädt zwischengespeicherten _state — übersprigt alle Analysen, wenn GEDCOM unverändert.",
+        "fn":      "tasks._runner:load_state_cache",
+        "default": False,
+        "group":   "Vorbereitung",
+    },
+    {
+        "id":      "save_cache",
+        "name":    "State-Cache speichern",
+        "desc":    "Persistiert den aktuellen _state nach ~/.ahnen-cache.pkl.",
+        "fn":      "tasks._runner:save_state_cache",
+        "default": False,
+        "group":   "Export",
     },
     # ── Hauptanalysen ──────────────────────────────────────────────────────────
     {
@@ -131,6 +147,111 @@ TASKS = [
         "default": True,
         "group":   "Extras",
     },
+    # ── Neue Analysen ──────────────────────────────────────────────────────────
+    {
+        "id":      "anomalies",
+        "name":    "Anomalien & Doubletten & Inseln",
+        "desc":    "Implausible Daten, potenzielle Duplikate, unverbundene Personen.",
+        "fn":      "tasks._runner:run_anomalies",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "dna_cm",
+        "name":    "DNA-cM-Schätzung",
+        "desc":    "Erwartete gemeinsame cM pro Verwandten (aus Kinship-Koeffizient).",
+        "fn":      "tasks._runner:run_dna_cm",
+        "default": False,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "sibling_namedrift",
+        "name":    "Geschwister-Statistiken & Namensdrift",
+        "desc":    "Geburtsabstände in Familien + Vor-/Namenstrends über Zeit.",
+        "fn":      "tasks._runner:run_sibling_and_namedrift",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "seasonality",
+        "name":    "Saisonalität (Monatsverteilung)",
+        "desc":    "Geburts-/Heirats-/Sterbe-/Empfängnis-Monate pro Epoche.",
+        "fn":      "tasks._runner:run_seasonality",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "snapshot",
+        "name":    "Stichjahr-Snapshot + Generationen-Overlap",
+        "desc":    "Wer lebte zu Stichjahren / wie viele Generationen parallel.",
+        "fn":      "tasks._runner:run_snapshot",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "spatial",
+        "name":    "Räumliche Lebensgeschichte",
+        "desc":    "Heirats-Migration, Lebens-Triangulation, Sesshaftigkeit, Nachname×Region.",
+        "fn":      "tasks._runner:run_spatial",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "family_structure",
+        "name":    "Erweiterte Familienstruktur",
+        "desc":    "Mehrfachehen, Altersdifferenz, Reproduktivspanne, Kinderlosigkeit, Zwillinge.",
+        "fn":      "tasks._runner:run_family_structure",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "lineage",
+        "name":    "Linien-Analysen (Y, Mt, Quartile, Aussterben)",
+        "desc":    "Paternale/maternale Linie, 4-Quartile-Vergleich, Verzweigung, Aussterben.",
+        "fn":      "tasks._runner:run_lineage",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "naming_sociology",
+        "name":    "Namens-Soziologie (Patronyme, Junioren)",
+        "desc":    "Patronym-Erkennung, Junior-Detektor, Familien-Vornamen-Pool.",
+        "fn":      "tasks._runner:run_naming_sociology",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "imputation",
+        "name":    "Daten-Imputation (fehlende Daten)",
+        "desc":    "Schätzt fehlende Geburtsdaten aus Eltern/Kindern/Ehepartner/Geschwistern.",
+        "fn":      "tasks._runner:run_imputation",
+        "default": False,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "cohort_extensions",
+        "name":    "Krisen-Kohorten & Eltern-Verlust",
+        "desc":    "Lebenslauf von Kriegs/Hungerjahrgängen + Alter beim Tod der Eltern.",
+        "fn":      "tasks._runner:run_cohort_extensions",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "research_helpers",
+        "name":    "Forschungs-Helfer (Brickwalls, Vorschläge, Quellen)",
+        "desc":    "Personen-Recherche-Ziele, automat. Forschungs-Vorschläge, SOUR/OBJE-Inventar.",
+        "fn":      "tasks._runner:run_research_helpers",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "onomastics_endogamy",
+        "name":    "Onomastik & Endogamie-Bigraph",
+        "desc":    "Religiöse/regionale Namensmuster + Surname×Surname-Heirats-Netz.",
+        "fn":      "tasks._runner:run_onomastics_and_endogamy_net",
+        "default": True,
+        "group":   "Analysen",
+    },
     # ── Export ─────────────────────────────────────────────────────────────────
     {
         "id":      "export_excel",
@@ -153,6 +274,70 @@ TASKS = [
         "name":    "HTML-Übersicht",
         "desc":    f"Selbsterklärende Übersicht nach {cfg.FILES['interactive_html']}.",
         "fn":      "tasks._runner:run_export_html",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_timeline",
+        "name":    "HTML-Timeline",
+        "desc":    f"Chronologische Ereignis-Zeitlinie nach {cfg.FILES['timeline_html']}.",
+        "fn":      "tasks._runner:run_export_timeline",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_graphml",
+        "name":    "GraphML-Export",
+        "desc":    f"Netzwerk für Gephi/yEd nach {cfg.FILES['output_graphml']}.",
+        "fn":      "tasks._runner:run_export_graphml",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_fanchart",
+        "name":    "Fan-Chart SVG",
+        "desc":    "Radialer Ahnenfächer (Generationen 1–7) als SVG.",
+        "fn":      "tasks._runner:run_export_fanchart",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_dashboard",
+        "name":    "HTML-Dashboard mit Charts",
+        "desc":    "Interaktives Single-File-Dashboard (Chart.js, Tabs).",
+        "fn":      "tasks._runner:run_export_dashboard",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_heatmap",
+        "name":    "Geburts-Heatmap (Leaflet)",
+        "desc":    "Welt-Karte der Geburtsorte nach Land + Jahrhundert.",
+        "fn":      "tasks._runner:run_export_heatmap",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_descendants",
+        "name":    "Subtree: Nachfahren der Root als GEDCOM",
+        "desc":    "Schreibt nur Nachfahren-Stammbaum als eigene .ged-Datei.",
+        "fn":      "tasks._runner:run_export_subtree_descendants",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_ancestors",
+        "name":    "Subtree: Vorfahren der Root als GEDCOM",
+        "desc":    "Schreibt nur Vorfahren-Stammbaum als eigene .ged-Datei.",
+        "fn":      "tasks._runner:run_export_subtree_ancestors",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_sankey",
+        "name":    "Migrations-Sankey (HTML)",
+        "desc":    "Migrationsflüsse als SVG-Sankey-Diagramm.",
+        "fn":      "tasks._runner:run_export_sankey",
         "default": False,
         "group":   "Export",
     },
@@ -251,7 +436,7 @@ class AhnenApp(tk.Tk):
 
         path_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
         path_frame.pack(fill="x")
-        tk.Label(path_frame, text="GEDCOM:", bg=cfg.BG2, fg=cfg.FG_DIM,
+        tk.Label(path_frame, text="Stammbaumdatei:", bg=cfg.BG2, fg=cfg.FG_DIM,
                  font=cfg.FONT_MONO).pack(side="left", padx=8)
         self._path_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["gedfile"])
         tk.Entry(path_frame, textvariable=self._path_var, bg=cfg.BG3, fg=cfg.FG,
@@ -260,6 +445,21 @@ class AhnenApp(tk.Tk):
         tk.Button(path_frame, text="Durchsuchen…", bg=cfg.BG3, fg=cfg.FG,
                   font=cfg.FONT_MAIN, relief="flat",
                   command=self._browse_gedcom).pack(side="left", padx=4)
+
+        # Zuletzt geöffnete Dateien + Ancestry-Vorschlag
+        recent_frame = tk.Frame(right, bg=cfg.BG2, pady=2)
+        recent_frame.pack(fill="x")
+        tk.Label(recent_frame, text="Zuletzt:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=("Segoe UI", 8)).pack(side="left", padx=8)
+        self._recent_var = tk.StringVar(value="")
+        self._recent_menu = ttk.Combobox(
+            recent_frame, textvariable=self._recent_var,
+            state="readonly", width=55, font=("Segoe UI", 8))
+        self._recent_menu.pack(side="left", padx=4)
+        self._recent_menu.bind("<<ComboboxSelected>>", self._on_recent_select)
+        self._refresh_recent()
+        # Ancestry-Export im Download-Ordner suchen und vorschlagen
+        self.after(600, self._suggest_ancestry_export)
 
         # Root-/Exclude-ID
         ids_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
@@ -337,15 +537,67 @@ class AhnenApp(tk.Tk):
 
     # ── Datei-Auswahl ──────────────────────────────────────────────────────────
 
+    def _refresh_recent(self):
+        recent = cfg.get_recent_files()
+        self._recent_menu["values"] = recent
+        if recent and not self._recent_var.get():
+            self._recent_var.set("")
+
+    def _on_recent_select(self, _event=None):
+        val = self._recent_var.get()
+        if val:
+            self._path_var.set(val)
+            self._recent_var.set("")
+
+    def _suggest_ancestry_export(self):
+        """Sucht im Download-Ordner nach aktuellen Ancestry-GEDCOM-Exporten."""
+        import glob
+        downloads = os.path.join(os.path.expanduser("~"), "Downloads")
+        if not os.path.isdir(downloads):
+            return
+        now = time.time()
+        candidates = []
+        for p in glob.glob(os.path.join(downloads, "*.ged")):
+            try:
+                age_days = (now - os.path.getmtime(p)) / 86400
+                if age_days > 7:
+                    continue
+                # Ancestry-Header prüfen (erste 256 Bytes)
+                with open(p, "rb") as f:
+                    head = f.read(256).decode("utf-8-sig", errors="ignore")
+                if "ancestry" in head.lower() or "SOUR Ancestry" in head:
+                    candidates.append((age_days, p))
+            except OSError:
+                continue
+        if not candidates:
+            return
+        candidates.sort()
+        newest = candidates[0][1]
+        current = self._path_var.get()
+        if current and os.path.exists(current):
+            return  # Bereits eine gültige Datei gesetzt
+        self._path_var.set(newest)
+        self._append_log(
+            f"Ancestry-Export gefunden: {os.path.basename(newest)} "
+            f"(letzte {candidates[0][0]:.1f} Tage) → automatisch gesetzt.",
+            tag="info")
+
     def _browse_gedcom(self):
         initial = self._path_var.get() or cfg.DEFAULT_CONFIG.get("gedfile", "")
         initial_dir = os.path.dirname(initial) if initial else ""
         path = filedialog.askopenfilename(
-            title="GEDCOM-Datei wählen",
+            title="Stammbaumdatei wählen",
             initialdir=initial_dir or None,
-            filetypes=[("GEDCOM-Dateien", "*.ged *.GED"), ("Alle Dateien", "*.*")])
+            filetypes=[
+                ("Alle unterstützten Formate",
+                 "*.ged *.GED *.ftm *.FTM *.ftmb *.FTMB"),
+                ("GEDCOM-Dateien", "*.ged *.GED"),
+                ("Family Tree Maker", "*.ftm *.ftmb"),
+                ("Alle Dateien", "*.*"),
+            ])
         if path:
             self._path_var.set(path)
+            self._refresh_recent()
 
     def _sel_all(self):
         for v in self._task_vars.values(): v.set(True)
@@ -396,12 +648,13 @@ class AhnenApp(tk.Tk):
         cfg.DEFAULT_CONFIG["exclude_id"] = excl_id
         cfg.ROOT_ID    = root_id
         cfg.EXCLUDE_ID = excl_id
-        # Persistieren, damit der nächste Start dieselben Werte hat
+        # Persistieren + Recent-Files-Liste aktualisieren
         cfg.save_overrides({
             "gedfile":    gedfile,
             "root_id":    root_id,
             "exclude_id": excl_id,
         })
+        self.after(0, self._refresh_recent)
         self._running = True
         self._stop_event.clear()
         self._btn_start.configure(state="disabled")
@@ -473,7 +726,40 @@ def _cli_main(argv: list[str] | None = None) -> int | None:
     parser.add_argument("--exclude-id", help="Exclude-ID (override config)")
     parser.add_argument("--list-tasks", action="store_true",
                         help="Verfügbare Tasks ausgeben und beenden")
+    # Interaktive Sub-Tools (eigene Befehle, kein Task-Run nötig)
+    parser.add_argument("--mrca", nargs=2, metavar=("ID_A", "ID_B"),
+                        help="Most-Recent-Common-Ancestor zweier Personen finden")
+    parser.add_argument("--merge", nargs=2, metavar=("FILE_A", "FILE_B"),
+                        help="Zwei GEDCOM-Dateien zusammenführen")
+    parser.add_argument("--merge-out", default="merged.ged",
+                        help="Output-Pfad für --merge (default: merged.ged)")
+    parser.add_argument("--predict-cm", type=float, metavar="CM",
+                        help="DNA-cM-Wert in Verwandtschafts-Wahrscheinlichkeiten umrechnen")
     args = parser.parse_args(argv)
+
+    # ── Eigenständige CLI-Sub-Tools ────────────────────────────────────────
+    if args.predict_cm is not None:
+        from tasks.dna_predict import predict_relationship_from_cm
+        result = predict_relationship_from_cm(args.predict_cm)
+        print(f"\nDNA-Vorhersage für {args.predict_cm:.0f} cM:")
+        for label, prob in result:
+            bar = "█" * int(prob * 30)
+            print(f"  {label:35s} {prob*100:5.1f}%  {bar}")
+        return 0
+
+    if args.mrca:
+        from tasks.mrca import mrca_cli
+        ged = args.gedfile or cfg.DEFAULT_CONFIG["gedfile"]
+        return mrca_cli(["--gedfile", ged,
+                          "--id-a", args.mrca[0],
+                          "--id-b", args.mrca[1]])
+
+    if args.merge:
+        from tasks.merge_trees import merge_gedcoms
+        _, n_merged = merge_gedcoms(args.merge[0], args.merge[1], args.merge_out,
+                                     progress_cb=lambda m, **k: print(m))
+        print(f"\nMerge abgeschlossen: {args.merge_out} (Doubletten gemerged: {n_merged})")
+        return 0
 
     if args.list_tasks:
         for t in TASKS:
