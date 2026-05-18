@@ -252,6 +252,22 @@ TASKS = [
         "default": True,
         "group":   "Analysen",
     },
+    {
+        "id":      "sosa",
+        "name":    "Sosa-Stradonitz-Ahnentafel",
+        "desc":    "Klassische Ahnen-Nummerierung (Root=1, Vater=2, Mutter=3, …) inkl. Implex.",
+        "fn":      "tasks._runner:run_sosa",
+        "default": True,
+        "group":   "Analysen",
+    },
+    {
+        "id":      "familysearch",
+        "name":    "FamilySearch-Vergleich (Suchlinks)",
+        "desc":    "Vorbereitete Such-URLs pro Ahn — direkt anklickbar im Browser.",
+        "fn":      "tasks._runner:run_familysearch",
+        "default": True,
+        "group":   "Analysen",
+    },
     # ── Export ─────────────────────────────────────────────────────────────────
     {
         "id":      "export_excel",

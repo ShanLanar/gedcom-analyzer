@@ -287,7 +287,7 @@ def run_export_excel(progress_cb=None, stop_event=None):
                         anomalies, seasonality, snapshot, spatial,
                         family_structure, lineage, naming, imputation,
                         brickwalls, research_suggestions, sources,
-                        onomastics, endogamy_network)
+                        onomastics, endogamy_network, sosa, familysearch)
 
     _p(progress_cb, "Baue Sheet-Liste …")
     indiv = _state["individuals"]
@@ -489,6 +489,14 @@ def run_export_excel(progress_cb=None, stop_event=None):
         ("Endogamie-Netzwerk (Nachname×Nachname)",
          endogamy_network.ENDOGAMY_NETWORK_HEADERS,
          _state.get("endogamy_network", [])[:500]),
+
+        # ── Sosa-Stradonitz-Ahnentafel ────────────────────────────────────────
+        ("Sosa-Stradonitz-Ahnentafel", sosa.SOSA_HEADERS,
+         _state.get("sosa_rows", [])[:50_000]),
+
+        # ── FamilySearch-Vergleich (Suchlinks pro Ahn) ────────────────────────
+        ("FamilySearch-Vergleich", familysearch.FAMILYSEARCH_HEADERS,
+         _state.get("familysearch_rows", [])[:2_000]),
     ]
 
     # Osnabrück-Sheets
@@ -733,6 +741,31 @@ def run_imputation(progress_cb=None, stop_event=None):
     from tasks.imputation import impute_missing_dates
     _state["imputation_results"] = impute_missing_dates(
         _state["individuals"], _state["families"], progress_cb=progress_cb)
+
+
+# ── Schritt 28a: Sosa-Stradonitz-Ahnentafel ──────────────────────────────────
+
+def run_sosa(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.sosa import build_sosa_ahnentafel, compute_sosa_numbers
+    indiv = _state["individuals"]
+    fams  = _state["families"]
+    rid   = cfg.DEFAULT_CONFIG["root_id"]
+    _state["sosa_rows"] = build_sosa_ahnentafel(
+        rid, indiv, fams, progress_cb=progress_cb)
+    # Mapping wird auch für andere Sheets gecached (Bereicherung später)
+    _state["sosa_map"] = compute_sosa_numbers(rid, indiv, fams)
+
+
+# ── Schritt 28b: FamilySearch-Suchlinks ──────────────────────────────────────
+
+def run_familysearch(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.familysearch import generate_familysearch_lookup_sheet
+    _state["familysearch_rows"] = generate_familysearch_lookup_sheet(
+        _state["individuals"],
+        root_related_ids=_state.get("root_related_ids"),
+        progress_cb=progress_cb)
 
 
 # ── Schritt 28: Krisen-Kohorten + Eltern-Verlust ─────────────────────────────
