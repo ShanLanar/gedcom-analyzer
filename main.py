@@ -528,6 +528,9 @@ class AhnenApp(tk.Tk):
         tk.Button(footer, text="Log löschen", bg=cfg.BG3, fg=cfg.FG,
                   font=cfg.FONT_MAIN, relief="flat",
                   command=self._clear_log).pack(side="right", padx=8)
+        tk.Button(footer, text="? Hilfe", bg=cfg.BG3, fg=cfg.ACCENT,
+                  font=cfg.FONT_MAIN, relief="flat",
+                  command=self._open_help).pack(side="right", padx=8)
 
     def _build_task_list(self, parent):
         grouped: dict = {}
@@ -640,6 +643,189 @@ class AhnenApp(tk.Tk):
         self._log.configure(state="normal")
         self._log.delete("1.0", "end")
         self._log.configure(state="disabled")
+
+    # ── Hilfe-Fenster ──────────────────────────────────────────────────────────
+
+    def _open_help(self):
+        """Öffnet das In-App-Hilfefenster mit Funktions-Verzeichnis."""
+        from tasks.help_data import HELP_ENTRIES, CLI_HELP, CONCEPTS
+
+        # Doppelt-Öffnen vermeiden — bestehendes Fenster wiederholt nach vorne
+        win = getattr(self, "_help_win", None)
+        if win and win.winfo_exists():
+            win.lift()
+            win.focus_force()
+            return
+
+        win = tk.Toplevel(self)
+        self._help_win = win
+        win.title("Hilfe — Funktions-Verzeichnis")
+        win.geometry("1000x650")
+        win.configure(bg=cfg.BG)
+
+        # ── Suchleiste oben ──────────────────────────────────────────────────
+        top = tk.Frame(win, bg=cfg.BG2, pady=6)
+        top.pack(fill="x")
+        tk.Label(top, text="🔍 Suche:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=cfg.FONT_MONO).pack(side="left", padx=8)
+        search_var = tk.StringVar()
+        search_entry = tk.Entry(top, textvariable=search_var, bg=cfg.BG3,
+                                  fg=cfg.FG, font=cfg.FONT_MONO,
+                                  relief="flat", width=40)
+        search_entry.pack(side="left", padx=4)
+        tk.Label(top, text="(durchsucht Titel, Zweck, Details)",
+                 bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=("Segoe UI", 8)).pack(side="left", padx=8)
+
+        # ── Hauptbereich: Liste links, Detail rechts ─────────────────────────
+        main = tk.Frame(win, bg=cfg.BG)
+        main.pack(fill="both", expand=True)
+
+        left = tk.Frame(main, bg=cfg.BG2, width=320)
+        left.pack(side="left", fill="y")
+        left.pack_propagate(False)
+
+        # Listbox + Scrollbar
+        sb = ttk.Scrollbar(left, orient="vertical")
+        lst = tk.Listbox(left, bg=cfg.BG2, fg=cfg.FG,
+                           selectbackground=cfg.ACCENT, selectforeground="#fff",
+                           font=cfg.FONT_MAIN, relief="flat",
+                           yscrollcommand=sb.set, activestyle="none",
+                           highlightthickness=0)
+        sb.config(command=lst.yview)
+        sb.pack(side="right", fill="y")
+        lst.pack(side="left", fill="both", expand=True)
+
+        # Detail-Text rechts
+        right = tk.Frame(main, bg=cfg.BG)
+        right.pack(side="left", fill="both", expand=True)
+        detail = scrolledtext.ScrolledText(
+            right, bg="#13131f", fg=cfg.FG, font=cfg.FONT_MAIN,
+            relief="flat", wrap="word", padx=16, pady=12)
+        detail.pack(fill="both", expand=True, padx=4, pady=4)
+
+        # Text-Tags für Formatierung
+        detail.tag_configure("title",   foreground=cfg.ACCENT,
+                              font=("Segoe UI Semibold", 13))
+        detail.tag_configure("section", foreground=cfg.ORANGE,
+                              font=("Segoe UI Semibold", 10))
+        detail.tag_configure("group",   foreground=cfg.FG_DIM,
+                              font=("Segoe UI", 9))
+        detail.tag_configure("code",    foreground=cfg.GREEN,
+                              font=cfg.FONT_MONO)
+        detail.tag_configure("tip",     foreground=cfg.YELLOW)
+
+        # ── Datensatz-Index aufbauen ────────────────────────────────────────
+        # Einträge: ("Task" | "CLI" | "Konzept", key, dict)
+        all_entries = []
+        for key, data in HELP_ENTRIES.items():
+            all_entries.append(("Task", key, data))
+        for key, data in CLI_HELP.items():
+            all_entries.append(("CLI",  key, data))
+        for key, data in CONCEPTS.items():
+            all_entries.append(("Konzept", key, data))
+
+        # ── Filterlogik ─────────────────────────────────────────────────────
+        filtered_index = []   # Mapping listbox-pos → all_entries-Index
+
+        def _matches(entry, query: str) -> bool:
+            if not query:
+                return True
+            q = query.lower()
+            _, key, data = entry
+            hay = " ".join([
+                key, data.get("title", ""),
+                data.get("group", ""),
+                data.get("purpose", ""),
+                data.get("details", ""),
+                data.get("input", ""),
+                data.get("output", ""),
+                data.get("tips", ""),
+                data.get("definition", ""),
+                data.get("formula", ""),
+                data.get("examples", ""),
+                data.get("syntax", ""),
+            ]).lower()
+            return q in hay
+
+        def _refresh_list(*_):
+            nonlocal filtered_index
+            query = search_var.get()
+            lst.delete(0, "end")
+            filtered_index = []
+            for idx, entry in enumerate(all_entries):
+                if not _matches(entry, query):
+                    continue
+                kind, key, data = entry
+                prefix = {"Task": "▸", "CLI": "$", "Konzept": "Σ"}[kind]
+                title  = data.get("title") or key
+                group  = data.get("group", "")
+                label  = f"{prefix} {title}"
+                if group:
+                    label += f"   [{group}]"
+                lst.insert("end", label)
+                filtered_index.append(idx)
+            if filtered_index:
+                lst.selection_set(0)
+                _show_detail()
+
+        def _show_detail(*_):
+            sel = lst.curselection()
+            if not sel:
+                return
+            entry = all_entries[filtered_index[sel[0]]]
+            kind, key, data = entry
+            detail.configure(state="normal")
+            detail.delete("1.0", "end")
+            detail.insert("end", data.get("title", key) + "\n", "title")
+            if kind == "Task" and data.get("group"):
+                detail.insert("end", f"Gruppe: {data['group']}    ·    "
+                                       f"Task-ID: {key}\n\n", "group")
+            elif kind == "CLI":
+                detail.insert("end", "CLI-Subbefehl\n\n", "group")
+            elif kind == "Konzept":
+                detail.insert("end", "Mathematisches Konzept\n\n", "group")
+
+            sections = []
+            if data.get("purpose"):
+                sections.append(("Zweck", data["purpose"]))
+            if data.get("definition"):
+                sections.append(("Definition", data["definition"]))
+            if data.get("syntax"):
+                sections.append(("Syntax", data["syntax"]))
+            if data.get("formula"):
+                sections.append(("Formel", data["formula"]))
+            if data.get("input"):
+                sections.append(("Eingabe", data["input"]))
+            if data.get("output"):
+                sections.append(("Ausgabe", data["output"]))
+            if data.get("details"):
+                sections.append(("Details", data["details"]))
+            if data.get("examples"):
+                sections.append(("Beispiele", data["examples"]))
+            if data.get("example"):
+                sections.append(("Beispiel", data["example"]))
+
+            for label, body in sections:
+                detail.insert("end", f"\n{label}\n", "section")
+                # Code-Sektionen monospace formatieren
+                tag = "code" if label in ("Syntax", "Beispiel", "Formel") else ""
+                detail.insert("end", f"{body}\n", tag)
+
+            if data.get("tips"):
+                detail.insert("end", "\n💡 Tipp\n", "section")
+                detail.insert("end", data["tips"] + "\n", "tip")
+
+            detail.configure(state="disabled")
+
+        # ── Events verdrahten ───────────────────────────────────────────────
+        search_var.trace_add("write", lambda *_: _refresh_list())
+        lst.bind("<<ListboxSelect>>", _show_detail)
+        win.bind("<Escape>",   lambda _e: win.destroy())
+        win.bind("<Control-f>", lambda _e: search_entry.focus_set())
+
+        _refresh_list()
+        search_entry.focus_set()
 
     def _set_status(self, text: str):
         self.after(0, lambda: self._status_lbl.configure(text=text))
