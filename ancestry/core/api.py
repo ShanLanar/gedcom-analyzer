@@ -135,7 +135,13 @@ class AncestryApiClient:
             status = r.status_code if r is not None else "—"
             if r is None or r.status_code != 200:
                 if diag:
-                    log.info("  Detail-Versuch HTTP %s: %s", status, url)
+                    body = ""
+                    try:
+                        body = (r.text or "")[:200].replace("\n", " ") if r is not None else ""
+                    except Exception:
+                        body = "<Body nicht lesbar>"
+                    log.info("  Detail-Versuch HTTP %s: %s | Body: %r",
+                             status, url, body)
                 continue
             try:
                 data = r.json()
