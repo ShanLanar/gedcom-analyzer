@@ -326,7 +326,7 @@ class AncestryDnaApp(tk.Tk):
         ttk.Checkbutton(bf, text="✨ Nur neue (inkrementell)",
                         variable=self._only_new_var).pack(side="left", padx=14)
         self._fetch_names_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bf, text="👤 Volle Namen (langsam!)",
+        ttk.Checkbutton(bf, text="👤 Volle Namen versuchen (oft von Ancestry blockiert)",
                         variable=self._fetch_names_var).pack(side="left", padx=14)
 
         # ── Bereich B: Shared Matches ─────────────────────────────────────────

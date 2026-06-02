@@ -127,17 +127,24 @@ class Scraper:
                 else:
                     consecutive_known_pages = 0
 
-                # Optional: vollen Anzeigenamen pro Match nachladen (langsam)
-                if fetch_names:
+                # Optional: vollen Anzeigenamen pro Match nachladen (langsam).
+                # Sobald feststeht, dass Ancestry den Detail-Host blockt, hört
+                # der Scraper auf, es weiter zu versuchen (sonst 10.000 Fehlversuche).
+                if fetch_names and not self._client.detail_names_blocked():
                     try:
                         full = self._client.get_match_name(test_guid, m.match_guid)
                         if full:
                             # Echten Namen setzen; Bemerkung (tag_surname) bleibt erhalten
                             m.display_name = full
+                        elif self._client.detail_names_blocked():
+                            self._on_status("Volle Namen nicht abrufbar (Ancestry "
+                                            "blockt den Detail-Zugriff) – nutze "
+                                            "Bemerkungsfeld + Verwandtschaftsgrad.")
                     except Exception as e:
                         log.debug("Namens-Detail fehlgeschlagen für %s: %s",
                                   m.match_guid[:16], e)
-                    _t.sleep(cfg.DETAIL_REQUEST_DELAY)
+                    if not self._client.detail_names_blocked():
+                        _t.sleep(cfg.DETAIL_REQUEST_DELAY)
 
                 batch.append(m)
                 result.fetched += 1

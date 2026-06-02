@@ -141,8 +141,8 @@ class AncestryApiClient:
                         body = (r.text or "")[:200].replace("\n", " ") if r is not None else ""
                     except Exception:
                         body = "<Body nicht lesbar>"
-                    log.info("  Detail-Versuch HTTP %s: %s | Body: %r",
-                             status, url, body)
+                    log.debug("  Detail-Versuch HTTP %s: %s | Body: %r",
+                              status, url, body)
                 continue
             try:
                 data = r.json()
@@ -163,11 +163,16 @@ class AncestryApiClient:
 
         # Kein Kandidat lieferte einen Namen
         if self._detail_endpoint is None:
-            log.warning("Kein Match-Detail-Endpunkt lieferte einen Namen – "
-                        "volle Namen sind für dieses Konto evtl. nicht abrufbar. "
-                        "Siehe die Detail-Versuch-Zeilen oben für die Statuscodes.")
+            log.warning("Volle Namen nicht abrufbar: Ancestry blockt den "
+                        "matchesservice-Host (Akamai 'Access denied'). "
+                        "Es bleibt beim Bemerkungsfeld + abgeleitetem "
+                        "Verwandtschaftsgrad.")
             self._detail_endpoint = "__none__"
         return ""
+
+    def detail_names_blocked(self) -> bool:
+        """True, wenn bereits festgestellt wurde, dass keine Namen abrufbar sind."""
+        return self._detail_endpoint == "__none__"
 
     # ── DNA-Kits ──────────────────────────────────────────────────────────────
 
@@ -309,17 +314,17 @@ class AncestryApiClient:
             first_sid = raw[0].get("sampleId","?")[:16] if raw else "leer"
             log.debug("  API antwortet: currentPage=%s/%s | erster sampleId=%s",
                       api_page, api_total, first_sid)
-            # Einmalige Feld-Diagnose: zeigt im Log, wo der Name wirklich steckt
+            # Einmalige Feld-Diagnose (nur DEBUG): zeigt im Log die Match-Struktur
             if page == 1 and raw and not getattr(self, "_logged_fields", False):
                 self._logged_fields = True
                 import json as _dbgj
                 sample = raw[0]
-                log.info("Match-Felder (1. Eintrag): top-level=%s",
-                         sorted(sample.keys()))
-                log.info("  tags=%s",
-                         _dbgj.dumps(sample.get("tags"), ensure_ascii=False)[:500])
-                log.info("  relationship=%s",
-                         _dbgj.dumps(sample.get("relationship"), ensure_ascii=False)[:500])
+                log.debug("Match-Felder (1. Eintrag): top-level=%s",
+                          sorted(sample.keys()))
+                log.debug("  tags=%s",
+                          _dbgj.dumps(sample.get("tags"), ensure_ascii=False)[:500])
+                log.debug("  relationship=%s",
+                          _dbgj.dumps(sample.get("relationship"), ensure_ascii=False)[:500])
             for item in raw:
                 m = DnaMatch.from_api_response(item, test_guid, fetched_at)
                 if m.match_guid:
