@@ -99,53 +99,62 @@ class DnaMatch:
                       or safe("guid"))
 
         # ── Name ──────────────────────────────────────────────────────────────
-        # Mögliche Felder in verschiedenen API-Versionen
+        # Mögliche Felder in verschiedenen API-Versionen.
+        # Das aktuelle discoveryui-matchList-Format legt den Namen in
+        # matchProfile.displayName ab (NICHT auf oberster Ebene!).
+        def nested(key, sub):
+            v = data.get(key)
+            return v.get(sub, "") if isinstance(v, dict) else ""
+
         name = (safe("displayName")
                 or safe("name")
-                or safe("matchMember", {}).get("displayName")
-                or safe("matchMember", {}).get("name")
-                or safe("profile", {}).get("displayName")
-                or safe("profile", {}).get("name")
-                or safe("subjectInfo", {}).get("displayName")
+                or nested("matchProfile", "displayName")      # aktuelles Format
+                or nested("matchProfile", "name")
+                or safe("matchTestDisplayName")
+                or safe("matchTestAdminDisplayName")
+                or nested("admin", "displayName")
+                or nested("matchMember", "displayName")
+                or nested("matchMember", "name")
+                or nested("profile", "displayName")
+                or nested("profile", "name")
+                or nested("subjectInfo", "displayName")
                 or "")
 
-        # Fallback: Nachname aus Tag 3 + Geschlecht aus Tag 5
+        # Fallback: Name aus Tag 3 extrahieren, wenn kein direktes Namensfeld da ist.
         if not name:
-            import json as _j, re as _r
-        tags_tmp  = data.get("tags") or {}
-        tag3_raw  = str(tags_tmp.get("3") or "")
-        tag_path  = str(tags_tmp.get("5") or "")
-        tags_json_val = _j.dumps(tags_tmp, ensure_ascii=False)
+            tags_tmp = data.get("tags") or {}
+            tag3_raw = str(tags_tmp.get("3") or "")
 
-        def _p3(s):
-            if not s:
-                return s, ""
-            # Muster: "Surname, Firstname Lastname"
-            parts = s.split(",")
-            if len(parts) >= 2:
-                candidate = parts[-1].strip()
-                # Echter Name: beginnt mit Großbuchstabe, mind. 2 Wörter, >5 Zeichen
-                words = candidate.split()
-                if (len(words) >= 2
-                        and words[0][0:1].isupper()
-                        and len(candidate) > 5
-                        and "relationship" not in candidate.lower()):
-                    surname = parts[0].replace("(no direct relationship)", "").strip()
-                    surname = "".join(c for c in surname if "(" not in c).strip()
-                    return surname, candidate
-            # Muster: "Surname [Firstname Lastname]"
-            if "[" in s and "]" in s:
-                name_part = s[s.find("[")+1:s.find("]")]
-                surname   = s[:s.find("[")].strip().rstrip(",").strip()
-                return surname, name_part
-            return s.split(",")[0].strip(), ""
-        tag_surname_val, extracted_name = _p3(tag3_raw)
-        if extracted_name:
-            name = extracted_name
-        elif tag_surname_val:
-            name = tag_surname_val
-        else:
-            name = "Anonym"
+            def _p3(s):
+                if not s:
+                    return s, ""
+                # Muster: "Surname, Firstname Lastname"
+                parts = s.split(",")
+                if len(parts) >= 2:
+                    candidate = parts[-1].strip()
+                    # Echter Name: Großbuchstabe, mind. 2 Wörter, >5 Zeichen
+                    words = candidate.split()
+                    if (len(words) >= 2
+                            and words[0][0:1].isupper()
+                            and len(candidate) > 5
+                            and "relationship" not in candidate.lower()):
+                        surname = parts[0].replace("(no direct relationship)", "").strip()
+                        surname = "".join(c for c in surname if "(" not in c).strip()
+                        return surname, candidate
+                # Muster: "Surname [Firstname Lastname]"
+                if "[" in s and "]" in s:
+                    name_part = s[s.find("[")+1:s.find("]")]
+                    surname   = s[:s.find("[")].strip().rstrip(",").strip()
+                    return surname, name_part
+                return s.split(",")[0].strip(), ""
+
+            tag_surname_val, extracted_name = _p3(tag3_raw)
+            if extracted_name:
+                name = extracted_name
+            elif tag_surname_val:
+                name = tag_surname_val
+            else:
+                name = "Anonym"
 
         # ── Beziehung (neues Format: relationship-Objekt) ────────────────────
         rel = data.get("relationship") or {}
@@ -282,8 +291,15 @@ class SharedMatch:
         def safe(key, default=""):
             return data.get(key) or default
 
+        def nested(key, sub):
+            v = data.get(key)
+            return v.get(sub, "") if isinstance(v, dict) else ""
+
         name   = (safe("displayName")
-                  or safe("matchMember", {}).get("displayName", "")
+                  or nested("matchProfile", "displayName")
+                  or nested("matchProfile", "name")
+                  or safe("matchTestDisplayName")
+                  or nested("matchMember", "displayName")
                   or "Unbekannt")
         guid_b = (safe("sampleId") or safe("matchGuid")
                   or safe("matchMember", {}).get("guid", "")

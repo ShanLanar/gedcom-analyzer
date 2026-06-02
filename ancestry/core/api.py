@@ -220,6 +220,16 @@ class AncestryApiClient:
             first_sid = raw[0].get("sampleId","?")[:16] if raw else "leer"
             log.debug("  API antwortet: currentPage=%s/%s | erster sampleId=%s",
                       api_page, api_total, first_sid)
+            # Einmalige Feld-Diagnose: zeigt im Log, wo der Name wirklich steckt
+            if page == 1 and raw and not getattr(self, "_logged_fields", False):
+                self._logged_fields = True
+                sample = raw[0]
+                mp = sample.get("matchProfile")
+                log.info("Match-Felder (1. Eintrag): top-level=%s",
+                         sorted(sample.keys()))
+                if isinstance(mp, dict):
+                    log.info("  matchProfile-Felder=%s | displayName=%r",
+                             sorted(mp.keys()), mp.get("displayName"))
             for item in raw:
                 m = DnaMatch.from_api_response(item, test_guid, fetched_at)
                 if m.match_guid:
