@@ -551,10 +551,11 @@ class AncestryDnaApp(tk.Tk):
         self._build_detail_panel(right)
 
     def _build_match_tree(self, parent):
-        cols = ("name","cm","seg","rel","tree","starred")
+        cols = ("name","note","cm","seg","rel","tree","starred")
         self._tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
         for col, (label, width, anchor) in {
-            "name"   : ("Name",        240, "w"),
+            "name"   : ("Name",        200, "w"),
+            "note"   : ("Bemerkung",   170, "w"),
             "cm"     : ("cM",           70, "e"),
             "seg"    : ("Seg.",          50, "e"),
             "rel"    : ("Beziehung",   160, "w"),
@@ -654,7 +655,8 @@ class AncestryDnaApp(tk.Tk):
         rels = self._db.get_distinct_relationships()
         self._rel_combo["values"] = ["(alle)"] + rels
 
-        col_map = {"name":"display_name","cm":"shared_cm","seg":"shared_segments",
+        col_map = {"name":"display_name","note":"tag_surname",
+                   "cm":"shared_cm","seg":"shared_segments",
                    "rel":"predicted_relationship","tree":"has_tree","starred":"starred"}
         sort_col = col_map.get(self._sort_col, "shared_cm")
 
@@ -678,6 +680,7 @@ class AncestryDnaApp(tk.Tk):
             if not m.has_tree: tags.append("no_tree")
             self._tree.insert("", "end", iid=m.match_guid, tags=tags, values=(
                 m.display_name,
+                m.tag_surname or "",          # Tag 3 = freies Bemerkungs-/Notizfeld
                 f"{m.shared_cm:.1f}" if m.shared_cm else "—",
                 m.shared_segments or "—",
                 m.predicted_relationship or "—",

@@ -3,7 +3,9 @@ Datenmodelle für Ancestry-DNA-Matches (discoveryui-Format, Stand 2026).
 
 Neues API-Format:
   sampleId     = Match-GUID  (früher: matchGuid)
-  tags         = Dict mit Tag-IDs (3=Nachname, 5=Geschlecht, ...)
+  tags         = Dict mit Tag-IDs (3=freie Bemerkung/Notiz, 5=Geschlecht, ...)
+                 ACHTUNG: Tag 3 ist NICHT der echte Nachname der Match-Person,
+                 sondern das selbst eingegebene Bemerkungsfeld des Nutzers.
   relationship = {meiosis, label, confidence, range, sharedCentimorgans, ...}
 """
 
@@ -92,7 +94,7 @@ class DnaMatch:
     ignored: bool = False
 
     # Tag-Felder (neues API-Format)
-    tag_surname: str = ""       # Tag 3: Surname/Annotation
+    tag_surname: str = ""       # Tag 3: freies Bemerkungs-/Notizfeld (NICHT der echte Nachname)
     tag_gender:  str = ""        # Legacy (kompatibel mit DB-Spalte)
     tag_path:   str = ""        # Tag 5: Verwandtschaftspfad (PPPPGCD)
     tags_json:  str = ""        # Alle Tags als JSON

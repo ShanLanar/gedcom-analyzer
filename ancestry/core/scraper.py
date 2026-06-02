@@ -132,7 +132,7 @@ class Scraper:
                     try:
                         full = self._client.get_match_name(test_guid, m.match_guid)
                         if full:
-                            # Nachname behalten, falls Detailname nur Vorname ist
+                            # Echten Namen setzen; Bemerkung (tag_surname) bleibt erhalten
                             m.display_name = full
                     except Exception as e:
                         log.debug("Namens-Detail fehlgeschlagen für %s: %s",

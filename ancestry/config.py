@@ -23,8 +23,9 @@ SHARED_MATCHES_URL = f"{DNA_LIST_BASE}/matchList/{{test_guid}}"
 MANAGE_TESTS_URL = f"{BASE_URL}/dna/api/uhura/v2/people/{{uid}}/managetests"
 
 # ── Match-Detail (voller Name) ────────────────────────────────────────────────
-# Der Bulk-matchList-Endpunkt liefert nur den Nachnamen (Tag 3). Den vollen
-# Anzeigenamen gibt es nur über einen Detail-Abruf pro Match. Da Ancestry den
+# Der Bulk-matchList-Endpunkt liefert KEINEN echten Namen, nur das selbst
+# eingegebene Bemerkungsfeld (Tag 3). Den echten Anzeigenamen der Match-Person
+# gibt es nur über einen Detail-Abruf pro Match. Da Ancestry den
 # genauen Pfad mehrfach geändert hat, werden mehrere Kandidaten der Reihe nach
 # probiert; der erste, der einen Namen liefert, wird gemerkt.
 MATCHESSERVICE_BASE = f"{BASE_URL}/discoveryui-matchesservice/api"

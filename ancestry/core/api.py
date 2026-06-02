@@ -112,7 +112,7 @@ class AncestryApiClient:
 
         Probiert beim ersten Aufruf die Kandidaten-Endpunkte durch und merkt
         sich den ersten, der einen Namen liefert. Gibt "" zurück, wenn keiner
-        funktioniert (dann bleibt es beim Nachnamen aus Tag 3).
+        funktioniert (dann bleibt es beim Bemerkungsfeld aus Tag 3).
         """
         if self._detail_endpoint == "__none__":
             return ""   # bereits festgestellt: kein Endpunkt liefert Namen
