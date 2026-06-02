@@ -54,12 +54,14 @@ class Scraper:
 
     def start_matches(self, test_guid: str,
                       filter_by: str = "ALL", sort_by: str = "RELATIONSHIP",
-                      only_new: bool = False):
+                      only_new: bool = False, fetch_names: bool = False):
         """
         Startet den Match-Download.
         only_new=True: stoppt sobald bekannte Matches auftauchen (inkrementell).
+        fetch_names=True: lädt pro Match den vollen Vornamen nach (langsam!).
         """
-        self._launch("_run_matches", test_guid, filter_by, sort_by, only_new)
+        self._launch("_run_matches", test_guid, filter_by, sort_by,
+                     only_new, fetch_names)
 
     def start_shared(self, test_guid: str,
                      min_cm: float = 0.0, skip_existing: bool = True):
@@ -93,9 +95,12 @@ class Scraper:
         self._thread.start()
 
     def _run_matches(self, test_guid: str, filter_by: str, sort_by: str,
-                     only_new: bool = False):
+                     only_new: bool = False, fetch_names: bool = False):
+        import time as _t
         result = DownloadResult()
         mode   = "Nur neue" if only_new else "Alle"
+        if fetch_names:
+            mode += " + volle Namen"
         self._on_status(f"Starte Match-Download ({mode}) …")
         existing   = self._db.get_match_count(test_guid)
         total_est  = max(existing, 100)
@@ -121,6 +126,18 @@ class Scraper:
                     continue
                 else:
                     consecutive_known_pages = 0
+
+                # Optional: vollen Anzeigenamen pro Match nachladen (langsam)
+                if fetch_names:
+                    try:
+                        full = self._client.get_match_name(test_guid, m.match_guid)
+                        if full:
+                            # Nachname behalten, falls Detailname nur Vorname ist
+                            m.display_name = full
+                    except Exception as e:
+                        log.debug("Namens-Detail fehlgeschlagen für %s: %s",
+                                  m.match_guid[:16], e)
+                    _t.sleep(cfg.DETAIL_REQUEST_DELAY)
 
                 batch.append(m)
                 result.fetched += 1

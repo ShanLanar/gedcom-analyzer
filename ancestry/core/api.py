@@ -79,6 +79,76 @@ class AncestryApiClient:
 
     def __init__(self, session):
         self._s = session
+        self._detail_endpoint = None   # gemerkter funktionierender Detail-Pfad
+
+    # ── Match-Detail: voller Anzeigename ──────────────────────────────────────
+
+    @staticmethod
+    def _extract_name_from_detail(data: dict) -> str:
+        """Sucht in einer Detail-Antwort nach dem vollen Anzeigenamen."""
+        if not isinstance(data, dict):
+            return ""
+
+        def nested(d, *path):
+            cur = d
+            for k in path:
+                if not isinstance(cur, dict):
+                    return ""
+                cur = cur.get(k)
+            return cur if isinstance(cur, str) else ""
+
+        return (nested(data, "displayName")
+                or nested(data, "matchProfile", "displayName")
+                or nested(data, "matchProfile", "name")
+                or nested(data, "adminDisplayName")
+                or nested(data, "admin", "displayName")
+                or nested(data, "matchTestDisplayName")
+                or nested(data, "userDisplayName")
+                or nested(data, "match", "displayName")
+                or "")
+
+    def get_match_name(self, test_guid: str, sample_id: str) -> str:
+        """Holt den vollen Anzeigenamen eines einzelnen Matches.
+
+        Probiert beim ersten Aufruf die Kandidaten-Endpunkte durch und merkt
+        sich den ersten, der einen Namen liefert. Gibt "" zurück, wenn keiner
+        funktioniert (dann bleibt es beim Nachnamen aus Tag 3).
+        """
+        if self._detail_endpoint == "__none__":
+            return ""   # bereits festgestellt: kein Endpunkt liefert Namen
+        candidates = ([self._detail_endpoint] if self._detail_endpoint
+                      else cfg.MATCH_DETAIL_CANDIDATES)
+
+        for tmpl in candidates:
+            url = tmpl.format(test_guid=test_guid, sample_id=sample_id)
+            r = _api_get(self._s, url)
+            if r is None or r.status_code != 200:
+                continue
+            try:
+                data = r.json()
+            except Exception:
+                continue
+            name = self._extract_name_from_detail(data)
+            if name:
+                if self._detail_endpoint != tmpl:
+                    self._detail_endpoint = tmpl
+                    log.info("Match-Detail-Endpunkt bestätigt: %s", tmpl)
+                return name.strip()
+            # Endpunkt antwortet, aber kein Name → trotzdem als gültig merken,
+            # damit wir nicht jedes Mal alle Kandidaten durchprobieren.
+            if self._detail_endpoint is None:
+                self._detail_endpoint = tmpl
+                log.info("Match-Detail-Endpunkt antwortet (ohne Namen): %s | "
+                         "Felder=%s", tmpl,
+                         sorted(data.keys()) if isinstance(data, dict) else type(data))
+            return ""
+
+        if self._detail_endpoint is None:
+            log.warning("Kein Match-Detail-Endpunkt lieferte einen Namen – "
+                        "volle Namen sind für dieses Konto evtl. nicht abrufbar.")
+            # Negatives Ergebnis merken, um nicht endlos zu probieren
+            self._detail_endpoint = "__none__"
+        return ""
 
     # ── DNA-Kits ──────────────────────────────────────────────────────────────
 

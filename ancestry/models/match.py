@@ -12,6 +12,48 @@ from typing import Optional
 import json
 
 
+def derive_relationship(shared_cm: float, meiosis: int = 0) -> str:
+    """Schätzt den Verwandtschaftsgrad aus geteilten cM (+ Meiosis-Anzahl).
+
+    Ancestry liefert in der aktuellen matchList-API kein 'label' mehr mit,
+    sondern nur sharedCentimorgans, numSharedSegments und (teils) meiosis.
+    Diese Funktion bildet daraus einen lesbaren deutschen Beziehungstext –
+    angelehnt an die AncestryDNA-Vorhersagen und das Shared-cM-Projekt.
+    """
+    cm = float(shared_cm or 0)
+    if cm <= 0:
+        return ""
+
+    # Meiosis ist – wenn vorhanden – sehr präzise.
+    if meiosis == 1:
+        return "Elternteil / Kind"
+
+    # cM-basierte Bereiche (von eng nach entfernt)
+    if cm >= 3300:
+        return "Elternteil / Kind"
+    if cm >= 2400:
+        return "Vollgeschwister"
+    if cm >= 1700:
+        return "Großeltern / Enkel · Onkel/Tante · Halbgeschwister"
+    if cm >= 1300:
+        return "Halbgeschwister · Onkel/Tante · Großeltern"
+    if cm >= 850:
+        return "1. Cousin · Großonkel/-tante · Halb-Onkel/Tante"
+    if cm >= 575:
+        return "1. Cousin · Halb-Cousin"
+    if cm >= 350:
+        return "1. Cousin 1x entfernt · Halb-1. Cousin"
+    if cm >= 200:
+        return "2. Cousin · 1. Cousin 2x entfernt"
+    if cm >= 90:
+        return "2. Cousin · 2. Cousin 1x entfernt"
+    if cm >= 45:
+        return "3. Cousin · 2. Cousin 1x entfernt"
+    if cm >= 20:
+        return "4. Cousin · 3. Cousin 1x entfernt"
+    return "Entfernte Verwandtschaft (5.–8. Cousin)"
+
+
 @dataclass
 class DnaKit:
     guid: str
@@ -183,6 +225,10 @@ class DnaMatch:
             rel_range       = rel_info.get("range", "")
             meiosis         = 0
 
+        # Ancestry liefert oft kein Label mehr → aus cM + Meiosis ableiten
+        if not relationship:
+            relationship = derive_relationship(shared_cm, meiosis)
+
         # ── Tags (neues Format: tags{tagId: value}) ──────────────────────────
         import json as _j
         tags_raw   = data.get("tags") or {}
@@ -310,8 +356,11 @@ class SharedMatch:
         shared_cm = (rel.get("sharedCentimorgans")
                      if isinstance(rel, dict)
                      else data.get("sharedCentimorgans") or 0)
-        relationship = (rel.get("label") if isinstance(rel, dict)
-                        else rel_info.get("label") or "")
+        relationship = ((rel.get("label") if isinstance(rel, dict)
+                        else rel_info.get("label")) or "")
+        if not relationship:
+            mei = rel.get("meiosis", 0) if isinstance(rel, dict) else 0
+            relationship = derive_relationship(shared_cm, mei)
 
         tree_info = data.get("treeInfo") or {}
         has_tree  = bool(tree_info.get("treeId")) or bool(data.get("hasTree"))

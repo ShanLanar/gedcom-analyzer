@@ -22,6 +22,21 @@ SHARED_MATCHES_URL = f"{DNA_LIST_BASE}/matchList/{{test_guid}}"
 # Kit-Verwaltung (alter Endpunkt, ggf. nicht verfügbar)
 MANAGE_TESTS_URL = f"{BASE_URL}/dna/api/uhura/v2/people/{{uid}}/managetests"
 
+# ── Match-Detail (voller Name) ────────────────────────────────────────────────
+# Der Bulk-matchList-Endpunkt liefert nur den Nachnamen (Tag 3). Den vollen
+# Anzeigenamen gibt es nur über einen Detail-Abruf pro Match. Da Ancestry den
+# genauen Pfad mehrfach geändert hat, werden mehrere Kandidaten der Reihe nach
+# probiert; der erste, der einen Namen liefert, wird gemerkt.
+MATCHESSERVICE_BASE = f"{BASE_URL}/discoveryui-matchesservice/api"
+MATCH_DETAIL_CANDIDATES = [
+    f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matches/{{sample_id}}",
+    f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matchProfile/{{sample_id}}",
+    f"{DNA_LIST_BASE}/match/{{test_guid}}/{{sample_id}}",
+    f"{DNA_LIST_BASE}/matchProfile/{{test_guid}}/{{sample_id}}",
+]
+# Zusätzliche Pause speziell für Detail-Abrufe (Sekunden)
+DETAIL_REQUEST_DELAY = 1.5
+
 # ── Paginierung ───────────────────────────────────────────────────────────────
 PAGE_SIZE       = 50    # itemsPerPage (wie Ancestry-UI)
 MAX_PAGES       = 0

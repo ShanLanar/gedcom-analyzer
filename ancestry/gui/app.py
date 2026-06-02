@@ -325,6 +325,9 @@ class AncestryDnaApp(tk.Tk):
         self._only_new_var = tk.BooleanVar(value=False)
         ttk.Checkbutton(bf, text="✨ Nur neue (inkrementell)",
                         variable=self._only_new_var).pack(side="left", padx=14)
+        self._fetch_names_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bf, text="👤 Volle Namen (langsam!)",
+                        variable=self._fetch_names_var).pack(side="left", padx=14)
 
         # ── Bereich B: Shared Matches ─────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
@@ -431,8 +434,12 @@ class AncestryDnaApp(tk.Tk):
                                  on_progress=self._on_progress,
                                  on_status=lambda m: self.after(0, lambda: self._set_status(m)),
                                  on_done=self._on_done)
+        if self._fetch_names_var.get():
+            self._set_status("Hinweis: 'Volle Namen' lädt jeden Match einzeln – "
+                             "das kann bei vielen Matches sehr lange dauern.")
         self._scraper.start_matches(guid, self._filter_var.get(), self._sort_var.get(),
-                                     only_new=self._only_new_var.get())
+                                     only_new=self._only_new_var.get(),
+                                     fetch_names=self._fetch_names_var.get())
 
     def _start_shared(self):
         guid = self._get_kit_guid()
