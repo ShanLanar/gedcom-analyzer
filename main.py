@@ -535,6 +535,9 @@ class AhnenApp(tk.Tk):
             font=cfg.FONT_HEAD, relief="flat", padx=16,
             command=self._stop, state="disabled")
         self._btn_stop.pack(side="left", padx=4)
+        tk.Button(footer, text="🧬 DNA-Matches", bg="#1F4E79", fg="#fff",
+                  font=cfg.FONT_MAIN, relief="flat", padx=10,
+                  command=self._open_dna_tool).pack(side="left", padx=8)
         tk.Button(footer, text="Log löschen", bg=cfg.BG3, fg=cfg.FG,
                   font=cfg.FONT_MAIN, relief="flat",
                   command=self._clear_log).pack(side="right", padx=8)
@@ -637,6 +640,23 @@ class AhnenApp(tk.Tk):
     def _sel_default(self):
         for task in TASKS:
             self._task_vars[task["id"]].set(task["default"])
+
+    # ── DNA-Tool ───────────────────────────────────────────────────────────────
+
+    def _open_dna_tool(self):
+        """Öffnet das Ancestry-DNA-Tool als eigenes Prozess-Fenster."""
+        import subprocess
+        ancestry_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ancestry")
+        python_exe = sys.executable
+        try:
+            subprocess.Popen(
+                [python_exe, "main.py"],
+                cwd=ancestry_dir,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+            self._append_log("DNA-Tool gestartet.", tag="ok")
+        except Exception as e:
+            self._append_log(f"DNA-Tool konnte nicht gestartet werden: {e}", tag="err")
 
     # ── Log-Ausgabe ────────────────────────────────────────────────────────────
 

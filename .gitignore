@@ -22,3 +22,7 @@ output/*.html
 
 # Leere Logdateien die von Windows-Pfadnamen erzeugt werden
 *.log
+
+# Ancestry-DNA-Tool Laufzeit-Daten
+ancestry/ancestry_dna.db
+ancestry/ancestry_dna.db-*
