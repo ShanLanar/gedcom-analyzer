@@ -23,6 +23,9 @@ output/*.html
 # Leere Logdateien die von Windows-Pfadnamen erzeugt werden
 *.log
 
+# Claude Code agent state
+.claude/
+
 # Ancestry-DNA-Tool Laufzeit-Daten
 ancestry/ancestry_dna.db
 ancestry/ancestry_dna.db-*
