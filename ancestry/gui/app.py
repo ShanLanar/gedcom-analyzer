@@ -833,11 +833,14 @@ class AncestryDnaApp(tk.Tk):
 
         # Einstellungen
         cf = ttk.Frame(f); cf.pack(fill="x", padx=14, pady=8)
-        ttk.Label(cf, text="Min. cM primäre Matches:").pack(side="left")
-        self._cluster_min_cm_var = tk.StringVar(value="20")
+        ttk.Label(cf, text="Primäre cM von:").pack(side="left")
+        self._cluster_min_cm_var = tk.StringVar(value="90")
         ttk.Entry(cf, textvariable=self._cluster_min_cm_var, width=6).pack(side="left", padx=6)
+        ttk.Label(cf, text="bis:").pack(side="left", padx=(4,4))
+        self._cluster_max_cm_var = tk.StringVar(value="400")
+        ttk.Entry(cf, textvariable=self._cluster_max_cm_var, width=6).pack(side="left")
         ttk.Label(cf, text="Min. cM Shared:").pack(side="left", padx=(14,4))
-        self._cluster_shared_cm_var = tk.StringVar(value="15")
+        self._cluster_shared_cm_var = tk.StringVar(value="20")
         ttk.Entry(cf, textvariable=self._cluster_shared_cm_var, width=6).pack(side="left")
         ttk.Button(cf, text="🔄 Cluster berechnen",
                    command=self._refresh_cluster).pack(side="left", padx=14)
@@ -899,19 +902,27 @@ class AncestryDnaApp(tk.Tk):
             messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
             return
         try:
-            min_prim   = float(self._cluster_min_cm_var.get() or 20)
-            min_shared = float(self._cluster_shared_cm_var.get() or 15)
+            min_prim   = float(self._cluster_min_cm_var.get() or 90)
+            max_prim   = float(self._cluster_max_cm_var.get() or 400)
+            min_shared = float(self._cluster_shared_cm_var.get() or 20)
         except ValueError:
-            min_prim, min_shared = 90.0, 20.0
+            min_prim, max_prim, min_shared = 90.0, 400.0, 20.0
 
-        shared_data = self._db.get_all_shared_for_cluster(test_guid, min_prim, min_shared)
+        shared_data = self._db.get_all_shared_for_cluster(
+            test_guid, min_prim, min_shared,
+            max_cm_primary=max_prim, max_cm_shared=max_prim)
         if not shared_data:
             messagebox.showinfo("Keine Daten",
-                                "Keine Shared Matches vorhanden.\n"
-                                "Bitte zuerst Shared Matches herunterladen (Tab Herunterladen → B).")
+                                "Keine Shared Matches im gewählten cM-Bereich.\n\n"
+                                "Mögliche Ursachen:\n"
+                                "• Noch keine Shared Matches heruntergeladen "
+                                "(Tab Herunterladen → B)\n"
+                                f"• Keine primären Matches zwischen {min_prim:.0f} "
+                                f"und {max_prim:.0f} cM — Bereich anpassen.")
             return
 
-        self._clusters = build_clusters(shared_data, min_prim, min_shared)
+        self._clusters = build_clusters(shared_data, min_prim, min_shared,
+                                        max_cm_primary=max_prim)
         self._cluster_count_var.set(f"{len(self._clusters)} Cluster")
         self._cluster_text_var.set(suggest_grandparent_lines(self._clusters))
 

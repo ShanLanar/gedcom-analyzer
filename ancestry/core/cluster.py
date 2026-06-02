@@ -20,8 +20,9 @@ log = logging.getLogger(__name__)
 
 def build_clusters(
     shared_data: list[dict],
-    min_cm_primary: float = 20.0,
-    min_cm_shared : float = 15.0,
+    min_cm_primary: float = 90.0,
+    min_cm_shared : float = 20.0,
+    max_cm_primary: float = 400.0,
 ) -> dict[int, list[dict]]:
     """
     Baut Cluster aus den Shared-Match-Daten auf (Union-Find-Algorithmus).
@@ -29,22 +30,32 @@ def build_clusters(
     :param shared_data:     Ergebnis von db.get_all_shared_for_cluster()
     :param min_cm_primary:  Mindest-cM für primäre Matches (Ankerpunkte)
     :param min_cm_shared:   Mindest-cM für Shared Matches (Kanten)
+    :param max_cm_primary:  Obergrenze cM für primäre Matches – enge Verwandte
+                            (>400 cM) verschmelzen sonst alle Cluster. <=0 = aus.
     :return:                {cluster_id: [{"guid", "name", "cm", "rel"}, ...]}
     """
     if not shared_data:
         return {}
 
-    # ── Alle primären Matches sammeln ─────────────────────────────────────────
+    def in_primary_range(cm) -> bool:
+        if cm is None or cm < min_cm_primary:
+            return False
+        if max_cm_primary and max_cm_primary > 0 and cm > max_cm_primary:
+            return False
+        return True
+
+    # ── Primäre Matches sammeln (defensiver cM-Bereichsfilter) ────────────────
     primaries: dict[str, dict] = {}
     for row in shared_data:
         g = row["match_guid_a"]
-        if g not in primaries:
-            primaries[g] = {
-                "guid": g,
-                "name": row["name_a"],
-                "cm"  : row["cm_a"],
-                "rel" : row.get("rel_a", ""),
-            }
+        if g in primaries or not in_primary_range(row["cm_a"]):
+            continue
+        primaries[g] = {
+            "guid": g,
+            "name": row["name_a"],
+            "cm"  : row["cm_a"],
+            "rel" : row.get("rel_a", ""),
+        }
 
     if not primaries:
         return {}
@@ -64,45 +75,50 @@ def build_clusters(
             parent[ry] = rx
 
     # ── Kanten: zwei primäre Matches teilen einen Shared Match ───────────────
-    # Für jeden shared Match b: finde alle primären Matches, die b als Shared haben
+    # Shared-Match-cM ebenfalls prüfen (Brücken durch enge Verwandte vermeiden).
     shared_b_to_a: dict[str, list[str]] = {}
     for row in shared_data:
-        b = row["match_guid_b"]
-        a = row["match_guid_a"]
-        if a in primaries:
-            shared_b_to_a.setdefault(b, []).append(a)
+        a, b = row["match_guid_a"], row["match_guid_b"]
+        if a not in primaries:
+            continue
+        cm_b = row.get("cm_b")
+        if cm_b is not None and cm_b < min_cm_shared:
+            continue
+        if max_cm_primary and max_cm_primary > 0 and cm_b and cm_b > max_cm_primary:
+            continue   # enger Verwandter als Shared → verbindet alle Linien
+        shared_b_to_a.setdefault(b, []).append(a)
 
     for b, a_list in shared_b_to_a.items():
-        # Verbinde alle primären Matches, die denselben Shared Match haben
         for i in range(1, len(a_list)):
             union(a_list[0], a_list[i])
 
-    # Außerdem: wenn ein Shared Match selbst ein primärer Match ist → direkt verbinden
+    # Falls ein Shared Match selbst ein primärer Match ist → direkt verbinden
     for row in shared_data:
-        a = row["match_guid_a"]
-        b = row["match_guid_b"]
+        a, b = row["match_guid_a"], row["match_guid_b"]
         if a in primaries and b in primaries:
             union(a, b)
 
     # ── Cluster zusammensetzen ────────────────────────────────────────────────
     clusters: dict[str, list[dict]] = {}
     for g, info in primaries.items():
-        root = find(g)
-        clusters.setdefault(root, []).append(info)
+        clusters.setdefault(find(g), []).append(info)
 
-    # Cluster nach durchschnittlicher cM absteigend sortieren, IDs vergeben
-    sorted_clusters = sorted(
-        clusters.values(),
-        key=lambda members: sum(m["cm"] for m in members) / len(members),
-        reverse=True,
-    )
+    # Echte Cluster (>=2 Mitglieder) zuerst, dann Singletons – jeweils nach
+    # durchschnittlicher cM absteigend. So stehen die Großelternlinien oben.
+    groups = list(clusters.values())
+    def avg_cm(members):
+        return sum(m["cm"] for m in members) / len(members)
+    multi  = sorted((g for g in groups if len(g) >= 2), key=avg_cm, reverse=True)
+    single = sorted((g for g in groups if len(g) == 1), key=avg_cm, reverse=True)
+
     result = {}
-    for idx, members in enumerate(sorted_clusters, 1):
+    for idx, members in enumerate(multi + single, 1):
         members.sort(key=lambda m: m["cm"], reverse=True)
         result[idx] = members
 
-    log.info("Clustering: %d primäre Matches → %d Cluster",
-             len(primaries), len(result))
+    log.info("Clustering: %d primäre Matches → %d Cluster "
+             "(%d echte, %d Singletons)",
+             len(primaries), len(result), len(multi), len(single))
     return result
 
 

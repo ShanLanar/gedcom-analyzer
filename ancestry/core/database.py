@@ -451,13 +451,28 @@ class Database:
 
     def get_all_shared_for_cluster(self, test_guid: str,
                                     min_cm_primary: float = 90.0,
-                                    min_cm_shared: float = 20.0) -> list[dict]:
+                                    min_cm_shared: float = 20.0,
+                                    max_cm_primary: float = 400.0,
+                                    max_cm_shared: float = 400.0) -> list[dict]:
         """
         Gibt alle Shared-Match-Paare zurück, die für Clustering benötigt werden.
-        Nur primäre Matches >= min_cm_primary, nur Shared >= min_cm_shared.
+
+        Leeds-Methode: nur primäre Matches im Bereich [min_cm_primary,
+        max_cm_primary] (Standard 90–400 cM) und nur Shared-Matches im Bereich
+        [min_cm_shared, max_cm_shared]. Die OBERGRENZE ist entscheidend: enge
+        Verwandte (>400 cM: Eltern, Geschwister, …) teilen DNA über ALLE
+        Großelternlinien hinweg und würden sonst alle Cluster zu einem
+        verschmelzen. max_cm <= 0 deaktiviert die jeweilige Obergrenze.
         """
+        conds  = ["sm.test_guid = ?", "m_a.shared_cm >= ?", "sm.shared_cm_b >= ?"]
+        params = [test_guid, min_cm_primary, min_cm_shared]
+        if max_cm_primary and max_cm_primary > 0:
+            conds.append("m_a.shared_cm <= ?");   params.append(max_cm_primary)
+        if max_cm_shared and max_cm_shared > 0:
+            conds.append("sm.shared_cm_b <= ?");  params.append(max_cm_shared)
+
         with self._cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT
                     sm.match_guid_a,
                     m_a.display_name    AS name_a,
@@ -469,11 +484,9 @@ class Database:
                     sm.relationship_b   AS rel_b
                 FROM shared_matches sm
                 JOIN matches m_a ON m_a.match_guid = sm.match_guid_a
-                WHERE sm.test_guid = ?
-                  AND m_a.shared_cm >= ?
-                  AND sm.shared_cm_b >= ?
+                WHERE {" AND ".join(conds)}
                 ORDER BY m_a.shared_cm DESC, sm.shared_cm_b DESC
-            """, (test_guid, min_cm_primary, min_cm_shared))
+            """, params)
             return [dict(r) for r in cur.fetchall()]
 
     # ── Statistiken ───────────────────────────────────────────────────────────
