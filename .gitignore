@@ -19,3 +19,6 @@ logs/*.log
 output/*.xlsx
 output/*.json
 output/*.html
+
+# Leere Logdateien die von Windows-Pfadnamen erzeugt werden
+*.log
