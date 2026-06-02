@@ -276,6 +276,14 @@ TASKS = [
         "default": False,
         "group":   "Analysen",
     },
+    {
+        "id":      "book_statistics",
+        "name":    "Buch-Statistiken (21 Analysen)",
+        "desc":    "Alle Analysen aus 'The Village in the Field': Sterbespitzen, Heiratsdistanz, Auswanderer vs. Stayer, Hofnamen, Berufsstand u.v.m.",
+        "fn":      "tasks._runner:run_book_statistics",
+        "default": True,
+        "group":   "Analysen",
+    },
     # ── Export ─────────────────────────────────────────────────────────────────
     {
         "id":      "export_excel",

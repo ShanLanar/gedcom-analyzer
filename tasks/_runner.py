@@ -288,7 +288,7 @@ def run_export_excel(progress_cb=None, stop_event=None):
                         family_structure, lineage, naming, imputation,
                         brickwalls, research_suggestions, sources,
                         onomastics, endogamy_network, sosa, familysearch,
-                        online_research)
+                        online_research, book_statistics)
 
     _p(progress_cb, "Baue Sheet-Liste …")
     indiv = _state["individuals"]
@@ -502,6 +502,50 @@ def run_export_excel(progress_cb=None, stop_event=None):
         # ── Online-Sterbedaten-Recherche (Wikidata + GND) ─────────────────────
         ("Online Sterbedaten-Vorschläge", online_research.ONLINE_RESEARCH_HEADERS,
          _state.get("online_research_rows", [])[:5_000]),
+
+        # ── Buch-Statistiken (21 Analysen) ────────────────────────────────────
+        ("Sterbespitzen (Jahresreihe)", book_statistics.DEATH_SPIKE_HEADERS,
+         _state.get("bookstat_death_spikes", [])[:1000]),
+        ("Altersverteilung beim Tod", book_statistics.AGE_DIST_HEADERS,
+         _state.get("bookstat_age_distribution", [])),
+        ("Müttersterblichkeit", book_statistics.MATERNAL_MORTALITY_HEADERS,
+         _state.get("bookstat_maternal_mortality", [])),
+        ("Hundertjährige", book_statistics.CENTENARIAN_HEADERS,
+         _state.get("bookstat_centenarians", [])[:500]),
+        ("Geburtsrang & Lebenserwartung", book_statistics.BIRTH_ORDER_LIFESPAN_HEADERS,
+         _state.get("bookstat_birth_order_lifespan", [])),
+        ("Stadt-Land-Lebenserwartung", book_statistics.RURAL_URBAN_HEADERS,
+         _state.get("bookstat_rural_urban", [])),
+        ("Ehedauer nach Jahrhundert", book_statistics.MARRIAGE_DURATION_HEADERS,
+         _state.get("bookstat_marriage_duration", [])),
+        ("Scheidungsrate", book_statistics.DIVORCE_HEADERS,
+         _state.get("bookstat_divorce_rate", [])),
+        ("Alter letztes Kind", book_statistics.LAST_CHILD_HEADERS,
+         _state.get("bookstat_last_child_age", [])),
+        ("Nie-Geheiratet-Rate", book_statistics.NEVER_MARRIED_HEADERS,
+         _state.get("bookstat_never_married", [])),
+        ("Voreheliche Konzeption", book_statistics.PREMARITAL_CONCEPTION_HEADERS,
+         _state.get("bookstat_premarital_conception", [])),
+        ("Wiederheirat-Geschwindigkeit", book_statistics.REMARRIAGE_HEADERS,
+         _state.get("bookstat_remarriage_speed", [])),
+        ("Heiratsdistanz (km)", book_statistics.MARRIAGE_DISTANCE_HEADERS,
+         _state.get("bookstat_marriage_distance", [])),
+        ("Pfarrei-Fertilität", book_statistics.PARISH_FERTILITY_HEADERS,
+         _state.get("bookstat_parish_fertility", [])[:500]),
+        ("Auswanderer vs. Stayer", book_statistics.EMIGRANT_STAYER_HEADERS,
+         _state.get("bookstat_emigrant_stayer", [])),
+        ("DE-USA Kreuzungspunkt", book_statistics.CROSSOVER_HEADERS,
+         _state.get("bookstat_crossover", [])),
+        ("Demographischer Schwerpunkt", book_statistics.GRAVITY_HEADERS,
+         _state.get("bookstat_gravity", [])),
+        ("Hofnamen-Analyse", book_statistics.GENANNT_HEADERS,
+         _state.get("bookstat_genannt", [])[:2000]),
+        ("Berufsstand & Lebenserwartung", book_statistics.OCCUPATION_LIFESPAN_HEADERS,
+         _state.get("bookstat_occupation_lifespan", [])),
+        ("Nachnamen-Gini", book_statistics.SURNAME_GINI_HEADERS,
+         _state.get("bookstat_surname_gini", [])),
+        ("Vornamen-Amerikanisierung", book_statistics.AMERICANIZATION_HEADERS,
+         _state.get("bookstat_americanization", [])),
     ]
 
     # Osnabrück-Sheets
@@ -901,6 +945,16 @@ def run_online_research(progress_cb=None, stop_event=None):
         _state["individuals"], _state["families"],
         root_related_ids=_state.get("root_related_ids"),
         progress_cb=progress_cb)
+
+
+def run_book_statistics(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.book_statistics import run_book_statistics as _run
+    results = _run(_state["individuals"], _state["families"],
+                   location_data=_state.get("location_data"),
+                   progress_cb=progress_cb)
+    for key, val in results.items():
+        _state[f"bookstat_{key}"] = val
 
 
 # ── Schritt 33: State-Cache (Incremental Run) ────────────────────────────────
