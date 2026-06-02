@@ -895,6 +895,25 @@ def run_export_heatmap(progress_cb=None, stop_event=None):
                           out_path, progress_cb=progress_cb)
 
 
+def run_export_gravity_map(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.export_gravity_map import export_gravity_map
+    _p(progress_cb, "Erzeuge Schwerpunkt-Karte …")
+    gravity_rows = _state.get("bookstat_gravity", [])
+    out_path = os.path.join(cfg.DIRS.get("output", "."), "gravity_map.html")
+    export_gravity_map(gravity_rows, out_path)
+    _p(progress_cb, f"Schwerpunkt-Karte gespeichert: {out_path}", tag="ok")
+
+
+def run_export_cousins_map(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.export_cousins_map import export_cousins_map
+    _p(progress_cb, "Erzeuge Cousins-USA-Karte …")
+    out_path = os.path.join(cfg.DIRS.get("output", "."), "cousins_usa_map.html")
+    export_cousins_map(_state["individuals"], _state.get("output_rows", []), out_path)
+    _p(progress_cb, f"Cousins-Karte gespeichert: {out_path}", tag="ok")
+
+
 def run_export_subtree_descendants(progress_cb=None, stop_event=None):
     """Exportiert die Nachfahren der Root als eigene GEDCOM."""
     _set_stop_event(stop_event)

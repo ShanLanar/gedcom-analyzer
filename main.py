@@ -350,6 +350,22 @@ TASKS = [
         "group":   "Export",
     },
     {
+        "id":      "export_gravity_map",
+        "name":    "Karte: Demografischer Schwerpunkt (Zeitraffer)",
+        "desc":    "Animierte Leaflet-Karte zeigt, wie der Sterbepunkt-Schwerpunkt von Westfalen nach Ohio/Texas wandert. Benötigt 'Buch-Statistiken' aktiv.",
+        "fn":      "tasks._runner:run_export_gravity_map",
+        "default": False,
+        "group":   "Export",
+    },
+    {
+        "id":      "export_cousins_map",
+        "name":    "Karte: Lebende Cousins nach US-County",
+        "desc":    "Leaflet-Karte mit Kreisen pro US-County – Größe = Anzahl lebender Verwandter. Benötigt 'Cousin-Analyse' aktiv.",
+        "fn":      "tasks._runner:run_export_cousins_map",
+        "default": False,
+        "group":   "Export",
+    },
+    {
         "id":      "export_descendants",
         "name":    "Subtree: Nachfahren der Root als GEDCOM",
         "desc":    "Schreibt nur Nachfahren-Stammbaum als eigene .ged-Datei.",
