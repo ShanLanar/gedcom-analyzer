@@ -442,17 +442,19 @@ class AhnenApp(tk.Tk):
         inner.bind("<Enter>", lambda _e: canvas.bind_all("<MouseWheel>", _scroll))
         inner.bind("<Leave>", lambda _e: canvas.unbind_all("<MouseWheel>"))
 
-        self._build_task_list(inner)
-
-        # Schaltflächen
-        btn_frame = tk.Frame(left, bg=cfg.BG2, pady=6)
-        btn_frame.pack(fill="x", side="bottom")
-        for text, cmd in [("Alle", self._sel_all),
-                           ("Keine", self._sel_none),
-                           ("Standard", self._sel_default)]:
-            tk.Button(btn_frame, text=text, bg=cfg.BG3, fg=cfg.FG,
+        # Schaltflächen OBERHALB der Task-Liste (immer sichtbar)
+        btn_frame = tk.Frame(left, bg=cfg.BG2, pady=4)
+        btn_frame.pack(fill="x", side="top")
+        for text, cmd, color in [
+            ("✔ Alle",     self._sel_all,     cfg.BG3),
+            ("✘ Keine",    self._sel_none,    cfg.BG3),
+            ("↺ Standard", self._sel_default, cfg.ACCENT),
+        ]:
+            tk.Button(btn_frame, text=text, bg=color, fg=cfg.FG,
                       font=cfg.FONT_MAIN, relief="flat",
-                      command=cmd).pack(side="left", padx=4, pady=4)
+                      command=cmd).pack(side="left", padx=3, pady=3)
+
+        self._build_task_list(inner)
 
         # Rechte Seite: Pfad + Log + Fortschritt
         right = tk.Frame(main, bg=cfg.BG)
