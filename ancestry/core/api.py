@@ -223,13 +223,14 @@ class AncestryApiClient:
             # Einmalige Feld-Diagnose: zeigt im Log, wo der Name wirklich steckt
             if page == 1 and raw and not getattr(self, "_logged_fields", False):
                 self._logged_fields = True
+                import json as _dbgj
                 sample = raw[0]
-                mp = sample.get("matchProfile")
                 log.info("Match-Felder (1. Eintrag): top-level=%s",
                          sorted(sample.keys()))
-                if isinstance(mp, dict):
-                    log.info("  matchProfile-Felder=%s | displayName=%r",
-                             sorted(mp.keys()), mp.get("displayName"))
+                log.info("  tags=%s",
+                         _dbgj.dumps(sample.get("tags"), ensure_ascii=False)[:500])
+                log.info("  relationship=%s",
+                         _dbgj.dumps(sample.get("relationship"), ensure_ascii=False)[:500])
             for item in raw:
                 m = DnaMatch.from_api_response(item, test_guid, fetched_at)
                 if m.match_guid:
