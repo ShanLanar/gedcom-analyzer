@@ -450,7 +450,7 @@ class Database:
             return [(r[0], r[1]) for r in cur.fetchall()]
 
     def get_all_shared_for_cluster(self, test_guid: str,
-                                    min_cm_primary: float = 90.0,
+                                    min_cm_primary: float = 20.0,
                                     min_cm_shared: float = 20.0,
                                     max_cm_primary: float = 400.0,
                                     max_cm_shared: float = 400.0) -> list[dict]:

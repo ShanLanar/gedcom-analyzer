@@ -834,7 +834,7 @@ class AncestryDnaApp(tk.Tk):
         # Einstellungen
         cf = ttk.Frame(f); cf.pack(fill="x", padx=14, pady=8)
         ttk.Label(cf, text="Primäre cM von:").pack(side="left")
-        self._cluster_min_cm_var = tk.StringVar(value="90")
+        self._cluster_min_cm_var = tk.StringVar(value="20")
         ttk.Entry(cf, textvariable=self._cluster_min_cm_var, width=6).pack(side="left", padx=6)
         ttk.Label(cf, text="bis:").pack(side="left", padx=(4,4))
         self._cluster_max_cm_var = tk.StringVar(value="400")
@@ -902,11 +902,11 @@ class AncestryDnaApp(tk.Tk):
             messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
             return
         try:
-            min_prim   = float(self._cluster_min_cm_var.get() or 90)
+            min_prim   = float(self._cluster_min_cm_var.get() or 20)
             max_prim   = float(self._cluster_max_cm_var.get() or 400)
             min_shared = float(self._cluster_shared_cm_var.get() or 20)
         except ValueError:
-            min_prim, max_prim, min_shared = 90.0, 400.0, 20.0
+            min_prim, max_prim, min_shared = 20.0, 400.0, 20.0
 
         shared_data = self._db.get_all_shared_for_cluster(
             test_guid, min_prim, min_shared,

@@ -20,7 +20,7 @@ log = logging.getLogger(__name__)
 
 def build_clusters(
     shared_data: list[dict],
-    min_cm_primary: float = 90.0,
+    min_cm_primary: float = 20.0,
     min_cm_shared : float = 20.0,
     max_cm_primary: float = 400.0,
 ) -> dict[int, list[dict]]:
