@@ -36,11 +36,17 @@ MATCH_DETAIL_CANDIDATES = [
     f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matches/{{sample_id}}/details",
     f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matchProfile/{{sample_id}}",
 ]
-# Header, die Ancestrys eigenes Frontend bei matchesservice-Calls mitschickt.
+# Header, die ein echter Browser bei XHR an den matchesservice-Host sendet.
+# Ohne diese blockt Akamai Bot Manager mit "Access denied" (520).
 MATCHESSERVICE_HEADERS = {
-    "ancestry-clientpath": "express-fe",
-    "Accept": "application/json",
+    "Accept"        : "application/json",
+    "Origin"        : BASE_URL,
+    "Sec-Fetch-Site": "same-origin",
+    "Sec-Fetch-Mode": "cors",
+    "Sec-Fetch-Dest": "empty",
 }
+# Referer auf eine echte Match-Listenseite (nicht die fiktive Compare-URL)
+MATCHESSERVICE_REFERER = f"{BASE_URL}/discoveryui-matches/list/{{test_guid}}"
 # Zusätzliche Pause speziell für Detail-Abrufe (Sekunden)
 DETAIL_REQUEST_DELAY = 1.5
 

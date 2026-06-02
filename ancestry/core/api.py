@@ -126,8 +126,9 @@ class AncestryApiClient:
         # matchesservice braucht Frontend-Header + passenden Referer auf die
         # Vergleichsseite, sonst antwortet der Origin mit 520.
         headers = dict(getattr(cfg, "MATCHESSERVICE_HEADERS", {}))
-        headers["Referer"] = (f"{cfg.BASE_URL}/discoveryui-matches/match/"
-                              f"{test_guid}/with/{sample_id}")
+        ref_tmpl = getattr(cfg, "MATCHESSERVICE_REFERER",
+                           cfg.BASE_URL + "/discoveryui-matches/list/{test_guid}")
+        headers["Referer"] = ref_tmpl.format(test_guid=test_guid)
 
         for tmpl in candidates:
             url = tmpl.format(test_guid=test_guid, sample_id=sample_id)
