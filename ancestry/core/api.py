@@ -33,13 +33,15 @@ def _jitter(base: float) -> float:
     return base * (0.8 + random.random() * 0.4)
 
 
-def _api_get(session, url: str) -> Optional[object]:
+def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
     headers = {
         "Accept"          : "application/json, text/plain, */*",
         "Accept-Language" : "de-DE,de;q=0.9,en-US;q=0.8",
         "Referer"         : cfg.BASE_URL + "/discoveryui-matches/",
         "X-Requested-With": "XMLHttpRequest",
     }
+    if extra_headers:
+        headers.update(extra_headers)
     csrf = session.cookies.get("_csrf") or session.cookies.get("XSRF-TOKEN") or ""
     if csrf:
         headers["X-CSRF-Token"] = csrf
@@ -121,9 +123,15 @@ class AncestryApiClient:
 
         diag = self._detail_endpoint is None   # erster Lauf → ausführlich loggen
 
+        # matchesservice braucht Frontend-Header + passenden Referer auf die
+        # Vergleichsseite, sonst antwortet der Origin mit 520.
+        headers = dict(getattr(cfg, "MATCHESSERVICE_HEADERS", {}))
+        headers["Referer"] = (f"{cfg.BASE_URL}/discoveryui-matches/match/"
+                              f"{test_guid}/with/{sample_id}")
+
         for tmpl in candidates:
             url = tmpl.format(test_guid=test_guid, sample_id=sample_id)
-            r = _api_get(self._s, url)
+            r = _api_get(self._s, url, extra_headers=headers)
             status = r.status_code if r is not None else "—"
             if r is None or r.status_code != 200:
                 if diag:
