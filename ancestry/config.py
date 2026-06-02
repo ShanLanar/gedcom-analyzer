@@ -29,10 +29,16 @@ MANAGE_TESTS_URL = f"{BASE_URL}/dna/api/uhura/v2/people/{{uid}}/managetests"
 # probiert; der erste, der einen Namen liefert, wird gemerkt.
 MATCHESSERVICE_BASE = f"{BASE_URL}/discoveryui-matchesservice/api"
 MATCH_DETAIL_CANDIDATES = [
+    # matchesservice – liefert i.d.R. matchProfile.displayName
     f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matches/{{sample_id}}",
+    f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matches/{{sample_id}}/details",
     f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matchProfile/{{sample_id}}",
+    f"{MATCHESSERVICE_BASE}/compare/{{test_guid}}/with/{{sample_id}}/details",
+    f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matchesv2/{{sample_id}}",
+    # ältere discoveryui-Pfade
     f"{DNA_LIST_BASE}/match/{{test_guid}}/{{sample_id}}",
     f"{DNA_LIST_BASE}/matchProfile/{{test_guid}}/{{sample_id}}",
+    f"{DNA_LIST_BASE}/details/{{test_guid}}/{{sample_id}}",
 ]
 # Zusätzliche Pause speziell für Detail-Abrufe (Sekunden)
 DETAIL_REQUEST_DELAY = 1.5

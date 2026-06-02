@@ -119,34 +119,38 @@ class AncestryApiClient:
         candidates = ([self._detail_endpoint] if self._detail_endpoint
                       else cfg.MATCH_DETAIL_CANDIDATES)
 
+        diag = self._detail_endpoint is None   # erster Lauf → ausführlich loggen
+
         for tmpl in candidates:
             url = tmpl.format(test_guid=test_guid, sample_id=sample_id)
             r = _api_get(self._s, url)
+            status = r.status_code if r is not None else "—"
             if r is None or r.status_code != 200:
+                if diag:
+                    log.info("  Detail-Versuch HTTP %s: %s", status, url)
                 continue
             try:
                 data = r.json()
             except Exception:
+                if diag:
+                    body = (r.text or "")[:120].replace("\n", " ")
+                    log.info("  Detail HTTP 200 aber kein JSON: %s | %r", url, body)
                 continue
             name = self._extract_name_from_detail(data)
+            if diag:
+                keys = sorted(data.keys()) if isinstance(data, dict) else type(data).__name__
+                log.info("  Detail HTTP 200: %s | Name=%r | Felder=%s",
+                         url, name, keys)
             if name:
-                if self._detail_endpoint != tmpl:
-                    self._detail_endpoint = tmpl
-                    log.info("Match-Detail-Endpunkt bestätigt: %s", tmpl)
-                return name.strip()
-            # Endpunkt antwortet, aber kein Name → trotzdem als gültig merken,
-            # damit wir nicht jedes Mal alle Kandidaten durchprobieren.
-            if self._detail_endpoint is None:
                 self._detail_endpoint = tmpl
-                log.info("Match-Detail-Endpunkt antwortet (ohne Namen): %s | "
-                         "Felder=%s", tmpl,
-                         sorted(data.keys()) if isinstance(data, dict) else type(data))
-            return ""
+                log.info("Match-Detail-Endpunkt bestätigt: %s", tmpl)
+                return name.strip()
 
+        # Kein Kandidat lieferte einen Namen
         if self._detail_endpoint is None:
             log.warning("Kein Match-Detail-Endpunkt lieferte einen Namen – "
-                        "volle Namen sind für dieses Konto evtl. nicht abrufbar.")
-            # Negatives Ergebnis merken, um nicht endlos zu probieren
+                        "volle Namen sind für dieses Konto evtl. nicht abrufbar. "
+                        "Siehe die Detail-Versuch-Zeilen oben für die Statuscodes.")
             self._detail_endpoint = "__none__"
         return ""
 
