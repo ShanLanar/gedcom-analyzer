@@ -268,6 +268,14 @@ TASKS = [
         "default": True,
         "group":   "Analysen",
     },
+    {
+        "id":      "online_research",
+        "name":    "Online-Sterbedaten (Wikidata + GND)",
+        "desc":    "Sucht fehlende Sterbejahre automatisch online — nur Vorschläge, kein GEDCOM-Schreiben. Benötigt Internet. Kann bei großen Bäumen mehrere Minuten dauern.",
+        "fn":      "tasks._runner:run_online_research",
+        "default": False,
+        "group":   "Analysen",
+    },
     # ── Export ─────────────────────────────────────────────────────────────────
     {
         "id":      "export_excel",

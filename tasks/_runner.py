@@ -287,7 +287,8 @@ def run_export_excel(progress_cb=None, stop_event=None):
                         anomalies, seasonality, snapshot, spatial,
                         family_structure, lineage, naming, imputation,
                         brickwalls, research_suggestions, sources,
-                        onomastics, endogamy_network, sosa, familysearch)
+                        onomastics, endogamy_network, sosa, familysearch,
+                        online_research)
 
     _p(progress_cb, "Baue Sheet-Liste …")
     indiv = _state["individuals"]
@@ -497,6 +498,10 @@ def run_export_excel(progress_cb=None, stop_event=None):
         # ── FamilySearch-Vergleich (Suchlinks pro Ahn) ────────────────────────
         ("FamilySearch-Vergleich", familysearch.FAMILYSEARCH_HEADERS,
          _state.get("familysearch_rows", [])[:2_000]),
+
+        # ── Online-Sterbedaten-Recherche (Wikidata + GND) ─────────────────────
+        ("Online Sterbedaten-Vorschläge", online_research.ONLINE_RESEARCH_HEADERS,
+         _state.get("online_research_rows", [])[:5_000]),
     ]
 
     # Osnabrück-Sheets
@@ -887,7 +892,18 @@ def run_export_sankey(progress_cb=None, stop_event=None):
                              out_path, progress_cb=progress_cb)
 
 
-# ── Schritt 32: State-Cache (Incremental Run) ────────────────────────────────
+# ── Schritt 32: Online-Sterbedaten-Recherche ─────────────────────────────────
+
+def run_online_research(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.online_research import run_online_death_research
+    _state["online_research_rows"] = run_online_death_research(
+        _state["individuals"], _state["families"],
+        root_related_ids=_state.get("root_related_ids"),
+        progress_cb=progress_cb)
+
+
+# ── Schritt 33: State-Cache (Incremental Run) ────────────────────────────────
 
 def _cache_path() -> str:
     return os.path.join(os.path.expanduser("~"), ".ahnen-cache.pkl")
