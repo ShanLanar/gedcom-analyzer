@@ -329,8 +329,8 @@ class AncestryApiClient:
                 import json as _dbgj
                 sample = raw[0]
                 log.debug("Match-Felder: top-level=%s", sorted(sample.keys()))
-                log.debug("  tags=%s",
-                          _dbgj.dumps(sample.get("tags"), ensure_ascii=False)[:500])
+                log.debug("  RAW (1. Match): %s",
+                          _dbgj.dumps(sample, ensure_ascii=False)[:2000])
             for item in raw:
                 m = DnaMatch.from_api_response(item, test_guid, fetched_at)
                 if m.match_guid:
