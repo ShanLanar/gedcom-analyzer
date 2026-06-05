@@ -292,7 +292,7 @@ class Scraper:
             # In DB speichern
             import sqlite3
             for sample_id, name in names.items():
-                if name:
+                if name and name != "__no_match__":
                     with self._db._cursor() as cur:
                         cur.execute(
                             "UPDATE matches SET display_name=? "
@@ -300,6 +300,14 @@ class Scraper:
                             (name, sample_id, test_guid),
                         )
                     result.new += 1
+                elif name == "__no_match__":
+                    # Kein gemeinsamer DNA-Anteil mehr → GUID als Marker setzen
+                    with self._db._cursor() as cur:
+                        cur.execute(
+                            "UPDATE matches SET display_name=? "
+                            "WHERE match_guid=? AND test_guid=?",
+                            (f"[{sample_id[:8]}]", sample_id, test_guid),
+                        )
                 result.fetched += 1
 
             result.success = not self._stop.is_set()
