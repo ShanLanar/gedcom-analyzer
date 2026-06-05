@@ -198,7 +198,7 @@ class DnaMatch:
             elif tag_surname_val:
                 name = tag_surname_val
             else:
-                name = "Anonym"
+                name = match_guid[:8] if match_guid else "?"
 
         # ── Beziehung (neues Format: relationship-Objekt) ────────────────────
         rel = data.get("relationship") or {}
