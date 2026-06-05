@@ -1,10 +1,11 @@
 """
-Orchestriert den Download-Prozess (Matches + Shared Matches).
+Orchestiert den Download-Prozess (Matches + Shared Matches).
 Läuft in einem eigenen Thread, damit die GUI nicht blockiert.
 """
 
 import logging
 import threading
+import time as _time
 from typing import Callable, Optional
 
 from core.api import AncestryApiClient
@@ -13,6 +14,8 @@ from models import DnaMatch, SharedMatch
 import config as cfg
 
 log = logging.getLogger(__name__)
+
+NAME_REQUEST_DELAY = 0.8   # Sekunden zwischen curl-Requests für Namen
 
 
 class DownloadResult:
@@ -50,33 +53,20 @@ class Scraper:
         self._stop        = threading.Event()
         self._thread      : Optional[threading.Thread] = None
 
-    # ── Öffentlich ────────────────────────────────────────────────────────────
+    # ── Öffentlich ──────────────────────────────────────────────────────────────
 
     def start_matches(self, test_guid: str,
                       filter_by: str = "ALL", sort_by: str = "RELATIONSHIP",
                       only_new: bool = False, fetch_names: bool = False):
-        """
-        Startet den Match-Download.
-        only_new=True: stoppt sobald bekannte Matches auftauchen (inkrementell).
-        fetch_names=True: lädt pro Match den vollen Vornamen nach (langsam!).
-        """
         self._launch("_run_matches", test_guid, filter_by, sort_by,
                      only_new, fetch_names)
 
     def start_fetch_names(self, test_guid: str, min_cm: float = 0.0):
-        """
-        Lädt Namen für alle Matches ohne Namen via Playwright nach.
-        Läuft als eigener Thread, parallel zu nichts.
-        """
+        """Lädt Namen für Matches ohne Namen via curl_cffi nach."""
         self._launch("_run_fetch_names", test_guid, min_cm)
 
     def start_shared(self, test_guid: str,
                      min_cm: float = 0.0, skip_existing: bool = True):
-        """
-        Startet den Shared-Match-Download für alle bereits gespeicherten Matches.
-        min_cm: Nur primäre Matches ab dieser cM-Grenze berücksichtigen.
-        skip_existing: Überspringe Matches, die bereits abgefragt wurden.
-        """
         self._launch("_run_shared", test_guid, min_cm, skip_existing)
 
     def stop(self):
@@ -86,7 +76,7 @@ class Scraper:
     def is_running(self) -> bool:
         return bool(self._thread and self._thread.is_alive())
 
-    # ── Interne Threads ───────────────────────────────────────────────────────
+    # ── Interne Threads ────────────────────────────────────────────────────────────
 
     def _launch(self, method_name: str, *args):
         if self._thread and self._thread.is_alive():
@@ -103,15 +93,12 @@ class Scraper:
 
     def _run_matches(self, test_guid: str, filter_by: str, sort_by: str,
                      only_new: bool = False, fetch_names: bool = False):
-        import time as _t
         result = DownloadResult()
         mode   = "Nur neue" if only_new else "Alle"
-        if fetch_names:
-            mode += " + volle Namen"
         self._on_status(f"Starte Match-Download ({mode}) …")
         existing   = self._db.get_match_count(test_guid)
         total_est  = max(existing, 100)
-        STOP_AFTER = 3   # Seiten in Folge mit nur bekannten Matches → stoppen
+        STOP_AFTER = 3
 
         consecutive_known_pages = 0
         batch: list[DnaMatch] = []
@@ -125,7 +112,7 @@ class Scraper:
                 if only_new and not is_new:
                     consecutive_known_pages += 1
                     if consecutive_known_pages >= STOP_AFTER * 20:
-                        log.info("Nur-neue: %d bekannte Matches in Folge → stoppe.",
+                        log.info("Nur-neue: %d bekannte Matches → stoppe.",
                                  consecutive_known_pages)
                         result.message = (f"Nur neue: {result.fetched} neue Matches "
                                           f"gefunden, dann Abbruch bei bekannten.")
@@ -134,35 +121,12 @@ class Scraper:
                 else:
                     consecutive_known_pages = 0
 
-                # Optional: vollen Anzeigenamen pro Match nachladen (langsam).
-                # Sobald feststeht, dass Ancestry den Detail-Host blockt, hört
-                # der Scraper auf, es weiter zu versuchen (sonst 10.000 Fehlversuche).
-                if fetch_names and not self._client.detail_names_blocked():
-                    try:
-                        full = self._client.get_match_name(test_guid, m.match_guid)
-                        if full:
-                            # Echten Namen setzen; Bemerkung (tag_surname) bleibt erhalten
-                            m.display_name = full
-                        elif self._client.detail_names_blocked():
-                            self._on_status("Namen nicht abrufbar – "
-                                            "Compare-Seite liefert keinen Namen.")
-                    except Exception as e:
-                        log.debug("Namens-Detail fehlgeschlagen für %s: %s",
-                                  m.match_guid[:16], e)
-                    if not self._client.detail_names_blocked():
-                        _t.sleep(cfg.DETAIL_REQUEST_DELAY)
-
                 batch.append(m)
                 result.fetched += 1
-                # Sofort nach jeder Seite (20 Matches) speichern
                 if len(batch) >= cfg.PAGE_SIZE:
-                    first_guid = batch[0].match_guid[:16] if batch else "?"
-                    log.debug("Speichere %d Matches | erstes GUID: %s…", len(batch), first_guid)
                     try:
                         saved = self._db.bulk_upsert(batch)
                         result.new += saved
-                        total = self._db.get_match_count()
-                        log.debug("  ✓ %d gespeichert (gesamt in DB: %d)", saved, total)
                     except Exception as e:
                         log.error("bulk_upsert FEHLER: %s", e, exc_info=True)
                         result.errors += 1
@@ -186,14 +150,12 @@ class Scraper:
             result.errors += 1
             result.message = f"Fehler: {e}"
 
-        self._client.stop_playwright()
         self._on_status(result.message)
         self._on_done(result)
 
     def _run_shared(self, test_guid: str, min_cm: float, skip_existing: bool):
         result = DownloadResult()
 
-        # Alle primären Matches ermitteln
         if skip_existing:
             todo = self._db.get_unfetched_match_guids(test_guid, min_cm)
         else:
@@ -202,8 +164,7 @@ class Scraper:
             todo = [(m.match_guid, m.display_name) for m in matches]
 
         total = len(todo)
-        log.info("Shared Matches: %d primäre Matches zu verarbeiten (min_cm=%.0f)",
-                 total, min_cm)
+        log.info("Shared Matches: %d primäre Matches (min_cm=%.0f)", total, min_cm)
         self._on_status(f"Shared Matches: {total} primäre Matches …")
 
         from datetime import datetime, timezone
@@ -246,18 +207,15 @@ class Scraper:
         self._on_done(result)
 
     def _run_fetch_names(self, test_guid: str, min_cm: float):
-        """Lädt Namen für alle namenlosen Matches via Playwright (Batch, parallel)."""
-        from core.playwright_names import PlaywrightNameFetcher
+        """Lädt Namen für namenlose Matches via curl_cffi (kein Playwright)."""
         result = DownloadResult()
 
-        # Matches ohne echten Namen aus DB holen (GUID-Kürzel oder leer)
         all_matches = self._db.get_matches(test_guid=test_guid, min_cm=min_cm,
                                            sort_col="shared_cm")
         todo = [
-            (m.test_guid, m.match_guid)
-            for m in all_matches
+            m for m in all_matches
             if not m.display_name
-               or len(m.display_name) <= 8   # GUID-Kürzel
+               or len(m.display_name) <= 8
                or m.display_name == "Anonym"
         ]
         total = len(todo)
@@ -271,48 +229,47 @@ class Scraper:
             self._on_done(result)
             return
 
-        fetcher = PlaywrightNameFetcher(self._client._s)
-        if not fetcher.start():
-            result.message = ("Playwright nicht installiert. Bitte:\n"
-                              "  pip install playwright\n"
-                              "  playwright install chromium")
-            result.success = False
-            self._on_status(result.message)
-            self._on_done(result)
-            return
+        for idx, m in enumerate(todo):
+            if self._stop.is_set():
+                result.message = f"Abgebrochen nach {idx}/{total}."
+                result.success = False
+                break
 
-        def progress(done, total, name):
-            self._on_progress(done, total, name)
-            if done % 50 == 0:
-                self._on_status(f"Namen: {done}/{total} geladen …")
+            try:
+                name = self._client.get_match_name_curl(m.test_guid, m.match_guid)
+            except Exception as e:
+                log.debug("Namen-Fehler %s: %s", m.match_guid[:8], e)
+                name = ""
 
-        try:
-            names = fetcher.get_names_batch(todo, on_progress=progress,
-                                            stop_event=self._stop)
-            # In DB speichern
-            import sqlite3
-            for sample_id, name in names.items():
-                if name and name != "__no_match__":
+            result.fetched += 1
+
+            if name:
+                try:
                     with self._db._cursor() as cur:
                         cur.execute(
                             "UPDATE matches SET display_name=? "
                             "WHERE match_guid=? AND test_guid=?",
-                            (name, sample_id, test_guid),
+                            (name, m.match_guid, m.test_guid),
                         )
                     result.new += 1
-                result.fetched += 1
+                except Exception as e:
+                    log.error("DB-Update %s: %s", m.match_guid[:8], e)
+                    result.errors += 1
 
-            result.success = not self._stop.is_set()
+            self._on_progress(idx + 1, total, name or m.match_guid[:8])
+            if (idx + 1) % 100 == 0:
+                self._on_status(
+                    f"Namen: {idx+1}/{total} verarbeitet, {result.new} gefunden …"
+                )
+
+            _time.sleep(NAME_REQUEST_DELAY)
+
+        if not result.message:
+            result.success = True
             result.message = (
-                f"Namen geladen: {result.new} von {total} "
+                f"Namen geladen: {result.new} von {total} gefunden "
                 f"({'abgebrochen' if self._stop.is_set() else 'fertig'})."
             )
-        except Exception as e:
-            log.exception("Fehler beim Namen-Download")
-            result.success = False
-            result.message = f"Fehler: {e}"
-        finally:
-            fetcher.stop()
 
         log.info(result.message)
         self._on_status(result.message)

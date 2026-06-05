@@ -51,7 +51,6 @@ def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
             r = session.get(url, headers=headers, timeout=cfg.REQUEST_TIMEOUT)
 
             if r.status_code == 429:
-                # Rate-Limit-Header auswerten falls vorhanden
                 retry_after = int(r.headers.get("Retry-After", 0))
                 delay = max(retry_after, RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
                 log.warning("429 Rate-Limit → warte %ds …", delay)
@@ -81,8 +80,7 @@ class AncestryApiClient:
 
     def __init__(self, session):
         self._s = session
-        self._detail_endpoint = None   # gemerkter funktionierender Detail-Pfad
-        self._pw_fetcher = None        # PlaywrightNameFetcher (lazy init)
+        self._detail_endpoint = None
 
     # ── Match-Detail: voller Anzeigename ──────────────────────────────────────
 
@@ -123,7 +121,7 @@ class AncestryApiClient:
         # 1. JSON in <script type="application/json"> oder __INITIAL_STATE__
         for pat in [
             r'window\.__INITIAL_STATE__\s*=\s*(\{.+?\})(?:;|</script>)',
-            r'<script[^>]+type=["\']application/json["\'][^>]*>(\{.+?\})</script>',
+            r'<script[^>]+type=["\']]application/json["\'][^>]*>(\{.+?\})</script>',
             r'"matchProfile"\s*:\s*(\{[^}]+\})',
         ]:
             m = re.search(pat, html, re.S)
@@ -136,7 +134,7 @@ class AncestryApiClient:
                 except Exception:
                     pass
 
-        # 2. "You and NAME" im H1 oder Titel – direktester Treffer
+        # 2. "You and NAME" im H1 oder Titel
         for pat in [
             r'[Yy]ou and ([A-ZÄÖÜ][^<"]{2,60}?)(?:\s*<|\s*"|\s*\|)',
             r'<title>[Yy]ou and ([^|<]{2,60}?)\s*[\|–<]',
@@ -163,45 +161,45 @@ class AncestryApiClient:
 
         return ""
 
-    def get_match_name(self, test_guid: str, sample_id: str) -> str:
-        """Holt den vollen Anzeigenamen via Playwright (headless Chromium).
+    def get_match_name_curl(self, test_guid: str, sample_id: str) -> str:
+        """Holt den Match-Namen via curl_cffi (kein Playwright, kein Browser).
 
-        Beim ersten Aufruf wird der Browser gestartet und bleibt offen.
-        Gibt "" zurück wenn Playwright nicht installiert ist oder kein Name
-        gefunden wird.
+        Verwendet die bereits authentifizierte Session. curl_cffi mit
+        impersonate=chrome124 umgeht Akamai; die Compare-Seite enthält den
+        Namen im eingebetteten JSON des React-Bundles.
         """
-        if self._detail_endpoint == "__none__":
-            return ""
-
-        # Playwright lazy initialisieren
-        if self._pw_fetcher is None:
-            from core.playwright_names import PlaywrightNameFetcher
-            self._pw_fetcher = PlaywrightNameFetcher(self._s)
-            ok = self._pw_fetcher.start()
-            if not ok:
-                log.warning("Playwright nicht verfügbar – Namen können nicht "
-                            "geladen werden. Bitte ausführen:\n"
-                            "  pip install playwright\n"
-                            "  playwright install chromium")
-                self._detail_endpoint = "__none__"
-                return ""
-            log.info("Playwright bereit – lade Namen von Compare-Seiten.")
-
-        name = self._pw_fetcher.get_name(test_guid, sample_id)
-        if name:
-            if self._detail_endpoint is None:
-                self._detail_endpoint = "playwright"
-        return name
-
-    def stop_playwright(self):
-        """Browser schließen – am Ende des Downloads aufrufen."""
-        if self._pw_fetcher:
-            self._pw_fetcher.stop()
-            self._pw_fetcher = None
+        url = (f"https://www.ancestry.com/dna/matches/"
+               f"{test_guid}/compare/{sample_id}")
+        try:
+            r = self._s.get(
+                url,
+                timeout=20,
+                headers={
+                    "Accept"         : "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                    "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8",
+                    "Referer"        : "https://www.ancestry.com/dna/matches/",
+                },
+            )
+            if r.status_code == 200:
+                name = self._extract_name_from_html(r.text)
+                if name:
+                    log.debug("curl Name: %s → %r", sample_id[:8], name)
+                else:
+                    log.debug("curl %s – kein Name in HTML (%d Bytes)",
+                              sample_id[:8], len(r.text))
+                return name
+            log.debug("curl %s HTTP %s", sample_id[:8], r.status_code)
+        except Exception as e:
+            log.debug("get_match_name_curl %s: %s", sample_id[:8], e)
+        return ""
 
     def detail_names_blocked(self) -> bool:
-        """True, wenn bereits festgestellt wurde, dass keine Namen abrufbar sind."""
-        return self._detail_endpoint == "__none__"
+        """Immer False – curl_cffi-Methode kennt kein dauerhaftes Blocking."""
+        return False
+
+    def stop_playwright(self):
+        """Keine Aktion – Playwright wird nicht mehr verwendet."""
+        pass
 
     # ── DNA-Kits ──────────────────────────────────────────────────────────────
 
@@ -269,7 +267,6 @@ class AncestryApiClient:
         pages_since_burst_pause = 0
         start_time  = time.time()
 
-        # Gesamtzahl
         total_count = self.get_match_count(test_guid)
         if total_count:
             log.info("Gesamtzahl Matches: %d (→ ca. %d Seiten)",
@@ -279,7 +276,6 @@ class AncestryApiClient:
             if stop_event and stop_event.is_set():
                 return
 
-            # Adaptiver Burst-Schutz: nach N Seiten kurz pausieren
             if pages_since_burst_pause >= BURST_LIMIT:
                 pause = _jitter(BURST_PAUSE)
                 log.debug("Burst-Pause %.1fs nach %d Seiten …", pause, BURST_LIMIT)
@@ -316,7 +312,6 @@ class AncestryApiClient:
                 log.error("JSON-Fehler: %s", e)
                 break
 
-            # Paginierung
             if total_pages is None:
                 tp = data.get("totalPages") or data.get("paging", {}).get("totalPages")
                 if tp:
@@ -326,7 +321,6 @@ class AncestryApiClient:
                 else:
                     total_pages = 9999
 
-            # Match-Liste
             raw = (data.get("matchList")
                    or data.get("matchGroups")
                    or data.get("matches")
@@ -343,7 +337,6 @@ class AncestryApiClient:
             first_sid = raw[0].get("sampleId","?")[:16] if raw else "leer"
             log.debug("  API antwortet: currentPage=%s/%s | erster sampleId=%s",
                       api_page, api_total, first_sid)
-            # Einmalige Feld-Diagnose (nur DEBUG): zeigt im Log die Match-Struktur
             if page == 1 and raw and not getattr(self, "_logged_fields", False):
                 self._logged_fields = True
                 import json as _dbgj
@@ -363,7 +356,6 @@ class AncestryApiClient:
             pages_since_burst_pause += 1
             elapsed  = time.time() - start_time
             rate     = fetched / elapsed if elapsed > 0 else 0
-            # ETA aus API-Seitenzahl berechnen, nicht aus DB-Vorbestand
             total_est = (total_pages or 1) * cfg.PAGE_SIZE
             remaining = max(0, total_est - fetched)
             eta_min   = (remaining / rate / 60) if rate > 0 else 0
@@ -385,18 +377,11 @@ class AncestryApiClient:
                  fetched, elapsed / 60)
 
     # ── Shared Matches ────────────────────────────────────────────────────────
-    #
-    # Bestätigter Endpunkt (Mai 2026):
-    #   GET /discoveryui-matches/parents/list/api/matchList/{testGuid}
-    #       ?matchSampleId={sampleId}&page=1&pageSize=20
-    #
-    # Gleiche URL wie matchList, aber mit matchSampleId-Filter.
-    # Liefert alle Matches die BEIDE teilen (Testperson UND match_guid_a).
 
     def iter_shared_matches(
         self,
         test_guid   : str,
-        match_guid_a: str,   # sampleId des primären Matches
+        match_guid_a: str,
         stop_event  = None,
     ) -> Iterator[SharedMatch]:
         from datetime import datetime, timezone
@@ -439,7 +424,6 @@ class AncestryApiClient:
                 break
 
             for item in raw:
-                # Den primären Match selbst überspringen
                 if item.get("sampleId") == match_guid_a:
                     continue
                 sm = SharedMatch.from_api_response(
@@ -455,7 +439,7 @@ class AncestryApiClient:
 
         log.debug("Shared Matches %s: %d gesamt", match_guid_a[:16], fetched)
 
-    # ── Notizen ───────────────────────────────────────────────────────────────
+    # ── Notizen ─────────────────────────────────────────────────────────────────
 
     def save_match_note(self, test_guid: str, match_guid: str, note: str) -> bool:
         url = f"{cfg.DNA_LIST_BASE}/note/{test_guid}/{match_guid}"
