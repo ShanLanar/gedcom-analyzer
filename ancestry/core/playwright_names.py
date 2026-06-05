@@ -26,6 +26,7 @@ class PlaywrightNameFetcher:
         self._pw        = None
         self._browser   = None
         self._context   = None
+        self._stealth   = None
         self._available: Optional[bool] = None
         self._lock      = threading.Lock()   # für Context-Zugriff
 
@@ -42,7 +43,17 @@ class PlaywrightNameFetcher:
             return False
         try:
             self._pw      = sync_playwright().start()
-            self._browser = self._pw.chromium.launch(headless=True)
+            # channel="chrome" nutzt den installierten Chrome statt Chromium-Shell
+            # → echter Browser-Fingerprint, kein Akamai-Block
+            try:
+                self._browser = self._pw.chromium.launch(
+                    channel="chrome", headless=True)
+                log.debug("Playwright: System-Chrome gestartet.")
+            except Exception:
+                # Fallback: Playwright-Chromium (kann von Akamai geblockt werden)
+                self._browser = self._pw.chromium.launch(headless=True)
+                log.debug("Playwright: Chromium gestartet (kein System-Chrome gefunden).")
+
             self._context = self._browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -53,6 +64,16 @@ class PlaywrightNameFetcher:
                 viewport={"width": 1280, "height": 800},
             )
             self._inject_cookies()
+
+            # Stealth-Modus: navigator.webdriver verstecken
+            try:
+                from playwright_stealth import stealth_sync
+                self._stealth = stealth_sync
+                log.debug("playwright-stealth geladen.")
+            except ImportError:
+                self._stealth = None
+                log.debug("playwright-stealth nicht installiert – ohne Stealth.")
+
             self._available = True
             log.info("Playwright bereit (%d parallele Tabs).", self._parallel)
             return True
@@ -132,6 +153,8 @@ class PlaywrightNameFetcher:
         try:
             with self._lock:
                 page = self._context.new_page()
+                if self._stealth:
+                    self._stealth(page)
             page.set_default_timeout(TIMEOUT)
             page.goto(url, timeout=NAV_TIMEOUT, wait_until="domcontentloaded")
 
