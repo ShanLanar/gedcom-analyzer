@@ -8,27 +8,28 @@ Laufzeit-Overrides über config_user.json (von config_editor erzeugt, .gitignore
 import os
 
 # ── Verzeichnisse ──────────────────────────────────────────────────────────────
-BASE_DIR = r"C:\ahnen"
+# Pfade relativ zum Repo-Ordner (wo config.py liegt) – kein hartcodierter Pfad.
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
 DIRS = {
-    "data":   r"C:\ahnen\data",
-    "output": r"C:\ahnen\output",
-    "logs":   r"C:\ahnen\logs",
+    "data":   os.path.join(BASE_DIR, "data"),
+    "output": os.path.join(BASE_DIR, "output"),
+    "logs":   os.path.join(BASE_DIR, "logs"),
 }
 
 # ── Eingabedateien ─────────────────────────────────────────────────────────────
 FILES = {
-    "gedfile":          r"C:\ahnen\data\family.ged",
-    "location_data":    r"C:\ahnen\data\location_data.json",
-    "output_xlsx":      r"C:\ahnen\output\genealogy_analysis_complete.xlsx",
-    "output_json":      r"C:\ahnen\output\genealogy_results.json",
-    "log_file":         r"C:\ahnen\logs\genealogy_analysis.log",
-    "interactive_html": r"C:\ahnen\output\family_tree.html",
-    "timeline_html":    r"C:\ahnen\output\timeline.html",
-    "output_graphml":   r"C:\ahnen\output\family_network.graphml",
-    "osnabrueck_xlsx":  r"C:\ahnen\output\osnabrueck_region_analysis.xlsx",
-    "osnabrueck_html":  r"C:\ahnen\output\osnabrueck_region_report.html",
-    "osnabrueck_json":  r"C:\ahnen\output\osnabrueck_region_analysis.json",
+    "gedfile":          os.path.join(BASE_DIR, "data", "family.ged"),
+    "location_data":    os.path.join(BASE_DIR, "data", "location_data.json"),
+    "output_xlsx":      os.path.join(BASE_DIR, "output", "genealogy_analysis_complete.xlsx"),
+    "output_json":      os.path.join(BASE_DIR, "output", "genealogy_results.json"),
+    "log_file":         os.path.join(BASE_DIR, "logs", "genealogy_analysis.log"),
+    "interactive_html": os.path.join(BASE_DIR, "output", "family_tree.html"),
+    "timeline_html":    os.path.join(BASE_DIR, "output", "timeline.html"),
+    "output_graphml":   os.path.join(BASE_DIR, "output", "family_network.graphml"),
+    "osnabrueck_xlsx":  os.path.join(BASE_DIR, "output", "osnabrueck_region_analysis.xlsx"),
+    "osnabrueck_html":  os.path.join(BASE_DIR, "output", "osnabrueck_region_report.html"),
+    "osnabrueck_json":  os.path.join(BASE_DIR, "output", "osnabrueck_region_analysis.json"),
 }
 
 # ── Analyse-IDs ────────────────────────────────────────────────────────────────
@@ -187,7 +188,7 @@ def apply_overrides(json_path=None):
     Top-Level-Dicts ("FILES", "DIRS").
     """
     import json as _json
-    path = json_path or os.path.join(BASE_DIR, "config_user.json")
+    path = json_path or os.path.join(os.path.dirname(os.path.abspath(__file__)), "config_user.json")
     if not os.path.exists(path):
         return
     try:
