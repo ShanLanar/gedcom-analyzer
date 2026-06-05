@@ -237,7 +237,7 @@ class Scraper:
                 result.success = False
                 break
 
-            # Abbruch wenn API als nicht verfügbar markiert
+            # Abbruch nur wenn BEIDE Methoden als nicht verfügbar markiert
             if self._client.detail_names_blocked():
                 result.message = (
                     f"Namen-Download gestoppt: matchesservice-API nicht verfügbar "
@@ -248,6 +248,10 @@ class Scraper:
 
             try:
                 name = self._client.get_match_name_curl(m.test_guid, m.match_guid)
+                # curl_cffi durch Cloudflare geblockt → Playwright-Fallback
+                if not name and self._client._consecutive_520 >= 3:
+                    name = self._client.get_match_name_playwright(
+                        m.test_guid, m.match_guid)
             except Exception as e:
                 log.debug("Namen-Fehler %s: %s", m.match_guid[:8], e)
                 name = ""

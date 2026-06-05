@@ -80,7 +80,8 @@ class AncestryApiClient:
         self._s = session
         self._working_detail_url: Optional[str] = None
         self._session_warmed_up = False
-        self._consecutive_520 = 0         # Zähler: 520-Antworten in Folge
+        self._consecutive_520 = 0
+        self._pw_fetcher = None     # PlaywrightNameFetcher (lazy, Fallback bei 520)
 
     def _warm_up_session(self, test_guid: str):
         """Öffnet die Match-Listenseite und extrahiert Namen aus SSR-Daten (falls vorhanden)."""
@@ -209,11 +210,27 @@ class AncestryApiClient:
 
         return ""
 
+    def get_match_name_playwright(self, test_guid: str, sample_id: str) -> str:
+        """Fallback: fetch() via Playwright-Browser (passiert Cloudflare)."""
+        if self._pw_fetcher is None:
+            from core.playwright_names import PlaywrightNameFetcher
+            self._pw_fetcher = PlaywrightNameFetcher(self._s)
+            ok = self._pw_fetcher.start(test_guid)
+            if not ok:
+                self._pw_fetcher = False   # False = nicht verfügbar
+                return ""
+        if not self._pw_fetcher:
+            return ""
+        return self._pw_fetcher.get_name(test_guid, sample_id)
+
     def detail_names_blocked(self) -> bool:
-        return self._working_detail_url == "__none__"
+        return (self._working_detail_url == "__none__"
+                and self._pw_fetcher is False)
 
     def stop_playwright(self):
-        pass
+        if self._pw_fetcher and self._pw_fetcher is not False:
+            self._pw_fetcher.stop()
+            self._pw_fetcher = None
 
     # ── DNA-Kits ──────────────────────────────────────────────────────────────
 
