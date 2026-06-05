@@ -137,9 +137,8 @@ class Scraper:
                             # Echten Namen setzen; Bemerkung (tag_surname) bleibt erhalten
                             m.display_name = full
                         elif self._client.detail_names_blocked():
-                            self._on_status("Volle Namen nicht abrufbar (Ancestry "
-                                            "blockt den Detail-Zugriff) – nutze "
-                                            "Bemerkungsfeld + Verwandtschaftsgrad.")
+                            self._on_status("Namen nicht abrufbar – "
+                                            "Compare-Seite liefert keinen Namen.")
                     except Exception as e:
                         log.debug("Namens-Detail fehlgeschlagen für %s: %s",
                                   m.match_guid[:16], e)

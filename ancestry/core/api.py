@@ -109,64 +109,87 @@ class AncestryApiClient:
                 or nested(data, "match", "displayName")
                 or "")
 
-    def get_match_name(self, test_guid: str, sample_id: str) -> str:
-        """Holt den vollen Anzeigenamen eines einzelnen Matches.
+    @staticmethod
+    def _extract_name_from_html(html: str) -> str:
+        """Extrahiert den Match-Namen aus der Compare-Seiten-HTML.
 
-        Probiert beim ersten Aufruf die Kandidaten-Endpunkte durch und merkt
-        sich den ersten, der einen Namen liefert. Gibt "" zurück, wenn keiner
-        funktioniert (dann bleibt es beim Bemerkungsfeld aus Tag 3).
+        Ancestry bettet Zustandsdaten in <script>-Tags ein. Wir suchen nach
+        bekannten Mustern wie window.__INITIAL_STATE__, JSON-LD oder dem
+        Seitentitel.
+        """
+        import re, json as _j
+
+        # 1. JSON in <script type="application/json"> oder __INITIAL_STATE__
+        for pat in [
+            r'window\.__INITIAL_STATE__\s*=\s*(\{.+?\})(?:;|</script>)',
+            r'<script[^>]+type=["\']application/json["\'][^>]*>(\{.+?\})</script>',
+            r'"matchProfile"\s*:\s*(\{[^}]+\})',
+        ]:
+            m = re.search(pat, html, re.S)
+            if m:
+                try:
+                    data = _j.loads(m.group(1))
+                    name = AncestryApiClient._extract_name_from_detail(data)
+                    if name:
+                        return name
+                except Exception:
+                    pass
+
+        # 2. displayName-Muster direkt im HTML
+        for pat in [
+            r'"displayName"\s*:\s*"([^"]{2,80})"',
+            r'"matchTestDisplayName"\s*:\s*"([^"]{2,80})"',
+            r'"adminDisplayName"\s*:\s*"([^"]{2,80})"',
+            r'<title>([^|<]{2,60})\s*[\|–]',
+        ]:
+            m = re.search(pat, html)
+            if m:
+                candidate = m.group(1).strip()
+                # Systemtexte ausschließen
+                if candidate and not any(x in candidate.lower() for x in
+                                         ("ancestry", "dna", "matches", "login",
+                                          "sign in", "loading")):
+                    return candidate
+
+        return ""
+
+    def get_match_name(self, test_guid: str, sample_id: str) -> str:
+        """Holt den vollen Anzeigenamen eines Matches von der Compare-Seite.
+
+        Nutzt /dna/matches/{test_guid}/compare/{sample_id} – dieselbe Domain
+        wie matchList, kein separater Akamai-geschützter Host.
+        Ergebnis wird gecacht (erster Fehlschlag → __none__).
         """
         if self._detail_endpoint == "__none__":
-            return ""   # bereits festgestellt: kein Endpunkt liefert Namen
-        candidates = ([self._detail_endpoint] if self._detail_endpoint
-                      else cfg.MATCH_DETAIL_CANDIDATES)
+            return ""
 
-        diag = self._detail_endpoint is None   # erster Lauf → ausführlich loggen
+        url = (f"{cfg.BASE_URL}/dna/matches/{test_guid}/compare/{sample_id}")
+        headers = {
+            "Accept"         : "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Referer"        : f"{cfg.BASE_URL}/dna/matches/{test_guid}/list",
+            "Sec-Fetch-Dest" : "document",
+            "Sec-Fetch-Mode" : "navigate",
+            "Sec-Fetch-Site" : "same-origin",
+        }
+        r = _api_get(self._s, url, extra_headers=headers)
+        if r is None or r.status_code != 200:
+            log.debug("Compare-Seite HTTP %s für %s",
+                      r.status_code if r else "—", sample_id[:8])
+            if self._detail_endpoint is None:
+                log.warning("Namen nicht abrufbar – Compare-Seite nicht erreichbar.")
+                self._detail_endpoint = "__none__"
+            return ""
 
-        # matchesservice braucht Frontend-Header + passenden Referer auf die
-        # Vergleichsseite, sonst antwortet der Origin mit 520.
-        headers = dict(getattr(cfg, "MATCHESSERVICE_HEADERS", {}))
-        ref_tmpl = getattr(cfg, "MATCHESSERVICE_REFERER",
-                           cfg.BASE_URL + "/discoveryui-matches/list/{test_guid}")
-        headers["Referer"] = ref_tmpl.format(test_guid=test_guid)
+        name = self._extract_name_from_html(r.text)
+        if name:
+            if self._detail_endpoint is None:
+                log.info("Namen-Quelle: Compare-Seite (/dna/matches/.../compare/...)")
+                self._detail_endpoint = "compare_page"
+            return name
 
-        for tmpl in candidates:
-            url = tmpl.format(test_guid=test_guid, sample_id=sample_id)
-            r = _api_get(self._s, url, extra_headers=headers)
-            status = r.status_code if r is not None else "—"
-            if r is None or r.status_code != 200:
-                if diag:
-                    body = ""
-                    try:
-                        body = (r.text or "")[:200].replace("\n", " ") if r is not None else ""
-                    except Exception:
-                        body = "<Body nicht lesbar>"
-                    log.debug("  Detail-Versuch HTTP %s: %s | Body: %r",
-                              status, url, body)
-                continue
-            try:
-                data = r.json()
-            except Exception:
-                if diag:
-                    body = (r.text or "")[:120].replace("\n", " ")
-                    log.info("  Detail HTTP 200 aber kein JSON: %s | %r", url, body)
-                continue
-            name = self._extract_name_from_detail(data)
-            if diag:
-                keys = sorted(data.keys()) if isinstance(data, dict) else type(data).__name__
-                log.info("  Detail HTTP 200: %s | Name=%r | Felder=%s",
-                         url, name, keys)
-            if name:
-                self._detail_endpoint = tmpl
-                log.info("Match-Detail-Endpunkt bestätigt: %s", tmpl)
-                return name.strip()
-
-        # Kein Kandidat lieferte einen Namen
         if self._detail_endpoint is None:
-            log.warning("Volle Namen nicht abrufbar: Ancestry blockt den "
-                        "matchesservice-Host (Akamai 'Access denied'). "
-                        "Es bleibt beim Bemerkungsfeld + abgeleitetem "
-                        "Verwandtschaftsgrad.")
+            log.warning("Compare-Seite erreichbar, aber kein Name gefunden. "
+                        "Kein weiterer Versuch.")
             self._detail_endpoint = "__none__"
         return ""
 
