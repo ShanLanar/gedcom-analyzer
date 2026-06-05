@@ -59,47 +59,78 @@ if not exist "%REPO_DIR%\.git" (
     git fetch --prune origin "%BRANCH%"
     if errorlevel 1 ( echo [FEHLER] git fetch fehlgeschlagen. & popd >nul & pause & exit /b 1 )
     git checkout "%BRANCH%" >nul 2>&1
-    REM Hard-Reset macht den Updater idempotent: lokale Aenderungen an
-    REM getrackten Dateien (z.B. neu kompilierte __pycache__-Reste) werden
-    REM ueberschrieben, der untrackte data/-Ordner bleibt unangetastet.
     git reset --hard "origin/%BRANCH%"
     if errorlevel 1 (
         echo [FEHLER] git reset fehlgeschlagen.
         popd >nul & pause & exit /b 1
     )
-    REM Altlast: __pycache__ war frueher getrackt und wurde ggf. lokal
-    REM neu erzeugt. Entfernen, damit kein altes Bytecode rumliegt.
-    if exist "__pycache__" rmdir /s /q "__pycache__"
-    if exist "lib\__pycache__" rmdir /s /q "lib\__pycache__"
-    if exist "tasks\__pycache__" rmdir /s /q "tasks\__pycache__"
+    if exist "__pycache__"        rmdir /s /q "__pycache__"
+    if exist "lib\__pycache__"    rmdir /s /q "lib\__pycache__"
+    if exist "tasks\__pycache__"  rmdir /s /q "tasks\__pycache__"
+    if exist "ancestry\__pycache__" rmdir /s /q "ancestry\__pycache__"
     popd >nul
 )
+
+REM --- Aktuelle Version anzeigen ------------------------------------------------
+pushd "%REPO_DIR%" >nul
+echo Aktuelle Version:
+git log -1 --format="  Commit:  %%h" 2>nul
+git log -1 --format="  Datum:   %%ad" --date=format:"%%d.%%m.%%Y %%H:%%M" 2>nul
+git log -1 --format="  Aenderung: %%s" 2>nul
+popd >nul
 echo.
 
 REM --- Verzeichnisse anlegen ----------------------------------------------------
-if not exist "%REPO_DIR%\data"   mkdir "%REPO_DIR%\data"
-if not exist "%REPO_DIR%\output" mkdir "%REPO_DIR%\output"
-if not exist "%REPO_DIR%\logs"   mkdir "%REPO_DIR%\logs"
+if not exist "%REPO_DIR%\data"         mkdir "%REPO_DIR%\data"
+if not exist "%REPO_DIR%\output"       mkdir "%REPO_DIR%\output"
+if not exist "%REPO_DIR%\logs"         mkdir "%REPO_DIR%\logs"
+if not exist "%REPO_DIR%\ancestry\data" mkdir "%REPO_DIR%\ancestry\data"
 
 REM --- Dependencies installieren ------------------------------------------------
 echo Installiere/aktualisiere Abhaengigkeiten ...
 %PYTHON% -m pip install -r "%REPO_DIR%\requirements.txt" --quiet --upgrade --disable-pip-version-check
+%PYTHON% -m pip install -r "%REPO_DIR%\ancestry\requirements.txt" --quiet --upgrade --disable-pip-version-check
 if %errorlevel% neq 0 (
     echo [FEHLER] pip install fehlgeschlagen.
     pause & exit /b 1
 )
 echo.
 
-REM --- Anwendung starten --------------------------------------------------------
-echo Starte Anwendung ...
+REM --- Programmauswahl ----------------------------------------------------------
+echo Welches Programm starten?
+echo   [1] GEDCOM-Analyzer  (Stammbaum-Auswertung)
+echo   [2] Ancestry DNA Tool (DNA-Matches ^& Clustering)
+echo   [3] Beenden
+echo.
+set /p CHOICE="Auswahl (1/2/3): "
+
+if "%CHOICE%"=="1" goto start_gedcom
+if "%CHOICE%"=="2" goto start_dna
+if "%CHOICE%"=="3" goto end
+echo Ungueltige Eingabe – starte GEDCOM-Analyzer.
+
+:start_gedcom
+echo Starte GEDCOM-Analyzer ...
 pushd "%REPO_DIR%" >nul
 %PYTHON% main.py
 set "RC=%errorlevel%"
 popd >nul
+goto done
 
+:start_dna
+echo Starte Ancestry DNA Tool ...
+pushd "%REPO_DIR%\ancestry" >nul
+%PYTHON% main.py
+set "RC=%errorlevel%"
+popd >nul
+goto done
+
+:done
 if %RC% neq 0 (
     echo.
     echo [HINWEIS] Anwendung wurde mit Fehlercode %RC% beendet.
     pause
 )
+
+:end
 endlocal
