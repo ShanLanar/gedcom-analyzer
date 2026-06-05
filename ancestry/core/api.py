@@ -78,12 +78,22 @@ class AncestryApiClient:
 
     def __init__(self, session):
         self._s = session
-        # Gemerkter funktionierender Endpunkt-Template
-        # None=unbekannt, "__none__"=alle 404 (existieren nicht)
-        # String=funktionierendes Template
         self._working_detail_url: Optional[str] = None
+        self._session_warmed_up = False
+        self._consecutive_520 = 0         # Zähler: 520-Antworten in Folge
 
-    # ── Match-Detail: voller Anzeigename ──────────────────────────────────────
+    def _warm_up_session(self, test_guid: str):
+        """Öffnet die Match-Listenseite einmal, damit Akamai die Session akzeptiert."""
+        if self._session_warmed_up:
+            return
+        url = f"{cfg.BASE_URL}/dna/matches/{test_guid}/list"
+        try:
+            r = self._s.get(url, timeout=cfg.REQUEST_TIMEOUT)
+            log.debug("Warm-up %s → HTTP %s (%d Bytes)",
+                      url.split("/")[-1], r.status_code, len(r.content))
+        except Exception as e:
+            log.debug("Warm-up fehlgeschlagen: %s", e)
+        self._session_warmed_up = True
 
     @staticmethod
     def _extract_name_from_detail(data: dict) -> str:
@@ -118,13 +128,24 @@ class AncestryApiClient:
         Merkt sich den ersten funktionierenden Endpunkt-Template.
         Setzt __none__ nur bei echten 404-Antworten, nicht bei Rate-Limiting.
         """
-        # Wenn alle Endpunkte als nicht vorhanden bestätigt (404), sofort aufgeben
         if self._working_detail_url == "__none__":
             return ""
+        if self._consecutive_520 >= 3:
+            # Nach 3x 520 in Folge aufgeben – Akamai blockiert dauerhaft
+            self._working_detail_url = "__none__"
+            log.info("Matchesservice: 3× HTTP 520 in Folge – Akamai blockiert, "
+                     "Namen-Download gestoppt.")
+            return ""
+
+        # Einmalig Listenseite besuchen → Akamai-Session-Cookie setzen
+        self._warm_up_session(test_guid)
 
         api_headers = {
             **cfg.MATCHESSERVICE_HEADERS,
             "Referer": cfg.MATCHESSERVICE_REFERER.format(test_guid=test_guid),
+            "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+            "sec-ch-ua-mobile": "?0",
+            "sec-ch-ua-platform": '"Windows"',
         }
 
         # Wenn bereits ein funktionierender Endpunkt bekannt: nur den probieren
@@ -148,11 +169,11 @@ class AncestryApiClient:
                 continue
 
             if r.status_code == 200:
+                self._consecutive_520 = 0
                 try:
                     data = r.json()
                     name = self._extract_name_from_detail(data)
                     if name:
-                        # Endpunkt-Template merken
                         if not self._working_detail_url:
                             tmpl = (url
                                     .replace(test_guid, "{test_guid}")
@@ -167,18 +188,21 @@ class AncestryApiClient:
                 except Exception as e:
                     log.debug("API JSON %s: %s", sample_id[:8], e)
 
-            elif r.status_code in (404, 410, 520):
-                # 404/410: Endpunkt existiert nicht; 520: Akamai Bot-Block
+            elif r.status_code in (404, 410):
                 not_found_count += 1
                 log.debug("API %s HTTP %s", url.rsplit("/", 1)[-1][:24], r.status_code)
+
+            elif r.status_code == 520:
+                self._consecutive_520 += 1
+                log.debug("API %s HTTP 520 (Folge: %d)",
+                          url.rsplit("/", 1)[-1][:24], self._consecutive_520)
 
             else:
                 log.debug("API %s HTTP %s", sample_id[:8], r.status_code)
 
-        # Als "nicht verfügbar" markieren wenn ALLE Kandidaten 404/520 lieferten
         if self._working_detail_url is None and not_found_count == len(candidates):
             self._working_detail_url = "__none__"
-            log.info("Matchesservice: alle Endpunkte blockiert (404/520) – "
+            log.info("Matchesservice: alle Endpunkte liefern 404 – "
                      "Namen-Download nicht möglich.")
 
         return ""
