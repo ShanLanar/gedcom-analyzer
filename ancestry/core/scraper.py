@@ -15,7 +15,9 @@ import config as cfg
 
 log = logging.getLogger(__name__)
 
-NAME_REQUEST_DELAY = 0.8   # Sekunden zwischen curl-Requests für Namen
+# Pause zwischen Name-Requests: großzügig um Rate-Limiting zu vermeiden.
+# Bei 10.000 Matches = ca. 11h overnight-Lauf.
+NAME_REQUEST_DELAY = 4.0
 
 
 class DownloadResult:
@@ -62,7 +64,7 @@ class Scraper:
                      only_new, fetch_names)
 
     def start_fetch_names(self, test_guid: str, min_cm: float = 0.0):
-        """Lädt Namen für Matches ohne Namen via curl_cffi nach."""
+        """Lädt Namen für Matches ohne Namen via curl_cffi nach (kein Playwright)."""
         self._launch("_run_fetch_names", test_guid, min_cm)
 
     def start_shared(self, test_guid: str,
@@ -207,7 +209,7 @@ class Scraper:
         self._on_done(result)
 
     def _run_fetch_names(self, test_guid: str, min_cm: float):
-        """Lädt Namen für namenlose Matches via curl_cffi (kein Playwright)."""
+        """Lädt Namen für namenlose Matches via matchesservice JSON-API."""
         result = DownloadResult()
 
         all_matches = self._db.get_matches(test_guid=test_guid, min_cm=min_cm,
@@ -232,6 +234,15 @@ class Scraper:
         for idx, m in enumerate(todo):
             if self._stop.is_set():
                 result.message = f"Abgebrochen nach {idx}/{total}."
+                result.success = False
+                break
+
+            # Abbruch wenn API als nicht verfügbar markiert
+            if self._client.detail_names_blocked():
+                result.message = (
+                    f"Namen-Download gestoppt: matchesservice-API nicht verfügbar "
+                    f"({result.new} von {idx} Namen gefunden)."
+                )
                 result.success = False
                 break
 
