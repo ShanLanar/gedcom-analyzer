@@ -170,10 +170,10 @@ class PlaywrightNameFetcher:
                 h1_text = h1.inner_text() if h1 else "(kein H1)"
                 body_snippet = (page.inner_text("body") or "")[:300].replace("\n", " ")
                 log.debug("Playwright %s – H1: %r | Body: %r",
-                          sample_id[:8], h1_text, body_snippet)
+                          sample_id, h1_text, body_snippet)
             except Exception:
                 pass
-            log.debug("Kein Name auf Compare-Seite: %s", sample_id[:8])
+            log.debug("Kein Name auf Compare-Seite: %s", sample_id)
             return ""
         except Exception as e:
             log.debug("Playwright %s: %s", sample_id[:8], e)
