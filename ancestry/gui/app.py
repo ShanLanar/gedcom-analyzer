@@ -329,18 +329,42 @@ class AncestryDnaApp(tk.Tk):
         ttk.Checkbutton(bf, text="👤 Volle Namen versuchen (oft von Ancestry blockiert)",
                         variable=self._fetch_names_var).pack(side="left", padx=14)
 
+        # ── Bereich A2: Namen nachladen (Playwright) ──────────────────────────
+        ttk.Separator(f, orient="horizontal").grid(
+            row=6, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
+        ttk.Label(f, text="A2: Namen nachladen (Playwright)",
+                  style="Bold.TLabel").grid(row=7, column=0, columnspan=4, sticky="w", **p)
+        ttk.Label(f, text=(
+            "Öffnet für jeden namenlosen Match die Vergleichsseite im Hintergrund\n"
+            "und liest den echten Namen aus (5 Tabs parallel, ~3h für 10.000 Matches).\n"
+            "Einmalig ausführen – danach sind alle Namen gespeichert."
+        ), foreground="#555555").grid(row=8, column=0, columnspan=4, sticky="w", padx=14)
+
+        sf_names = ttk.Frame(f); sf_names.grid(row=9, column=0, columnspan=4, sticky="w", **p)
+        ttk.Label(sf_names, text="Nur ab (cM):").pack(side="left")
+        self._names_min_cm_var = tk.StringVar(value="0")
+        ttk.Entry(sf_names, textvariable=self._names_min_cm_var, width=6).pack(side="left", padx=6)
+
+        bf_names = ttk.Frame(f); bf_names.grid(row=10, column=0, columnspan=4, sticky="w", **p)
+        self._names_start_btn = ttk.Button(bf_names, text="▶ Namen nachladen",
+                                            command=self._start_fetch_names)
+        self._names_start_btn.pack(side="left", padx=4)
+        self._names_stop_btn = ttk.Button(bf_names, text="⏹ Stoppen",
+                                           command=self._stop_download, state="disabled")
+        self._names_stop_btn.pack(side="left", padx=4)
+
         # ── Bereich B: Shared Matches ─────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
-            row=6, column=0, columnspan=4, sticky="ew", padx=14, pady=6)
+            row=11, column=0, columnspan=4, sticky="ew", padx=14, pady=6)
         ttk.Label(f, text="B: Shared Matches herunterladen",
-                  style="Bold.TLabel").grid(row=7, column=0, columnspan=4, sticky="w", **p)
+                  style="Bold.TLabel").grid(row=12, column=0, columnspan=4, sticky="w", **p)
         ttk.Label(f, text=(
             "Lädt für jeden gespeicherten Match dessen gemeinsame Matches mit cM-Werten.\n"
             "Empfehlung: erst Matches (A) herunterladen, dann Shared Matches (B).\n"
             "Ab 20 cM sinnvoll – erfasst auch entferntere Verwandte. Kann bei vielen Matches mehrere Stunden dauern!"
-        ), foreground="#555555").grid(row=8, column=0, columnspan=4, sticky="w", padx=14)
+        ), foreground="#555555").grid(row=13, column=0, columnspan=4, sticky="w", padx=14)
 
-        sf2 = ttk.Frame(f); sf2.grid(row=9, column=0, columnspan=4, sticky="w", **p)
+        sf2 = ttk.Frame(f); sf2.grid(row=14, column=0, columnspan=4, sticky="w", **p)
         ttk.Label(sf2, text="Nur primäre Matches ab (cM):").pack(side="left")
         self._shared_min_cm_var = tk.StringVar(value="20")
         ttk.Entry(sf2, textvariable=self._shared_min_cm_var, width=6).pack(
@@ -349,7 +373,7 @@ class AncestryDnaApp(tk.Tk):
         ttk.Checkbutton(sf2, text="Bereits geholte überspringen",
                          variable=self._skip_existing_var).pack(side="left", padx=12)
 
-        bf2 = ttk.Frame(f); bf2.grid(row=10, column=0, columnspan=4, sticky="w", **p)
+        bf2 = ttk.Frame(f); bf2.grid(row=15, column=0, columnspan=4, sticky="w", **p)
         self._shared_start_btn = ttk.Button(bf2, text="▶ Shared Matches starten",
                                              command=self._start_shared)
         self._shared_start_btn.pack(side="left", padx=4)
@@ -359,18 +383,18 @@ class AncestryDnaApp(tk.Tk):
 
         # ── Fortschritt ───────────────────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
-            row=11, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text="Fortschritt:").grid(row=12, column=0, sticky="e", **p)
+            row=16, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
+        ttk.Label(f, text="Fortschritt:").grid(row=17, column=0, sticky="e", **p)
         self._progress_var = tk.DoubleVar()
         ttk.Progressbar(f, variable=self._progress_var, maximum=100, length=380).grid(
-            row=12, column=1, sticky="w", **p)
+            row=17, column=1, sticky="w", **p)
         self._progress_lbl = tk.StringVar(value="—")
-        ttk.Label(f, textvariable=self._progress_lbl).grid(row=12, column=2, sticky="w", **p)
+        ttk.Label(f, textvariable=self._progress_lbl).grid(row=17, column=2, sticky="w", **p)
 
         # ── Log ───────────────────────────────────────────────────────────────
         ttk.Label(f, text="Protokoll:", style="Bold.TLabel").grid(
-            row=13, column=0, sticky="ne", padx=14, pady=(10, 4))
-        lf = ttk.Frame(f); lf.grid(row=13, column=1, columnspan=3, sticky="nsew",
+            row=18, column=0, sticky="ne", padx=14, pady=(10, 4))
+        lf = ttk.Frame(f); lf.grid(row=18, column=1, columnspan=3, sticky="nsew",
                                      padx=14, pady=4)
         self._log_text = tk.Text(lf, height=12, width=72, font=("Consolas", 9),
                                   bg="#1E1E2E", fg="#A0D0FF", state="disabled", relief="flat")
@@ -469,11 +493,40 @@ class AncestryDnaApp(tk.Tk):
                                  on_done=self._on_shared_done)
         self._scraper.start_shared(guid, min_cm, self._skip_existing_var.get())
 
+    def _start_fetch_names(self):
+        guid = self._get_kit_guid()
+        if not guid:
+            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            return
+        if not self._client:
+            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            return
+        try:
+            min_cm = float(self._names_min_cm_var.get() or 0)
+        except ValueError:
+            min_cm = 0.0
+        self._current_test_guid = guid
+        self._names_start_btn.configure(state="disabled")
+        self._names_stop_btn.configure(state="normal")
+        self._progress_var.set(0)
+        self._scraper = Scraper(self._client, self._db,
+                                on_progress=self._on_progress,
+                                on_status=lambda m: self.after(0, lambda: self._set_status(m)),
+                                on_done=lambda r: self.after(0, lambda: self._on_names_done(r)))
+        self._scraper.start_fetch_names(guid, min_cm)
+
+    def _on_names_done(self, result: "DownloadResult"):
+        self._names_start_btn.configure(state="normal")
+        self._names_stop_btn.configure(state="disabled")
+        self._refresh_match_table()
+        messagebox.showinfo("Namen", result.message)
+
     def _stop_download(self):
         if self._scraper:
             self._scraper.stop()
         self._stop_btn.configure(state="disabled")
         self._shared_stop_btn.configure(state="disabled")
+        self._names_stop_btn.configure(state="disabled")
 
     def _on_progress(self, fetched, total, label):
         pct = min(100.0, (fetched / max(total, 1)) * 100)

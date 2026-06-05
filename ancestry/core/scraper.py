@@ -63,6 +63,13 @@ class Scraper:
         self._launch("_run_matches", test_guid, filter_by, sort_by,
                      only_new, fetch_names)
 
+    def start_fetch_names(self, test_guid: str, min_cm: float = 0.0):
+        """
+        Lädt Namen für alle Matches ohne Namen via Playwright nach.
+        Läuft als eigener Thread, parallel zu nichts.
+        """
+        self._launch("_run_fetch_names", test_guid, min_cm)
+
     def start_shared(self, test_guid: str,
                      min_cm: float = 0.0, skip_existing: bool = True):
         """
@@ -233,6 +240,79 @@ class Scraper:
             result.success = True
             result.message = (f"Shared Matches fertig: "
                               f"{result.fetched} Einträge für {len(todo)} primäre Matches.")
+
+        log.info(result.message)
+        self._on_status(result.message)
+        self._on_done(result)
+
+    def _run_fetch_names(self, test_guid: str, min_cm: float):
+        """Lädt Namen für alle namenlosen Matches via Playwright (Batch, parallel)."""
+        from core.playwright_names import PlaywrightNameFetcher
+        result = DownloadResult()
+
+        # Matches ohne echten Namen aus DB holen (GUID-Kürzel oder leer)
+        all_matches = self._db.get_matches(test_guid=test_guid, min_cm=min_cm,
+                                           sort_col="shared_cm")
+        todo = [
+            (m.test_guid, m.match_guid)
+            for m in all_matches
+            if not m.display_name
+               or len(m.display_name) <= 8   # GUID-Kürzel
+               or m.display_name == "Anonym"
+        ]
+        total = len(todo)
+        self._on_status(f"Namen nachladen: {total} Matches ohne Namen …")
+        log.info("Namen-Download: %d Matches ohne Namen (min_cm=%.0f)", total, min_cm)
+
+        if not todo:
+            result.message = "Alle Matches haben bereits einen Namen."
+            result.success = True
+            self._on_status(result.message)
+            self._on_done(result)
+            return
+
+        fetcher = PlaywrightNameFetcher(self._client._s)
+        if not fetcher.start():
+            result.message = ("Playwright nicht installiert. Bitte:\n"
+                              "  pip install playwright\n"
+                              "  playwright install chromium")
+            result.success = False
+            self._on_status(result.message)
+            self._on_done(result)
+            return
+
+        def progress(done, total, name):
+            self._on_progress(done, total, name)
+            if done % 50 == 0:
+                self._on_status(f"Namen: {done}/{total} geladen …")
+
+        try:
+            names = fetcher.get_names_batch(todo, on_progress=progress,
+                                            stop_event=self._stop)
+            # In DB speichern
+            import sqlite3
+            for sample_id, name in names.items():
+                if name:
+                    with self._db._cursor() as cur:
+                        cur.execute(
+                            "UPDATE matches SET display_name=? "
+                            "WHERE match_guid=? AND test_guid=?",
+                            (name, sample_id, test_guid),
+                        )
+                    result.new += 1
+                result.fetched += 1
+
+            result.success = not self._stop.is_set()
+            result.message = (
+                f"Namen geladen: {result.new} von {total} "
+                f"({'abgebrochen' if self._stop.is_set() else 'fertig'})."
+            )
+        except Exception as e:
+            log.exception("Fehler beim Namen-Download")
+            result.success = False
+            result.message = f"Fehler: {e}"
+        finally:
+            fetcher.stop()
 
         log.info(result.message)
         self._on_status(result.message)

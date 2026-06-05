@@ -1,52 +1,45 @@
 """
-Holt Match-Namen via Playwright (headless Chromium).
+Holt Match-Namen via Playwright (headless Chromium), parallel.
 
-Der Browser übernimmt die Cookies aus der bestehenden curl_cffi-Session,
-navigiert zur Compare-Seite und liest den gerenderten Namen aus dem H1.
-
-Verwendung:
-    fetcher = PlaywrightNameFetcher(session)
-    fetcher.start()
-    name = fetcher.get_name(test_guid, sample_id)
-    fetcher.stop()
+Verwendet einen Thread-Pool mit mehreren Browser-Tabs gleichzeitig.
+Standardmäßig 5 parallele Tabs → ~3h statt ~14h für 10.000 Matches.
 """
 
 import logging
 import re
+import threading
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 log = logging.getLogger(__name__)
 
+PARALLEL_TABS = 5     # gleichzeitige Browser-Tabs
+TIMEOUT       = 15_000
+NAV_TIMEOUT   = 20_000
+
 
 class PlaywrightNameFetcher:
-    """Startet einen einzigen Playwright-Browser und hält ihn offen."""
 
-    # Warten bis dieser Text im H1 erscheint (max. TIMEOUT ms)
-    TIMEOUT  = 15_000   # ms
-    NAV_TIMEOUT = 20_000
-
-    def __init__(self, session):
-        """
-        :param session: curl_cffi-Session mit gesetzten Ancestry-Cookies.
-        """
-        self._session  = session
-        self._pw       = None
-        self._browser  = None
-        self._context  = None
-        self._available: Optional[bool] = None   # None = noch nicht geprüft
+    def __init__(self, session, parallel: int = PARALLEL_TABS):
+        self._session   = session
+        self._parallel  = parallel
+        self._pw        = None
+        self._browser   = None
+        self._context   = None
+        self._available: Optional[bool] = None
+        self._lock      = threading.Lock()   # für Context-Zugriff
 
     # ── Lebenszyklus ──────────────────────────────────────────────────────────
 
     def start(self) -> bool:
-        """Startet Playwright + Chromium. Gibt False zurück wenn nicht installiert."""
         try:
             from playwright.sync_api import sync_playwright
         except ImportError:
-            log.warning("Playwright nicht installiert. "
-                        "Bitte: pip install playwright && playwright install chromium")
+            log.warning("Playwright nicht installiert.\n"
+                        "  pip install playwright\n"
+                        "  playwright install chromium")
             self._available = False
             return False
-
         try:
             self._pw      = sync_playwright().start()
             self._browser = self._pw.chromium.launch(headless=True)
@@ -61,7 +54,7 @@ class PlaywrightNameFetcher:
             )
             self._inject_cookies()
             self._available = True
-            log.info("Playwright-Browser gestartet.")
+            log.info("Playwright bereit (%d parallele Tabs).", self._parallel)
             return True
         except Exception as e:
             log.error("Playwright konnte nicht gestartet werden: %s", e)
@@ -69,81 +62,102 @@ class PlaywrightNameFetcher:
             return False
 
     def stop(self):
-        """Schließt Browser und Playwright."""
         try:
-            if self._context:
-                self._context.close()
-            if self._browser:
-                self._browser.close()
-            if self._pw:
-                self._pw.stop()
+            if self._context: self._context.close()
+            if self._browser: self._browser.close()
+            if self._pw:      self._pw.stop()
         except Exception:
             pass
         self._pw = self._browser = self._context = None
 
-    # ── Öffentliche API ───────────────────────────────────────────────────────
+    # ── Einzelner Name ────────────────────────────────────────────────────────
+
+    def get_name(self, test_guid: str, sample_id: str) -> str:
+        """Öffnet eine Compare-Seite und liest den Namen – thread-safe."""
+        if not self.is_available():
+            return ""
+        return self._fetch_one(test_guid, sample_id)
+
+    # ── Batch: Liste von (test_guid, sample_id) → dict {sample_id: name} ─────
+
+    def get_names_batch(
+        self,
+        pairs: list[tuple[str, str]],
+        on_progress=None,
+        stop_event=None,
+    ) -> dict[str, str]:
+        """
+        Lädt Namen für viele Matches parallel.
+
+        :param pairs:        Liste von (test_guid, sample_id)
+        :param on_progress:  Callback(done, total, name) für Fortschrittsanzeige
+        :param stop_event:   threading.Event – wenn gesetzt, Abbruch
+        :return:             {sample_id: name}
+        """
+        results: dict[str, str] = {}
+        total   = len(pairs)
+        done    = 0
+
+        with ThreadPoolExecutor(max_workers=self._parallel) as pool:
+            futures = {
+                pool.submit(self._fetch_one, tg, sid): sid
+                for tg, sid in pairs
+            }
+            for fut in as_completed(futures):
+                if stop_event and stop_event.is_set():
+                    pool.shutdown(wait=False, cancel_futures=True)
+                    break
+                sid  = futures[fut]
+                name = ""
+                try:
+                    name = fut.result()
+                except Exception as e:
+                    log.debug("Playwright-Fehler %s: %s", sid[:8], e)
+                results[sid] = name
+                done += 1
+                if on_progress:
+                    on_progress(done, total, name or sid[:8])
+
+        return results
 
     def is_available(self) -> bool:
         return self._available is True
 
-    def get_name(self, test_guid: str, sample_id: str) -> str:
-        """
-        Öffnet /dna/matches/{test_guid}/compare/{sample_id} und liest den Namen.
-        Gibt "" zurück wenn kein Name gefunden.
-        """
-        if not self.is_available():
-            return ""
+    # ── Intern ────────────────────────────────────────────────────────────────
 
-        url = (f"https://www.ancestry.com/dna/matches/"
-               f"{test_guid}/compare/{sample_id}")
+    def _fetch_one(self, test_guid: str, sample_id: str) -> str:
+        url  = (f"https://www.ancestry.com/dna/matches/"
+                f"{test_guid}/compare/{sample_id}")
         page = None
         try:
-            page = self._context.new_page()
-            page.set_default_timeout(self.TIMEOUT)
+            with self._lock:
+                page = self._context.new_page()
+            page.set_default_timeout(TIMEOUT)
+            page.goto(url, timeout=NAV_TIMEOUT, wait_until="domcontentloaded")
 
-            # Zur Compare-Seite navigieren
-            page.goto(url, timeout=self.NAV_TIMEOUT, wait_until="domcontentloaded")
-
-            # Warten bis H1 mit "You and" oder "Du und" erscheint
-            try:
-                page.wait_for_selector(
-                    "h1, [class*='matchName'], [class*='compareHeader']",
-                    timeout=self.TIMEOUT,
-                )
-            except Exception:
-                pass   # Timeout – trotzdem versuchen
-
-            # H1-Text auslesen
-            for selector in [
-                "h1",
-                "[class*='matchName']",
-                "[class*='compareHeader']",
-                "[data-testid*='name']",
-            ]:
+            for selector in ["h1", "[class*='matchName']",
+                             "[class*='compareHeader']", "[data-testid*='name']"]:
                 try:
                     el = page.query_selector(selector)
                     if el:
-                        text = (el.inner_text() or "").strip()
-                        name = self._extract_name(text)
+                        name = self._extract_name(el.inner_text() or "")
                         if name:
                             return name
                 except Exception:
                     continue
 
-            # Fallback: gesamten Seitentext nach "You and NAME" durchsuchen
+            # Fallback: gesamten Body-Text durchsuchen
             try:
-                body = page.inner_text("body")
-                name = self._extract_name(body)
+                name = self._extract_name(page.inner_text("body"))
                 if name:
                     return name
             except Exception:
                 pass
 
-            log.debug("Playwright: kein Name auf %s", url)
+            log.debug("Kein Name auf Compare-Seite: %s", sample_id[:8])
             return ""
-
         except Exception as e:
-            log.debug("Playwright-Fehler für %s: %s", sample_id[:8], e)
+            log.debug("Playwright %s: %s", sample_id[:8], e)
             return ""
         finally:
             if page:
@@ -152,10 +166,7 @@ class PlaywrightNameFetcher:
                 except Exception:
                     pass
 
-    # ── Intern ────────────────────────────────────────────────────────────────
-
     def _inject_cookies(self):
-        """Überträgt Cookies aus der curl_cffi-Session in den Playwright-Context."""
         pw_cookies = []
         try:
             for c in self._session.cookies:
@@ -172,18 +183,15 @@ class PlaywrightNameFetcher:
                     "sameSite": "None",
                 })
         except Exception as e:
-            log.debug("Cookie-Übertragung fehlerhaft: %s", e)
-
+            log.debug("Cookie-Übertragung: %s", e)
         if pw_cookies:
             self._context.add_cookies(pw_cookies)
-            log.debug("Playwright: %d Cookies übertragen.", len(pw_cookies))
+            log.debug("%d Cookies an Playwright übergeben.", len(pw_cookies))
 
     @staticmethod
     def _extract_name(text: str) -> str:
-        """Extrahiert NAME aus 'You and NAME' oder 'Du und NAME'."""
         if not text:
             return ""
-        # "You and Gerda Kovermann" oder "Du und Gerda Kovermann"
         m = re.search(
             r'(?:You and|Du und)\s+([A-ZÄÖÜ][^\n\r]{2,60}?)(?:\n|\r|$)',
             text,
