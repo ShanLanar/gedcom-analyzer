@@ -1,19 +1,20 @@
 """
-Holt Match-Namen via Playwright (headless Chromium), parallel.
+Holt Match-Namen via Playwright (headless Chromium).
 
-Verwendet einen Thread-Pool mit mehreren Browser-Tabs gleichzeitig.
-Standardmäßig 5 parallele Tabs → ~3h statt ~14h für 10.000 Matches.
+Nutzt async_playwright in einem dedizierten Thread mit eigenem Event-Loop,
+damit Playwright nicht über mehrere Threads geteilt wird (nicht thread-safe).
+Mehrere Seiten werden als asyncio-Tasks parallel geladen.
 """
 
+import asyncio
 import logging
 import re
 import threading
-from concurrent.futures import ThreadPoolExecutor, as_completed
 from typing import Optional
 
 log = logging.getLogger(__name__)
 
-PARALLEL_TABS = 5     # gleichzeitige Browser-Tabs
+PARALLEL_TABS = 5
 TIMEOUT       = 15_000
 NAV_TIMEOUT   = 20_000
 
@@ -23,38 +24,97 @@ class PlaywrightNameFetcher:
     def __init__(self, session, parallel: int = PARALLEL_TABS):
         self._session   = session
         self._parallel  = parallel
-        self._pw        = None
+        self._loop      : Optional[asyncio.AbstractEventLoop] = None
+        self._thread    : Optional[threading.Thread]          = None
         self._browser   = None
         self._context   = None
         self._stealth   = None
-        self._available: Optional[bool] = None
-        self._lock      = threading.Lock()   # für Context-Zugriff
+        self._available : Optional[bool] = None
+        self._started   = threading.Event()
 
     # ── Lebenszyklus ──────────────────────────────────────────────────────────
 
     def start(self) -> bool:
+        """Startet einen dedizierten Event-Loop-Thread mit Playwright."""
         try:
-            from playwright.sync_api import sync_playwright
+            import playwright  # noqa – nur prüfen ob installiert
         except ImportError:
             log.warning("Playwright nicht installiert.\n"
                         "  pip install playwright\n"
-                        "  playwright install chromium")
+                        "  python -m playwright install chromium")
             self._available = False
             return False
+
+        self._thread = threading.Thread(
+            target=self._run_loop, daemon=True, name="playwright-loop")
+        self._thread.start()
+        self._started.wait(timeout=30)
+        return self._available is True
+
+    def stop(self):
+        if self._loop and self._loop.is_running():
+            asyncio.run_coroutine_threadsafe(self._async_stop(), self._loop)
+        if self._thread:
+            self._thread.join(timeout=10)
+        self._loop = self._thread = None
+
+    def is_available(self) -> bool:
+        return self._available is True
+
+    # ── Einzelner Name ────────────────────────────────────────────────────────
+
+    def get_name(self, test_guid: str, sample_id: str) -> str:
+        if not self.is_available():
+            return ""
+        fut = asyncio.run_coroutine_threadsafe(
+            self._fetch_one(test_guid, sample_id), self._loop)
         try:
-            self._pw      = sync_playwright().start()
-            # channel="chrome" nutzt den installierten Chrome statt Chromium-Shell
-            # → echter Browser-Fingerprint, kein Akamai-Block
+            return fut.result(timeout=30)
+        except Exception as e:
+            log.debug("get_name Fehler %s: %s", sample_id[:8], e)
+            return ""
+
+    # ── Batch ─────────────────────────────────────────────────────────────────
+
+    def get_names_batch(
+        self,
+        pairs: list[tuple[str, str]],
+        on_progress=None,
+        stop_event=None,
+    ) -> dict[str, str]:
+        if not self.is_available():
+            return {}
+        fut = asyncio.run_coroutine_threadsafe(
+            self._batch(pairs, on_progress, stop_event), self._loop)
+        try:
+            return fut.result(timeout=len(pairs) * 30 + 60)
+        except Exception as e:
+            log.error("Batch-Fehler: %s", e)
+            return {}
+
+    # ── Interner Event-Loop-Thread ────────────────────────────────────────────
+
+    def _run_loop(self):
+        self._loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(self._loop)
+        self._loop.run_until_complete(self._async_start())
+        if self._available:
+            self._loop.run_forever()
+
+    async def _async_start(self):
+        try:
+            from playwright.async_api import async_playwright
+            pw = await async_playwright().start()
+
             try:
-                self._browser = self._pw.chromium.launch(
+                self._browser = await pw.chromium.launch(
                     channel="chrome", headless=True)
                 log.debug("Playwright: System-Chrome gestartet.")
             except Exception:
-                # Fallback: Playwright-Chromium (kann von Akamai geblockt werden)
-                self._browser = self._pw.chromium.launch(headless=True)
-                log.debug("Playwright: Chromium gestartet (kein System-Chrome gefunden).")
+                self._browser = await pw.chromium.launch(headless=True)
+                log.debug("Playwright: Chromium gestartet.")
 
-            self._context = self._browser.new_context(
+            self._context = await self._browser.new_context(
                 user_agent=(
                     "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                     "AppleWebKit/537.36 (KHTML, like Gecko) "
@@ -63,159 +123,118 @@ class PlaywrightNameFetcher:
                 locale="de-DE",
                 viewport={"width": 1280, "height": 800},
             )
-            self._inject_cookies()
+            await self._inject_cookies()
 
-            # Stealth-Modus: navigator.webdriver verstecken
             try:
-                from playwright_stealth import stealth_sync
-                self._stealth = stealth_sync
+                from playwright_stealth import stealth_async
+                self._stealth = stealth_async
                 log.debug("playwright-stealth geladen.")
             except ImportError:
                 self._stealth = None
-                log.debug("playwright-stealth nicht installiert – ohne Stealth.")
 
             self._available = True
             log.info("Playwright bereit (%d parallele Tabs).", self._parallel)
-            return True
         except Exception as e:
-            log.error("Playwright konnte nicht gestartet werden: %s", e)
+            log.error("Playwright Start fehlgeschlagen: %s", e)
             self._available = False
-            return False
+        finally:
+            self._started.set()
 
-    def stop(self):
+    async def _async_stop(self):
         try:
-            if self._context: self._context.close()
-            if self._browser: self._browser.close()
-            if self._pw:      self._pw.stop()
+            if self._context: await self._context.close()
+            if self._browser: await self._browser.close()
         except Exception:
             pass
-        self._pw = self._browser = self._context = None
+        self._loop.stop()
 
-    # ── Einzelner Name ────────────────────────────────────────────────────────
+    # ── Fetch-Logik ───────────────────────────────────────────────────────────
 
-    def get_name(self, test_guid: str, sample_id: str) -> str:
-        """Öffnet eine Compare-Seite und liest den Namen – thread-safe."""
-        if not self.is_available():
-            return ""
-        return self._fetch_one(test_guid, sample_id)
-
-    # ── Batch: Liste von (test_guid, sample_id) → dict {sample_id: name} ─────
-
-    def get_names_batch(
-        self,
-        pairs: list[tuple[str, str]],
-        on_progress=None,
-        stop_event=None,
-    ) -> dict[str, str]:
-        """
-        Lädt Namen für viele Matches parallel.
-
-        :param pairs:        Liste von (test_guid, sample_id)
-        :param on_progress:  Callback(done, total, name) für Fortschrittsanzeige
-        :param stop_event:   threading.Event – wenn gesetzt, Abbruch
-        :return:             {sample_id: name}
-        """
-        results: dict[str, str] = {}
-        total   = len(pairs)
-        done    = 0
-
-        with ThreadPoolExecutor(max_workers=self._parallel) as pool:
-            futures = {
-                pool.submit(self._fetch_one, tg, sid): sid
-                for tg, sid in pairs
-            }
-            for fut in as_completed(futures):
-                if stop_event and stop_event.is_set():
-                    pool.shutdown(wait=False, cancel_futures=True)
-                    break
-                sid  = futures[fut]
-                name = ""
-                try:
-                    name = fut.result()
-                except Exception as e:
-                    log.debug("Playwright-Fehler %s: %s", sid[:8], e)
-                results[sid] = name
-                done += 1
-                if on_progress:
-                    on_progress(done, total, name or sid[:8])
-
-        return results
-
-    def is_available(self) -> bool:
-        return self._available is True
-
-    # ── Intern ────────────────────────────────────────────────────────────────
-
-    def _fetch_one(self, test_guid: str, sample_id: str) -> str:
+    async def _fetch_one(self, test_guid: str, sample_id: str) -> str:
         url  = (f"https://www.ancestry.com/dna/matches/"
                 f"{test_guid}/compare/{sample_id}")
         page = None
         try:
-            with self._lock:
-                page = self._context.new_page()
-                if self._stealth:
-                    self._stealth(page)
+            page = await self._context.new_page()
+            if self._stealth:
+                await self._stealth(page)
             page.set_default_timeout(TIMEOUT)
-            page.goto(url, timeout=NAV_TIMEOUT, wait_until="domcontentloaded")
+            await page.goto(url, timeout=NAV_TIMEOUT,
+                            wait_until="domcontentloaded")
 
-            # Warten bis H1 mit "You and" oder "Du und" gerendert ist
+            # Warten bis H1 mit "You and" / "Du und" gerendert ist
             try:
-                page.wait_for_function(
-                    "() => document.querySelector('h1') && "
-                    "(/You and|Du und/.test(document.querySelector('h1').innerText))",
+                await page.wait_for_function(
+                    "() => { const h = document.querySelector('h1'); "
+                    "return h && (/You and|Du und/.test(h.innerText)); }",
                     timeout=TIMEOUT,
                 )
             except Exception:
-                pass  # Timeout – trotzdem versuchen was da ist
+                pass
 
             for selector in ["h1", "[class*='matchName']",
-                             "[class*='compareHeader']", "[data-testid*='name']"]:
+                             "[class*='compareHeader']"]:
                 try:
-                    el = page.query_selector(selector)
+                    el = await page.query_selector(selector)
                     if el:
-                        name = self._extract_name(el.inner_text() or "")
+                        name = self._extract_name(await el.inner_text() or "")
                         if name:
                             return name
                 except Exception:
                     continue
 
-            # Fallback: gesamten Body-Text durchsuchen
+            # Fallback: Body-Text
             try:
-                name = self._extract_name(page.inner_text("body"))
+                body = await page.inner_text("body")
+                name = self._extract_name(body)
                 if name:
                     return name
-            except Exception:
-                pass
-
-            # Debug: was steht wirklich auf der Seite?
-            try:
-                h1 = page.query_selector("h1")
-                h1_text = h1.inner_text() if h1 else "(kein H1)"
-                body_snippet = (page.inner_text("body") or "")[:300].replace("\n", " ")
+                # Debug: was steht wirklich da?
+                h1el = await page.query_selector("h1")
+                h1tx = (await h1el.inner_text()) if h1el else "(kein H1)"
                 log.debug("Playwright %s – H1: %r | Body: %r",
-                          sample_id, h1_text, body_snippet)
+                          sample_id, h1tx, (body or "")[:200].replace("\n", " "))
             except Exception:
                 pass
-            log.debug("Kein Name auf Compare-Seite: %s", sample_id)
             return ""
         except Exception as e:
-            log.debug("Playwright %s: %s", sample_id[:8], e)
+            log.debug("Playwright %s: %s", sample_id, e)
             return ""
         finally:
             if page:
                 try:
-                    page.close()
+                    await page.close()
                 except Exception:
                     pass
 
-    def _inject_cookies(self):
+    async def _batch(self, pairs, on_progress, stop_event) -> dict[str, str]:
+        sem     = asyncio.Semaphore(self._parallel)
+        results : dict[str, str] = {}
+        done    = [0]
+        total   = len(pairs)
+
+        async def fetch_limited(tg, sid):
+            if stop_event and stop_event.is_set():
+                return sid, ""
+            async with sem:
+                name = await self._fetch_one(tg, sid)
+            results[sid] = name
+            done[0] += 1
+            if on_progress:
+                on_progress(done[0], total, name or sid[:8])
+            return sid, name
+
+        await asyncio.gather(*[fetch_limited(tg, sid) for tg, sid in pairs])
+        return results
+
+    # ── Cookies ───────────────────────────────────────────────────────────────
+
+    async def _inject_cookies(self):
         pw_cookies = []
         try:
             jar = self._session.cookies
-            # curl_cffi: jar ist ein requests.cookies.RequestsCookieJar
-            # Iteration liefert Cookie-Objekte mit .name/.value/.domain/.path
             try:
-                items = list(jar)   # liefert Cookie-Objekte
+                items = list(jar)
                 if items and hasattr(items[0], "name"):
                     for c in items:
                         domain = getattr(c, "domain", "") or ".ancestry.com"
@@ -231,27 +250,22 @@ class PlaywrightNameFetcher:
                             "sameSite": "None",
                         })
                 else:
-                    raise ValueError("keine Cookie-Objekte")
+                    raise ValueError
             except Exception:
-                # Fallback: als dict iterieren
                 for name, value in jar.items():
                     pw_cookies.append({
-                        "name"    : name,
-                        "value"   : str(value),
-                        "domain"  : ".ancestry.com",
-                        "path"    : "/",
-                        "secure"  : True,
-                        "httpOnly": False,
-                        "sameSite": "None",
+                        "name": name, "value": str(value),
+                        "domain": ".ancestry.com", "path": "/",
+                        "secure": True, "httpOnly": False, "sameSite": "None",
                     })
         except Exception as e:
-            log.debug("Cookie-Übertragung fehlgeschlagen: %s", e)
+            log.debug("Cookie-Übertragung: %s", e)
+
         if pw_cookies:
-            self._context.add_cookies(pw_cookies)
+            await self._context.add_cookies(pw_cookies)
             log.debug("%d Cookies an Playwright übergeben.", len(pw_cookies))
         else:
-            log.warning("Playwright: keine Cookies übertragen – "
-                        "Seite landet möglicherweise auf Login.")
+            log.warning("Playwright: keine Cookies – landet auf Login-Seite.")
 
     @staticmethod
     def _extract_name(text: str) -> str:
@@ -261,6 +275,4 @@ class PlaywrightNameFetcher:
             r'(?:You and|Du und)\s+([A-ZÄÖÜ][^\n\r]{2,60}?)(?:\n|\r|$)',
             text,
         )
-        if m:
-            return m.group(1).strip()
-        return ""
+        return m.group(1).strip() if m else ""
