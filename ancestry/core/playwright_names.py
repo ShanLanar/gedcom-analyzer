@@ -271,9 +271,6 @@ class PlaywrightNameFetcher:
     def _extract_name(text: str) -> str:
         if not text:
             return ""
-        # "aren't matches" → kein Name vorhanden
-        if "aren't matches" in text or "aren’t matches" in text:
-            return "__no_match__"
         m = re.search(
             r'(?:You and|Du und)\s+([A-Za-zÄÖÜäöüß0-9][^\n\r]{1,60}?)(?:\n|\r|$)',
             text,
