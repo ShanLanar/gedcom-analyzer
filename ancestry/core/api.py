@@ -21,15 +21,13 @@ log = logging.getLogger(__name__)
 
 RETRY_STATUSES  = {429, 500, 502, 503, 504}
 MAX_RETRIES     = 5
-RETRY_DELAYS    = [30, 60, 90, 120, 180]  # 429: min 30s warten
+RETRY_DELAYS    = [30, 60, 90, 120, 180]
 
-# Adaptives Rate-Limiting: nach X aufeinanderfolgenden Seiten kurz warten
-BURST_LIMIT     = 3      # nach 3 Seiten Pflichtpause
-BURST_PAUSE     = 20.0   # 20 Sekunden Pause (Ancestry Rate-Limit-Fenster)
+BURST_LIMIT     = 3
+BURST_PAUSE     = 20.0
 
 
 def _jitter(base: float) -> float:
-    """Fügt ±20% Zufallsstreuung hinzu, um Muster zu vermeiden."""
     return base * (0.8 + random.random() * 0.4)
 
 
@@ -80,13 +78,14 @@ class AncestryApiClient:
 
     def __init__(self, session):
         self._s = session
-        self._detail_endpoint = None
+        # Gemerkter funktionierender Endpunkt (None=unbekannt, "__none__"=keiner)
+        self._working_detail_url: Optional[str] = None
 
     # ── Match-Detail: voller Anzeigename ──────────────────────────────────────
 
     @staticmethod
     def _extract_name_from_detail(data: dict) -> str:
-        """Sucht in einer Detail-Antwort nach dem vollen Anzeigenamen."""
+        """Sucht in einer JSON-Antwort nach dem vollen Anzeigenamen."""
         if not isinstance(data, dict):
             return ""
 
@@ -106,46 +105,70 @@ class AncestryApiClient:
                 or nested(data, "matchTestDisplayName")
                 or nested(data, "userDisplayName")
                 or nested(data, "match", "displayName")
+                or nested(data, "testDisplayName")
+                or nested(data, "name")
                 or "")
 
     @staticmethod
     def _extract_name_from_html(html: str) -> str:
-        """Extrahiert den Match-Namen aus der Compare-Seiten-HTML.
-
-        Ancestry bettet Zustandsdaten in <script>-Tags ein. Wir suchen nach
-        bekannten Mustern wie window.__INITIAL_STATE__, JSON-LD oder dem
-        Seitentitel.
-        """
+        """Extrahiert den Match-Namen aus der Compare-Seiten-HTML (Fallback)."""
         import re, json as _j
 
-        # 1. JSON in <script type="application/json"> oder __INITIAL_STATE__
-        for pat in [
-            r'window\.__INITIAL_STATE__\s*=\s*(\{.+?\})(?:;|</script>)',
-            r'<script[^>]+type=["\']]application/json["\'][^>]*>(\{.+?\})</script>',
-            r'"matchProfile"\s*:\s*(\{[^}]+\})',
-        ]:
-            m = re.search(pat, html, re.S)
-            if m:
-                try:
-                    data = _j.loads(m.group(1))
-                    name = AncestryApiClient._extract_name_from_detail(data)
-                    if name:
-                        return name
-                except Exception:
-                    pass
+        # Next.js: <script id="__NEXT_DATA__" type="application/json">
+        m = re.search(r'<script[^>]+id=["\']__NEXT_DATA__["\'][^>]*>(.*?)</script>',
+                      html, re.S)
+        if m:
+            try:
+                data = _j.loads(m.group(1))
+                # Rekursiv nach displayName suchen
+                def find_name(d):
+                    if isinstance(d, dict):
+                        for k in ("displayName", "matchTestDisplayName",
+                                  "adminDisplayName", "name"):
+                            v = d.get(k, "")
+                            if isinstance(v, str) and 2 < len(v) < 80:
+                                if not any(x in v.lower() for x in
+                                           ("ancestry", "login", "loading", "sign")):
+                                    return v
+                        for v in d.values():
+                            r = find_name(v)
+                            if r:
+                                return r
+                    elif isinstance(d, list):
+                        for item in d:
+                            r = find_name(item)
+                            if r:
+                                return r
+                    return ""
+                name = find_name(data)
+                if name:
+                    return name
+            except Exception:
+                pass
 
-        # 2. "You and NAME" im H1 oder Titel
-        for pat in [
-            r'[Yy]ou and ([A-ZÄÖÜ][^<"]{2,60}?)(?:\s*<|\s*"|\s*\|)',
-            r'<title>[Yy]ou and ([^|<]{2,60}?)\s*[\|–<]',
-        ]:
-            m = re.search(pat, html)
-            if m:
-                candidate = m.group(1).strip().rstrip('"').strip()
-                if candidate and len(candidate) > 2:
-                    return candidate
+        # window.__INITIAL_STATE__
+        m = re.search(r'window\.__INITIAL_STATE__\s*=\s*(\{.+?\})\s*;',
+                      html, re.S)
+        if m:
+            try:
+                data = _j.loads(m.group(1))
+                name = AncestryApiClient._extract_name_from_detail(data)
+                if name:
+                    return name
+            except Exception:
+                pass
 
-        # 3. displayName-Muster direkt im HTML
+        # "You and NAME" (case-insensitive, auch Kleinbuchstaben)
+        m = re.search(
+            r'[Yy]ou and ([A-Za-zÄÖÜäöüß0-9][^<"]{2,60}?)'
+            r'(?:\s*<|\s*"|\s*\||\s*\n)',
+            html)
+        if m:
+            candidate = m.group(1).strip().rstrip('"').strip()
+            if candidate and len(candidate) > 2 and "aren" not in candidate:
+                return candidate
+
+        # displayName direkt im HTML
         for pat in [
             r'"displayName"\s*:\s*"([^"]{2,80})"',
             r'"matchTestDisplayName"\s*:\s*"([^"]{2,80})"',
@@ -155,50 +178,97 @@ class AncestryApiClient:
             if m:
                 candidate = m.group(1).strip()
                 if candidate and not any(x in candidate.lower() for x in
-                                         ("ancestry", "dna", "matches", "login",
-                                          "sign in", "loading")):
+                                         ("ancestry", "dna", "login", "sign in",
+                                          "loading", "null", "undefined")):
                     return candidate
 
         return ""
 
     def get_match_name_curl(self, test_guid: str, sample_id: str) -> str:
-        """Holt den Match-Namen via curl_cffi (kein Playwright, kein Browser).
+        """Holt den Match-Namen via curl_cffi.
 
-        Verwendet die bereits authentifizierte Session. curl_cffi mit
-        impersonate=chrome124 umgeht Akamai; die Compare-Seite enthält den
-        Namen im eingebetteten JSON des React-Bundles.
+        Strategie:
+        1. Probiert die bekannten matchesservice JSON-Endpunkte (schnell, direkt).
+           Beim ersten Treffer wird der Endpunkt gemerkt.
+        2. Fällt zurück auf HTML-Parsen der Compare-Seite (mit Diagnose-Log).
         """
-        url = (f"https://www.ancestry.com/dna/matches/"
-               f"{test_guid}/compare/{sample_id}")
-        try:
-            r = self._s.get(
-                url,
-                timeout=20,
-                headers={
-                    "Accept"         : "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-                    "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8",
-                    "Referer"        : "https://www.ancestry.com/dna/matches/",
-                },
-            )
-            if r.status_code == 200:
-                name = self._extract_name_from_html(r.text)
-                if name:
-                    log.debug("curl Name: %s → %r", sample_id[:8], name)
+        # ── 1. JSON-API-Endpunkte ─────────────────────────────────────────────
+        api_headers = dict(cfg.MATCHESSERVICE_HEADERS)
+        api_headers["Referer"] = cfg.MATCHESSERVICE_REFERER.format(
+            test_guid=test_guid)
+
+        # Wenn bereits ein funktionierender Endpunkt bekannt ist, nur den probieren
+        candidates = (
+            [self._working_detail_url.format(
+                test_guid=test_guid, sample_id=sample_id)]
+            if self._working_detail_url and self._working_detail_url != "__none__"
+            else [
+                t.format(test_guid=test_guid, sample_id=sample_id)
+                for t in cfg.MATCH_DETAIL_CANDIDATES
+            ]
+        )
+
+        for url in candidates:
+            try:
+                r = self._s.get(url, headers=api_headers, timeout=20)
+                if r.status_code == 200:
+                    try:
+                        data = r.json()
+                        name = self._extract_name_from_detail(data)
+                        if name:
+                            # Endpunkt-Template merken
+                            if self._working_detail_url is None:
+                                tmpl = url.replace(test_guid, "{test_guid}") \
+                                           .replace(sample_id, "{sample_id}")
+                                self._working_detail_url = tmpl
+                                log.info("Matchesservice-Endpunkt gefunden: %s",
+                                         tmpl.split("/api/", 1)[-1])
+                            log.debug("API Name %s → %r", sample_id[:8], name)
+                            return name
+                        log.debug("API %s HTTP 200 aber kein Name: %s",
+                                  sample_id[:8], str(data)[:200])
+                    except Exception as e:
+                        log.debug("API JSON-Fehler %s: %s", sample_id[:8], e)
                 else:
-                    log.debug("curl %s – kein Name in HTML (%d Bytes)",
-                              sample_id[:8], len(r.text))
-                return name
-            log.debug("curl %s HTTP %s", sample_id[:8], r.status_code)
-        except Exception as e:
-            log.debug("get_match_name_curl %s: %s", sample_id[:8], e)
+                    log.debug("API %s HTTP %s",
+                              url.rsplit("/", 1)[-1][:20], r.status_code)
+            except Exception as e:
+                log.debug("API-Request %s: %s", sample_id[:8], e)
+
+        # Alle Kandidaten erfolglos → Template als nicht verfügbar merken
+        if self._working_detail_url is None:
+            self._working_detail_url = "__none__"
+            log.info("Matchesservice-Endpunkte alle ohne Treffer – "
+                     "nutze HTML-Fallback.")
+
+        # ── 2. HTML-Fallback: Compare-Seite parsen ────────────────────────────
+        if self._working_detail_url == "__none__":
+            url = (f"https://www.ancestry.com/dna/matches/"
+                   f"{test_guid}/compare/{sample_id}")
+            try:
+                r = self._s.get(url, timeout=20, headers={
+                    "Accept"  : "text/html,application/xhtml+xml,*/*;q=0.8",
+                    "Referer" : "https://www.ancestry.com/dna/matches/",
+                })
+                if r.status_code == 200:
+                    name = self._extract_name_from_html(r.text)
+                    if name:
+                        log.debug("HTML Name %s → %r", sample_id[:8], name)
+                        return name
+                    # Einmalige Struktur-Diagnose für erste fehlgeschlagene Seite
+                    if not getattr(self, "_html_diag_done", False):
+                        self._html_diag_done = True
+                        log.info("HTML-Diagnose %s (%d Bytes) – Anfang: %r",
+                                 sample_id[:8], len(r.text), r.text[:800])
+            except Exception as e:
+                log.debug("HTML-Fallback %s: %s", sample_id[:8], e)
+
         return ""
 
     def detail_names_blocked(self) -> bool:
-        """Immer False – curl_cffi-Methode kennt kein dauerhaftes Blocking."""
         return False
 
     def stop_playwright(self):
-        """Keine Aktion – Playwright wird nicht mehr verwendet."""
         pass
 
     # ── DNA-Kits ──────────────────────────────────────────────────────────────
@@ -335,18 +405,15 @@ class AncestryApiClient:
             api_page = data.get("currentPage", "?")
             api_total = data.get("totalPages", "?")
             first_sid = raw[0].get("sampleId","?")[:16] if raw else "leer"
-            log.debug("  API antwortet: currentPage=%s/%s | erster sampleId=%s",
+            log.debug("  API: currentPage=%s/%s | erster sampleId=%s",
                       api_page, api_total, first_sid)
             if page == 1 and raw and not getattr(self, "_logged_fields", False):
                 self._logged_fields = True
                 import json as _dbgj
                 sample = raw[0]
-                log.debug("Match-Felder (1. Eintrag): top-level=%s",
-                          sorted(sample.keys()))
+                log.debug("Match-Felder: top-level=%s", sorted(sample.keys()))
                 log.debug("  tags=%s",
                           _dbgj.dumps(sample.get("tags"), ensure_ascii=False)[:500])
-                log.debug("  relationship=%s",
-                          _dbgj.dumps(sample.get("relationship"), ensure_ascii=False)[:500])
             for item in raw:
                 m = DnaMatch.from_api_response(item, test_guid, fetched_at)
                 if m.match_guid:
@@ -419,7 +486,6 @@ class AncestryApiClient:
                           match_guid_a[:16], total_pages)
 
             raw = data.get("matchList") or []
-
             if not raw:
                 break
 
