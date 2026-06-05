@@ -133,7 +133,7 @@ class PlaywrightNameFetcher:
             with self._lock:
                 page = self._context.new_page()
             page.set_default_timeout(TIMEOUT)
-            page.goto(url, timeout=NAV_TIMEOUT, wait_until="domcontentloaded")
+            page.goto(url, timeout=NAV_TIMEOUT, wait_until="networkidle")
 
             for selector in ["h1", "[class*='matchName']",
                              "[class*='compareHeader']", "[data-testid*='name']"]:
@@ -169,24 +169,47 @@ class PlaywrightNameFetcher:
     def _inject_cookies(self):
         pw_cookies = []
         try:
-            for c in self._session.cookies:
-                domain = getattr(c, "domain", "") or ".ancestry.com"
-                if not domain.startswith(".") and domain:
-                    domain = "." + domain
-                pw_cookies.append({
-                    "name"    : c.name,
-                    "value"   : c.value,
-                    "domain"  : domain,
-                    "path"    : getattr(c, "path", "/") or "/",
-                    "secure"  : getattr(c, "secure", True),
-                    "httpOnly": False,
-                    "sameSite": "None",
-                })
+            jar = self._session.cookies
+            # curl_cffi: jar ist ein requests.cookies.RequestsCookieJar
+            # Iteration liefert Cookie-Objekte mit .name/.value/.domain/.path
+            try:
+                items = list(jar)   # liefert Cookie-Objekte
+                if items and hasattr(items[0], "name"):
+                    for c in items:
+                        domain = getattr(c, "domain", "") or ".ancestry.com"
+                        if domain and not domain.startswith("."):
+                            domain = "." + domain
+                        pw_cookies.append({
+                            "name"    : c.name,
+                            "value"   : c.value,
+                            "domain"  : domain,
+                            "path"    : getattr(c, "path", "/") or "/",
+                            "secure"  : True,
+                            "httpOnly": False,
+                            "sameSite": "None",
+                        })
+                else:
+                    raise ValueError("keine Cookie-Objekte")
+            except Exception:
+                # Fallback: als dict iterieren
+                for name, value in jar.items():
+                    pw_cookies.append({
+                        "name"    : name,
+                        "value"   : str(value),
+                        "domain"  : ".ancestry.com",
+                        "path"    : "/",
+                        "secure"  : True,
+                        "httpOnly": False,
+                        "sameSite": "None",
+                    })
         except Exception as e:
-            log.debug("Cookie-Übertragung: %s", e)
+            log.debug("Cookie-Übertragung fehlgeschlagen: %s", e)
         if pw_cookies:
             self._context.add_cookies(pw_cookies)
             log.debug("%d Cookies an Playwright übergeben.", len(pw_cookies))
+        else:
+            log.warning("Playwright: keine Cookies übertragen – "
+                        "Seite landet möglicherweise auf Login.")
 
     @staticmethod
     def _extract_name(text: str) -> str:
