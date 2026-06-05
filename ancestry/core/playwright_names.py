@@ -133,7 +133,17 @@ class PlaywrightNameFetcher:
             with self._lock:
                 page = self._context.new_page()
             page.set_default_timeout(TIMEOUT)
-            page.goto(url, timeout=NAV_TIMEOUT, wait_until="networkidle")
+            page.goto(url, timeout=NAV_TIMEOUT, wait_until="domcontentloaded")
+
+            # Warten bis H1 mit "You and" oder "Du und" gerendert ist
+            try:
+                page.wait_for_function(
+                    "() => document.querySelector('h1') && "
+                    "(/You and|Du und/.test(document.querySelector('h1').innerText))",
+                    timeout=TIMEOUT,
+                )
+            except Exception:
+                pass  # Timeout – trotzdem versuchen was da ist
 
             for selector in ["h1", "[class*='matchName']",
                              "[class*='compareHeader']", "[data-testid*='name']"]:
