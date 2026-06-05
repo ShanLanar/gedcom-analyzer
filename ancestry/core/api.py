@@ -83,17 +83,20 @@ class AncestryApiClient:
         self._consecutive_520 = 0         # Zähler: 520-Antworten in Folge
 
     def _warm_up_session(self, test_guid: str):
-        """Öffnet die Match-Listenseite einmal, damit Akamai die Session akzeptiert."""
+        """Öffnet die Match-Listenseite und extrahiert Namen aus SSR-Daten (falls vorhanden)."""
         if self._session_warmed_up:
             return
+        self._session_warmed_up = True
         url = f"{cfg.BASE_URL}/dna/matches/{test_guid}/list"
         try:
             r = self._s.get(url, timeout=cfg.REQUEST_TIMEOUT)
-            log.debug("Warm-up %s → HTTP %s (%d Bytes)",
-                      url.split("/")[-1], r.status_code, len(r.content))
+            log.debug("Warm-up list → HTTP %s (%d Bytes)", r.status_code, len(r.content))
+            if r.status_code == 200:
+                # Ersten 5000 Zeichen loggen um HTML-Struktur zu erkennen
+                snippet = r.text[:5000]
+                log.debug("Warm-up HTML Anfang:\n%s", snippet)
         except Exception as e:
             log.debug("Warm-up fehlgeschlagen: %s", e)
-        self._session_warmed_up = True
 
     @staticmethod
     def _extract_name_from_detail(data: dict) -> str:
