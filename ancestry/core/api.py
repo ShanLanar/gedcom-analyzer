@@ -82,6 +82,7 @@ class AncestryApiClient:
     def __init__(self, session):
         self._s = session
         self._detail_endpoint = None   # gemerkter funktionierender Detail-Pfad
+        self._pw_fetcher = None        # PlaywrightNameFetcher (lazy init)
 
     # ── Match-Detail: voller Anzeigename ──────────────────────────────────────
 
@@ -163,47 +164,40 @@ class AncestryApiClient:
         return ""
 
     def get_match_name(self, test_guid: str, sample_id: str) -> str:
-        """Holt den vollen Anzeigenamen eines Matches von der Compare-Seite.
+        """Holt den vollen Anzeigenamen via Playwright (headless Chromium).
 
-        Nutzt /dna/matches/{test_guid}/compare/{sample_id} – dieselbe Domain
-        wie matchList, kein separater Akamai-geschützter Host.
-        Ergebnis wird gecacht (erster Fehlschlag → __none__).
+        Beim ersten Aufruf wird der Browser gestartet und bleibt offen.
+        Gibt "" zurück wenn Playwright nicht installiert ist oder kein Name
+        gefunden wird.
         """
         if self._detail_endpoint == "__none__":
             return ""
 
-        url = (f"{cfg.BASE_URL}/dna/matches/{test_guid}/compare/{sample_id}")
-        headers = {
-            "Accept"         : "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-            "Referer"        : f"{cfg.BASE_URL}/dna/matches/{test_guid}/list",
-            "Sec-Fetch-Dest" : "document",
-            "Sec-Fetch-Mode" : "navigate",
-            "Sec-Fetch-Site" : "same-origin",
-        }
-        r = _api_get(self._s, url, extra_headers=headers)
-        if r is None or r.status_code != 200:
-            log.debug("Compare-Seite HTTP %s für %s",
-                      r.status_code if r else "—", sample_id[:8])
-            if self._detail_endpoint is None:
-                log.warning("Namen nicht abrufbar – Compare-Seite nicht erreichbar.")
+        # Playwright lazy initialisieren
+        if self._pw_fetcher is None:
+            from core.playwright_names import PlaywrightNameFetcher
+            self._pw_fetcher = PlaywrightNameFetcher(self._s)
+            ok = self._pw_fetcher.start()
+            if not ok:
+                log.warning("Playwright nicht verfügbar – Namen können nicht "
+                            "geladen werden. Bitte ausführen:\n"
+                            "  pip install playwright\n"
+                            "  playwright install chromium")
                 self._detail_endpoint = "__none__"
-            return ""
+                return ""
+            log.info("Playwright bereit – lade Namen von Compare-Seiten.")
 
-        name = self._extract_name_from_html(r.text)
+        name = self._pw_fetcher.get_name(test_guid, sample_id)
         if name:
             if self._detail_endpoint is None:
-                log.info("Namen-Quelle: Compare-Seite (/dna/matches/.../compare/...)")
-                self._detail_endpoint = "compare_page"
-            return name
+                self._detail_endpoint = "playwright"
+        return name
 
-        if self._detail_endpoint is None:
-            # HTML-Ausschnitt loggen damit man sieht welche Muster vorhanden sind
-            snippet = r.text[:3000].replace("\n", " ").replace("\r", "")
-            log.debug("Compare-HTML-Ausschnitt (erste 3000 Zeichen): %s", snippet)
-            log.warning("Compare-Seite erreichbar, aber kein Name gefunden. "
-                        "Kein weiterer Versuch.")
-            self._detail_endpoint = "__none__"
-        return ""
+    def stop_playwright(self):
+        """Browser schließen – am Ende des Downloads aufrufen."""
+        if self._pw_fetcher:
+            self._pw_fetcher.stop()
+            self._pw_fetcher = None
 
     def detail_names_blocked(self) -> bool:
         """True, wenn bereits festgestellt wurde, dass keine Namen abrufbar sind."""

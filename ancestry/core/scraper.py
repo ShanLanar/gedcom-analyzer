@@ -179,6 +179,7 @@ class Scraper:
             result.errors += 1
             result.message = f"Fehler: {e}"
 
+        self._client.stop_playwright()
         self._on_status(result.message)
         self._on_done(result)
 
