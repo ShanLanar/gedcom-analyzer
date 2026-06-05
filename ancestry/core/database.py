@@ -246,7 +246,12 @@ class Database:
                     :tag_surname, :tag_gender, :tag_path, :tags_json, :meiosis, :ignored
                 )
                 ON CONFLICT(match_guid) DO UPDATE SET
-                    display_name=excluded.display_name,
+                    display_name = CASE
+                        WHEN length(excluded.display_name) > 8 THEN excluded.display_name
+                        WHEN display_name IS NULL OR display_name = '' OR length(display_name) <= 8
+                             THEN excluded.display_name
+                        ELSE display_name
+                    END,
                     shared_cm=excluded.shared_cm,
                     shared_segments=excluded.shared_segments,
                     longest_segment=excluded.longest_segment,
