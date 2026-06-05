@@ -167,18 +167,18 @@ class AncestryApiClient:
                 except Exception as e:
                     log.debug("API JSON %s: %s", sample_id[:8], e)
 
-            elif r.status_code in (404, 410):
-                # Endpunkt existiert nicht
+            elif r.status_code in (404, 410, 520):
+                # 404/410: Endpunkt existiert nicht; 520: Akamai Bot-Block
                 not_found_count += 1
                 log.debug("API %s HTTP %s", url.rsplit("/", 1)[-1][:24], r.status_code)
 
             else:
                 log.debug("API %s HTTP %s", sample_id[:8], r.status_code)
 
-        # Nur als "nicht vorhanden" markieren wenn ALLE Kandidaten 404 lieferten
+        # Als "nicht verfügbar" markieren wenn ALLE Kandidaten 404/520 lieferten
         if self._working_detail_url is None and not_found_count == len(candidates):
             self._working_detail_url = "__none__"
-            log.info("Matchesservice: alle Endpunkte liefern 404 – "
+            log.info("Matchesservice: alle Endpunkte blockiert (404/520) – "
                      "Namen-Download nicht möglich.")
 
         return ""
