@@ -163,13 +163,14 @@ class AncestryApiClient:
 
         not_found_count = 0
         for url in candidates:
-            # _api_get hat eingebautes Retry + 429-Warten (Retry-After)
             r = _api_get(self._s, url, extra_headers=api_headers)
 
             if r is None:
-                # Alle Retries erschöpft (meist 429-Erschöpfung)
-                log.debug("matchesservice %s: alle Versuche erschöpft", sample_id[:8])
+                log.debug("Namen-API %s: alle Retries erschöpft", url.split("/api/", 1)[-1][:40])
                 continue
+
+            log.debug("Namen-API %-45s → HTTP %s",
+                      url.split("/api/", 1)[-1][:45], r.status_code)
 
             if r.status_code == 200:
                 self._consecutive_520 = 0
@@ -193,15 +194,13 @@ class AncestryApiClient:
 
             elif r.status_code in (404, 410):
                 not_found_count += 1
-                log.debug("API %s HTTP %s", url.rsplit("/", 1)[-1][:24], r.status_code)
 
             elif r.status_code == 520:
-                self._consecutive_520 += 1
-                log.debug("API %s HTTP 520 (Folge: %d)",
-                          url.rsplit("/", 1)[-1][:24], self._consecutive_520)
-
-            else:
-                log.debug("API %s HTTP %s", sample_id[:8], r.status_code)
+                # 520 nur für matchesservice zählen (Akamai-Pfad)
+                if "matchesservice" in url:
+                    self._consecutive_520 += 1
+                else:
+                    not_found_count += 1
 
         if self._working_detail_url is None and not_found_count == len(candidates):
             self._working_detail_url = "__none__"

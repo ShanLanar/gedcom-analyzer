@@ -23,15 +23,23 @@ SHARED_MATCHES_URL = f"{DNA_LIST_BASE}/matchList/{{test_guid}}"
 MANAGE_TESTS_URL = f"{BASE_URL}/dna/api/uhura/v2/people/{{uid}}/managetests"
 
 # ── Match-Detail (voller Name) ────────────────────────────────────────────────
-# Der Bulk-matchList-Endpunkt liefert KEINEN echten Namen, nur das selbst
-# eingegebene Bemerkungsfeld (Tag 3). Den echten Anzeigenamen der Match-Person
-# gibt es nur über einen Detail-Abruf pro Match. Da Ancestry den
-# genauen Pfad mehrfach geändert hat, werden mehrere Kandidaten der Reihe nach
-# probiert; der erste, der einen Namen liefert, wird gemerkt.
+# matchList liefert keine Namen. Wir probieren mehrere Endpunkte der Reihe nach;
+# zuerst den parents/list-Service (selber Host, kein Akamai-Block),
+# dann den matchesservice (oft durch Akamai 520 blockiert).
 MATCHESSERVICE_BASE = f"{BASE_URL}/discoveryui-matchesservice/api"
-# Nur matchesservice-Pfade (parents/list gibt 404). Diese liefern 520, wenn die
-# Frontend-Header fehlen – daher werden in api.py spezielle Header gesetzt.
+
+# Kandidaten in Prioritätsreihenfolge:
+# 1. parents/list-Sub-Pfade (gleicher Service wie matchList, kein extra Akamai)
+# 2. uhura-v2 (ältere API, weniger streng)
+# 3. matchesservice (meist Akamai-blockiert)
 MATCH_DETAIL_CANDIDATES = [
+    # parents/list Varianten
+    f"{DNA_LIST_BASE}/matchProfile/{{test_guid}}/{{sample_id}}",
+    f"{DNA_LIST_BASE}/profile/{{test_guid}}/{{sample_id}}",
+    f"{DNA_LIST_BASE}/match/{{test_guid}}/{{sample_id}}",
+    # Alte uhura-v2 API
+    f"{BASE_URL}/dna/api/uhura/v2/people/{{test_guid}}/matches/{{sample_id}}",
+    # matchesservice (oft Akamai-blockiert)
     f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matches/{{sample_id}}",
     f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matches/{{sample_id}}/details",
     f"{MATCHESSERVICE_BASE}/samples/{{test_guid}}/matchProfile/{{sample_id}}",
