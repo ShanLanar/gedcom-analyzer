@@ -20,7 +20,21 @@ import config as cfg
 
 log = logging.getLogger(__name__)
 
-CHROME_VERSION  = "chrome124"   # curl_cffi impersonate-String
+CHROME_VERSIONS = ["chrome136", "chrome131", "chrome127", "chrome124"]
+
+def _best_chrome_version() -> str:
+    """Gibt die neueste verfügbare curl_cffi Chrome-Impersonation zurück."""
+    if not CURL_AVAILABLE:
+        return "chrome124"
+    for ver in CHROME_VERSIONS:
+        try:
+            cfr.Session(impersonate=ver)
+            return ver
+        except Exception:
+            continue
+    return "chrome124"
+
+CHROME_VERSION = _best_chrome_version()
 SESSION_COOKIES = [
     "SecureATT", "AncestrySessionId", "ASP.NET_SessionId",
     "authUserId", "UserId", "uid", "global_login_at",

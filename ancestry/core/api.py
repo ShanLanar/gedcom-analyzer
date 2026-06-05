@@ -146,7 +146,7 @@ class AncestryApiClient:
         api_headers = {
             **cfg.MATCHESSERVICE_HEADERS,
             "Referer": cfg.MATCHESSERVICE_REFERER.format(test_guid=test_guid),
-            "sec-ch-ua": '"Chromium";v="124", "Google Chrome";v="124", "Not-A.Brand";v="99"',
+            "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not-A.Brand";v="99"',
             "sec-ch-ua-mobile": "?0",
             "sec-ch-ua-platform": '"Windows"',
         }
