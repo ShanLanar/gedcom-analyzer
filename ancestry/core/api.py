@@ -135,17 +135,26 @@ class AncestryApiClient:
                 except Exception:
                     pass
 
-        # 2. displayName-Muster direkt im HTML
+        # 2. "You and NAME" im H1 oder Titel – direktester Treffer
+        for pat in [
+            r'[Yy]ou and ([A-ZÄÖÜ][^<"]{2,60}?)(?:\s*<|\s*"|\s*\|)',
+            r'<title>[Yy]ou and ([^|<]{2,60}?)\s*[\|–<]',
+        ]:
+            m = re.search(pat, html)
+            if m:
+                candidate = m.group(1).strip().rstrip('"').strip()
+                if candidate and len(candidate) > 2:
+                    return candidate
+
+        # 3. displayName-Muster direkt im HTML
         for pat in [
             r'"displayName"\s*:\s*"([^"]{2,80})"',
             r'"matchTestDisplayName"\s*:\s*"([^"]{2,80})"',
             r'"adminDisplayName"\s*:\s*"([^"]{2,80})"',
-            r'<title>([^|<]{2,60})\s*[\|–]',
         ]:
             m = re.search(pat, html)
             if m:
                 candidate = m.group(1).strip()
-                # Systemtexte ausschließen
                 if candidate and not any(x in candidate.lower() for x in
                                          ("ancestry", "dna", "matches", "login",
                                           "sign in", "loading")):
