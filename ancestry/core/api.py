@@ -197,6 +197,9 @@ class AncestryApiClient:
             return name
 
         if self._detail_endpoint is None:
+            # HTML-Ausschnitt loggen damit man sieht welche Muster vorhanden sind
+            snippet = r.text[:3000].replace("\n", " ").replace("\r", "")
+            log.debug("Compare-HTML-Ausschnitt (erste 3000 Zeichen): %s", snippet)
             log.warning("Compare-Seite erreichbar, aber kein Name gefunden. "
                         "Kein weiterer Versuch.")
             self._detail_endpoint = "__none__"
