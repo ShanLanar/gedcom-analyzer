@@ -137,6 +137,9 @@ class AncestryDnaApp(tk.Tk):
                        command=self._reset_shared_matches)
         am.add_command(label="Namens-Versuche zurücksetzen (alle erneut) …",
                        command=self._reset_name_attempts)
+        am.add_separator()
+        am.add_command(label="Verknüpfungen aktualisieren (View in tree) …",
+                       command=self._refresh_links)
         mb.add_cascade(label="Auswertung", menu=am)
 
         hm = tk.Menu(mb, tearoff=False)
@@ -1240,6 +1243,26 @@ class AncestryDnaApp(tk.Tk):
             tag = ("direct",) if path is not None else ()
             tv.insert("", "end", tags=tag, values=(
                 f"{count}/{cluster['size']}", kin, owndisp, f"{score:.2f}"))
+
+    def _refresh_links(self):
+        """Zieht 'View in tree' + gemeinsamer Vorfahr für ALLE Matches nach."""
+        guid = self._get_kit_guid()
+        if not guid:
+            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
+            return
+        if not self._client:
+            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            return
+        self._current_test_guid = guid
+        self._names_stop_btn.configure(state="normal")
+        self._scraper = Scraper(self._client, self._db,
+                                on_progress=self._on_progress,
+                                on_status=lambda m: self.after(0, lambda: self._set_status(m)),
+                                on_done=lambda r: self.after(0, lambda: (
+                                    self._names_stop_btn.configure(state="disabled"),
+                                    self._refresh_match_table(),
+                                    messagebox.showinfo("Verknüpfungen", r.message))))
+        self._scraper.start_refresh_links(guid)
 
     def _reset_name_attempts(self):
         """Setzt die Fehlversuch-Zähler zurück, damit übersprungene Profile beim

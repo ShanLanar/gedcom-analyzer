@@ -82,6 +82,10 @@ class Scraper:
         """Lädt für gezielte Matches TIEFE Ahnentafeln (Re-Fokussierung)."""
         self._launch("_run_deepen_pedigrees", test_guid, guids)
 
+    def start_refresh_links(self, test_guid: str):
+        """Aktualisiert 'View in tree' + gemeinsamer Vorfahr für ALLE Matches."""
+        self._launch("_run_refresh_links", test_guid)
+
     def start_shared(self, test_guid: str,
                      min_cm: float = 0.0, skip_existing: bool = True):
         self._launch("_run_shared", test_guid, min_cm, skip_existing)
@@ -289,6 +293,57 @@ class Scraper:
             result.success = True
             result.message = (f"Ahnentafeln geladen: {result.new} von {total} Matches "
                               f"mit Daten (fertig).")
+        log.info(result.message)
+        self._on_status(result.message)
+        self._on_done(result)
+
+    def _run_refresh_links(self, test_guid: str):
+        """Zieht für ALLE Matches die Flags 'linked_in_tree' (View in tree) und
+        'has_common_ancestor' nach – nur Bulk-POSTs, kein Detail-Download."""
+        result = DownloadResult()
+        matches = self._db.get_matches(test_guid=test_guid, sort_col="shared_cm")
+        all_ids = [m.match_guid for m in matches]
+        total = len(all_ids)
+        batch_size = cfg.PROFILE_DATA_BATCH
+        self._on_status(f"Verknüpfungen aktualisieren: {total} Matches …")
+        log.info("Refresh-Links: %d Matches", total)
+        processed = 0
+        for start in range(0, total, batch_size):
+            if self._stop.is_set():
+                result.message = f"Abgebrochen nach {processed}/{total}."
+                result.success = False
+                break
+            batch = all_ids[start:start + batch_size]
+            try:
+                in_tree = self._client.get_matches_in_tree(test_guid, batch)
+            except Exception as e:
+                log.debug("matchesInTree-Fehler: %s", e); in_tree = set()
+            try:
+                common = self._client.get_common_ancestors(test_guid, batch)
+            except Exception as e:
+                log.debug("commonAncestors-Fehler: %s", e); common = set()
+            try:
+                with self._db._cursor() as cur:
+                    for sid in batch:
+                        cur.execute(
+                            "UPDATE matches SET linked_in_tree=?, has_common_ancestor=? "
+                            "WHERE match_guid=? AND test_guid=?",
+                            (1 if sid in in_tree else 0,
+                             1 if sid in common else 0, sid, test_guid))
+                        if sid in in_tree:
+                            result.new += 1
+            except Exception as e:
+                log.error("Refresh-Links DB: %s", e); result.errors += 1
+            processed += len(batch)
+            self._on_progress(processed, total, "Verknüpfungen")
+            if processed % 200 == 0:
+                self._on_status(f"Verknüpfungen: {processed}/{total} – "
+                                f"{result.new} im Baum …")
+            _time.sleep(1.0 * (0.7 + random.random() * 0.6))
+        if not result.message:
+            result.success = True
+            result.message = (f"Verknüpfungen aktualisiert: {result.new} Matches "
+                              f"in deinem Baum (View in tree).")
         log.info(result.message)
         self._on_status(result.message)
         self._on_done(result)
