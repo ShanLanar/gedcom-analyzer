@@ -327,6 +327,31 @@ def cm_to_mrca(cm: float):
     return "unbekannt", 9
 
 
+def mrca_on_direct_line(iid: str, individuals: dict, families: dict,
+                        amap: dict, max_up: int = 14):
+    """Klettert von einer (Seitenlinien-)Person im GEDCOM nach oben, bis sie auf
+    die direkte Ahnenlinie (amap) der Wurzelperson trifft = gemeinsamer Vorfahr.
+    Liefert (mrca_iid, pfad) oder (None, None)."""
+    from collections import deque
+    if not iid:
+        return None, None
+    seen = set()
+    q = deque([(iid, 0)])
+    while q:
+        cur, depth = q.popleft()
+        if cur in seen or depth > max_up:
+            continue
+        seen.add(cur)
+        if cur in amap:
+            return cur, amap[cur]
+        for fc in (individuals.get(cur, {}).get("FAMC") or []):
+            fam = families.get(fc) or {}
+            for par in (fam.get("HUSB"), fam.get("WIFE")):
+                if par:
+                    q.append((par, depth + 1))
+    return None, None
+
+
 def merge_person_list(persons: list, thresh: float = 0.72) -> list:
     """Verschmilzt überlappende Personen (Schreibvarianten) zu kanonischen Gruppen.
     persons: Person-Objekte (ref trägt Herkunft). Liefert

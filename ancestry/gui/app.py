@@ -1125,15 +1125,23 @@ class AncestryDnaApp(tk.Tk):
                 gen = min(it.ref[1] for it in grp["items"])
                 rep = grp["rep"]
                 own = path = None
+                via = False
                 score = 0.0
                 if index:
                     own, score = index.best_match(rep, min_score=0.6)
                     if own:
                         path = amap.get(own.ref)
+                        if path is None:   # Seitenverwandter → zur direkten Linie hoch
+                            from core.treematch import mrca_on_direct_line
+                            _mid, mpath = mrca_on_direct_line(
+                                own.ref, ged.get("individuals", {}),
+                                ged.get("families", {}), amap)
+                            if mpath is not None:
+                                path, via = mpath, True
                 father, mother = _parents_of(grp)
                 rows_out.append({
                     "rep": rep, "members": members, "gen": gen,
-                    "own": own, "path": path, "score": score,
+                    "own": own, "path": path, "via": via, "score": score,
                     "father": father, "mother": mother,
                     "cms": sorted((cm_by_member.get(m, 0) for m in members),
                                   reverse=True),
@@ -1208,8 +1216,10 @@ class AncestryDnaApp(tk.Tk):
             ttk.Label(box, text=f"geteilt von {len(pred['members'])}/{size} "
                       f"Mitgliedern · Generation {pred['gen']}").pack(anchor="w", padx=8)
             if pred["path"] is not None:
-                ttk.Label(box, text=(f"✓ Andockpunkt in deinem Baum: "
-                          f"{pred['own'].display} – {render_kinship(pred['path'])}"),
+                via_txt = (f"über Seitenlinie {pred['own'].display} → "
+                           if pred.get("via") else "")
+                ttk.Label(box, text=(f"✓ Andockpunkt in deinem Baum: {via_txt}"
+                          f"deine Linie: {render_kinship(pred['path'])}"),
                           foreground=COLORS.get("primary","#1b5e20"),
                           style="Bold.TLabel").pack(anchor="w", padx=8, pady=(0,4))
             elif pred["own"] is not None:
@@ -1380,8 +1390,9 @@ class AncestryDnaApp(tk.Tk):
             return
         def _after_load(ged):
             import threading
-            from core.treematch import Person, render_kinship
+            from core.treematch import Person, render_kinship, mrca_on_direct_line
             index, amap = ged["index"], ged["amap"]
+            indi, fams = ged.get("individuals", {}), ged.get("families", {})
 
             def _worker():
                 results = []
@@ -1403,7 +1414,14 @@ class AncestryDnaApp(tk.Tk):
                             best = min(direct, key=lambda c: (len(c[3]), -c[0]))
                         else:
                             best = max(cands, key=lambda c: (c[0], -c[1]["generation"]))
-                        kin = render_kinship(best[3]) if best[3] is not None else ""
+                        if best[3] is not None:
+                            kin = render_kinship(best[3])
+                        else:
+                            # Seitenverwandter → im Baum hochklettern zur direkten Linie
+                            _mid, mpath = mrca_on_direct_line(
+                                best[2].ref, indi, fams, amap)
+                            kin = (render_kinship(mpath) + " (über Seitenlinie)"
+                                   if mpath is not None else "")
                         results.append((info["name"], info["cm"], best, kin,
                                         info.get("linked", False)))
                     if i % 20 == 0 or i == len(items):
