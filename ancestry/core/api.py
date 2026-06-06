@@ -442,69 +442,106 @@ class AncestryApiClient:
                 out["death_year"], out["death_date"], out["death_place"] = year, dd, place
         return out
 
+    @staticmethod
+    def _pid(g):
+        try:
+            return (g or {}).get("v", "").split(":")[0]
+        except Exception:
+            return ""
+
+    def _fetch_pedigree_persons(self, tree_id: str, focus_pid: str,
+                                is_focus: bool) -> dict:
+        """Holt eine Pedigree-Antwort und liefert {pid: person}. Re-Fokussierung
+        (is_focus=False) holt die Vorfahren AB dieser Person (für tiefere Gen.)."""
+        url = cfg.PEDIGREE_URL.format(tree_id=tree_id, focus_pid=focus_pid,
+                                      is_focus="true" if is_focus else "false")
+        with self._http_lock:
+            r = _api_get(self._s, url)
+        if not r or r.status_code != 200:
+            return {}
+        try:
+            data = r.json()
+        except Exception:
+            return {}
+        out = {}
+        for p in (data.get("Persons") or []):
+            pid = self._pid(p.get("gid"))
+            if pid:
+                out[pid] = p
+        return out
+
     def get_pedigree(self, test_guid: str, match_guid: str,
-                     max_generations: int = 5) -> list:
+                     max_generations: int = 5, max_extra_calls: int = 0) -> list:
         """Volle Ahnentafel eines Matches: walkt F/M ab Fokus.
+        max_generations begrenzt die Tiefe; max_extra_calls erlaubt Vertiefung
+        über Re-Fokussierung an den Rand-Vorfahren (für entfernte Cousins, deren
+        gemeinsamer Vorfahr >5 Generationen zurückliegt).
         Liefert [{generation, ahnen_path, person_id, given_name, surname,
                   is_male, birth_*, death_*}]."""
         link = self.get_match_tree_link(test_guid, match_guid)
         if not link:
             return []
         tree_id, focus_pid, _ = link
-        url = cfg.PEDIGREE_URL.format(tree_id=tree_id, focus_pid=focus_pid)
-        with self._http_lock:
-            r = _api_get(self._s, url)
-        if not r or r.status_code != 200:
-            return []
-        try:
-            data = r.json()
-        except Exception:
+
+        by_id = self._fetch_pedigree_persons(tree_id, focus_pid, True)
+        if focus_pid not in by_id:
             return []
 
         if not getattr(self, "_logged_ped_sample", False):
             self._logged_ped_sample = True
-            persons = data.get("Persons") or []
             log.info("pedigree-BEISPIEL: tree=%s focus=%s, %d Personen",
-                     tree_id, focus_pid, len(persons))
+                     tree_id, focus_pid, len(by_id))
 
-        def _pid(g):
-            try:
-                return (g or {}).get("v", "").split(":")[0]
-            except Exception:
-                return ""
-
-        by_id = {}
-        for p in (data.get("Persons") or []):
-            pid = _pid(p.get("gid"))
-            if pid:
-                by_id[pid] = p
-        if focus_pid not in by_id:
-            return []
-
-        out, seen = [], set()
-        # Breitensuche entlang Vater(F)/Mutter(M)
-        queue = [(focus_pid, 1, "")]
-        while queue:
-            pid, gen, path = queue.pop(0)
-            if pid in seen or gen > max_generations:
-                continue
-            seen.add(pid)
-            p = by_id.get(pid)
-            if not p:
-                continue
-            rec = self._pedigree_person(p)
-            rec.update(generation=gen, ahnen_path=path, person_id=pid)
-            out.append(rec)
-            father = mother = None
+        def _parents(p):
+            f = m = None
             for fam in (p.get("Family") or []):
                 if fam.get("t") == "F":
-                    father = _pid(fam.get("tgid"))
+                    f = self._pid(fam.get("tgid"))
                 elif fam.get("t") == "M":
-                    mother = _pid(fam.get("tgid"))
-            if father:
-                queue.append((father, gen + 1, path + "F"))
-            if mother:
-                queue.append((mother, gen + 1, path + "M"))
+                    m = self._pid(fam.get("tgid"))
+            return f, m
+
+        def _walk():
+            out, seen = [], set()
+            boundary = []  # (parent_pid) deren Daten fehlen, aber noch in Reichweite
+            queue = [(focus_pid, 1, "")]
+            while queue:
+                pid, gen, path = queue.pop(0)
+                if pid in seen or gen > max_generations:
+                    continue
+                seen.add(pid)
+                p = by_id.get(pid)
+                if not p:
+                    continue
+                rec = self._pedigree_person(p)
+                rec.update(generation=gen, ahnen_path=path, person_id=pid)
+                out.append(rec)
+                f, m = _parents(p)
+                for parent, step in ((f, "F"), (m, "M")):
+                    if not parent:
+                        continue
+                    if parent in by_id:
+                        queue.append((parent, gen + 1, path + step))
+                    elif gen + 1 <= max_generations:
+                        boundary.append(parent)  # fehlt → Kandidat für Re-Fokus
+            return out, boundary
+
+        # Iteratives Vertiefen per Re-Fokussierung an den Rand-Vorfahren
+        extra = 0
+        while extra < max_extra_calls:
+            _out, boundary = _walk()
+            boundary = [b for b in boundary if b not in by_id]
+            if not boundary:
+                break
+            for pid in boundary:
+                if extra >= max_extra_calls:
+                    break
+                more = self._fetch_pedigree_persons(tree_id, pid, False)
+                by_id.update(more)
+                extra += 1
+                time.sleep(_jitter(getattr(cfg, "PEDIGREE_REQUEST_DELAY", 1.0)))
+
+        out, _ = _walk()
         return out
 
     def detail_names_blocked(self) -> bool:

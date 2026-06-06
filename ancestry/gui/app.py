@@ -951,6 +951,36 @@ class AncestryDnaApp(tk.Tk):
         ttk.Button(top, text="🔗 Cluster-Linie in meinem Baum suchen",
                    command=dock_in_tree).pack(side="left", padx=8)
 
+        def deepen_cluster():
+            sel = tv.selection()
+            if not sel:
+                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                return
+            c = store.get(sel[0])
+            if not c:
+                return
+            guids = [g for g, _n, _cm in c["members"]]
+            if not messagebox.askyesno(
+                    "Cluster tiefer laden",
+                    f"Für {len(guids)} Cluster-Matches tiefere Ahnentafeln "
+                    f"(bis 8 Generationen) laden?\n\n"
+                    "Nötig für entfernte Cousins (gemeinsamer Vorfahr >5 Gen.).\n"
+                    "Dauert etwas (mehrere Calls pro Match)."):
+                return
+            if not self._client:
+                messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+                return
+            self._scraper = Scraper(self._client, self._db,
+                                    on_progress=self._on_progress,
+                                    on_status=lambda m: self.after(0, lambda: self._set_status(m)),
+                                    on_done=lambda r: self.after(0, lambda: messagebox.showinfo(
+                                        "Tiefe Ahnentafeln", r.message + "\n\nJetzt erneut "
+                                        "'Cluster-Linie suchen'.")))
+            self._scraper.start_deepen_pedigrees(test_guid, guids)
+
+        ttk.Button(top, text="⤓ Cluster tiefer laden (8 Gen.)",
+                   command=deepen_cluster).pack(side="left", padx=4)
+
         def on_sel(_):
             sel = tv.selection()
             if not sel: return

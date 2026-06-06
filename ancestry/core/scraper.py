@@ -78,6 +78,10 @@ class Scraper:
         """Lädt die volle Ahnentafel (Pedigree, ~5 Gen.) für Matches mit Baum ab min_cm."""
         self._launch("_run_fetch_pedigrees", test_guid, min_cm)
 
+    def start_deepen_pedigrees(self, test_guid: str, guids: list):
+        """Lädt für gezielte Matches TIEFE Ahnentafeln (Re-Fokussierung)."""
+        self._launch("_run_deepen_pedigrees", test_guid, guids)
+
     def start_shared(self, test_guid: str,
                      min_cm: float = 0.0, skip_existing: bool = True):
         self._launch("_run_shared", test_guid, min_cm, skip_existing)
@@ -285,6 +289,41 @@ class Scraper:
             result.success = True
             result.message = (f"Ahnentafeln geladen: {result.new} von {total} Matches "
                               f"mit Daten (fertig).")
+        log.info(result.message)
+        self._on_status(result.message)
+        self._on_done(result)
+
+    def _run_deepen_pedigrees(self, test_guid: str, guids: list):
+        """Lädt für die genannten Matches tiefere Ahnentafeln (Re-Fokussierung)."""
+        result = DownloadResult()
+        gens  = int(getattr(cfg, "PEDIGREE_DEEP_GENERATIONS", 8))
+        extra = int(getattr(cfg, "PEDIGREE_DEEP_EXTRA", 16))
+        total = len(guids)
+        self._on_status(f"Tiefe Ahnentafeln: {total} Matches (bis {gens} Gen.) …")
+        log.info("Deep-Pedigree: %d Matches, %d Gen., %d Extra-Calls",
+                 total, gens, extra)
+        for idx, guid in enumerate(guids, 1):
+            if self._stop.is_set():
+                result.message = f"Abgebrochen nach {idx-1}/{total}."
+                result.success = False
+                break
+            try:
+                anc = self._client.get_pedigree(test_guid, guid,
+                                                max_generations=gens,
+                                                max_extra_calls=extra)
+                self._db.save_match_pedigree(test_guid, guid, anc)
+                if anc:
+                    result.new += 1
+                result.fetched += 1
+            except Exception as e:
+                log.error("Deep-Pedigree-Fehler %s: %s", guid[:8], e)
+                result.errors += 1
+            self._on_progress(idx, total, guid[:8])
+            self._on_status(f"Tiefe Ahnentafeln: {idx}/{total} …")
+        if not result.message:
+            result.success = True
+            result.message = (f"Tiefe Ahnentafeln geladen: {result.new}/{total} "
+                              f"(bis {gens} Gen.).")
         log.info(result.message)
         self._on_status(result.message)
         self._on_done(result)

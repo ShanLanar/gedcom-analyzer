@@ -64,7 +64,7 @@ MATCH_TREES_URL = (
 # Pedigree-Ansicht: liefert ~5 Generationen Vorfahren in einer Antwort.
 PEDIGREE_URL = (
     f"{BASE_URL}/api/treeviewer/tree/{{tree_id}}"
-    f"?focusPersonId={{focus_pid}}&isFocus=true&view=pedigree")
+    f"?focusPersonId={{focus_pid}}&isFocus={{is_focus}}&view=pedigree")
 
 # ── Match-Detail (Legacy, nicht mehr genutzt) ─────────────────────────────────
 # matchList liefert keine Namen. Wir probieren mehrere Endpunkte der Reihe nach;
@@ -111,6 +111,9 @@ SHARED_REQUEST_DELAY = 2.0
 # Pedigree-Abruf (reine GETs): kürzere Pause + kontrollierte Parallelität.
 PEDIGREE_REQUEST_DELAY = 1.0
 PEDIGREE_WORKERS       = 5     # parallele Worker für Ahnentafel-Download
+# Gezieltes Tiefer-Laden (Re-Fokussierung) – nur für untersuchte Cluster, teuer:
+PEDIGREE_DEEP_GENERATIONS = 8
+PEDIGREE_DEEP_EXTRA       = 16   # max. zusätzliche Re-Fokus-Calls pro Match
 REQUEST_TIMEOUT = 30
 
 # ── Datenbank / Logging / Export ──────────────────────────────────────────────
