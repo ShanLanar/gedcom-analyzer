@@ -717,8 +717,9 @@ class Database:
                 d = dict(r)
                 resolved = d.pop("_resolved_name", None)
                 sm = SharedMatch.from_db_row(d)
-                if resolved and (not sm.display_name_b
-                                 or sm.display_name_b in ("", "Unbekannt")):
+                # Echter Name aus der matches-Tabelle hat IMMER Vorrang vor dem
+                # gespeicherten Fallback (oft nur ein Nachnamen-Tag).
+                if resolved and resolved not in ("", "Unbekannt"):
                     sm.display_name_b = resolved
                 out.append(sm)
             return out

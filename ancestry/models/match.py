@@ -363,12 +363,13 @@ class SharedMatch:
         shared_cm_ab = in_common.get("sharedCentimorgans", 0) if isinstance(in_common, dict) else 0
 
         # Name kommt im /with/-Endpunkt NICHT mit → später per DB-JOIN auflösen.
-        # Als Sofort-Fallback der Nachname-Tag (tags['3']), sonst leer.
+        # Als Sofort-Fallback der Nachname-Tag (tags['3']) – in Klammern, damit
+        # klar ist, dass es ein Linien-Tag und kein echter Name ist.
         tags = data.get("tags") or {}
         surname_tag = tags.get("3") if isinstance(tags, dict) else None
-        name   = (safe("displayName")
-                  or nested("matchProfile", "displayName")
-                  or surname_tag or "")
+        name = (safe("displayName") or nested("matchProfile", "displayName") or "")
+        if not name and surname_tag:
+            name = f"[{surname_tag}]"
 
         relationship = rel.get("label") or ""
         if not relationship:
