@@ -1077,20 +1077,45 @@ class AncestryDnaApp(tk.Tk):
 
         def _worker():
             persons = []
+            member_rows = {}   # guid -> {ahnen_path: row}  (für Eltern-Lookup)
             n_with_ped = 0
             for guid in guids:
                 rows = [r for r in self._db.get_pedigree_for_match(test_guid, guid)
                         if (r["generation"] or 0) >= 2]
                 if rows:
                     n_with_ped += 1
+                member_rows[guid] = {r["ahnen_path"]: r for r in rows}
                 for r in rows:
                     p = Person(r["given_name"], r["surname"],
                                r["birth_year"], r["birth_place"],
-                               ref=(guid, r["generation"]),
+                               ref=(guid, r["generation"], r["ahnen_path"]),
                                bdate=r["birth_date"])
                     if p.stoks:
                         persons.append(p)
             groups = merge_person_list(persons)
+
+            def _parents_of(group):
+                """Verschmolzene Vater/Mutter eines Vorfahren-Clusters (über alle
+                Mitglieder, in denen er vorkommt)."""
+                fa, mo = [], []
+                for it in group["items"]:
+                    g, _gen, path = it.ref
+                    rowmap = member_rows.get(g, {})
+                    fr = rowmap.get((path or "") + "F")
+                    mr = rowmap.get((path or "") + "M")
+                    if fr:
+                        fa.append(Person(fr["given_name"], fr["surname"],
+                                  fr["birth_year"], fr["birth_place"], bdate=fr["birth_date"]))
+                    if mr:
+                        mo.append(Person(mr["given_name"], mr["surname"],
+                                  mr["birth_year"], mr["birth_place"], bdate=mr["birth_date"]))
+                def _rep(lst):
+                    if not lst:
+                        return None
+                    grp = merge_person_list(lst)
+                    grp.sort(key=lambda x: -len(x["items"]))
+                    return grp[0]["rep"]
+                return _rep(fa), _rep(mo)
 
             index = ged["index"] if ged else None
             amap = ged["amap"] if ged else {}
@@ -1105,9 +1130,11 @@ class AncestryDnaApp(tk.Tk):
                     own, score = index.best_match(rep, min_score=0.6)
                     if own:
                         path = amap.get(own.ref)
+                father, mother = _parents_of(grp)
                 rows_out.append({
                     "rep": rep, "members": members, "gen": gen,
                     "own": own, "path": path, "score": score,
+                    "father": father, "mother": mother,
                     "cms": sorted((cm_by_member.get(m, 0) for m in members),
                                   reverse=True),
                 })
@@ -1195,6 +1222,13 @@ class AncestryDnaApp(tk.Tk):
                           "ThruLines-Hints für den ganzen Cluster."),
                           foreground="#b00020", style="Bold.TLabel"
                           ).pack(anchor="w", padx=8, pady=(0,4))
+            # Eltern des vorhergesagten Vorfahren (zum Verifizieren/Verlängern)
+            fa, mo = pred.get("father"), pred.get("mother")
+            if fa or mo:
+                ft = f"Vater: {fa.display} ({_birth(fa) or '?'})" if fa else "Vater: ?"
+                mt = f"Mutter: {mo.display} ({_birth(mo) or '?'})" if mo else "Mutter: ?"
+                ttk.Label(box, text=f"   └ {ft}   |   {mt}",
+                          foreground="#444").pack(anchor="w", padx=8, pady=(0,4))
         if not has_ged:
             ttk.Label(win, text="(GEDCOM nicht geladen → ohne Andock-Spalte. "
                       "Über 'Cluster-Linie in meinem Baum suchen' wird der Baum geladen.)",
