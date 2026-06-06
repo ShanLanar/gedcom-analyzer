@@ -106,6 +106,7 @@ class AncestryApiClient:
     def __init__(self, session):
         self._s = session
         self._detail_blocked = False   # True wenn Namen-API 401/403 lieferte
+        self._csrf_mode = None         # gecachte CSRF-Form sobald eine 200 lieferte
 
     @staticmethod
     def _pick_name(info: dict) -> str:
@@ -138,15 +139,65 @@ class AncestryApiClient:
         if self._detail_blocked:
             return {}
 
-        url = cfg.PROFILE_DATA_URL.format(test_guid=test_guid)
-        from urllib.parse import unquote
-        csrf = unquote(
-            self._s.cookies.get("_dnamatches-matchlistui-x-csrf-token")
-            or self._s.cookies.get("_csrf")
-            or self._s.cookies.get("XSRF-TOKEN") or ""
-        )
-
+        url     = cfg.PROFILE_DATA_URL.format(test_guid=test_guid)
         payload = {"matchSampleIds": list(sample_ids)}
+
+        # Steht die richtige CSRF-Form schon fest? → direkt nutzen.
+        if self._csrf_mode is not None:
+            r = self._post_profiledata(url, payload, test_guid, self._csrf_mode)
+            return self._parse_profiledata(r, len(sample_ids))
+
+        # Erststart: alle CSRF-Formen in EINEM Lauf durchprobieren.
+        for mode in ("raw", "decoded", "prefix", "none"):
+            tok = self._csrf_value(mode)
+            if mode in ("raw", "decoded", "prefix") and not tok:
+                continue  # kein Token vorhanden → diese Form überspringen
+            r = self._post_profiledata(url, payload, test_guid, mode)
+            code = getattr(r, "status_code", "—")
+            log.info("profileData CSRF-Form '%s': HTTP %s", mode, code)
+
+            if r is not None and r.status_code == 200:
+                self._csrf_mode = mode
+                names = self._parse_profiledata(r, len(sample_ids))
+                log.info("profileData OK mit CSRF-Form '%s' – %d/%d Namen",
+                         mode, len(names), len(sample_ids))
+                return names
+
+            if r is not None and r.status_code in (401, 403):
+                log.error("profileData HTTP %s – Cookies/Session abgelaufen. "
+                          "Bitte ancestry.json neu exportieren.", r.status_code)
+                self._detail_blocked = True
+                return {}
+
+        # Keine Form lieferte 200 → automatischer Switch auf Browser-Fallback.
+        log.error(
+            "profileData: keine CSRF-Form erfolgreich (alle 303/Redirect). "
+            "→ Browser-Namens-Export nutzen (siehe ancestry/tools/NAMEN_LADEN.md), "
+            "dann im Menü 'Namen importieren'."
+        )
+        self._detail_blocked = True
+        return {}
+
+    # ── profileData-Hilfsfunktionen ──────────────────────────────────────────
+
+    def _csrf_value(self, mode: str) -> str:
+        """Liefert das CSRF-Token in der gewünschten Form ('raw'/'decoded'/'prefix')."""
+        from urllib.parse import unquote
+        raw = (self._s.cookies.get("_dnamatches-matchlistui-x-csrf-token")
+               or self._s.cookies.get("_csrf")
+               or self._s.cookies.get("XSRF-TOKEN") or "")
+        if mode == "raw":
+            return raw
+        if mode == "decoded":
+            return unquote(raw)
+        if mode == "prefix":
+            # nur der Teil vor dem Trenner (Token ohne Signatur)
+            return unquote(raw).split("|", 1)[0]
+        return ""  # 'none'
+
+    def _post_profiledata(self, url: str, payload: dict,
+                          test_guid: str, mode: str):
+        """Ein POST-Versuch mit der angegebenen CSRF-Form. Gibt Response/None."""
         hdrs = {
             "Accept"              : "application/json",
             "Content-Type"        : "application/json",
@@ -156,71 +207,56 @@ class AncestryApiClient:
             "Sec-Fetch-Site"      : "same-origin",
             "Sec-Fetch-Mode"      : "cors",
             "Sec-Fetch-Dest"      : "empty",
-            "X-CSRF-Token"        : csrf,
             "ancestry-context-ube": _build_ube_header(self._s),
         }
+        if mode != "none":
+            tok = self._csrf_value(mode)
+            if tok:
+                hdrs["X-CSRF-Token"] = tok
 
         for attempt in range(MAX_RETRIES):
             try:
                 r = self._s.post(url, json=payload, headers=hdrs,
                                  timeout=cfg.REQUEST_TIMEOUT,
-                                 allow_redirects=True)
+                                 allow_redirects=False)
             except Exception as e:
                 delay = _jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
-                log.warning("profileData Versuch %d/%d Fehler: %s → %.0fs",
-                            attempt+1, MAX_RETRIES, e, delay)
+                log.warning("profileData POST-Fehler (%s) %d/%d: %s → %.0fs",
+                            mode, attempt+1, MAX_RETRIES, e, delay)
                 time.sleep(delay)
                 continue
-
-            if r.status_code in (301, 302, 303, 307, 308):
-                # Cloudflare gibt bei Fingerprint-Mismatch einen neuen __cf_bm Cookie.
-                # Session speichert ihn automatisch – nächster Versuch sollte klappen.
-                new_bm = r.cookies.get("__cf_bm") or r.headers.get("set-cookie", "")
-                log.debug("profileData %s → neuer __cf_bm: %s",
-                          r.status_code, bool(new_bm))
-                if attempt < MAX_RETRIES - 1:
-                    time.sleep(2)
-                    continue
-                log.error("profileData: nach %d Versuchen weiter 303. "
-                          "Bitte ancestry.json neu exportieren.", MAX_RETRIES)
-                self._detail_blocked = True
-                return {}
 
             if r.status_code == 429:
                 delay = int(r.headers.get("Retry-After", RETRY_DELAYS[attempt]))
                 log.warning("profileData 429 → warte %ds", delay)
                 time.sleep(delay)
                 continue
-
-            if r.status_code in (401, 403):
-                log.error("profileData HTTP %s – Cookies abgelaufen.", r.status_code)
-                self._detail_blocked = True
-                return {}
-
             if r.status_code in RETRY_STATUSES:
                 time.sleep(_jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)]))
                 continue
+            return r
+        return None
 
-            if r.status_code != 200:
-                log.warning("profileData HTTP %s", r.status_code)
-                return {}
-
-            try:
-                data = r.json()
-            except Exception as e:
-                log.error("profileData JSON-Fehler: %s | %s", e, r.text[:200])
-                return {}
-
-            names = {}
-            for sid, info in (data or {}).items():
-                name = self._pick_name(info)
-                if name:
-                    names[sid] = name
-            log.debug("profileData: %d/%d Namen erhalten", len(names), len(sample_ids))
-            return names
-
-        log.error("profileData: alle %d Versuche fehlgeschlagen.", MAX_RETRIES)
-        return {}
+    def _parse_profiledata(self, r, expected: int) -> dict:
+        """Wandelt eine profileData-200-Antwort in {sampleId: name}."""
+        if r is None or r.status_code != 200:
+            return {}
+        ct = r.headers.get("Content-Type", "")
+        if "html" in ct:
+            log.warning("profileData: HTML statt JSON (Login-Redirect?)")
+            return {}
+        try:
+            data = r.json()
+        except Exception as e:
+            log.error("profileData JSON-Fehler: %s | %s", e, r.text[:200])
+            return {}
+        names = {}
+        for sid, info in (data or {}).items():
+            name = self._pick_name(info)
+            if name:
+                names[sid] = name
+        log.debug("profileData: %d/%d Namen erhalten", len(names), expected)
+        return names
 
     def detail_names_blocked(self) -> bool:
         return self._detail_blocked

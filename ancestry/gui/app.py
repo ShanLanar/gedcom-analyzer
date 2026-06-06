@@ -1183,12 +1183,32 @@ class AncestryDnaApp(tk.Tk):
             if path.lower().endswith(".json"):
                 with open(path, encoding="utf-8") as f:
                     data = json.load(f)
-                for item in (data if isinstance(data, list) else []):
-                    sid  = (item.get("sampleId") or item.get("sample_id")
-                            or item.get("guid", "")).strip()
-                    name = (item.get("name") or item.get("displayName", "")).strip()
-                    if sid and name:
-                        raw.append((sid, name))
+                if isinstance(data, list):
+                    # Listen-Format: [{"sampleId": "...", "name": "..."}, ...]
+                    for item in data:
+                        if not isinstance(item, dict):
+                            continue
+                        sid  = (item.get("sampleId") or item.get("sample_id")
+                                or item.get("guid", "")).strip()
+                        name = (item.get("name") or item.get("displayName")
+                                or item.get("matchName") or item.get("managedName")
+                                or "").strip()
+                        if sid and name:
+                            raw.append((sid, name))
+                elif isinstance(data, dict):
+                    # Dict-Format (profileData-Antwort):
+                    #   {"<sid>": {"matchName": "...", "managedName": "..."}, ...}
+                    #   oder {"<sid>": "Name", ...}
+                    for sid, info in data.items():
+                        sid = (sid or "").strip()
+                        if isinstance(info, dict):
+                            name = (info.get("matchName") or info.get("managedName")
+                                    or info.get("name") or info.get("displayName")
+                                    or "").strip()
+                        else:
+                            name = str(info or "").strip()
+                        if sid and name:
+                            raw.append((sid, name))
             else:
                 with open(path, encoding="utf-8-sig", newline="") as f:
                     for row in csv.DictReader(f):
@@ -1214,7 +1234,12 @@ class AncestryDnaApp(tk.Tk):
                                 "Keine gueltigen Namen gefunden.")
             return
 
-        # In DB schreiben (nur Anonym/leer ueberschreiben, manuelle Namen bleiben)
+        # In DB schreiben. Ueberschrieben werden nur Platzhalter:
+        # leer/Anonym/NULL, Gender-Suffixe und das 8-stellige GUID-Kuerzel
+        # (z.B. "BEC4AE66"), das matchList ohne echten Namen speichert.
+        # Manuell eingetragene echte Namen bleiben unangetastet.
+        HEX8 = "[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]" \
+               "[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]"
         updated = skipped = 0
         with self._db._cursor() as cur:
             for sid, (name, _) in best.items():
@@ -1224,7 +1249,8 @@ class AncestryDnaApp(tk.Tk):
                     "AND (display_name='' OR display_name='Anonym' "
                     "     OR display_name IS NULL "
                     "     OR display_name LIKE '% (m.)' "
-                    "     OR display_name LIKE '% (w.)')",
+                    "     OR display_name LIKE '% (w.)' "
+                    f"     OR display_name GLOB '{HEX8}')",
                     (name, sid)
                 )
                 if cur.rowcount:
