@@ -261,7 +261,11 @@ def render_kinship(path: str) -> str:
     if g == 2:
         return ("Großvater" if male else "Großmutter") + " " + side
     base = "Urgroßvater" if male else "Urgroßmutter"
-    label = ("Ur-" * (g - 3)) + base
+    n = g - 2                       # Anzahl "Ur" (g3=1, g4=2, …)
+    if n >= 4:
+        label = f"{n}×{base}"       # kompakt, z.B. '5×Urgroßvater'
+    else:
+        label = ("Ur-" * (n - 1)) + base
     return label + " " + side
 
 
