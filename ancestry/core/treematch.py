@@ -142,23 +142,91 @@ def _parse_name(raw: str, givn: str, surn: str):
     return (parts[0], parts[1]) if len(parts) == 2 else (raw, "")
 
 
-def load_own_tree(gedcom_path: str) -> list:
-    """Lädt alle Personen des eigenen GEDCOM als Person-Objekte (für Abgleich)."""
+def _person_from_indi(iid, ind):
+    given, surname = _parse_name(ind.get("NAME"),
+                                 ind.get("_GIVN"), ind.get("_SURN"))
+    birt = ind.get("BIRT") or {}
+    place = birt.get("PLAC") or ind.get("BIRTH_PLACE") or ""
+    if not (given or surname):
+        return None
+    return Person(given, surname, birt.get("YEAR"), place, ref=iid)
+
+
+def load_gedcom_full(gedcom_path: str):
+    """Lädt GEDCOM → (people, individuals, families).
+    people = Person-Objekte für den Abgleich; individuals/families = Rohdaten
+    für die Ahnenlinien-Berechnung (Sosa)."""
     from lib.gedcom import robust_load_gedcom
-    individuals, _families = robust_load_gedcom(gedcom_path)
+    individuals, families = robust_load_gedcom(gedcom_path)
     people = []
     for iid, ind in individuals.items():
-        given, surname = _parse_name(ind.get("NAME"),
-                                     ind.get("_GIVN"), ind.get("_SURN"))
-        birt = ind.get("BIRT") or {}
-        year = birt.get("YEAR")
-        place = birt.get("PLAC") or ind.get("BIRTH_PLACE") or ""
-        if not (given or surname):
-            continue
-        people.append(Person(given, surname, year, place, ref=iid))
+        p = _person_from_indi(iid, ind)
+        if p is not None:
+            people.append(p)
     log.info("Eigener Baum geladen: %d Personen aus %s",
              len(people), os.path.basename(gedcom_path))
+    return people, individuals, families
+
+
+def load_own_tree(gedcom_path: str) -> list:
+    """Nur die Person-Liste (Rückwärtskompatibel)."""
+    people, _i, _f = load_gedcom_full(gedcom_path)
     return people
+
+
+def build_ancestor_map(root_id: str, individuals: dict, families: dict) -> dict:
+    """{iid: F/M-Pfad ab Wurzel} für alle Vorfahren der Wurzelperson.
+    '' = Wurzel selbst, 'F' = Vater, 'FM' = Großmutter väterl. usw."""
+    if not root_id or root_id not in individuals:
+        return {}
+    amap = {}
+    stack = [(root_id, "")]
+    while stack:
+        iid, path = stack.pop()
+        if iid in amap:
+            continue
+        amap[iid] = path
+        for fc in (individuals.get(iid, {}).get("FAMC") or []):
+            fam = families.get(fc) or {}
+            father, mother = fam.get("HUSB"), fam.get("WIFE")
+            if father:
+                stack.append((father, path + "F"))
+            if mother:
+                stack.append((mother, path + "M"))
+    return amap
+
+
+def render_kinship(path: str) -> str:
+    """F/M-Pfad → lesbare deutsche Verwandtschaftsbezeichnung."""
+    g = len(path)
+    if g == 0:
+        return "Wurzelperson (du)"
+    male = path[-1] == "F"
+    side = "väterlicherseits" if path[0] == "F" else "mütterlicherseits"
+    if g == 1:
+        return "Vater" if male else "Mutter"
+    if g == 2:
+        return ("Großvater" if male else "Großmutter") + " " + side
+    base = "Urgroßvater" if male else "Urgroßmutter"
+    label = ("Ur-" * (g - 3)) + base
+    return label + " " + side
+
+
+def find_root_candidate(people: list, name_query: str):
+    """Findet die wahrscheinlichste Wurzelperson per Namenssuche. (ref, score)."""
+    if not name_query:
+        return None, 0.0
+    q = Person(name_query, "", None, "")
+    # Wenn der Query einen Nachnamen enthält, besser aufteilen:
+    parts = name_query.strip().rsplit(" ", 1)
+    if len(parts) == 2:
+        q = Person(parts[0], parts[1], None, "")
+    best, best_s = None, 0.0
+    for p in people:
+        s = fuzzy_score(q, p, year_tol=200)
+        if s > best_s:
+            best, best_s = p, s
+    return (best.ref if best else None), best_s
 
 
 # ── Index für schnellen Abgleich ────────────────────────────────────────────

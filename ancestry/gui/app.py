@@ -952,6 +952,17 @@ class AncestryDnaApp(tk.Tk):
         if not path:
             return
 
+        # Wurzelperson abfragen (für die Sosa-/Linien-Benennung). Optional.
+        import tkinter.simpledialog as sd
+        default_root = getattr(self, "_gedcom_root_name", "") or ""
+        root_name = sd.askstring(
+            "Deine Wurzelperson",
+            "Wie heißt DU (bzw. die Wurzelperson) im Baum?\n"
+            "Vorname Nachname – für die Linien-Benennung "
+            "(leer lassen = ohne).",
+            initialvalue=default_root) or ""
+        self._gedcom_root_name = root_name.strip()
+
         # Schwergewichtiges Laden + Matching im Hintergrund-Thread (sonst friert
         # die GUI bei großen Bäumen ein).
         import threading
@@ -959,8 +970,10 @@ class AncestryDnaApp(tk.Tk):
 
         def _worker():
             try:
-                from core.treematch import load_own_tree, TreeIndex, Person
-                people = load_own_tree(path)
+                from core.treematch import (load_gedcom_full, TreeIndex, Person,
+                                            build_ancestor_map, render_kinship,
+                                            find_root_candidate)
+                people, individuals, families = load_gedcom_full(path)
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror(
                     "GEDCOM-Fehler", f"Konnte GEDCOM nicht laden:\n{e}"))
@@ -972,6 +985,15 @@ class AncestryDnaApp(tk.Tk):
             self.after(0, lambda: self._set_status(
                 f"Eigener Baum geladen: {len(people)} Personen – gleiche ab …"))
             index = TreeIndex(people)
+
+            # Ahnen-Map ab Wurzelperson (für deutsche Linien-Benennung)
+            amap = {}
+            if root_name:
+                root_id, rscore = find_root_candidate(people, root_name)
+                if root_id and rscore >= 0.6:
+                    amap = build_ancestor_map(root_id, individuals, families)
+                    log.info("Wurzelperson erkannt (score %.2f), %d Vorfahren",
+                             rscore, len(amap))
 
             results = []
             items = list(peds.items())
@@ -987,7 +1009,10 @@ class AncestryDnaApp(tk.Tk):
                                 or (score == best[0] and r["generation"] < best[1]["generation"])):
                         best = (score, r, own)
                 if best:
-                    results.append((info["name"], info["cm"], best))
+                    own = best[2]
+                    path_self = amap.get(own.ref)
+                    kin = render_kinship(path_self) if path_self is not None else ""
+                    results.append((info["name"], info["cm"], best, kin))
                 if i % 20 == 0 or i == len(items):
                     self.after(0, lambda i=i: self._set_status(
                         f"GEDCOM-Abgleich: {i}/{len(items)} Matches geprüft …"))
@@ -1005,12 +1030,13 @@ class AncestryDnaApp(tk.Tk):
                              f"im eigenen Baum verankert:"),
                   style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
 
-        cols = ("match","cm","anchor","abirth","line","score")
+        cols = ("match","cm","anchor","abirth","kin","line","score")
         tv = ttk.Treeview(win, columns=cols, show="headings")
-        heads = {"match":("Match",200),"cm":("cM",55),
-                 "anchor":("Anknüpfung in deinem Baum",230),
-                 "abirth":("* Anknüpfung",150),"line":("Match-Linie",90),
-                 "score":("Sicherheit",80)}
+        heads = {"match":("Match",180),"cm":("cM",50),
+                 "anchor":("Anknüpfung in deinem Baum",200),
+                 "abirth":("* Anknüpfung",130),
+                 "kin":("Deine Linie",180),"line":("Match-Linie",80),
+                 "score":("Sicherheit",70)}
         for c,(lbl,w) in heads.items():
             tv.heading(c, text=lbl)
             tv.column(c, width=w, anchor=("center" if c in ("cm","line","score") else "w"))
@@ -1019,12 +1045,12 @@ class AncestryDnaApp(tk.Tk):
         sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
         tv.tag_configure("strong", background="#d8f0d8")
 
-        for name, cm, (score, r, own) in results:
+        for name, cm, (score, r, own), kin in results:
             ab = " ".join(x for x in (str(own.year or ""), own.place) if x).strip()
             tag = ("strong",) if score >= 0.8 else ()
             tv.insert("", "end", tags=tag, values=(
                 name or "?", f"{(cm or 0):.0f}", own.display, ab,
-                r["ahnen_path"] or "?", f"{score:.2f}"))
+                kin or "—", r["ahnen_path"] or "?", f"{score:.2f}"))
 
         self._set_status(f"GEDCOM-Abgleich: {len(results)}/{n_peds} Matches verankert.")
 
