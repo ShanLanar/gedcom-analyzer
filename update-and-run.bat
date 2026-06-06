@@ -1,17 +1,19 @@
 @echo off
-setlocal EnableExtensions
+setlocal EnableExtensions EnableDelayedExpansion
 title gedcom-analyzer Updater
 cd /d "%~dp0" >nul 2>&1
 
 REM === Konfiguration ============================================================
 set "REPO_DIR=C:\gedcom-analyzer"
 set "REPO_URL=https://github.com/ShanLanar/gedcom-analyzer.git"
-set "BRANCH=main"
+REM Branch beim ERST-Clone. Bei vorhandenem Repo wird der aktuell ausgecheckte
+REM Branch automatisch erkannt (siehe unten).
+set "DEFAULT_BRANCH=main"
+set "BRANCH=%DEFAULT_BRANCH%"
 REM ==============================================================================
 
 echo === gedcom-analyzer Updater ===
 echo Repo:   %REPO_URL%
-echo Branch: %BRANCH%
 echo Ziel:   %REPO_DIR%
 echo.
 
@@ -50,16 +52,25 @@ if not exist "%REPO_DIR%\.git" (
         echo          Bitte den Ordner umbenennen oder loeschen und erneut starten.
         pause & exit /b 1
     )
-    echo Clone Repository nach %REPO_DIR% ...
+    echo Clone Repository (Branch %BRANCH%) nach %REPO_DIR% ...
     git clone --branch "%BRANCH%" "%REPO_URL%" "%REPO_DIR%"
     if errorlevel 1 ( echo [FEHLER] git clone fehlgeschlagen. & pause & exit /b 1 )
 ) else (
     echo Aktualisiere Repository in %REPO_DIR% ...
     pushd "%REPO_DIR%" >nul
-    git fetch --prune origin "%BRANCH%"
+    REM Aktuell ausgecheckten Branch erkennen (statt fest 'main').
+    for /f "delims=" %%B in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "BRANCH=%%B"
+    if "!BRANCH!"=="" set "BRANCH=%DEFAULT_BRANCH%"
+    if "!BRANCH!"=="HEAD" (
+        echo [WARNUNG] Detached HEAD erkannt - wechsle auf %DEFAULT_BRANCH%.
+        set "BRANCH=%DEFAULT_BRANCH%"
+        git checkout "%DEFAULT_BRANCH%" >nul 2>&1
+    )
+    echo Branch: !BRANCH!
+    git fetch --prune origin "!BRANCH!"
     if errorlevel 1 ( echo [FEHLER] git fetch fehlgeschlagen. & popd >nul & pause & exit /b 1 )
-    git checkout "%BRANCH%" >nul 2>&1
-    git reset --hard "origin/%BRANCH%"
+    git checkout "!BRANCH!" >nul 2>&1
+    git reset --hard "origin/!BRANCH!"
     if errorlevel 1 (
         echo [FEHLER] git reset fehlgeschlagen.
         popd >nul & pause & exit /b 1
