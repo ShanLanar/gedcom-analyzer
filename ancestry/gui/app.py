@@ -130,6 +130,8 @@ class AncestryDnaApp(tk.Tk):
         am.add_separator()
         am.add_command(label="Eigenen Baum (GEDCOM) abgleichen …",
                        command=self._match_own_tree)
+        am.add_command(label="Shared-Cluster (Triangulation) …",
+                       command=self._show_shared_clusters)
         am.add_separator()
         am.add_command(label="Shared Matches zurücksetzen (neu laden) …",
                        command=self._reset_shared_matches)
@@ -845,6 +847,71 @@ class AncestryDnaApp(tk.Tk):
             for guid_m, name, path, gen, cm in sorted(g["matches"], key=lambda x:-(x[4] or 0)):
                 detail.insert("end", f"  • {name or guid_m[:8]}   "
                                      f"{(cm or 0):.0f} cM   (Gen {gen}, Linie {path or '?'})\n")
+        tv.bind("<<TreeviewSelect>>", on_sel)
+        reload()
+
+    def _show_shared_clusters(self):
+        """Triangulations-Cluster aus den Shared Matches (Connected Components)."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Shared-Cluster – Triangulationsgruppen")
+        win.geometry("820x600")
+
+        top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
+        ttk.Label(top, text="cM-Fenster:", style="Bold.TLabel").pack(side="left")
+        lo_var = tk.StringVar(value="20"); hi_var = tk.StringVar(value="400")
+        ttk.Entry(top, textvariable=lo_var, width=6).pack(side="left", padx=4)
+        ttk.Label(top, text="bis").pack(side="left")
+        ttk.Entry(top, textvariable=hi_var, width=6).pack(side="left", padx=4)
+        ttk.Label(top, text="cM   (sehr enge/weite Matches verbinden alles)").pack(side="left")
+
+        info = ttk.Label(win, text="", style="Bold.TLabel")
+        info.pack(anchor="w", padx=10, pady=(4,2))
+
+        pane = ttk.PanedWindow(win, orient="vertical"); pane.pack(fill="both", expand=True, padx=10, pady=6)
+        tframe = ttk.Frame(pane); pane.add(tframe, weight=2)
+        bframe = ttk.Frame(pane); pane.add(bframe, weight=3)
+
+        tv = ttk.Treeview(tframe, columns=("cluster","size"), show="headings", selectmode="browse")
+        tv.heading("cluster", text="Cluster"); tv.column("cluster", width=120, anchor="center")
+        tv.heading("size", text="Mitglieder"); tv.column("size", width=100, anchor="center")
+        tv.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(tframe, orient="vertical", command=tv.yview); sb.pack(side="right", fill="y")
+        tv.configure(yscrollcommand=sb.set)
+
+        ttk.Label(bframe, text="Mitglieder des Clusters:", style="Bold.TLabel").pack(anchor="w", pady=(4,2))
+        detail = tk.Text(bframe, height=10, wrap="word", font=("Segoe UI", 9))
+        detail.pack(fill="both", expand=True)
+
+        store = {}
+        def reload(*_):
+            try:
+                lo = float(lo_var.get() or 0); hi = float(hi_var.get() or 9999)
+            except ValueError:
+                lo, hi = 20.0, 400.0
+            clusters = self._db.get_shared_clusters(test_guid, lo, hi)
+            tv.delete(*tv.get_children()); store.clear()
+            for i, c in enumerate(clusters, 1):
+                iid = tv.insert("", "end", values=(f"Cluster {i}", c["size"]))
+                store[iid] = c
+            info.configure(text=(f"{len(clusters)} Cluster gefunden "
+                                 f"({lo:.0f}–{hi:.0f} cM)." if clusters else
+                                 "Keine Cluster – erst Shared Matches laden (Schritt B)."))
+        ttk.Button(top, text="↻", width=3, command=reload).pack(side="left", padx=8)
+
+        def on_sel(_):
+            sel = tv.selection()
+            if not sel: return
+            c = store.get(sel[0]); detail.delete("1.0","end")
+            if not c: return
+            detail.insert("end", f"{c['size']} Matches in dieser Gruppe "
+                                 f"(wahrscheinlich gemeinsame Ahnenlinie):\n\n")
+            for guid, name, cm in c["members"]:
+                detail.insert("end", f"  • {name or guid[:8]}   {(cm or 0):.0f} cM\n")
         tv.bind("<<TreeviewSelect>>", on_sel)
         reload()
 

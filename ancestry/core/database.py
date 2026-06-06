@@ -691,6 +691,69 @@ class Database:
                         (test_guid, match_guid_a))
             return cur.fetchone() is not None
 
+    def get_shared_clusters(self, test_guid: str,
+                            min_cm: float = 20.0, max_cm: float = 400.0,
+                            min_size: int = 2) -> list:
+        """Triangulations-Cluster (Leeds-artig): Matches, die über Shared Matches
+        verbunden sind, via Connected Components gruppieren. cM-Fenster grenzt auf
+        sinnvolle Verwandtschaft ein (sehr enge/sehr weite Matches verbinden alles).
+
+        Liefert [{size, members:[(guid,name,cm)]}], größte Cluster zuerst."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT s.match_guid_a, s.match_guid_b
+                FROM shared_matches s
+                JOIN matches ma ON ma.match_guid=s.match_guid_a AND ma.test_guid=s.test_guid
+                JOIN matches mb ON mb.match_guid=s.match_guid_b AND mb.test_guid=s.test_guid
+                WHERE s.test_guid=?
+                  AND ma.shared_cm BETWEEN ? AND ?
+                  AND mb.shared_cm BETWEEN ? AND ?
+            """, (test_guid, min_cm, max_cm, min_cm, max_cm))
+            edges = cur.fetchall()
+
+        # Union-Find
+        parent: dict = {}
+        def find(x):
+            parent.setdefault(x, x)
+            while parent[x] != x:
+                parent[x] = parent[parent[x]]
+                x = parent[x]
+            return x
+        def union(a, b):
+            ra, rb = find(a), find(b)
+            if ra != rb:
+                parent[ra] = rb
+
+        for a, b in edges:
+            union(a, b)
+
+        comps: dict = {}
+        for node in list(parent.keys()):
+            comps.setdefault(find(node), set()).add(node)
+
+        # Namen + cM nachladen
+        guids = [g for members in comps.values() for g in members]
+        info: dict = {}
+        if guids:
+            with self._cursor() as cur:
+                qmarks = ",".join("?" * len(guids))
+                cur.execute(f"""SELECT match_guid, display_name, shared_cm
+                                FROM matches WHERE test_guid=? AND match_guid IN ({qmarks})""",
+                            (test_guid, *guids))
+                for r in cur.fetchall():
+                    info[r["match_guid"]] = (r["display_name"], r["shared_cm"])
+
+        out = []
+        for members in comps.values():
+            if len(members) < min_size:
+                continue
+            mlist = [(g, info.get(g, ("?", 0))[0], info.get(g, ("?", 0))[1])
+                     for g in members]
+            mlist.sort(key=lambda x: -(x[2] or 0))
+            out.append({"size": len(mlist), "members": mlist})
+        out.sort(key=lambda c: c["size"], reverse=True)
+        return out
+
     def get_shared_matches(
         self,
         test_guid: str,
