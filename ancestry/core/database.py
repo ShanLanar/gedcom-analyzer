@@ -339,6 +339,61 @@ class Database:
             cur.execute("UPDATE matches SET ancestors_fetched=1 "
                         "WHERE match_guid=? AND test_guid=?", (match_guid, test_guid))
 
+    def get_pedigree_groups(self, test_guid: str, min_matches: int = 2,
+                            mode: str = "person") -> list:
+        """Pedigree-Überlagerung: Vorfahren, die in mehreren Match-Ahnentafeln
+        auftauchen. Generation 1 (=der Match selbst) wird ausgeschlossen.
+
+        mode='person'  → Gruppierung nach Name+Geburtsjahr (echte Personen)
+        mode='surname' → Gruppierung nach Nachname allein (Sippen-Cluster)
+        mode='place'   → Gruppierung nach Geburtsort
+
+        Liefert [{label, detail, count, matches:[(guid,name,path,gen)]}]."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT p.given_name, p.surname, p.birth_year, p.birth_place,
+                       p.generation, p.ahnen_path, p.match_guid,
+                       m.display_name, m.shared_cm
+                FROM match_pedigree p
+                JOIN matches m ON m.match_guid=p.match_guid AND m.test_guid=p.test_guid
+                WHERE p.test_guid=? AND p.generation>=2
+            """, (test_guid,))
+            rows = cur.fetchall()
+
+        groups: dict = {}
+        for r in rows:
+            given, sur = (r["given_name"] or "").strip(), (r["surname"] or "").strip()
+            if mode == "surname":
+                if not sur:
+                    continue
+                key, label, detail = ("S:"+sur.lower(), sur, "Nachname")
+            elif mode == "place":
+                place = (r["birth_place"] or "").strip()
+                if not place:
+                    continue
+                key, label, detail = ("P:"+place.lower(), place, "Geburtsort")
+            else:  # person
+                if not (given or sur):
+                    continue
+                name = (given + " " + sur).strip()
+                yr = r["birth_year"] or ""
+                key = "N:" + name.lower() + "|" + yr
+                label, detail = name, (f"*{yr}" if yr else "")
+            g = groups.setdefault(key, {"label": label, "detail": detail,
+                                        "_seen": set(), "matches": []})
+            if r["match_guid"] in g["_seen"]:
+                continue
+            g["_seen"].add(r["match_guid"])
+            g["matches"].append((r["match_guid"], r["display_name"],
+                                 r["ahnen_path"], r["generation"], r["shared_cm"]))
+        out = []
+        for g in groups.values():
+            if len(g["matches"]) >= min_matches:
+                g.pop("_seen", None)
+                out.append(dict(count=len(g["matches"]), **g))
+        out.sort(key=lambda g: g["count"], reverse=True)
+        return out
+
     def get_ancestors_for_match(self, match_guid: str) -> list:
         with self._cursor() as cur:
             cur.execute("SELECT * FROM match_ancestors WHERE match_guid=? "

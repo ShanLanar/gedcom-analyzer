@@ -125,6 +125,8 @@ class AncestryDnaApp(tk.Tk):
         am.add_separator()
         am.add_command(label="Ahnentafel des Matches anzeigen …",
                        command=self._show_match_pedigree)
+        am.add_command(label="Pedigree-Überlagerung (Cluster) …",
+                       command=self._show_pedigree_overlay)
         mb.add_cascade(label="Auswertung", menu=am)
 
         hm = tk.Menu(mb, tearoff=False)
@@ -688,12 +690,37 @@ class AncestryDnaApp(tk.Tk):
                 "Erst '▶ Ahnentafeln laden' ausführen (Match braucht einen Baum).")
             return
 
+        # Gemeinsame Vorfahren (= wo der Match in DEINEM Baum hängt)
+        common = self._db.get_ancestors_for_match(guid)
+
         win = tk.Toplevel(self)
         win.title(f"Ahnentafel – {self._selected_match.display_name}")
-        win.geometry("760x560")
+        win.geometry("800x600")
         ttk.Label(win, text=(f"{len(rows)} Vorfahren von "
                              f"{self._selected_match.display_name}:"),
                   style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
+
+        # ── Anknüpfungspunkt zu deinem Baum ─────────────────────────────────────
+        if common:
+            box = ttk.LabelFrame(win, text="🔗 Verbindung zu deinem Baum")
+            box.pack(fill="x", padx=10, pady=(0,6))
+            for a in common:
+                yr = a.get("birth_year") or "?"
+                mine = a.get("kinship_path_sample") or "?"
+                rel = a.get("relationship_to_sample") or ""
+                ttk.Label(box, text=(f"  • {a.get('ancestor_name','?')} (*{yr}) – "
+                                     f"deine Linie: {mine}"
+                                     + (f"  ({rel})" if rel else ""))).pack(anchor="w")
+        else:
+            ttk.Label(win, text="(Kein gemeinsamer Vorfahr geladen – ggf. "
+                                "'▶ Vorfahren & Orte laden' ausführen.)",
+                      foreground="#888888").pack(anchor="w", padx=12)
+
+        # Namen+Jahr der gemeinsamen Vorfahren zum Markieren in der Tafel
+        common_keys = set()
+        for a in common:
+            nm = (a.get("ancestor_name") or "").lower()
+            common_keys.add((nm, (a.get("birth_year") or "")))
 
         cols = ("gen", "rel", "name", "birth", "death")
         tv = ttk.Treeview(win, columns=cols, show="headings")
@@ -705,20 +732,107 @@ class AncestryDnaApp(tk.Tk):
         tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
         sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
         sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
+        tv.tag_configure("common", background="#fff3b0")  # gemeinsamer Vorfahr
 
         def _rel(path):
-            # F/M-Pfad → lesbare Linie
             if path == "":
                 return "Match"
             return path  # z.B. FMF
+
+        def _is_common(name, year):
+            nl = name.lower()
+            for cn, cy in common_keys:
+                if not cn:
+                    continue
+                # Treffer wenn Nachname enthalten und Jahr passt (oder Jahr fehlt)
+                if (nl in cn or cn in nl) and (not year or not cy or year == cy):
+                    return True
+            return False
+
         for r in rows:
             name = (f"{r['given_name']} {r['surname']}".strip()) or "(lebend/privat)"
             b = " ".join(x for x in (r["birth_date"] or r["birth_year"],
                                      r["birth_place"]) if x).strip()
             d = " ".join(x for x in (r["death_date"] or r["death_year"],
                                      r["death_place"]) if x).strip()
+            tags = ("common",) if _is_common(name, r["birth_year"] or "") else ()
             tv.insert("", "end", values=(r["generation"], _rel(r["ahnen_path"]),
-                                         name, b, d))
+                                         name, b, d), tags=tags)
+
+    def _show_pedigree_overlay(self):
+        """Cluster: Vorfahren, die in mehreren Match-Ahnentafeln vorkommen."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Pedigree-Überlagerung – Cluster über alle Ahnentafeln")
+        win.geometry("860x600")
+
+        top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
+        ttk.Label(top, text="Gruppieren nach:", style="Bold.TLabel").pack(side="left")
+        mode_var = tk.StringVar(value="person")
+        for val, lbl in (("person","Person (Name+Jahr)"),
+                         ("surname","Nachname (Sippe)"),
+                         ("place","Geburtsort")):
+            ttk.Radiobutton(top, text=lbl, value=val, variable=mode_var).pack(side="left", padx=6)
+        ttk.Label(top, text="  ab").pack(side="left")
+        minm_var = tk.StringVar(value="2")
+        ttk.Spinbox(top, from_=2, to=99, width=4, textvariable=minm_var).pack(side="left", padx=4)
+        ttk.Label(top, text="Matches").pack(side="left")
+
+        info = ttk.Label(win, text="", style="Bold.TLabel")
+        info.pack(anchor="w", padx=10, pady=(4,2))
+
+        pane = ttk.PanedWindow(win, orient="vertical"); pane.pack(fill="both", expand=True, padx=10, pady=6)
+        tframe = ttk.Frame(pane); pane.add(tframe, weight=3)
+        bframe = ttk.Frame(pane); pane.add(bframe, weight=2)
+
+        cols = ("label","detail","count")
+        tv = ttk.Treeview(tframe, columns=cols, show="headings", selectmode="browse")
+        for c,(lbl,w) in {"label":("Vorfahr / Cluster",470),"detail":("Info",150),
+                          "count":("# Matches",90)}.items():
+            tv.heading(c, text=lbl); tv.column(c, width=w,
+                       anchor=("center" if c=="count" else "w"))
+        tv.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(tframe, orient="vertical", command=tv.yview); sb.pack(side="right", fill="y")
+        tv.configure(yscrollcommand=sb.set)
+
+        ttk.Label(bframe, text="Matches dieses Clusters:",
+                  style="Bold.TLabel").pack(anchor="w", pady=(4,2))
+        detail = tk.Text(bframe, height=8, wrap="word", font=("Segoe UI", 9))
+        detail.pack(fill="both", expand=True)
+
+        store = {}
+        def reload(*_):
+            try:
+                mm = max(2, int(minm_var.get() or 2))
+            except ValueError:
+                mm = 2
+            groups = self._db.get_pedigree_groups(test_guid, min_matches=mm,
+                                                  mode=mode_var.get())
+            tv.delete(*tv.get_children()); store.clear()
+            for g in groups:
+                iid = tv.insert("", "end", values=(g["label"], g["detail"], g["count"]))
+                store[iid] = g
+            info.configure(text=(f"{len(groups)} Cluster werden von ≥{mm} Matches geteilt."
+                                 if groups else
+                                 "Keine Überlagerung gefunden – erst '▶ Ahnentafeln laden' ausführen."))
+        mode_var.trace_add("write", reload)
+        minm_var.trace_add("write", reload)
+
+        def on_sel(_):
+            sel = tv.selection()
+            if not sel: return
+            g = store.get(sel[0]); detail.delete("1.0","end")
+            if not g: return
+            detail.insert("end", f"{g['label']} {g['detail']} – {g['count']} Matches:\n\n")
+            for guid_m, name, path, gen, cm in sorted(g["matches"], key=lambda x:-(x[4] or 0)):
+                detail.insert("end", f"  • {name or guid_m[:8]}   "
+                                     f"{(cm or 0):.0f} cM   (Gen {gen}, Linie {path or '?'})\n")
+        tv.bind("<<TreeviewSelect>>", on_sel)
+        reload()
 
     def _stop_download(self):
         if self._scraper:
