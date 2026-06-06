@@ -1096,7 +1096,7 @@ class AncestryDnaApp(tk.Tk):
         threading.Thread(target=_worker, daemon=True, name="cluster-tree").start()
 
     def _show_cluster_tree_win(self, cluster, rows, n_with_ped, has_ged, name_by_member):
-        from core.treematch import render_kinship
+        from core.treematch import render_kinship, cm_to_mrca
         win = tk.Toplevel(self)
         win.title("Kombinierter Cluster-Stammbaum")
         win.geometry("960x640")
@@ -1106,6 +1106,19 @@ class AncestryDnaApp(tk.Tk):
                              f"{len(rows)} Personen verschmolzen · "
                              f"{len(shared)} von ≥2 Mitgliedern geteilt"),
                   style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,2))
+
+        # cM-basierte Erwartung, wie tief der gemeinsame Vorfahr liegt
+        cms = sorted((cm for _g, _n, cm in cluster["members"] if cm), reverse=True)
+        if cms:
+            lbl_close, gen_close = cm_to_mrca(cms[0])     # nächstes Mitglied
+            lbl_far,   gen_far   = cm_to_mrca(cms[-1])    # entferntestes
+            ttk.Label(win, text=(
+                f"cM-Schätzung: gem. Vorfahr ~Gen {gen_close}"
+                + (f"–{gen_far}" if gen_far != gen_close else "")
+                + f"  (nächstes Mitglied {cms[0]:.0f} cM = {lbl_close}; "
+                f"entferntestes {cms[-1]:.0f} cM = {lbl_far}).  "
+                "⚠ Endogamie → cM überhöht, echter Vorfahr eher tiefer."),
+                foreground="#555").pack(anchor="w", padx=10, pady=(0,2))
 
         def _birth(rep):
             d = rep.bdate or (str(rep.year) if rep.year else "")

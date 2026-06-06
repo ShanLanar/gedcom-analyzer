@@ -216,6 +216,30 @@ def render_kinship(path: str) -> str:
     return label + " " + side
 
 
+def cm_to_mrca(cm: float):
+    """Schätzt aus geteilten cM die Beziehung und die Pedigree-Generation des
+    gemeinsamen Vorfahren (Wurzel=Gen 1). Basiert auf Shared-cM-Project-Mittelwerten.
+    ACHTUNG: Endogamie erhöht cM → echte Verwandtschaft eher ENTFERNTER (= tiefer).
+    Liefert (label, gen). gen = erwartete Generation des gemeinsamen Vorfahren."""
+    c = cm or 0
+    table = [
+        (1300, "Großeltern-/Onkel-/Tante-Ebene", 2),
+        (575,  "1. Cousin (gem. Großeltern)",     3),
+        (300,  "1C1R / 2. Cousin",                 4),
+        (140,  "2. Cousin (gem. Urgroßeltern)",    4),
+        (75,   "2C1R / 3. Cousin",                 5),
+        (45,   "3. Cousin (gem. Ur-Urgroßeltern)", 5),
+        (28,   "4. Cousin (gem. 3×-Urgroßeltern)", 6),
+        (18,   "4.–5. Cousin",                     7),
+        (10,   "5.–6. Cousin",                     8),
+        (0,    "entfernt (≥6. Cousin)",            9),
+    ]
+    for thr, label, gen in table:
+        if c >= thr:
+            return label, gen
+    return "unbekannt", 9
+
+
 def merge_person_list(persons: list, thresh: float = 0.72) -> list:
     """Verschmilzt überlappende Personen (Schreibvarianten) zu kanonischen Gruppen.
     persons: Person-Objekte (ref trägt Herkunft). Liefert
