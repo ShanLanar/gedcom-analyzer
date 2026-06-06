@@ -1468,6 +1468,12 @@ class AncestryDnaApp(tk.Tk):
             index, amap = ged["index"], ged["amap"]
             indi, fams = ged.get("individuals", {}), ged.get("families", {})
 
+            # Cluster-Lookup einmalig vor dem Thread aufbauen (kein Threading-Problem)
+            cluster_lookup: dict[str, int] = {}
+            for cid, members in getattr(self, "_clusters", {}).items():
+                for m in members:
+                    cluster_lookup[m["guid"]] = cid
+
             def _worker():
                 results = []
                 items = list(peds.items())
@@ -1497,13 +1503,13 @@ class AncestryDnaApp(tk.Tk):
                             kin = (render_kinship(mpath) + " (über Seitenlinie)"
                                    if mpath is not None else "")
                         results.append((info["name"], info["cm"], best, kin,
-                                        info.get("linked", False)))
+                                        info.get("linked", False), guid))
                     if i % 20 == 0 or i == len(items):
                         self.after(0, lambda i=i: self._set_status(
                             f"GEDCOM-Abgleich: {i}/{len(items)} Matches geprüft …"))
                 results.sort(key=lambda x: (-(x[2][0]), -(x[1] or 0)))
                 self.after(0, lambda: self._show_gedcom_results(
-                    results, len(ged["people"]), len(peds)))
+                    results, len(ged["people"]), len(peds), cluster_lookup))
 
             threading.Thread(target=_worker, daemon=True, name="gedcom-match").start()
 
@@ -1600,15 +1606,19 @@ class AncestryDnaApp(tk.Tk):
 
         threading.Thread(target=_worker, daemon=True, name="gedcom-load").start()
 
-    def _show_gedcom_results(self, results, n_people, n_peds):
+    def _show_gedcom_results(self, results, n_people, n_peds, cluster_lookup=None):
         win = tk.Toplevel(self)
         win.title("GEDCOM-Abgleich – wo hängt jeder Match in deinem Baum?")
-        win.geometry("980x620")
+        win.geometry("1100x640")
+
+        cl = cluster_lookup or {}
+        cluster_ids = sorted({cid for cid in cl.values()}) if cl else []
 
         # Flache Datenzeilen (für Filter/Sortierung)
         data = []
-        for name, cm, (score, r, own, _p), kin, linked in results:
+        for name, cm, (score, r, own, _p), kin, linked, guid in results:
             ab = " ".join(x for x in (str(own.year or ""), own.place) if x).strip()
+            cid = cl.get(guid)
             data.append({
                 "linked": linked,
                 "link": "✓ im Baum" if linked else "neu?",
@@ -1616,6 +1626,8 @@ class AncestryDnaApp(tk.Tk):
                 "anchor": own.display, "abirth": ab,
                 "kin": kin or "—", "line": r["ahnen_path"] or "?",
                 "score": float(score or 0),
+                "cluster": cid,
+                "cluster_str": f"#{cid}" if cid else "—",
             })
         n_new = sum(1 for d in data if not d["linked"])
 
@@ -1623,34 +1635,53 @@ class AncestryDnaApp(tk.Tk):
         bar = ttk.Frame(win); bar.pack(fill="x", padx=10, pady=(10,2))
         ttk.Label(bar, text="Suche:").pack(side="left")
         f_search = tk.StringVar()
-        ttk.Entry(bar, textvariable=f_search, width=22).pack(side="left", padx=4)
+        ttk.Entry(bar, textvariable=f_search, width=20).pack(side="left", padx=4)
         f_new = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text="nur neue Leads (nicht verknüpft)",
-                        variable=f_new).pack(side="left", padx=8)
+        ttk.Checkbutton(bar, text="nur neue Leads",
+                        variable=f_new).pack(side="left", padx=6)
         f_direct = tk.BooleanVar(value=False)
         ttk.Checkbutton(bar, text="nur direkte Linie",
-                        variable=f_direct).pack(side="left", padx=8)
+                        variable=f_direct).pack(side="left", padx=6)
         ttk.Label(bar, text="ab cM:").pack(side="left")
         f_cm = tk.StringVar(value="0")
         ttk.Entry(bar, textvariable=f_cm, width=5).pack(side="left", padx=4)
+        ttk.Label(bar, text="Cluster:").pack(side="left", padx=(10,0))
+        f_cluster = tk.StringVar(value="")
+        cluster_opts = [""] + [str(c) for c in cluster_ids]
+        cb_cluster = ttk.Combobox(bar, textvariable=f_cluster,
+                                  values=cluster_opts, width=5, state="readonly")
+        cb_cluster.pack(side="left", padx=4)
 
         hdr = ttk.Label(win, text="", style="Bold.TLabel")
         hdr.pack(anchor="w", padx=10, pady=(0,2))
 
-        cols = ("link","match","cm","anchor","abirth","kin","line","score")
-        heads = {"link":("Verknüpft",75),"match":("Match",170),"cm":("cM",55),
-                 "anchor":("Anknüpfung in deinem Baum",190),
-                 "abirth":("* Anknüpfung",120),
-                 "kin":("Deine Linie",170),"line":("Match-Linie",75),
-                 "score":("Sicherheit",70)}
-        tv = ttk.Treeview(win, columns=cols, show="headings")
-        for c,(lbl,w) in heads.items():
-            tv.column(c, width=w, anchor=("center" if c in ("cm","line","score","link") else "w"))
-        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
-        sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
-        sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
-        tv.tag_configure("strong", background="#d8f0d8")
+        cols = ("cluster","link","match","cm","anchor","abirth","kin","line","score")
+        heads = {
+            "cluster": ("Cluster", 58),
+            "link":    ("Verknüpft", 72),
+            "match":   ("Match", 165),
+            "cm":      ("cM", 52),
+            "anchor":  ("Anknüpfung in deinem Baum", 185),
+            "abirth":  ("* Anknüpfung", 115),
+            "kin":     ("Deine Linie", 165),
+            "line":    ("Match-Linie", 72),
+            "score":   ("Sicherheit", 65),
+        }
+        frame = ttk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=(10,0), pady=6)
+        tv = ttk.Treeview(frame, columns=cols, show="headings")
+        for c, (lbl, w) in heads.items():
+            tv.column(c, width=w,
+                      anchor=("center" if c in ("cluster","cm","line","score","link") else "w"))
+        tv.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
+        sb.pack(side="right", fill="y"); tv.configure(yscrollcommand=sb.set)
+
+        tv.tag_configure("strong",  background="#d8f0d8")
         tv.tag_configure("newlead", background="#fde9c8")
+        clr = COLORS["cluster"]
+        for i in range(1, len(clr) + 1):
+            tv.tag_configure(f"cl{i}", background=clr[(i - 1) % len(clr)])
 
         state = {"col": "cm", "desc": True}
 
@@ -1660,22 +1691,32 @@ class AncestryDnaApp(tk.Tk):
                 mincm = float(f_cm.get() or 0)
             except ValueError:
                 mincm = 0
+            fc = f_cluster.get().strip()
             rows = [d for d in data
                     if d["cm"] >= mincm
                     and (not f_new.get() or not d["linked"])
                     and (not f_direct.get() or ("Seitenlinie" not in d["kin"]
                                                 and d["kin"] != "—"))
+                    and (not fc or str(d.get("cluster","")) == fc)
                     and (not q or q in d["match"].lower()
                          or q in d["anchor"].lower() or q in d["kin"].lower())]
             col, desc = state["col"], state["desc"]
-            rows.sort(key=lambda d: d[col], reverse=desc)
+            rows.sort(key=lambda d: (d[col] is None, d[col] or 0), reverse=desc)
             tv.delete(*tv.get_children())
             for d in rows:
-                tag = ("newlead",) if not d["linked"] else \
-                      (("strong",) if d["score"] >= 0.8 else ())
+                cid = d.get("cluster")
+                if not d["linked"]:
+                    tag = ("newlead",)
+                elif d["score"] >= 0.8:
+                    tag = ("strong",)
+                elif cid:
+                    tag = (f"cl{cid}",)
+                else:
+                    tag = ()
                 tv.insert("", "end", tags=tag, values=(
-                    d["link"], d["match"], f"{d['cm']:.0f}", d["anchor"],
-                    d["abirth"], d["kin"], d["line"], f"{d['score']:.2f}"))
+                    d["cluster_str"], d["link"], d["match"],
+                    f"{d['cm']:.0f}", d["anchor"], d["abirth"],
+                    d["kin"], d["line"], f"{d['score']:.2f}"))
             hdr.configure(text=(f"Eigener Baum: {n_people} Pers. · "
                 f"{len(data)} verankert ({n_new} neu) · angezeigt: {len(rows)} · "
                 f"Sort: {heads[col][0]} {'▼' if desc else '▲'}"))
@@ -1685,10 +1726,10 @@ class AncestryDnaApp(tk.Tk):
             state["col"] = col
             populate()
 
-        for c,(lbl,w) in heads.items():
+        for c, (lbl, w) in heads.items():
             tv.heading(c, text=lbl, command=lambda c=c: sort_by(c))
 
-        for var in (f_search, f_new, f_direct, f_cm):
+        for var in (f_search, f_new, f_direct, f_cm, f_cluster):
             var.trace_add("write", populate)
         populate()
         self._set_status(f"GEDCOM-Abgleich: {len(data)}/{n_peds} Matches verankert.")
@@ -2106,6 +2147,8 @@ class AncestryDnaApp(tk.Tk):
         self._cluster_count_var = tk.StringVar(value="")
         ttk.Label(cf, textvariable=self._cluster_count_var,
                   foreground=COLORS["primary"]).pack(side="left")
+        ttk.Button(cf, text="🌳 Stammbaum-Analyse",
+                   command=self._show_cluster_tree).pack(side="left", padx=14)
 
         # Interpretation
         self._cluster_text_var = tk.StringVar(value="")
@@ -2113,7 +2156,7 @@ class AncestryDnaApp(tk.Tk):
                   foreground="#444466", font=("Segoe UI", 9),
                   wraplength=900, justify="left").pack(anchor="w", padx=14, pady=(0,6))
 
-        # Pane: Cluster-Liste + Mitglieder
+        # Pane: Cluster-Liste | Mitglieder | Gegenseitige cM
         pane = ttk.PanedWindow(f, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=14, pady=4)
 
@@ -2136,22 +2179,39 @@ class AncestryDnaApp(tk.Tk):
         sy1.pack(side="right", fill="y")
         self._cluster_list.bind("<<TreeviewSelect>>", self._on_cluster_select)
 
-        # Rechte Seite: Mitglieder
-        right = ttk.LabelFrame(pane, text="Cluster-Mitglieder", padding=6)
-        pane.add(right, weight=2)
-        self._member_tree = ttk.Treeview(right, columns=("name","cm","rel"),
+        # Mittlere Seite: Mitglieder
+        mid = ttk.LabelFrame(pane, text="Cluster-Mitglieder", padding=6)
+        pane.add(mid, weight=2)
+        self._member_tree = ttk.Treeview(mid, columns=("name","cm","rel"),
                                           show="headings", selectmode="browse")
         for col, (lbl, w, anchor) in {
-            "name": ("Name",    240, "w"),
-            "cm"  : ("cM",      70, "e"),
-            "rel" : ("Beziehung",160,"w"),
+            "name": ("Name",     240, "w"),
+            "cm"  : ("cM",        70, "e"),
+            "rel" : ("Beziehung", 160, "w"),
         }.items():
             self._member_tree.heading(col, text=lbl)
             self._member_tree.column(col, width=w, anchor=anchor, stretch=(col=="name"))
-        sy2 = ttk.Scrollbar(right, orient="vertical", command=self._member_tree.yview)
+        sy2 = ttk.Scrollbar(mid, orient="vertical", command=self._member_tree.yview)
         self._member_tree.configure(yscrollcommand=sy2.set)
         self._member_tree.pack(side="left", fill="both", expand=True)
         sy2.pack(side="right", fill="y")
+
+        # Rechte Seite: Paarweise cM zwischen Mitgliedern
+        right = ttk.LabelFrame(pane, text="Gegenseitige cM (Mitglieder untereinander)", padding=6)
+        pane.add(right, weight=2)
+        self._pairwise_tree = ttk.Treeview(right, columns=("a","b","cm"),
+                                            show="headings", selectmode="none")
+        for col, (lbl, w, anch) in {
+            "a":  ("Match A", 190, "w"),
+            "b":  ("Match B", 190, "w"),
+            "cm": ("Gemeinsam cM", 90, "e"),
+        }.items():
+            self._pairwise_tree.heading(col, text=lbl)
+            self._pairwise_tree.column(col, width=w, anchor=anch, stretch=(col in ("a","b")))
+        sy3 = ttk.Scrollbar(right, orient="vertical", command=self._pairwise_tree.yview)
+        self._pairwise_tree.configure(yscrollcommand=sy3.set)
+        self._pairwise_tree.pack(side="left", fill="both", expand=True)
+        sy3.pack(side="right", fill="y")
 
         self._clusters: dict = {}
 
@@ -2205,12 +2265,186 @@ class AncestryDnaApp(tk.Tk):
         if not sel: return
         cid = int(sel[0])
         members = self._clusters.get(cid, [])
-        self._member_tree.delete(*self._member_tree.get_children())
         color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
+
+        self._member_tree.delete(*self._member_tree.get_children())
         self._member_tree.tag_configure("row", background=color)
         for m in members:
             self._member_tree.insert("", "end", tags=("row",),
                                       values=(m["name"], f"{m['cm']:.1f}", m.get("rel","")))
+
+        # Paarweise cM zwischen den Cluster-Mitgliedern
+        self._pairwise_tree.delete(*self._pairwise_tree.get_children())
+        test_guid = self._current_guid()
+        if test_guid and len(members) >= 2:
+            guids = [m["guid"] for m in members]
+            guid_name = {m["guid"]: m["name"] for m in members}
+            pairs = self._db.get_pairwise_shared(test_guid, guids)
+            self._pairwise_tree.tag_configure("row", background=color)
+            for a, b, cm in pairs:
+                if cm > 0:
+                    self._pairwise_tree.insert("", "end", tags=("row",), values=(
+                        guid_name.get(a, a[:12]),
+                        guid_name.get(b, b[:12]),
+                        f"{cm:.0f}"))
+
+    def _show_cluster_tree(self):
+        """Stammbaum-Analyse: Ahnentafeln aller Cluster-Mitglieder zusammenführen.
+
+        Zeigt welche Vorfahren über mehrere Mitglieder hinweg gemeinsam auftauchen –
+        das sind die wahrscheinlichen gemeinsamen Vorfahren des Clusters.
+        """
+        sel = self._cluster_list.selection()
+        if not sel:
+            messagebox.showinfo("Kein Cluster",
+                                "Bitte zuerst einen Cluster in der Liste auswählen.")
+            return
+        cid = int(sel[0])
+        members = self._clusters.get(cid, [])
+        if not members:
+            return
+
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
+            return
+
+        guids   = {m["guid"] for m in members}
+        id_name = {m["guid"]: m["name"] for m in members}
+        id_cm   = {m["guid"]: m["cm"]   for m in members}
+
+        all_peds = self._db.get_all_pedigrees(test_guid)
+
+        # ── Vorfahren zusammenführen ─────────────────────────────────────────
+        # Schlüssel: (Nachname normiert, Geburtsjahrzehnt) → Aggregat-Dict
+        merged: dict = {}
+        for guid in guids:
+            if guid not in all_peds:
+                continue
+            for row in all_peds[guid]["rows"]:
+                sn  = (row.get("surname")    or "").strip()
+                gn  = (row.get("given_name") or "").strip()
+                by  = row.get("birth_year")
+                gen = row.get("generation") or 0
+                bp  = (row.get("birth_place") or "").strip()
+                sn_norm = sn.lower()
+                by_key  = round(int(by) / 5) * 5 if by else 0
+                key = (sn_norm, by_key)
+                if key not in merged:
+                    merged[key] = {
+                        "surname": sn, "given": gn,
+                        "birth_year": str(by) if by else "",
+                        "birth_place": bp,
+                        "generation": gen,
+                        "guids": set(),
+                        "names": set(),
+                    }
+                ent = merged[key]
+                ent["guids"].add(guid)
+                ent["names"].add(id_name.get(guid, guid[:10]))
+                # Früheste Generation und vollständigste Ortsangabe bevorzugen
+                if gen and (not ent["generation"] or gen < ent["generation"]):
+                    ent["generation"] = gen
+                if bp and not ent["birth_place"]:
+                    ent["birth_place"] = bp
+
+        persons = sorted(merged.values(),
+                         key=lambda p: (-len(p["guids"]), p["generation"] or 99))
+
+        # ── Fenster ──────────────────────────────────────────────────────────
+        color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
+        win = tk.Toplevel(self)
+        win.title(f"Cluster #{cid} – Stammbaum-Analyse ({len(members)} Matches)")
+        win.geometry("1150x680")
+        win.configure(bg=color)
+
+        n_total = len(members)
+        ttk.Label(win,
+                  text=f"Cluster #{cid} · {n_total} Mitglieder · "
+                       f"{len(persons)} einzigartige Vorfahren in den Ahnentafeln",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(10,0))
+        ttk.Label(win,
+                  text="Grün = alle Mitglieder teilen diese Person  |  "
+                       "Gelb = ≥3 Mitglieder  |  Orange = 2 Mitglieder  |  "
+                       "Weiß = nur 1 Mitglied  →  mehr Übereinstimmungen = wahrscheinlicherer Vorfahre",
+                  foreground="#333333").pack(anchor="w", padx=12, pady=(2,6))
+
+        cols  = ("count","person","birth","place","gen","matches")
+        heads = {
+            "count":   ("Anz.",         45),
+            "person":  ("Person",       220),
+            "birth":   ("* Jahr",        65),
+            "place":   ("Geburtsort",   180),
+            "gen":     ("Gen.",          45),
+            "matches": ("In welchen Matches",  500),
+        }
+        frame = ttk.Frame(win)
+        frame.pack(fill="both", expand=True, padx=12, pady=4)
+        tv = ttk.Treeview(frame, columns=cols, show="headings")
+        for c, (lbl, w) in heads.items():
+            tv.heading(c, text=lbl, command=lambda c=c: _sort(c))
+            tv.column(c, width=w,
+                      anchor=("center" if c in ("count","birth","gen") else "w"),
+                      stretch=(c == "matches"))
+        sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sb.set)
+        tv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        tv.tag_configure("all",   background="#D6F5E3")   # alle Mitglieder
+        tv.tag_configure("many",  background="#FFD6D6")   # ≥3
+        tv.tag_configure("two",   background="#FFF3CD")   # 2
+        tv.tag_configure("one",   background="#FFFFFF")   # 1
+
+        st = {"col": "count", "desc": True}
+
+        def _fill():
+            col, desc = st["col"], st["desc"]
+            sort_key = {
+                "count":  lambda p: -len(p["guids"]),
+                "person": lambda p: (p["surname"] + " " + p["given"]).lower(),
+                "birth":  lambda p: p["birth_year"] or "9999",
+                "place":  lambda p: p["birth_place"].lower(),
+                "gen":    lambda p: p["generation"] or 99,
+                "matches":lambda p: ", ".join(sorted(p["names"])),
+            }
+            data = sorted(persons, key=sort_key.get(col, sort_key["count"]),
+                          reverse=(desc and col == "count"))
+            tv.delete(*tv.get_children())
+            for p in data:
+                n = len(p["guids"])
+                nm = f"{p['given']} {p['surname']}".strip() or "?"
+                ms = ", ".join(sorted(p["names"]))
+                tag = ("all" if n >= n_total and n_total > 1
+                       else "many" if n >= 3
+                       else "two" if n >= 2
+                       else "one")
+                tv.insert("", "end", tags=(tag,), values=(
+                    n, nm, p["birth_year"], p["birth_place"],
+                    p["generation"] or "", ms))
+
+        def _sort(col):
+            st["desc"] = not st["desc"] if st["col"] == col else True
+            st["col"] = col
+            _fill()
+
+        _fill()
+
+        n_shared = sum(1 for p in persons if len(p["guids"]) >= 2)
+        n_all    = sum(1 for p in persons if len(p["guids"]) >= n_total and n_total > 1)
+        ttk.Label(win,
+                  text=(f"Personen in ≥2 Bäumen: {n_shared}  |  "
+                        f"In allen {n_total} Bäumen: {n_all}  "
+                        f"(Klick auf Spaltenköpfe = sortieren)"),
+                  foreground="#444444").pack(anchor="w", padx=12, pady=(0,6))
+
+        # Mitglieder-Übersicht
+        mf = ttk.LabelFrame(win, text="Cluster-Mitglieder", padding=4)
+        mf.pack(fill="x", padx=12, pady=(0,8))
+        for i, m in enumerate(sorted(members, key=lambda x: -(x["cm"] or 0))):
+            ttk.Label(mf, text=f"#{i+1} {m['name']}  ({m['cm']:.0f} cM)",
+                      foreground=COLORS["primary"]).grid(
+                row=0, column=i, padx=10, pady=2, sticky="w")
 
     # ─────────────────────────────────────────────────────────────────────────
     # TAB 5: STATISTIKEN
