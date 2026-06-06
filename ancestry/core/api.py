@@ -309,6 +309,88 @@ class AncestryApiClient:
                 out[sid] = self._tree_status(info)
         return out
 
+    # ── Compare: gemeinsame Vorfahren + Geburtsorte (GET) ───────────────────────
+
+    def get_compare_common_ancestors(self, test_guid: str, match_guid: str) -> list:
+        """commonancestors → Liste von Vorfahr-Dicts (Name, *Jahr, Pfad, Seite)."""
+        url = cfg.COMPARE_COMMON_ANCESTORS_URL.format(
+            test_guid=test_guid, match_guid=match_guid)
+        r = _api_get(self._s, url)
+        if not r or r.status_code != 200:
+            return []
+        try:
+            data = r.json()
+        except Exception:
+            return []
+
+        if not getattr(self, "_logged_ca_sample", False):
+            self._logged_ca_sample = True
+            import json as _dj
+            log.info("commonancestors-BEISPIEL: %s",
+                     _dj.dumps(data, ensure_ascii=False)[:2500])
+
+        out = []
+        for couple in (data.get("ancestorCouples") or []):
+            if not isinstance(couple, dict):
+                continue
+            for slot in ("father", "mother"):
+                anc = couple.get(slot)
+                if not isinstance(anc, dict):
+                    continue
+                pd = anc.get("personData") or {}
+                name = (pd.get("displayName") or "").strip()
+                if not name or pd.get("notFound"):
+                    continue
+                amt = anc.get("amtGid") or {}
+                out.append({
+                    "ancestor_name"         : name,
+                    "birth_year"            : str(pd.get("birthYear") or ""),
+                    "death_year"            : str(pd.get("deathYear") or ""),
+                    "is_male"               : bool(pd.get("isMale")),
+                    "relationship_to_sample": anc.get("relationshipToSampleId") or "",
+                    "relationship_to_match" : anc.get("relationshipFromSampleToMatch") or "",
+                    "kinship_path_sample"   : anc.get("kinshipPathToSampleId") or "",
+                    "kinship_path_match"    : anc.get("kinshipPathFromSampleToMatch") or "",
+                    "in_match_tree"         : bool(anc.get("inMatchTree")),
+                    "amt_gid"               : (amt.get("v") if isinstance(amt, dict) else "") or "",
+                })
+        return out
+
+    def get_compare_tree_data(self, test_guid: str, match_guid: str) -> list:
+        """completeTreeData → Geburtsorte des Match-Baums [{place,coords,count,side}]."""
+        url = cfg.COMPARE_TREE_DATA_URL.format(
+            test_guid=test_guid, match_guid=match_guid)
+        r = _api_get(self._s, url)
+        if not r or r.status_code != 200:
+            return []
+        try:
+            data = r.json()
+        except Exception:
+            return []
+
+        if not getattr(self, "_logged_ctd_sample", False):
+            self._logged_ctd_sample = True
+            import json as _dj
+            log.info("completeTreeData-BEISPIEL: %s",
+                     _dj.dumps(data, ensure_ascii=False)[:2000])
+
+        out = []
+        for side in ("match", "sample"):
+            tree = (data.get(side) or {}).get("linkedTree") or {}
+            for loc in (tree.get("birthLocations") or []):
+                if not isinstance(loc, dict):
+                    continue
+                place = (loc.get("name") or "").strip()
+                if not place:
+                    continue
+                out.append({
+                    "side"        : side,
+                    "place_name"  : place,
+                    "coords"      : loc.get("coords") or "",
+                    "person_count": int(loc.get("personCount") or 0),
+                })
+        return out
+
     def detail_names_blocked(self) -> bool:
         return self._detail_blocked
 

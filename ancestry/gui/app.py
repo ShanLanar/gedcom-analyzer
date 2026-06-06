@@ -117,6 +117,13 @@ class AncestryDnaApp(tk.Tk):
         vm.add_command(label="Cluster neu berechnen", command=self._refresh_cluster)
         mb.add_cascade(label="Ansicht", menu=vm)
 
+        am = tk.Menu(mb, tearoff=False)
+        am.add_command(label="Gemeinsame Vorfahren (Überlagerung) …",
+                       command=self._show_ancestor_groups)
+        am.add_command(label="Vorfahren-Gruppen als CSV …",
+                       command=self._export_ancestor_groups)
+        mb.add_cascade(label="Auswertung", menu=am)
+
         hm = tk.Menu(mb, tearoff=False)
         hm.add_command(label="Über …", command=self._show_about)
         mb.add_cascade(label="Hilfe", menu=hm)
@@ -352,6 +359,9 @@ class AncestryDnaApp(tk.Tk):
         self._names_stop_btn = ttk.Button(bf_names, text="⏹ Stoppen",
                                            command=self._stop_download, state="disabled")
         self._names_stop_btn.pack(side="left", padx=4)
+        self._anc_start_btn = ttk.Button(bf_names, text="▶ Vorfahren & Orte laden",
+                                         command=self._start_fetch_ancestors)
+        self._anc_start_btn.pack(side="left", padx=(16,4))
 
         # ── Bereich B: Shared Matches ─────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
@@ -520,6 +530,117 @@ class AncestryDnaApp(tk.Tk):
         self._names_stop_btn.configure(state="disabled")
         self._refresh_match_table()
         messagebox.showinfo("Namen", result.message)
+
+    def _start_fetch_ancestors(self):
+        guid = self._get_kit_guid()
+        if not guid:
+            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            return
+        if not self._client:
+            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            return
+        self._current_test_guid = guid
+        self._anc_start_btn.configure(state="disabled")
+        self._names_stop_btn.configure(state="normal")
+        self._progress_var.set(0)
+        self._scraper = Scraper(self._client, self._db,
+                                on_progress=self._on_progress,
+                                on_status=lambda m: self.after(0, lambda: self._set_status(m)),
+                                on_done=lambda r: self.after(0, lambda: self._on_ancestors_done(r)))
+        self._scraper.start_fetch_ancestors(guid)
+
+    def _on_ancestors_done(self, result: "DownloadResult"):
+        self._anc_start_btn.configure(state="normal")
+        self._names_stop_btn.configure(state="disabled")
+        self._refresh_match_table()
+        messagebox.showinfo("Vorfahren", result.message)
+
+    # ── Überlagerung: gemeinsame Vorfahren ─────────────────────────────────────
+
+    def _current_guid(self):
+        return self._get_kit_guid() or getattr(self, "_current_test_guid", None)
+
+    def _show_ancestor_groups(self):
+        guid = self._current_guid()
+        if not guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+        groups = self._db.get_ancestor_groups(guid, min_matches=2)
+        if not groups:
+            messagebox.showinfo("Keine Daten",
+                "Noch keine geteilten Vorfahren gefunden.\n"
+                "Erst 'Vorfahren & Orte laden' ausführen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Gemeinsame Vorfahren – Überlagerung")
+        win.geometry("820x560")
+
+        ttk.Label(win, text=(f"{len(groups)} Vorfahren werden von mehreren Matches "
+                             f"geteilt – Klick zeigt die Matches:"),
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
+
+        pane = ttk.PanedWindow(win, orient="vertical"); pane.pack(fill="both", expand=True, padx=10, pady=6)
+        top = ttk.Frame(pane); pane.add(top, weight=3)
+        bot = ttk.Frame(pane); pane.add(bot, weight=2)
+
+        cols = ("anc","year","count")
+        tv = ttk.Treeview(top, columns=cols, show="headings", selectmode="browse")
+        for c,(lbl,w) in {"anc":("Gemeinsamer Vorfahr",420),"year":("*Jahr",90),
+                          "count":("# Matches",90)}.items():
+            tv.heading(c, text=lbl); tv.column(c, width=w,
+                       anchor=("center" if c!="anc" else "w"))
+        tv.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(top, orient="vertical", command=tv.yview); sb.pack(side="right", fill="y")
+        tv.configure(yscrollcommand=sb.set)
+
+        self._anc_groups = {}
+        for g in groups:
+            iid = tv.insert("", "end", values=(g["ancestor_name"], g["birth_year"], g["count"]))
+            self._anc_groups[iid] = g
+
+        ttk.Label(bot, text="Matches dieses Vorfahren:",
+                  style="Bold.TLabel").pack(anchor="w", pady=(4,2))
+        detail = tk.Text(bot, height=8, wrap="word", font=("Segoe UI", 9))
+        detail.pack(fill="both", expand=True)
+
+        def on_sel(_):
+            sel = tv.selection()
+            if not sel: return
+            g = self._anc_groups.get(sel[0])
+            detail.delete("1.0","end")
+            if not g: return
+            detail.insert("end", f"{g['ancestor_name']}  (*{g['birth_year'] or '?'})  "
+                                 f"– {g['count']} Matches:\n\n")
+            for guid_m, name, path, cm in sorted(g["matches"], key=lambda x:-(x[3] or 0)):
+                detail.insert("end", f"  • {name or guid_m[:8]}   "
+                                     f"{cm:.0f} cM   Pfad: {path or '?'}\n")
+        tv.bind("<<TreeviewSelect>>", on_sel)
+
+    def _export_ancestor_groups(self):
+        guid = self._current_guid()
+        if not guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+        groups = self._db.get_ancestor_groups(guid, min_matches=2)
+        if not groups:
+            messagebox.showinfo("Keine Daten", "Noch keine geteilten Vorfahren gefunden.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Vorfahren-Gruppen speichern", defaultextension=".csv",
+            filetypes=[("CSV","*.csv")])
+        if not path:
+            return
+        import csv
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f, quoting=csv.QUOTE_ALL)
+            w.writerow(["Gemeinsamer Vorfahr","*Jahr","Anzahl Matches","Match","cM","Pfad"])
+            for g in groups:
+                for guid_m, name, pth, cm in sorted(g["matches"], key=lambda x:-(x[3] or 0)):
+                    w.writerow([g["ancestor_name"], g["birth_year"], g["count"],
+                                name or guid_m, f"{cm:.0f}" if cm else "", pth or ""])
+        messagebox.showinfo("Export", f"{len(groups)} Vorfahren-Gruppen gespeichert.")
+        self._set_status(f"Vorfahren-Gruppen exportiert: {len(groups)}")
 
     def _stop_download(self):
         if self._scraper:

@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 6
+    SCHEMA_VERSION = 7
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -77,6 +77,8 @@ class Database:
                 self._migrate_v3_v4(cur)
             if current < 6:
                 self._migrate_v5_v6(cur)
+            if current < 7:
+                self._migrate_v6_v7(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -128,7 +130,8 @@ class Database:
                 tree_status             TEXT    DEFAULT '',
                 has_common_ancestor     INTEGER DEFAULT 0,
                 match_ucdmid            TEXT    DEFAULT '',
-                gender                  TEXT    DEFAULT ''
+                gender                  TEXT    DEFAULT '',
+                ancestors_fetched       INTEGER DEFAULT 0
             );
 
             CREATE INDEX IF NOT EXISTS idx_matches_test_guid  ON matches(test_guid);
@@ -183,6 +186,122 @@ class Database:
                 cur.execute(f"ALTER TABLE matches ADD COLUMN {col} {typedef}")
             except Exception:
                 pass  # Spalte existiert bereits
+
+    def _migrate_v6_v7(self, cur):
+        """Schema v7: gemeinsame Vorfahren + Geburtsorte (Compare-Seite)."""
+        try:
+            cur.execute("ALTER TABLE matches ADD COLUMN ancestors_fetched INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        cur.executescript("""
+            CREATE TABLE IF NOT EXISTS match_ancestors (
+                test_guid               TEXT NOT NULL,
+                match_guid              TEXT NOT NULL,
+                ancestor_name           TEXT,
+                birth_year              TEXT,
+                death_year              TEXT,
+                is_male                 INTEGER DEFAULT 0,
+                relationship_to_sample  TEXT,
+                relationship_to_match   TEXT,
+                kinship_path_sample     TEXT,
+                kinship_path_match      TEXT,
+                in_match_tree           INTEGER DEFAULT 0,
+                amt_gid                 TEXT,
+                PRIMARY KEY (test_guid, match_guid, ancestor_name, kinship_path_sample)
+            );
+            CREATE INDEX IF NOT EXISTS idx_anc_match ON match_ancestors(match_guid);
+            CREATE INDEX IF NOT EXISTS idx_anc_name  ON match_ancestors(ancestor_name);
+
+            CREATE TABLE IF NOT EXISTS match_birthplaces (
+                test_guid     TEXT NOT NULL,
+                match_guid    TEXT NOT NULL,
+                side          TEXT,
+                place_name    TEXT,
+                coords        TEXT,
+                person_count  INTEGER DEFAULT 0,
+                PRIMARY KEY (test_guid, match_guid, side, place_name)
+            );
+            CREATE INDEX IF NOT EXISTS idx_bp_match ON match_birthplaces(match_guid);
+            CREATE INDEX IF NOT EXISTS idx_bp_place ON match_birthplaces(place_name);
+        """)
+
+    # ── Vorfahren / Geburtsorte (Compare) ──────────────────────────────────────
+
+    def get_matches_needing_ancestors(self, test_guid: str) -> list:
+        """[(match_guid, display_name)] für Matches mit gemeinsamem Vorfahren,
+        die noch nicht abgerufen wurden."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT match_guid, display_name FROM matches "
+                "WHERE test_guid=? AND has_common_ancestor=1 "
+                "AND COALESCE(ancestors_fetched,0)=0 "
+                "ORDER BY shared_cm DESC", (test_guid,))
+            return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]
+
+    def save_match_ancestors(self, test_guid: str, match_guid: str,
+                             ancestors: list, birthplaces: list):
+        """Speichert Vorfahren + Geburtsorte eines Matches (ersetzt vorhandene)."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM match_ancestors WHERE test_guid=? AND match_guid=?",
+                        (test_guid, match_guid))
+            for a in ancestors:
+                cur.execute("""
+                    INSERT OR REPLACE INTO match_ancestors
+                      (test_guid, match_guid, ancestor_name, birth_year, death_year,
+                       is_male, relationship_to_sample, relationship_to_match,
+                       kinship_path_sample, kinship_path_match, in_match_tree, amt_gid)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """, (test_guid, match_guid,
+                      a.get("ancestor_name",""), a.get("birth_year",""),
+                      a.get("death_year",""), 1 if a.get("is_male") else 0,
+                      a.get("relationship_to_sample",""), a.get("relationship_to_match",""),
+                      a.get("kinship_path_sample",""), a.get("kinship_path_match",""),
+                      1 if a.get("in_match_tree") else 0, a.get("amt_gid","")))
+            cur.execute("DELETE FROM match_birthplaces WHERE test_guid=? AND match_guid=?",
+                        (test_guid, match_guid))
+            for b in birthplaces:
+                cur.execute("""
+                    INSERT OR REPLACE INTO match_birthplaces
+                      (test_guid, match_guid, side, place_name, coords, person_count)
+                    VALUES (?,?,?,?,?,?)
+                """, (test_guid, match_guid, b.get("side","match"),
+                      b.get("place_name",""), b.get("coords",""),
+                      int(b.get("person_count",0) or 0)))
+            cur.execute("UPDATE matches SET ancestors_fetched=1 "
+                        "WHERE match_guid=? AND test_guid=?", (match_guid, test_guid))
+
+    def get_ancestors_for_match(self, match_guid: str) -> list:
+        with self._cursor() as cur:
+            cur.execute("SELECT * FROM match_ancestors WHERE match_guid=? "
+                        "ORDER BY length(kinship_path_sample), ancestor_name",
+                        (match_guid,))
+            return [dict(r) for r in cur.fetchall()]
+
+    def get_ancestor_groups(self, test_guid: str, min_matches: int = 2) -> list:
+        """Überlagerung: Vorfahren, die von mehreren Matches geteilt werden.
+        Liefert [{ancestor_name, birth_year, count, matches:[(guid,name,path)]}]."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT a.ancestor_name, a.birth_year,
+                       a.match_guid, m.display_name, a.kinship_path_sample, m.shared_cm
+                FROM match_ancestors a
+                JOIN matches m ON m.match_guid=a.match_guid AND m.test_guid=a.test_guid
+                WHERE a.test_guid=? AND a.ancestor_name<>''
+                ORDER BY a.ancestor_name, a.birth_year, m.shared_cm DESC
+            """, (test_guid,))
+            rows = cur.fetchall()
+        groups: dict = {}
+        for r in rows:
+            key = (r["ancestor_name"], r["birth_year"] or "")
+            g = groups.setdefault(key, {"ancestor_name": r["ancestor_name"],
+                                        "birth_year": r["birth_year"] or "",
+                                        "matches": []})
+            g["matches"].append((r["match_guid"], r["display_name"],
+                                 r["kinship_path_sample"], r["shared_cm"]))
+        out = [dict(count=len(g["matches"]), **g) for g in groups.values()
+               if len(g["matches"]) >= min_matches]
+        out.sort(key=lambda g: g["count"], reverse=True)
+        return out
 
     def _migrate_v2_v3(self, cur):
         """Schema v3: Shared-Matches-Tabelle."""

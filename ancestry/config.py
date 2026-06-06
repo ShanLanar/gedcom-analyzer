@@ -41,6 +41,20 @@ PROFILE_DATA_BATCH = 20   # sampleIds pro Request (wie Ancestry-UI)
 COMMON_ANCESTORS_URL = f"{DNA_LIST_BASE}/commonAncestors/{{test_guid}}"
 TREE_DATA_URL        = f"{DNA_LIST_BASE}/treeData/{{test_guid}}"
 
+# ── Compare-Seite: gemeinsame Vorfahren + Geburtsorte (bestätigt via Spion) ────
+# Beides GET (wie matchList) → kein CSRF nötig.
+#   commonancestors → {"ancestorCouples":[{father,mother}], sampleTree, matchTree}
+#                     je Vorfahr: personData{displayName,birthYear,deathYear,isMale},
+#                     relationshipToSampleId, kinshipPathToSampleId,
+#                     kinshipPathFromSampleToMatch, inMatchTree
+#   completeTreeData → {sample,match}.linkedTree.birthLocations[]
+#                     {name, coords, people[], personCount}
+COMPARE_COMMON_ANCESTORS_URL = (
+    f"{DNA_LIST_BASE}/compare/{{test_guid}}/with/{{match_guid}}/commonancestors")
+COMPARE_TREE_DATA_URL = (
+    f"{BASE_URL}/discoveryui-matches/parents/compare/api"
+    f"/{{test_guid}}/with/{{match_guid}}/completeTreeData")
+
 # ── Match-Detail (Legacy, nicht mehr genutzt) ─────────────────────────────────
 # matchList liefert keine Namen. Wir probieren mehrere Endpunkte der Reihe nach;
 # zuerst den parents/list-Service (selber Host, kein Akamai-Block),

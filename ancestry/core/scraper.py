@@ -67,6 +67,10 @@ class Scraper:
         """Lädt Namen für Matches ohne Namen via curl_cffi nach (kein Playwright)."""
         self._launch("_run_fetch_names", test_guid, min_cm)
 
+    def start_fetch_ancestors(self, test_guid: str):
+        """Lädt gemeinsame Vorfahren + Geburtsorte für Matches mit 👪-Flag."""
+        self._launch("_run_fetch_ancestors", test_guid)
+
     def start_shared(self, test_guid: str,
                      min_cm: float = 0.0, skip_existing: bool = True):
         self._launch("_run_shared", test_guid, min_cm, skip_existing)
@@ -158,6 +162,53 @@ class Scraper:
             self._run_fetch_names(test_guid, 0.0)
             return
 
+        self._on_status(result.message)
+        self._on_done(result)
+
+    def _run_fetch_ancestors(self, test_guid: str):
+        """Holt pro Match (mit gemeinsamem Vorfahren) die Vorfahren + Geburtsorte."""
+        result = DownloadResult()
+        todo = self._db.get_matches_needing_ancestors(test_guid)
+        total = len(todo)
+        self._on_status(f"Vorfahren laden: {total} Matches mit gemeinsamem Vorfahren …")
+        log.info("Vorfahren-Download: %d Matches", total)
+
+        if not todo:
+            result.message = ("Keine offenen Matches mit gemeinsamem Vorfahren. "
+                              "Erst 'Namen & Stammbaum laden' ausführen.")
+            result.success = True
+            self._on_status(result.message)
+            self._on_done(result)
+            return
+
+        for idx, (guid, name) in enumerate(todo, 1):
+            if self._stop.is_set():
+                result.message = f"Abgebrochen nach {idx-1}/{total}."
+                result.success = False
+                break
+
+            try:
+                ancestors   = self._client.get_compare_common_ancestors(test_guid, guid)
+                birthplaces = self._client.get_compare_tree_data(test_guid, guid)
+                self._db.save_match_ancestors(test_guid, guid, ancestors, birthplaces)
+                if ancestors:
+                    result.new += 1
+                result.fetched += 1
+            except Exception as e:
+                log.error("Vorfahren-Fehler %s: %s", guid[:8], e)
+                result.errors += 1
+
+            self._on_progress(idx, total, name or guid[:8])
+            if idx % 10 == 0 or idx == total:
+                self._on_status(f"Vorfahren: {idx}/{total} – "
+                                f"{result.new} mit Vorfahren-Daten …")
+            _time.sleep(NAME_REQUEST_DELAY)
+
+        if not result.message:
+            result.success = True
+            result.message = (f"Vorfahren geladen: {result.new} von {total} Matches "
+                              f"mit Daten ({'abgebrochen' if self._stop.is_set() else 'fertig'}).")
+        log.info(result.message)
         self._on_status(result.message)
         self._on_done(result)
 
