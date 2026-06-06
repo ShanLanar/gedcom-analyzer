@@ -55,6 +55,16 @@ COMPARE_TREE_DATA_URL = (
     f"{BASE_URL}/discoveryui-matches/parents/compare/api"
     f"/{{test_guid}}/with/{{match_guid}}/completeTreeData")
 
+# ── Pedigree / volle Ahnentafel (Tree-Viewer) ─────────────────────────────────
+# /matches/{match}/trees  → {trees:[{treeId, personId(=Fokus), personCount, type}]}
+MATCH_TREES_URL = (
+    f"{BASE_URL}/discoveryui-matches/parents/tests/{{test_guid}}"
+    f"/matches/{{match_guid}}/trees")
+# Pedigree-Ansicht: liefert ~5 Generationen Vorfahren in einer Antwort.
+PEDIGREE_URL = (
+    f"{BASE_URL}/api/treeviewer/tree/{{tree_id}}"
+    f"?focusPersonId={{focus_pid}}&isFocus=true&view=pedigree")
+
 # ── Match-Detail (Legacy, nicht mehr genutzt) ─────────────────────────────────
 # matchList liefert keine Namen. Wir probieren mehrere Endpunkte der Reihe nach;
 # zuerst den parents/list-Service (selber Host, kein Akamai-Block),

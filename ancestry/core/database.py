@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 7
+    SCHEMA_VERSION = 8
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -79,6 +79,8 @@ class Database:
                 self._migrate_v5_v6(cur)
             if current < 7:
                 self._migrate_v6_v7(cur)
+            if current < 8:
+                self._migrate_v7_v8(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -226,6 +228,73 @@ class Database:
         """)
 
     # ── Vorfahren / Geburtsorte (Compare) ──────────────────────────────────────
+
+    def _migrate_v7_v8(self, cur):
+        """Schema v8: volle Ahnentafel (Pedigree, bis ~5 Generationen) je Match."""
+        try:
+            cur.execute("ALTER TABLE matches ADD COLUMN pedigree_fetched INTEGER DEFAULT 0")
+        except Exception:
+            pass
+        cur.executescript("""
+            CREATE TABLE IF NOT EXISTS match_pedigree (
+                test_guid     TEXT NOT NULL,
+                match_guid    TEXT NOT NULL,
+                generation    INTEGER,        -- 1=Match selbst, 2=Eltern, 3=Großeltern …
+                ahnen_path    TEXT,           -- F/M-Pfad ab Fokus, z.B. 'FMF'
+                person_id     TEXT,           -- Ancestry-PersonId im Baum
+                given_name    TEXT,
+                surname       TEXT,
+                is_male       INTEGER DEFAULT 0,
+                birth_year    TEXT,
+                birth_date    TEXT,
+                birth_place   TEXT,
+                death_year    TEXT,
+                death_date    TEXT,
+                death_place   TEXT,
+                PRIMARY KEY (test_guid, match_guid, ahnen_path)
+            );
+            CREATE INDEX IF NOT EXISTS idx_ped_match ON match_pedigree(match_guid);
+            CREATE INDEX IF NOT EXISTS idx_ped_surname ON match_pedigree(surname);
+        """)
+
+    def get_matches_needing_pedigree(self, test_guid: str) -> list:
+        """[(match_guid, display_name)] für Matches mit Baum, deren Pedigree noch fehlt."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT match_guid, display_name FROM matches "
+                "WHERE test_guid=? AND has_tree=1 "
+                "AND COALESCE(pedigree_fetched,0)=0 "
+                "ORDER BY shared_cm DESC", (test_guid,))
+            return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]
+
+    def save_match_pedigree(self, test_guid: str, match_guid: str, ancestors: list):
+        """Speichert die Ahnentafel eines Matches (ersetzt vorhandene). Setzt Flag immer."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM match_pedigree WHERE test_guid=? AND match_guid=?",
+                        (test_guid, match_guid))
+            for a in ancestors:
+                cur.execute("""
+                    INSERT OR REPLACE INTO match_pedigree
+                      (test_guid, match_guid, generation, ahnen_path, person_id,
+                       given_name, surname, is_male, birth_year, birth_date,
+                       birth_place, death_year, death_date, death_place)
+                    VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """, (test_guid, match_guid, a.get("generation", 0),
+                      a.get("ahnen_path", ""), a.get("person_id", ""),
+                      a.get("given_name", ""), a.get("surname", ""),
+                      1 if a.get("is_male") else 0,
+                      a.get("birth_year", ""), a.get("birth_date", ""),
+                      a.get("birth_place", ""), a.get("death_year", ""),
+                      a.get("death_date", ""), a.get("death_place", "")))
+            cur.execute("UPDATE matches SET pedigree_fetched=1 "
+                        "WHERE match_guid=? AND test_guid=?", (match_guid, test_guid))
+
+    def get_pedigree_for_match(self, test_guid: str, match_guid: str) -> list:
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT * FROM match_pedigree WHERE test_guid=? AND match_guid=? "
+                "ORDER BY generation, ahnen_path", (test_guid, match_guid))
+            return [dict(r) for r in cur.fetchall()]
 
     def get_matches_needing_ancestors(self, test_guid: str) -> list:
         """[(match_guid, display_name)] für Matches mit gemeinsamem Vorfahren,

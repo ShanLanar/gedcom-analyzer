@@ -122,6 +122,9 @@ class AncestryDnaApp(tk.Tk):
                        command=self._show_ancestor_groups)
         am.add_command(label="Vorfahren-Gruppen als CSV …",
                        command=self._export_ancestor_groups)
+        am.add_separator()
+        am.add_command(label="Ahnentafel des Matches anzeigen …",
+                       command=self._show_match_pedigree)
         mb.add_cascade(label="Auswertung", menu=am)
 
         hm = tk.Menu(mb, tearoff=False)
@@ -362,6 +365,9 @@ class AncestryDnaApp(tk.Tk):
         self._anc_start_btn = ttk.Button(bf_names, text="▶ Vorfahren & Orte laden",
                                          command=self._start_fetch_ancestors)
         self._anc_start_btn.pack(side="left", padx=(16,4))
+        self._ped_start_btn = ttk.Button(bf_names, text="▶ Ahnentafeln laden",
+                                         command=self._start_fetch_pedigrees)
+        self._ped_start_btn.pack(side="left", padx=4)
 
         # ── Bereich B: Shared Matches ─────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
@@ -556,6 +562,30 @@ class AncestryDnaApp(tk.Tk):
         self._refresh_match_table()
         messagebox.showinfo("Vorfahren", result.message)
 
+    def _start_fetch_pedigrees(self):
+        guid = self._get_kit_guid()
+        if not guid:
+            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            return
+        if not self._client:
+            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            return
+        self._current_test_guid = guid
+        self._ped_start_btn.configure(state="disabled")
+        self._names_stop_btn.configure(state="normal")
+        self._progress_var.set(0)
+        self._scraper = Scraper(self._client, self._db,
+                                on_progress=self._on_progress,
+                                on_status=lambda m: self.after(0, lambda: self._set_status(m)),
+                                on_done=lambda r: self.after(0, lambda: self._on_pedigrees_done(r)))
+        self._scraper.start_fetch_pedigrees(guid)
+
+    def _on_pedigrees_done(self, result: "DownloadResult"):
+        self._ped_start_btn.configure(state="normal")
+        self._names_stop_btn.configure(state="disabled")
+        self._refresh_match_table()
+        messagebox.showinfo("Ahnentafeln", result.message)
+
     # ── Überlagerung: gemeinsame Vorfahren ─────────────────────────────────────
 
     def _current_guid(self):
@@ -642,6 +672,53 @@ class AncestryDnaApp(tk.Tk):
                                 name or guid_m, f"{cm:.0f}" if cm else "", pth or ""])
         messagebox.showinfo("Export", f"{len(groups)} Vorfahren-Gruppen gespeichert.")
         self._set_status(f"Vorfahren-Gruppen exportiert: {len(groups)}")
+
+    # ── Ahnentafel eines Matches ────────────────────────────────────────────────
+
+    def _show_match_pedigree(self):
+        if not self._selected_match:
+            messagebox.showinfo("Kein Match", "Bitte zuerst einen Match in der Tabelle wählen.")
+            return
+        guid = self._selected_match.match_guid
+        test_guid = self._current_guid()
+        rows = self._db.get_pedigree_for_match(test_guid, guid)
+        if not rows:
+            messagebox.showinfo("Keine Ahnentafel",
+                "Für diesen Match ist noch keine Ahnentafel geladen.\n"
+                "Erst '▶ Ahnentafeln laden' ausführen (Match braucht einen Baum).")
+            return
+
+        win = tk.Toplevel(self)
+        win.title(f"Ahnentafel – {self._selected_match.display_name}")
+        win.geometry("760x560")
+        ttk.Label(win, text=(f"{len(rows)} Vorfahren von "
+                             f"{self._selected_match.display_name}:"),
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
+
+        cols = ("gen", "rel", "name", "birth", "death")
+        tv = ttk.Treeview(win, columns=cols, show="headings")
+        for c,(lbl,w) in {"gen":("Gen.",45), "rel":("Linie",90),
+                          "name":("Name",300), "birth":("* Geburt",150),
+                          "death":("† Tod",150)}.items():
+            tv.heading(c, text=lbl)
+            tv.column(c, width=w, anchor=("w" if c in ("name","birth","death") else "center"))
+        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
+        sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
+
+        def _rel(path):
+            # F/M-Pfad → lesbare Linie
+            if path == "":
+                return "Match"
+            return path  # z.B. FMF
+        for r in rows:
+            name = (f"{r['given_name']} {r['surname']}".strip()) or "(lebend/privat)"
+            b = " ".join(x for x in (r["birth_date"] or r["birth_year"],
+                                     r["birth_place"]) if x).strip()
+            d = " ".join(x for x in (r["death_date"] or r["death_year"],
+                                     r["death_place"]) if x).strip()
+            tv.insert("", "end", values=(r["generation"], _rel(r["ahnen_path"]),
+                                         name, b, d))
 
     def _stop_download(self):
         if self._scraper:

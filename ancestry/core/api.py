@@ -391,6 +391,119 @@ class AncestryApiClient:
                 })
         return out
 
+    # ── Pedigree: volle Ahnentafel (Tree-Viewer) ───────────────────────────────
+
+    def get_match_tree_link(self, test_guid: str, match_guid: str) -> Optional[tuple]:
+        """Liefert (tree_id, focus_person_id, person_count) des verknüpften Baums."""
+        url = cfg.MATCH_TREES_URL.format(test_guid=test_guid, match_guid=match_guid)
+        r = _api_get(self._s, url)
+        if not r or r.status_code != 200:
+            return None
+        try:
+            trees = (r.json() or {}).get("trees") or []
+        except Exception:
+            return None
+        # bevorzugt den verknüpften Baum mit Person-Verknüpfung
+        linked = [t for t in trees if t.get("personId")]
+        linked.sort(key=lambda t: (t.get("type") != "linked",
+                                   -(t.get("personCount") or 0)))
+        if not linked:
+            return None
+        t = linked[0]
+        return (str(t.get("treeId")), str(t.get("personId")),
+                int(t.get("personCount") or 0))
+
+    @staticmethod
+    def _pedigree_person(p: dict) -> dict:
+        """Extrahiert Name/Geschlecht/Geburt/Tod aus einem Tree-Viewer-Person-Objekt."""
+        n = (p.get("Names") or [{}])[0]
+        given   = "" if n.get("veiled") else (n.get("g") or "").strip()
+        surname = "" if n.get("veiled") else (n.get("s") or "").strip()
+        gender  = ((p.get("Genders") or [{}])[0].get("g") or "").lower()
+        out = {"given_name": given, "surname": surname,
+               "is_male": gender == "m",
+               "birth_year": "", "birth_date": "", "birth_place": "",
+               "death_year": "", "death_date": "", "death_place": ""}
+        for e in (p.get("Events") or []):
+            t = e.get("t")
+            if t not in ("Birth", "Death"):
+                continue
+            if e.get("veiled"):
+                continue
+            nd = (e.get("nd") or "")
+            dd = (e.get("d") or "")
+            place = (e.get("p") or "")
+            year = nd[:4] if nd[:4].isdigit() else ""
+            if t == "Birth":
+                out["birth_year"], out["birth_date"], out["birth_place"] = year, dd, place
+            else:
+                out["death_year"], out["death_date"], out["death_place"] = year, dd, place
+        return out
+
+    def get_pedigree(self, test_guid: str, match_guid: str,
+                     max_generations: int = 5) -> list:
+        """Volle Ahnentafel eines Matches: walkt F/M ab Fokus.
+        Liefert [{generation, ahnen_path, person_id, given_name, surname,
+                  is_male, birth_*, death_*}]."""
+        link = self.get_match_tree_link(test_guid, match_guid)
+        if not link:
+            return []
+        tree_id, focus_pid, _ = link
+        url = cfg.PEDIGREE_URL.format(tree_id=tree_id, focus_pid=focus_pid)
+        r = _api_get(self._s, url)
+        if not r or r.status_code != 200:
+            return []
+        try:
+            data = r.json()
+        except Exception:
+            return []
+
+        if not getattr(self, "_logged_ped_sample", False):
+            self._logged_ped_sample = True
+            persons = data.get("Persons") or []
+            log.info("pedigree-BEISPIEL: tree=%s focus=%s, %d Personen",
+                     tree_id, focus_pid, len(persons))
+
+        def _pid(g):
+            try:
+                return (g or {}).get("v", "").split(":")[0]
+            except Exception:
+                return ""
+
+        by_id = {}
+        for p in (data.get("Persons") or []):
+            pid = _pid(p.get("gid"))
+            if pid:
+                by_id[pid] = p
+        if focus_pid not in by_id:
+            return []
+
+        out, seen = [], set()
+        # Breitensuche entlang Vater(F)/Mutter(M)
+        queue = [(focus_pid, 1, "")]
+        while queue:
+            pid, gen, path = queue.pop(0)
+            if pid in seen or gen > max_generations:
+                continue
+            seen.add(pid)
+            p = by_id.get(pid)
+            if not p:
+                continue
+            rec = self._pedigree_person(p)
+            rec.update(generation=gen, ahnen_path=path, person_id=pid)
+            out.append(rec)
+            father = mother = None
+            for fam in (p.get("Family") or []):
+                if fam.get("t") == "F":
+                    father = _pid(fam.get("tgid"))
+                elif fam.get("t") == "M":
+                    mother = _pid(fam.get("tgid"))
+            if father:
+                queue.append((father, gen + 1, path + "F"))
+            if mother:
+                queue.append((mother, gen + 1, path + "M"))
+        return out
+
     def detail_names_blocked(self) -> bool:
         return self._detail_blocked
 
