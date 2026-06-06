@@ -104,9 +104,11 @@ def fuzzy_score(a: "Person", b: "Person", year_tol: int = 3) -> float:
     if s_hits == 0:
         return 0.0
 
-    # Vorname: unscharfe Token-Überlappung (Rufname reicht)
+    # Vorname: Rufname-tauglich – ist der kürzere Namenssatz im längeren
+    # enthalten (z.B. 'Friedrich' ⊂ 'Heinrich Friedrich Wilhelm'), zählt das stark.
     if a.gtoks and b.gtoks:
-        g_overlap, _ = _fuzzy_overlap(a.gtoks, b.gtoks)
+        _, g_hits = _fuzzy_overlap(a.gtoks, b.gtoks)
+        g_overlap = g_hits / min(len(a.gtoks), len(b.gtoks))
     else:
         g_overlap = 0.4  # ein Vorname fehlt → neutral-leicht
 
@@ -210,6 +212,37 @@ def render_kinship(path: str) -> str:
     base = "Urgroßvater" if male else "Urgroßmutter"
     label = ("Ur-" * (g - 3)) + base
     return label + " " + side
+
+
+def merge_person_list(persons: list, thresh: float = 0.72) -> list:
+    """Verschmilzt überlappende Personen (Schreibvarianten) zu kanonischen Gruppen.
+    persons: Person-Objekte (ref trägt Herkunft). Liefert
+    [{'rep':Person, 'items':[Person,...]}] – je Gruppe = eine reale Person."""
+    groups = []
+    by_pre = {}  # Nachnamen-Präfix[:4] -> Liste Gruppen-Indizes
+    for p in persons:
+        cand = set()
+        for t in p.stoks:
+            if len(t) >= 3:
+                for gi in by_pre.get(t[:4], ()):
+                    cand.add(gi)
+        best_gi, best_s = None, thresh
+        for gi in cand:
+            s = fuzzy_score(p, groups[gi]["rep"])
+            if s >= best_s:
+                best_s, best_gi = s, gi
+        if best_gi is None:
+            gi = len(groups)
+            groups.append({"rep": p, "items": [p]})
+            for t in p.stoks:
+                if len(t) >= 3:
+                    by_pre.setdefault(t[:4], []).append(gi)
+        else:
+            groups[best_gi]["items"].append(p)
+            # längeren Namen als Repräsentant bevorzugen
+            if len(p.display) > len(groups[best_gi]["rep"].display):
+                groups[best_gi]["rep"] = p
+    return groups
 
 
 def find_root_candidate(people: list, name_query: str):

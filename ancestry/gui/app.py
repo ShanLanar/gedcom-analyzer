@@ -995,6 +995,19 @@ class AncestryDnaApp(tk.Tk):
         ttk.Button(top, text="⤓ Cluster tiefer laden (8 Gen.)",
                    command=deepen_cluster).pack(side="left", padx=4)
 
+        def combined_tree():
+            sel = tv.selection()
+            if not sel:
+                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                return
+            c = store.get(sel[0])
+            if not c:
+                return
+            self._build_cluster_tree(test_guid, c)
+
+        ttk.Button(top, text="🌳 Cluster-Stammbaum kombinieren",
+                   command=combined_tree).pack(side="left", padx=4)
+
         def on_sel(_):
             sel = tv.selection()
             if not sel: return
@@ -1027,6 +1040,122 @@ class AncestryDnaApp(tk.Tk):
                                      "Ahnentafeln für diese Matches laden)\n")
         tv.bind("<<TreeviewSelect>>", on_sel)
         reload()
+
+    def _build_cluster_tree(self, test_guid, cluster):
+        """Verschmilzt die Ahnentafeln aller Cluster-Mitglieder zu einem
+        kombinierten Cluster-Stammbaum und zeigt Konvergenz + Andockpunkt."""
+        import threading
+        from core.treematch import Person, merge_person_list, render_kinship
+        guids = [g for g, _n, _cm in cluster["members"]]
+        cm_by_member = {g: cm for g, _n, cm in cluster["members"]}
+        name_by_member = {g: n for g, n, _cm in cluster["members"]}
+        ged = getattr(self, "_gedcom", None)
+        self._set_status("Kombiniere Cluster-Stammbaum …")
+
+        def _worker():
+            persons = []
+            n_with_ped = 0
+            for guid in guids:
+                rows = [r for r in self._db.get_pedigree_for_match(test_guid, guid)
+                        if (r["generation"] or 0) >= 2]
+                if rows:
+                    n_with_ped += 1
+                for r in rows:
+                    p = Person(r["given_name"], r["surname"],
+                               r["birth_year"], r["birth_place"],
+                               ref=(guid, r["generation"]))
+                    if p.stoks:
+                        persons.append(p)
+            groups = merge_person_list(persons)
+
+            index = ged["index"] if ged else None
+            amap = ged["amap"] if ged else {}
+            rows_out = []
+            for grp in groups:
+                members = {it.ref[0] for it in grp["items"]}
+                gen = min(it.ref[1] for it in grp["items"])
+                rep = grp["rep"]
+                own = path = None
+                score = 0.0
+                if index:
+                    own, score = index.best_match(rep, min_score=0.6)
+                    if own:
+                        path = amap.get(own.ref)
+                rows_out.append({
+                    "rep": rep, "members": members, "gen": gen,
+                    "own": own, "path": path, "score": score,
+                    "cms": sorted((cm_by_member.get(m, 0) for m in members),
+                                  reverse=True),
+                })
+            # Konvergenz zuerst: von vielen geteilt, dann jüngste Generation
+            rows_out.sort(key=lambda r: (-len(r["members"]), r["gen"]))
+            self.after(0, lambda: self._show_cluster_tree_win(
+                cluster, rows_out, n_with_ped, bool(ged), name_by_member))
+
+        threading.Thread(target=_worker, daemon=True, name="cluster-tree").start()
+
+    def _show_cluster_tree_win(self, cluster, rows, n_with_ped, has_ged, name_by_member):
+        from core.treematch import render_kinship
+        win = tk.Toplevel(self)
+        win.title("Kombinierter Cluster-Stammbaum")
+        win.geometry("960x640")
+        size = cluster["size"]
+        shared = [r for r in rows if len(r["members"]) >= 2]
+        ttk.Label(win, text=(f"Cluster: {size} Matches ({n_with_ped} mit Ahnentafel) · "
+                             f"{len(rows)} Personen verschmolzen · "
+                             f"{len(shared)} von ≥2 Mitgliedern geteilt"),
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,2))
+
+        # Andockpunkt: geteilter Vorfahr auf deiner direkten Linie, jüngster
+        if has_ged:
+            dock = [r for r in shared if r["path"] is not None]
+            dock.sort(key=lambda r: (len(r["path"]), -len(r["members"])))
+            if dock:
+                d = dock[0]
+                ttk.Label(win, text=(f"➡  Andockpunkt: {d['own'].display} "
+                                     f"({render_kinship(d['path'])}) – geteilt von "
+                                     f"{len(d['members'])} Mitgliedern"),
+                          style="Bold.TLabel",
+                          foreground=COLORS.get("primary","#1b5e20")
+                          ).pack(anchor="w", padx=10, pady=(0,4))
+            else:
+                ttk.Label(win, text="Kein geteilter Vorfahr auf deiner direkten "
+                          "Linie – evtl. tiefer laden.", foreground="#a05a00"
+                          ).pack(anchor="w", padx=10, pady=(0,4))
+        else:
+            ttk.Label(win, text="(GEDCOM nicht geladen → keine Andock-Spalte. "
+                      "Erst 'Cluster-Linie in meinem Baum suchen' nutzt den Baum.)",
+                      foreground="#888").pack(anchor="w", padx=10, pady=(0,4))
+
+        cols = ("person","shared","gen","cms","dock")
+        tv = ttk.Treeview(win, columns=cols, show="headings")
+        for c,(lbl,w) in {"person":("Vorfahr (verschmolzen)",300),
+                          "shared":("geteilt von",90),"gen":("Gen",50),
+                          "cms":("cM der Mitglieder",150),
+                          "dock":("= in deinem Baum (Sosa)",260)}.items():
+            tv.heading(c, text=lbl)
+            tv.column(c, width=w, anchor=("center" if c in ("shared","gen") else "w"))
+        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
+        sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
+        tv.tag_configure("shared", background="#fff3b0")   # Konvergenz
+        tv.tag_configure("dock", background="#d8f0d8")      # dockt direkt an
+
+        for r in rows:
+            rep = r["rep"]
+            indent = "  " * max(0, r["gen"] - 2)
+            disp = f"{indent}{rep.display}" + (f"  (*{rep.year})" if rep.year else "")
+            nshare = len(r["members"])
+            dock = ""
+            if r["path"] is not None:
+                dock = f"{r['own'].display} – {render_kinship(r['path'])}"
+            elif r["own"] is not None:
+                dock = f"{r['own'].display} (Seitenlinie)"
+            cms = ", ".join(f"{c:.0f}" for c in r["cms"][:6])
+            tag = ("dock",) if r["path"] is not None else \
+                  (("shared",) if nshare >= 2 else ())
+            tv.insert("", "end", tags=tag, values=(
+                disp, f"{nshare}/{size}", r["gen"], cms, dock))
 
     def _show_cluster_dock(self, cluster, hits, n_with_ped):
         """Zeigt, wo die Cluster-Mitglieder in deinem Baum andocken.
