@@ -137,16 +137,61 @@ class AncestryApiClient:
 
         payload = {"matchSampleIds": list(sample_ids)}
 
+        # Einmalig: verfügbare Cookie-Namen loggen (Diagnose)
+        if not getattr(self, "_logged_cookies", False):
+            self._logged_cookies = True
+            cookie_names = sorted(self._s.cookies.keys())
+            log.info("profileData: %d Cookies geladen: %s", len(cookie_names), cookie_names)
+            csrf_found = any("csrf" in n.lower() or "xsrf" in n.lower()
+                             for n in cookie_names)
+            if not csrf_found:
+                log.warning("profileData: Kein CSRF-Cookie gefunden! "
+                            "Ancestry-Seite im Browser aufrufen und Cookies neu exportieren.")
+
         for attempt in range(MAX_RETRIES):
             try:
                 r = self._s.post(url, json=payload, headers=headers,
-                                 timeout=cfg.REQUEST_TIMEOUT)
+                                 timeout=cfg.REQUEST_TIMEOUT,
+                                 allow_redirects=False)
             except Exception as e:
                 delay = _jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
                 log.warning("profileData Versuch %d/%d Fehler: %s → %.0fs …",
                             attempt+1, MAX_RETRIES, e, delay)
                 time.sleep(delay)
                 continue
+
+            if r.status_code in (301, 302, 303, 307, 308):
+                location = r.headers.get("Location", "?")
+                log.warning("profileData HTTP %s → Redirect nach: %s",
+                            r.status_code, location)
+                # Versuche dem Redirect zu folgen (GET auf Location-URL)
+                try:
+                    r2 = self._s.get(location, headers={
+                        "Accept": "application/json",
+                        "Referer": url,
+                    }, timeout=cfg.REQUEST_TIMEOUT, allow_redirects=True)
+                    log.debug("profileData Redirect-Ziel HTTP %s (%d Bytes)",
+                              r2.status_code, len(r2.content))
+                    if r2.status_code == 200:
+                        try:
+                            data = r2.json()
+                            names = {}
+                            for sid, info in (data or {}).items():
+                                name = self._pick_name(info)
+                                if name:
+                                    names[sid] = name
+                            if names:
+                                return names
+                        except Exception:
+                            log.debug("profileData Redirect-Ziel ist kein JSON: %s",
+                                      r2.text[:200])
+                except Exception as e2:
+                    log.debug("profileData Redirect-Abruf fehlgeschlagen: %s", e2)
+                # Redirect war kein API-Ergebnis → Session ungültig
+                log.error("profileData: Redirect deutet auf ungültige Session hin. "
+                          "Bitte ancestry.json mit geöffneter DNA-Matches-Seite neu exportieren.")
+                self._detail_blocked = True
+                return {}
 
             if r.status_code == 429:
                 retry_after = int(r.headers.get("Retry-After", 0))
