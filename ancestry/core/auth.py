@@ -20,18 +20,24 @@ import config as cfg
 
 log = logging.getLogger(__name__)
 
-CHROME_VERSIONS = ["chrome148", "chrome136", "chrome131", "chrome127", "chrome124"]
+CHROME_VERSIONS = ["chrome136", "chrome131", "chrome127", "chrome124"]
 
 def _best_chrome_version() -> str:
-    """Gibt die neueste verfügbare curl_cffi Chrome-Impersonation zurück."""
+    """Gibt die neueste tatsächlich funktionierende curl_cffi Chrome-Version zurück."""
     if not CURL_AVAILABLE:
         return "chrome124"
     for ver in CHROME_VERSIONS:
         try:
-            cfr.Session(impersonate=ver)
+            s = cfr.Session(impersonate=ver)
+            # Session-Erstellung allein reicht nicht – echten Request testen
+            s.head("https://www.ancestry.com/", timeout=8)
             return ver
-        except Exception:
-            continue
+        except Exception as e:
+            if "not supported" in str(e).lower() or "impersonat" in str(e).lower():
+                log.debug("curl_cffi: %s nicht unterstützt, versuche nächste Version", ver)
+                continue
+            # Netzwerkfehler o.ä. – Version selbst ist ok
+            return ver
     return "chrome124"
 
 CHROME_VERSION = _best_chrome_version()
