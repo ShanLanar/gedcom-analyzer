@@ -250,6 +250,19 @@ class AncestryApiClient:
         except Exception as e:
             log.error("profileData JSON-Fehler: %s | %s", e, r.text[:200])
             return {}
+
+        # Einmalige Diagnose: alle Felder eines profileData-Eintrags zeigen,
+        # damit wir sehen, ob Baum-Status / Personenzahl / gemeinsamer Vorfahre
+        # mitgeliefert werden.
+        if data and not getattr(self, "_logged_pd_sample", False):
+            self._logged_pd_sample = True
+            import json as _dj
+            first = next(iter(data.values()), {})
+            log.info("profileData-FELDER: %s", sorted(first.keys())
+                     if isinstance(first, dict) else type(first))
+            log.info("profileData-BEISPIEL: %s",
+                     _dj.dumps(first, ensure_ascii=False)[:1500])
+
         names = {}
         for sid, info in (data or {}).items():
             name = self._pick_name(info)
@@ -404,9 +417,9 @@ class AncestryApiClient:
                 self._logged_fields = True
                 import json as _dbgj
                 sample = raw[0]
-                log.debug("Match-Felder: top-level=%s", sorted(sample.keys()))
-                log.debug("  RAW (1. Match): %s",
-                          _dbgj.dumps(sample, ensure_ascii=False)[:2000])
+                log.info("matchList-FELDER: %s", sorted(sample.keys()))
+                log.info("matchList-BEISPIEL: %s",
+                         _dbgj.dumps(sample, ensure_ascii=False)[:2000])
             for item in raw:
                 m = DnaMatch.from_api_response(item, test_guid, fetched_at)
                 if m.match_guid:
