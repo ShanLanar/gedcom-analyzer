@@ -1013,21 +1013,27 @@ class AncestryDnaApp(tk.Tk):
             results = []
             items = list(peds.items())
             for i, (guid, info) in enumerate(items, 1):
-                best = None  # (score, ped_row, own_person)
+                # Alle Treffer der Match-Ahnentafel im eigenen Baum sammeln
+                cands = []  # (score, ped_row, own_person, self_path)
                 for r in info["rows"]:
                     q = Person(r["given_name"], r["surname"],
                                r["birth_year"], r["birth_place"])
                     if not q.stoks:
                         continue
                     own, score = index.best_match(q, min_score=0.6)
-                    if own and (best is None or score > best[0]
-                                or (score == best[0] and r["generation"] < best[1]["generation"])):
-                        best = (score, r, own)
-                if best:
-                    own = best[2]
-                    path_self = amap.get(own.ref)
-                    kin = render_kinship(path_self) if path_self is not None else ""
-                    results.append((info["name"], info["cm"], best, kin))
+                    if own:
+                        cands.append((score, r, own, amap.get(own.ref)))
+                if cands:
+                    # MRCA: Treffer auf deiner DIREKTEN Linie bevorzugen, davon den
+                    # JÜNGSTEN (kürzester Ahnenpfad); sonst bester Score.
+                    direct = [c for c in cands if c[3] is not None]
+                    if direct:
+                        best = min(direct, key=lambda c: (len(c[3]), -c[0]))
+                    else:
+                        best = max(cands, key=lambda c: (c[0], -c[1]["generation"]))
+                    kin = render_kinship(best[3]) if best[3] is not None else ""
+                    results.append((info["name"], info["cm"], best, kin,
+                                    info.get("linked", False)))
                 if i % 20 == 0 or i == len(items):
                     self.after(0, lambda i=i: self._set_status(
                         f"GEDCOM-Abgleich: {i}/{len(items)} Matches geprüft …"))
@@ -1040,30 +1046,38 @@ class AncestryDnaApp(tk.Tk):
         win = tk.Toplevel(self)
         win.title("GEDCOM-Abgleich – wo hängt jeder Match in deinem Baum?")
         win.geometry("960x600")
-        ttk.Label(win, text=(f"Eigener Baum: {n_people} Personen · "
-                             f"{len(results)} von {n_peds} Matches mit Ahnentafel "
-                             f"im eigenen Baum verankert:"),
-                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
+        n_new = sum(1 for r in results if not r[4])
+        hdr = ttk.Label(win, text=(
+            f"Eigener Baum: {n_people} Personen · {len(results)} von {n_peds} "
+            f"Matches verankert · davon {n_new} noch NICHT in Ancestry verknüpft "
+            f"(orange = neue Leads):"),
+            style="Bold.TLabel")
+        hdr.pack(anchor="w", padx=10, pady=(10,4))
 
-        cols = ("match","cm","anchor","abirth","kin","line","score")
+        cols = ("link","match","cm","anchor","abirth","kin","line","score")
         tv = ttk.Treeview(win, columns=cols, show="headings")
-        heads = {"match":("Match",180),"cm":("cM",50),
-                 "anchor":("Anknüpfung in deinem Baum",200),
-                 "abirth":("* Anknüpfung",130),
-                 "kin":("Deine Linie",180),"line":("Match-Linie",80),
-                 "score":("Sicherheit",70)}
+        heads = {"link":("Verknüpft",75),"match":("Match",170),"cm":("cM",50),
+                 "anchor":("Anknüpfung in deinem Baum",190),
+                 "abirth":("* Anknüpfung",120),
+                 "kin":("Deine Linie",170),"line":("Match-Linie",75),
+                 "score":("Sicherheit",65)}
         for c,(lbl,w) in heads.items():
             tv.heading(c, text=lbl)
-            tv.column(c, width=w, anchor=("center" if c in ("cm","line","score") else "w"))
+            tv.column(c, width=w, anchor=("center" if c in ("cm","line","score","link") else "w"))
         tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
         sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
         sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
         tv.tag_configure("strong", background="#d8f0d8")
+        tv.tag_configure("newlead", background="#fde9c8")  # neu: noch nicht verknüpft
 
-        for name, cm, (score, r, own), kin in results:
+        for name, cm, (score, r, own, _p), kin, linked in results:
             ab = " ".join(x for x in (str(own.year or ""), own.place) if x).strip()
-            tag = ("strong",) if score >= 0.8 else ()
+            if linked:
+                tag = ("strong",) if score >= 0.8 else ()
+            else:
+                tag = ("newlead",)
             tv.insert("", "end", tags=tag, values=(
+                "✓ im Baum" if linked else "neu?",
                 name or "?", f"{(cm or 0):.0f}", own.display, ab,
                 kin or "—", r["ahnen_path"] or "?", f"{score:.2f}"))
 

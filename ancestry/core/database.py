@@ -322,11 +322,13 @@ class Database:
             return [dict(r) for r in cur.fetchall()]
 
     def get_all_pedigrees(self, test_guid: str) -> dict:
-        """{match_guid: {"name", "cm", "rows":[...]}} für alle geladenen Ahnentafeln
-        (ohne Generation 1 = der Match selbst)."""
+        """{match_guid: {"name","cm","linked","rows":[...]}} für alle geladenen
+        Ahnentafeln (ohne Generation 1 = der Match selbst).
+        linked = Ancestry hat den Match im Baum verortet (has_common_ancestor)."""
         with self._cursor() as cur:
             cur.execute("""
-                SELECT p.match_guid, m.display_name, m.shared_cm, p.generation,
+                SELECT p.match_guid, m.display_name, m.shared_cm,
+                       m.has_common_ancestor, p.generation,
                        p.ahnen_path, p.given_name, p.surname, p.birth_year,
                        p.birth_place, p.death_year
                 FROM match_pedigree p
@@ -338,7 +340,8 @@ class Database:
         out: dict = {}
         for r in rows:
             g = out.setdefault(r["match_guid"], {
-                "name": r["display_name"], "cm": r["shared_cm"], "rows": []})
+                "name": r["display_name"], "cm": r["shared_cm"],
+                "linked": bool(r["has_common_ancestor"]), "rows": []})
             g["rows"].append(dict(r))
         return out
 
