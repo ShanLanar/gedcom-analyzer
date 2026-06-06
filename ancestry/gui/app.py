@@ -1022,6 +1022,19 @@ class AncestryDnaApp(tk.Tk):
         ttk.Button(top, text="🌳 Cluster-Stammbaum kombinieren",
                    command=combined_tree).pack(side="left", padx=4)
 
+        def internal_rels():
+            sel = tv.selection()
+            if not sel:
+                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                return
+            c = store.get(sel[0])
+            if not c:
+                return
+            self._show_cluster_relationships(test_guid, c)
+
+        ttk.Button(top, text="👥 Beziehungen im Cluster",
+                   command=internal_rels).pack(side="left", padx=4)
+
         def on_sel(_):
             sel = tv.selection()
             if not sel: return
@@ -1284,6 +1297,47 @@ class AncestryDnaApp(tk.Tk):
                   (("shared",) if nshare >= 2 else ())
             tv.insert("", "end", tags=tag, values=(
                 disp, f"{nshare}/{size}", r["gen"], cms, dock))
+
+    def _show_cluster_relationships(self, test_guid, cluster):
+        """Interne Beziehungs-Struktur: paarweise cM zwischen Cluster-Mitgliedern
+        → wer ist mit wem wie verwandt (Eltern/Kind, Geschwister, Cousin …)."""
+        from core.treematch import pair_relationship
+        guids = [g for g, _n, _cm in cluster["members"]]
+        name = {g: n for g, n, _cm in cluster["members"]}
+        pairs = self._db.get_pairwise_shared(test_guid, guids)
+
+        win = tk.Toplevel(self)
+        win.title("Beziehungen im Cluster (interne Struktur)")
+        win.geometry("760x540")
+        ttk.Label(win, text=(f"{cluster['size']} Mitglieder · {len(pairs)} bekannte "
+                             f"Paar-Beziehungen (aus geteilten cM untereinander):"),
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,2))
+        ttk.Label(win, text="Hohe cM = nah (Eltern/Kind, Geschwister) → engere "
+                  "Teil-Familien im Cluster. Hilft, die Struktur zu rekonstruieren.",
+                  foreground="#555").pack(anchor="w", padx=10, pady=(0,4))
+
+        if not pairs:
+            ttk.Label(win, text="Keine paarweisen cM gespeichert. Dafür müssen die "
+                      "Shared Matches der Mitglieder geladen sein (Schritt B).",
+                      foreground="#a05a00").pack(anchor="w", padx=10, pady=8)
+            return
+
+        cols = ("a","b","cm","rel")
+        tv = ttk.Treeview(win, columns=cols, show="headings")
+        for c,(lbl,w) in {"a":("Match A",200),"b":("Match B",200),
+                          "cm":("cM A↔B",80),"rel":("Beziehung",230)}.items():
+            tv.heading(c, text=lbl)
+            tv.column(c, width=w, anchor=("center" if c=="cm" else "w"))
+        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
+        sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
+        tv.tag_configure("close", background="#d8f0d8")
+
+        for a, b, cm in pairs:
+            tag = ("close",) if cm >= 200 else ()
+            tv.insert("", "end", tags=tag, values=(
+                name.get(a, a[:8]), name.get(b, b[:8]),
+                f"{cm:.0f}", pair_relationship(cm)))
 
     def _show_cluster_dock(self, cluster, hits, n_with_ped):
         """Zeigt, wo die Cluster-Mitglieder in deinem Baum andocken.

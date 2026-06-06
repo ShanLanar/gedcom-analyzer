@@ -356,6 +356,27 @@ def cluster_confidence(size: int, density: float, median_cm: float = 0.0,
             "label": label, "note": note, "endogamy": endogamy_score}
 
 
+def pair_relationship(cm: float) -> str:
+    """Grobe Verwandtschaft ZWEIER Personen aus geteilten cM (Shared-cM-Project).
+    Für die interne Cluster-Struktur (z.B. Eltern/Kind, Geschwister, Cousin)."""
+    c = cm or 0
+    for thr, label in [
+        (2400, "Eltern/Kind o. Vollgeschwister"),
+        (1450, "Geschwister/Großeltern/Onkel/Tante"),
+        (850,  "Onkel/Tante o. Halbgeschwister"),
+        (550,  "1. Cousin o. Großonkel"),
+        (300,  "1C / 1C1R"),
+        (150,  "1C1R / 2. Cousin"),
+        (75,   "2. Cousin / 2C1R"),
+        (40,   "2C1R / 3. Cousin"),
+        (20,   "3. / 4. Cousin"),
+        (0,    "entfernt (4C+)"),
+    ]:
+        if c >= thr:
+            return label
+    return "entfernt"
+
+
 def cm_to_mrca(cm: float):
     """Schätzt aus geteilten cM die Beziehung und die Pedigree-Generation des
     gemeinsamen Vorfahren (Wurzel=Gen 1). Basiert auf Shared-cM-Project-Mittelwerten.

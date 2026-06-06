@@ -868,6 +868,33 @@ class Database:
         out.sort(key=lambda c: c["size"], reverse=True)
         return out
 
+    def get_pairwise_shared(self, test_guid: str, guids: list) -> list:
+        """Paarweise geteilte cM ZWISCHEN Cluster-Mitgliedern (shared_cm_ab).
+        Liefert [(guid_a, guid_b, cm)] – für die interne Beziehungs-Struktur."""
+        if not guids:
+            return []
+        gset = set(guids)
+        qmarks = ",".join("?" * len(guids))
+        with self._cursor() as cur:
+            cur.execute(f"""
+                SELECT match_guid_a, match_guid_b, shared_cm_ab
+                FROM shared_matches
+                WHERE test_guid=? AND match_guid_a IN ({qmarks})
+                  AND match_guid_b IN ({qmarks}) AND shared_cm_ab > 0
+            """, (test_guid, *guids, *guids))
+            seen, out = set(), []
+            for r in cur.fetchall():
+                a, b = r["match_guid_a"], r["match_guid_b"]
+                if a not in gset or b not in gset:
+                    continue
+                key = (a, b) if a < b else (b, a)
+                if key in seen:
+                    continue
+                seen.add(key)
+                out.append((a, b, r["shared_cm_ab"] or 0))
+        out.sort(key=lambda x: -(x[2] or 0))
+        return out
+
     def get_shared_matches(
         self,
         test_guid: str,
