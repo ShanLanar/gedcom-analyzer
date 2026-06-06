@@ -173,8 +173,16 @@ class AncestryApiClient:
                 continue
 
             if r.status_code in (301, 302, 303, 307, 308):
-                log.error("profileData HTTP %s – ancestry-context-ube fehlerhaft? "
-                          "Bitte ancestry.json neu exportieren.", r.status_code)
+                # Cloudflare gibt bei Fingerprint-Mismatch einen neuen __cf_bm Cookie.
+                # Session speichert ihn automatisch – nächster Versuch sollte klappen.
+                new_bm = r.cookies.get("__cf_bm") or r.headers.get("set-cookie", "")
+                log.debug("profileData %s → neuer __cf_bm: %s",
+                          r.status_code, bool(new_bm))
+                if attempt < MAX_RETRIES - 1:
+                    time.sleep(2)
+                    continue
+                log.error("profileData: nach %d Versuchen weiter 303. "
+                          "Bitte ancestry.json neu exportieren.", MAX_RETRIES)
                 self._detail_blocked = True
                 return {}
 

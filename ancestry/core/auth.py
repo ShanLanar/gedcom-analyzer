@@ -20,7 +20,7 @@ import config as cfg
 
 log = logging.getLogger(__name__)
 
-CHROME_VERSIONS = ["chrome136", "chrome131", "chrome127", "chrome124"]
+CHROME_VERSIONS = ["chrome148", "chrome136", "chrome131", "chrome127", "chrome124"]
 
 def _best_chrome_version() -> str:
     """Gibt die neueste verfügbare curl_cffi Chrome-Impersonation zurück."""
