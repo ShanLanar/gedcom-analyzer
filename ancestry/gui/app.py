@@ -1603,43 +1603,95 @@ class AncestryDnaApp(tk.Tk):
     def _show_gedcom_results(self, results, n_people, n_peds):
         win = tk.Toplevel(self)
         win.title("GEDCOM-Abgleich – wo hängt jeder Match in deinem Baum?")
-        win.geometry("960x600")
-        n_new = sum(1 for r in results if not r[4])
-        hdr = ttk.Label(win, text=(
-            f"Eigener Baum: {n_people} Personen · {len(results)} von {n_peds} "
-            f"Matches verankert · davon {n_new} noch NICHT in Ancestry verknüpft "
-            f"(orange = neue Leads):"),
-            style="Bold.TLabel")
-        hdr.pack(anchor="w", padx=10, pady=(10,4))
+        win.geometry("980x620")
+
+        # Flache Datenzeilen (für Filter/Sortierung)
+        data = []
+        for name, cm, (score, r, own, _p), kin, linked in results:
+            ab = " ".join(x for x in (str(own.year or ""), own.place) if x).strip()
+            data.append({
+                "linked": linked,
+                "link": "✓ im Baum" if linked else "neu?",
+                "match": name or "?", "cm": float(cm or 0),
+                "anchor": own.display, "abirth": ab,
+                "kin": kin or "—", "line": r["ahnen_path"] or "?",
+                "score": float(score or 0),
+            })
+        n_new = sum(1 for d in data if not d["linked"])
+
+        # ── Filterleiste ────────────────────────────────────────────────────────
+        bar = ttk.Frame(win); bar.pack(fill="x", padx=10, pady=(10,2))
+        ttk.Label(bar, text="Suche:").pack(side="left")
+        f_search = tk.StringVar()
+        ttk.Entry(bar, textvariable=f_search, width=22).pack(side="left", padx=4)
+        f_new = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="nur neue Leads (nicht verknüpft)",
+                        variable=f_new).pack(side="left", padx=8)
+        f_direct = tk.BooleanVar(value=False)
+        ttk.Checkbutton(bar, text="nur direkte Linie",
+                        variable=f_direct).pack(side="left", padx=8)
+        ttk.Label(bar, text="ab cM:").pack(side="left")
+        f_cm = tk.StringVar(value="0")
+        ttk.Entry(bar, textvariable=f_cm, width=5).pack(side="left", padx=4)
+
+        hdr = ttk.Label(win, text="", style="Bold.TLabel")
+        hdr.pack(anchor="w", padx=10, pady=(0,2))
 
         cols = ("link","match","cm","anchor","abirth","kin","line","score")
-        tv = ttk.Treeview(win, columns=cols, show="headings")
-        heads = {"link":("Verknüpft",75),"match":("Match",170),"cm":("cM",50),
+        heads = {"link":("Verknüpft",75),"match":("Match",170),"cm":("cM",55),
                  "anchor":("Anknüpfung in deinem Baum",190),
                  "abirth":("* Anknüpfung",120),
                  "kin":("Deine Linie",170),"line":("Match-Linie",75),
-                 "score":("Sicherheit",65)}
+                 "score":("Sicherheit",70)}
+        tv = ttk.Treeview(win, columns=cols, show="headings")
         for c,(lbl,w) in heads.items():
-            tv.heading(c, text=lbl)
             tv.column(c, width=w, anchor=("center" if c in ("cm","line","score","link") else "w"))
         tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
         sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
         sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
         tv.tag_configure("strong", background="#d8f0d8")
-        tv.tag_configure("newlead", background="#fde9c8")  # neu: noch nicht verknüpft
+        tv.tag_configure("newlead", background="#fde9c8")
 
-        for name, cm, (score, r, own, _p), kin, linked in results:
-            ab = " ".join(x for x in (str(own.year or ""), own.place) if x).strip()
-            if linked:
-                tag = ("strong",) if score >= 0.8 else ()
-            else:
-                tag = ("newlead",)
-            tv.insert("", "end", tags=tag, values=(
-                "✓ im Baum" if linked else "neu?",
-                name or "?", f"{(cm or 0):.0f}", own.display, ab,
-                kin or "—", r["ahnen_path"] or "?", f"{score:.2f}"))
+        state = {"col": "cm", "desc": True}
 
-        self._set_status(f"GEDCOM-Abgleich: {len(results)}/{n_peds} Matches verankert.")
+        def populate(*_):
+            q = f_search.get().strip().lower()
+            try:
+                mincm = float(f_cm.get() or 0)
+            except ValueError:
+                mincm = 0
+            rows = [d for d in data
+                    if d["cm"] >= mincm
+                    and (not f_new.get() or not d["linked"])
+                    and (not f_direct.get() or ("Seitenlinie" not in d["kin"]
+                                                and d["kin"] != "—"))
+                    and (not q or q in d["match"].lower()
+                         or q in d["anchor"].lower() or q in d["kin"].lower())]
+            col, desc = state["col"], state["desc"]
+            rows.sort(key=lambda d: d[col], reverse=desc)
+            tv.delete(*tv.get_children())
+            for d in rows:
+                tag = ("newlead",) if not d["linked"] else \
+                      (("strong",) if d["score"] >= 0.8 else ())
+                tv.insert("", "end", tags=tag, values=(
+                    d["link"], d["match"], f"{d['cm']:.0f}", d["anchor"],
+                    d["abirth"], d["kin"], d["line"], f"{d['score']:.2f}"))
+            hdr.configure(text=(f"Eigener Baum: {n_people} Pers. · "
+                f"{len(data)} verankert ({n_new} neu) · angezeigt: {len(rows)} · "
+                f"Sort: {heads[col][0]} {'▼' if desc else '▲'}"))
+
+        def sort_by(col):
+            state["desc"] = not state["desc"] if state["col"] == col else True
+            state["col"] = col
+            populate()
+
+        for c,(lbl,w) in heads.items():
+            tv.heading(c, text=lbl, command=lambda c=c: sort_by(c))
+
+        for var in (f_search, f_new, f_direct, f_cm):
+            var.trace_add("write", populate)
+        populate()
+        self._set_status(f"GEDCOM-Abgleich: {len(data)}/{n_peds} Matches verankert.")
 
     def _stop_download(self):
         if self._scraper:
