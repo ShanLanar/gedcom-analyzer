@@ -100,6 +100,7 @@ class DnaMatch:
     note: str = ""
     custom_relationship: str = ""
     ignored: bool = False
+    endogamy_cluster: str = ""  # Hintergrundrauschen-Annotation (z.B. "Ostercappeln/Seymour")
 
     # Tag-Felder (neues API-Format)
     tag_surname: str = ""       # Tag 3: freies Bemerkungs-/Notizfeld (NICHT der echte Nachname)

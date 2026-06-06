@@ -1800,6 +1800,10 @@ class AncestryDnaApp(tk.Tk):
         self._tree_var = tk.BooleanVar()
         ttk.Checkbutton(fl, text="Mit Stammbaum", variable=self._tree_var,
                          command=self._refresh_match_table).pack(side="left", padx=6)
+        self._hide_endo_var = tk.BooleanVar()
+        ttk.Checkbutton(fl, text="🔇 Rauschen ausblenden",
+                        variable=self._hide_endo_var,
+                        command=self._refresh_match_table).pack(side="left", padx=6)
 
         self._match_count_var = tk.StringVar(value="")
         ttk.Label(fl, textvariable=self._match_count_var,
@@ -1833,9 +1837,10 @@ class AncestryDnaApp(tk.Tk):
             self._tree.heading(col, text=label, command=lambda c=col: self._sort_by(c))
             self._tree.column(col, width=width, anchor=anchor, stretch=(col == "name"))
 
-        self._tree.tag_configure("close",   background="#D6F5E3")
-        self._tree.tag_configure("starred", background="#FFF3CD")
-        self._tree.tag_configure("no_tree", foreground="#999999")
+        self._tree.tag_configure("close",    background="#D6F5E3")
+        self._tree.tag_configure("starred",  background="#FFF3CD")
+        self._tree.tag_configure("no_tree",  foreground="#999999")
+        self._tree.tag_configure("endogamy", background="#E0E0E0", foreground="#666666")
 
         sy = ttk.Scrollbar(parent, orient="vertical",   command=self._tree.yview)
         sx = ttk.Scrollbar(parent, orient="horizontal", command=self._tree.xview)
@@ -1932,23 +1937,30 @@ class AncestryDnaApp(tk.Tk):
         sort_col = col_map.get(self._sort_col, "shared_cm")
 
         self._matches = self._db.get_matches(
-            search        = self._search_var.get().strip() or None,
-            relationship  = self._rel_var.get() if hasattr(self,"_rel_var") else None,
-            starred_only  = self._starred_var.get() if hasattr(self,"_starred_var") else False,
-            has_tree_only = self._tree_var.get() if hasattr(self,"_tree_var") else False,
-            min_cm        = min_cm,
-            sort_col      = sort_col,
-            sort_asc      = self._sort_asc,
+            search         = self._search_var.get().strip() or None,
+            relationship   = self._rel_var.get() if hasattr(self,"_rel_var") else None,
+            starred_only   = self._starred_var.get() if hasattr(self,"_starred_var") else False,
+            has_tree_only  = self._tree_var.get() if hasattr(self,"_tree_var") else False,
+            min_cm         = min_cm,
+            hide_endogamy  = getattr(self, "_hide_endo_var", tk.BooleanVar()).get(),
+            sort_col       = sort_col,
+            sort_asc       = self._sort_asc,
         )
         self._match_count_var.set(f"{len(self._matches)} Match(es)")
         self._tree.delete(*self._tree.get_children())
         for m in self._matches:
+            endo = getattr(m, "endogamy_cluster", "") or ""
             tags = []
-            if m.starred: tags.append("starred")
-            if m.predicted_relationship.lower() in (
+            if endo:
+                tags.append("endogamy")
+            elif m.starred:
+                tags.append("starred")
+            elif m.predicted_relationship.lower() in (
                 "parent","child","sibling","aunt/uncle","first cousin",
-                "1st cousin","half sibling","close"): tags.append("close")
-            if not m.has_tree: tags.append("no_tree")
+                "1st cousin","half sibling","close"):
+                tags.append("close")
+            if not m.has_tree and not endo:
+                tags.append("no_tree")
 
             # Stammbaum-Spalte: Status (+ Personenzahl falls vorhanden)
             status = getattr(m, "tree_status", "") or ""
@@ -1961,10 +1973,13 @@ class AncestryDnaApp(tk.Tk):
             else:
                 tree_txt = "—"
 
+            # Bemerkungsspalte: Endogamie-Cluster hat Vorrang vor tag_surname
+            note_txt = (f"🔇 {endo}" if endo else m.tag_surname or "")
+
             self._tree.insert("", "end", iid=m.match_guid, tags=tags, values=(
                 m.display_name,
                 m.match_guid[:8],
-                m.tag_surname or "",
+                note_txt,
                 f"{m.shared_cm:.1f}" if m.shared_cm else "—",
                 m.shared_segments or "—",
                 m.predicted_relationship or "—",
@@ -2001,7 +2016,58 @@ class AncestryDnaApp(tk.Tk):
         menu.add_command(
             label="✏️  Name eintragen …",
             command=lambda: self._prompt_name(match))
+        menu.add_separator()
+        endo = getattr(match, "endogamy_cluster", "") or ""
+        endo_label = (f"🔇 Endogamie-Cluster: {endo}" if endo
+                      else "🔇 Als Hintergrundrauschen markieren …")
+        menu.add_command(label=endo_label,
+                         command=lambda: self._set_endogamy_cluster(match))
+        if endo:
+            menu.add_command(label="✖ Endogamie-Markierung entfernen",
+                             command=lambda: self._clear_endogamy_cluster(match))
         menu.tk_popup(event.x_root, event.y_root)
+
+    def _set_endogamy_cluster(self, match):
+        """Dialog: Endogamie-Cluster-Namen eingeben oder aus bekannten wählen."""
+        known = self._load_settings().get("endogamy_clusters", [])
+        current = getattr(match, "endogamy_cluster", "") or ""
+
+        dlg = tk.Toplevel(self)
+        dlg.title("Endogamie-Cluster zuweisen")
+        dlg.geometry("420x180")
+        dlg.grab_set()
+        dlg.resizable(False, False)
+
+        ttk.Label(dlg, text=f"Match: {match.display_name}",
+                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=14, pady=(12,2))
+        ttk.Label(dlg,
+                  text="Cluster-Name (z. B. 'Ostercappeln/Seymour') — "
+                       "leer lassen zum Entfernen:").pack(anchor="w", padx=14)
+
+        var = tk.StringVar(value=current)
+        cb = ttk.Combobox(dlg, textvariable=var, values=known, width=38)
+        cb.pack(padx=14, pady=8, fill="x")
+        cb.focus()
+
+        def _save():
+            name = var.get().strip()
+            self._db.set_endogamy_cluster(match.match_guid, name)
+            match.endogamy_cluster = name
+            if name and name not in known:
+                known.append(name)
+                self._save_settings(endogamy_clusters=known)
+            self._refresh_match_table()
+            dlg.destroy()
+
+        bf = ttk.Frame(dlg); bf.pack(anchor="e", padx=14, pady=4)
+        ttk.Button(bf, text="Abbrechen", command=dlg.destroy).pack(side="left", padx=4)
+        ttk.Button(bf, text="Speichern", command=_save).pack(side="left")
+        dlg.bind("<Return>", lambda _: _save())
+
+    def _clear_endogamy_cluster(self, match):
+        self._db.set_endogamy_cluster(match.match_guid, "")
+        match.endogamy_cluster = ""
+        self._refresh_match_table()
 
     def _set_custom_rel(self, match, rel: str):
         self._db.update_note(match.match_guid,

@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 10
+    SCHEMA_VERSION = 11
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -85,6 +85,8 @@ class Database:
                 self._migrate_v8_v9(cur)
             if current < 10:
                 self._migrate_v9_v10(cur)
+            if current < 11:
+                self._migrate_v10_v11(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -260,6 +262,13 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_ped_match ON match_pedigree(match_guid);
             CREATE INDEX IF NOT EXISTS idx_ped_surname ON match_pedigree(surname);
         """)
+
+    def _migrate_v10_v11(self, cur):
+        """Schema v11: Endogamie-Cluster-Annotation für Hintergrundrauschen."""
+        try:
+            cur.execute("ALTER TABLE matches ADD COLUMN endogamy_cluster TEXT DEFAULT ''")
+        except Exception:
+            pass
 
     def _migrate_v9_v10(self, cur):
         """Schema v10: 'View in tree' – Match in deinem Baum verknüpft (kein ThruLine)."""
@@ -630,6 +639,7 @@ class Database:
         starred_only: bool          = False,
         has_tree_only: bool         = False,
         min_cm: float               = 0.0,
+        hide_endogamy: bool         = False,
         sort_col: str               = "shared_cm",
         sort_asc: bool              = False,
         limit: int                  = 0,
@@ -654,6 +664,8 @@ class Database:
             conditions.append("has_tree = 1")
         if min_cm > 0:
             conditions.append("shared_cm >= ?"); params.append(min_cm)
+        if hide_endogamy:
+            conditions.append("(endogamy_cluster IS NULL OR endogamy_cluster = '')")
 
         where       = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         limit_clause = f"LIMIT {limit} OFFSET {offset}" if limit else ""
@@ -662,6 +674,12 @@ class Database:
         with self._cursor() as cur:
             cur.execute(sql, params)
             return [DnaMatch.from_db_row(dict(r)) for r in cur.fetchall()]
+
+    def set_endogamy_cluster(self, match_guid: str, cluster: str):
+        """Setzt oder löscht den Endogamie-Cluster-Label für einen Match."""
+        with self._cursor() as cur:
+            cur.execute("UPDATE matches SET endogamy_cluster=? WHERE match_guid=?",
+                        (cluster.strip(), match_guid))
 
     def match_exists(self, match_guid: str) -> bool:
         """Prüft ob ein Match bereits in der DB vorhanden ist."""
