@@ -49,13 +49,18 @@ def _tok_ratio(a: str, b: str) -> float:
 
 def _fuzzy_overlap(toks_a: set, toks_b: set, thresh: float = 0.82):
     """Anteil von toks_a, die in toks_b einen ähnlichen Partner haben (0..1),
-    plus die Zahl der Treffer. Toleriert Tippfehler/Varianten."""
+    plus die Zahl der Treffer. Exakte Treffer zuerst (ohne SequenceMatcher),
+    nur der Rest wird unscharf verglichen."""
     if not toks_a or not toks_b:
         return 0.0, 0
-    hits = 0
-    for a in toks_a:
-        if any(_tok_ratio(a, b) >= thresh for b in toks_b):
-            hits += 1
+    exact = toks_a & toks_b
+    hits = len(exact)
+    rem_a = toks_a - exact
+    rem_b = toks_b - exact
+    if rem_a and rem_b:
+        for a in rem_a:
+            if any(_tok_ratio(a, b) >= thresh for b in rem_b):
+                hits += 1
     denom = max(len(toks_a), len(toks_b))
     return hits / denom, hits
 
@@ -159,31 +164,58 @@ def load_own_tree(gedcom_path: str) -> list:
 # ── Index für schnellen Abgleich ────────────────────────────────────────────
 
 class TreeIndex:
-    """Indiziert den eigenen Baum nach Nachnamen-Token für schnelles Matching."""
+    """Indiziert den eigenen Baum für schnelles Matching.
+    Schlüssel: (Nachnamen-Token-Präfix[:4], Geburtsjahr) – das schrumpft die
+    Kandidatenmenge drastisch (sonst quadratische Laufzeit bei großen Bäumen)."""
 
     def __init__(self, people: list):
         self.people = people
-        # Bucket nach Nachnamen-Token-Präfix (3 Zeichen) → fängt Schreibvarianten.
         self._buckets: dict = {}
         for p in people:
-            for key in self._keys(p.stoks):
+            yr = int(p.year) if p.year else None
+            for key in self._keys(p.stoks, yr):
                 self._buckets.setdefault(key, []).append(p)
 
     @staticmethod
-    def _keys(stoks: set) -> set:
-        return {t[:3] for t in stoks if len(t) >= 3}
+    def _keys(stoks: set, year):
+        """Schlüssel pro Person: jedes Nachnamen-Präfix × tatsächliches Jahr
+        (oder None, wenn jahrlos). NICHT zusätzlich None setzen, sonst bläht
+        sich der None-Bucket auf alle Personen auf."""
+        out = set()
+        y = year if year else None
+        for t in stoks:
+            if len(t) >= 3:
+                out.add((t[:4], y))
+        return out
+
+    def _candidate_keys(self, q: "Person", year_tol: int = 3):
+        out = set()
+        if q.year:
+            qy = int(q.year)
+            years = list(range(qy - year_tol, qy + year_tol + 1)) + [None]
+        else:
+            years = [None]
+        for t in q.stoks:
+            if len(t) >= 3:
+                pre = t[:4]
+                for y in years:
+                    out.add((pre, y))
+        return out
 
     def best_match(self, q: "Person", min_score: float = 0.6):
         """Beste(r) Treffer im eigenen Baum für Person q. Liefert (Person, score)."""
         cands = set()
-        for key in self._keys(q.stoks):
-            for p in self._buckets.get(key, ()):
-                cands.add(p)
+        for key in self._candidate_keys(q):
+            bucket = self._buckets.get(key)
+            if bucket:
+                cands.update(bucket)
         best, best_s = None, 0.0
         for p in cands:
             s = fuzzy_score(q, p)
             if s > best_s:
                 best, best_s = p, s
+                if best_s >= 0.99:
+                    break
         if best and best_s >= min_score:
             return best, best_s
         return None, 0.0
