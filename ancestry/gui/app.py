@@ -905,6 +905,52 @@ class AncestryDnaApp(tk.Tk):
                                  "Keine Cluster – erst Shared Matches laden (Schritt B)."))
         ttk.Button(top, text="↻", width=3, command=reload).pack(side="left", padx=8)
 
+        def dock_in_tree():
+            sel = tv.selection()
+            if not sel:
+                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                return
+            c = store.get(sel[0])
+            if not c:
+                return
+            guids = [g for g, _n, _cm in c["members"]]
+            # Gemeinsame Vorfahren des Clusters (Personen, von ≥2 geteilt)
+            groups = self._db.get_pedigree_groups(
+                test_guid, min_matches=2, mode="person", only_guids=guids)
+            if not groups:
+                messagebox.showinfo("Keine gemeinsame Linie",
+                    "Dieser Cluster hat keine von ≥2 Mitgliedern geteilten Vorfahren.\n"
+                    "Ggf. erst Ahnentafeln dieser Matches laden.")
+                return
+
+            def _after_load(ged):
+                from core.treematch import Person, render_kinship
+                index, amap = ged["index"], ged["amap"]
+                hits = []
+                for g in groups:
+                    yr = g["detail"].replace("*", "").strip()
+                    q = Person(g["label"], "", yr or None, "")
+                    # label ist 'Vorname Nachname' → in Person aufteilen
+                    parts = g["label"].rsplit(" ", 1)
+                    if len(parts) == 2:
+                        q = Person(parts[0], parts[1], yr or None, "")
+                    if not q.stoks:
+                        continue
+                    own, score = index.best_match(q, min_score=0.6)
+                    if own:
+                        path = amap.get(own.ref)
+                        hits.append((g["count"], score, g["label"], g["detail"],
+                                     own.display, path))
+                hits.sort(key=lambda h: (h[5] is None, len(h[5]) if h[5] else 99,
+                                         -h[0], -h[1]))
+                self.after(0, lambda: self._show_cluster_dock(c, hits))
+
+            self._set_status("Suche Cluster-Linie in deinem Baum …")
+            self._ensure_gedcom_loaded(_after_load)
+
+        ttk.Button(top, text="🔗 Cluster-Linie in meinem Baum suchen",
+                   command=dock_in_tree).pack(side="left", padx=8)
+
         def on_sel(_):
             sel = tv.selection()
             if not sel: return
@@ -937,6 +983,49 @@ class AncestryDnaApp(tk.Tk):
                                      "Ahnentafeln für diese Matches laden)\n")
         tv.bind("<<TreeviewSelect>>", on_sel)
         reload()
+
+    def _show_cluster_dock(self, cluster, hits):
+        """Zeigt, wo die gemeinsame Linie eines Clusters in deinem Baum andockt."""
+        from core.treematch import render_kinship
+        win = tk.Toplevel(self)
+        win.title("Cluster-Linie → Andockpunkt in deinem Baum")
+        win.geometry("820x520")
+        ttk.Label(win, text=(f"Cluster mit {cluster['size']} Matches – "
+                             f"gemeinsame Vorfahren gegen deinen Baum abgeglichen:"),
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
+
+        direct = [h for h in hits if h[5] is not None]
+        if direct:
+            best = direct[0]
+            kin = render_kinship(best[5])
+            ttk.Label(win, text=(f"➡  Wahrscheinlicher Andockpunkt: {best[4]}  "
+                                 f"({kin})"),
+                      style="Bold.TLabel", foreground=COLORS.get("primary","#1b5e20")
+                      ).pack(anchor="w", padx=10, pady=(0,6))
+        else:
+            ttk.Label(win, text=("Kein Treffer auf deiner direkten Ahnenlinie – "
+                                 "untenstehende Kandidaten sind Seitenlinien/Vorschläge."),
+                      foreground="#a05a00").pack(anchor="w", padx=10, pady=(0,6))
+
+        cols = ("shared","cab","line","anchor")
+        tv = ttk.Treeview(win, columns=cols, show="headings")
+        for c,(lbl,w) in {"shared":("Cluster-Vorfahr",240),"cab":("geteilt von",90),
+                          "line":("Deine Linie",200),"anchor":("Person in deinem Baum",200)}.items():
+            tv.heading(c, text=lbl)
+            tv.column(c, width=w, anchor=("center" if c=="cab" else "w"))
+        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
+        sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
+        tv.tag_configure("direct", background="#d8f0d8")
+
+        for count, score, label, detail, owndisp, path in hits:
+            kin = render_kinship(path) if path is not None else "— (Seitenlinie)"
+            tag = ("direct",) if path is not None else ()
+            tv.insert("", "end", tags=tag, values=(
+                f"{label} {detail}".strip(),
+                f"{count}/{cluster['size']}", kin, owndisp))
+        if not hits:
+            tv.insert("", "end", values=("(keine Treffer im Baum)", "", "", ""))
 
     def _reset_name_attempts(self):
         """Setzt die Fehlversuch-Zähler zurück, damit übersprungene Profile beim
@@ -982,33 +1071,74 @@ class AncestryDnaApp(tk.Tk):
             messagebox.showinfo("Keine Ahnentafeln",
                 "Noch keine Ahnentafeln geladen. Erst '▶ Ahnentafeln laden' ausführen.")
             return
+        def _after_load(ged):
+            import threading
+            from core.treematch import Person, render_kinship
+            index, amap = ged["index"], ged["amap"]
+
+            def _worker():
+                results = []
+                items = list(peds.items())
+                for i, (guid, info) in enumerate(items, 1):
+                    cands = []  # (score, ped_row, own_person, self_path)
+                    for r in info["rows"]:
+                        q = Person(r["given_name"], r["surname"],
+                                   r["birth_year"], r["birth_place"])
+                        if not q.stoks:
+                            continue
+                        own, score = index.best_match(q, min_score=0.6)
+                        if own:
+                            cands.append((score, r, own, amap.get(own.ref)))
+                    if cands:
+                        # MRCA: Direktlinie bevorzugen, davon der jüngste; sonst Score.
+                        direct = [c for c in cands if c[3] is not None]
+                        if direct:
+                            best = min(direct, key=lambda c: (len(c[3]), -c[0]))
+                        else:
+                            best = max(cands, key=lambda c: (c[0], -c[1]["generation"]))
+                        kin = render_kinship(best[3]) if best[3] is not None else ""
+                        results.append((info["name"], info["cm"], best, kin,
+                                        info.get("linked", False)))
+                    if i % 20 == 0 or i == len(items):
+                        self.after(0, lambda i=i: self._set_status(
+                            f"GEDCOM-Abgleich: {i}/{len(items)} Matches geprüft …"))
+                results.sort(key=lambda x: (-(x[2][0]), -(x[1] or 0)))
+                self.after(0, lambda: self._show_gedcom_results(
+                    results, len(ged["people"]), len(peds)))
+
+            threading.Thread(target=_worker, daemon=True, name="gedcom-match").start()
+
+        self._ensure_gedcom_loaded(_after_load)
+
+    def _ensure_gedcom_loaded(self, on_ready):
+        """Lädt den eigenen GEDCOM (mit Cache) + baut Index/Ahnen-Map, dann
+        ruft on_ready(ged_dict) auf dem Main-Thread. ged_dict hat: people, index,
+        individuals, families, amap, path."""
+        cached = getattr(self, "_gedcom", None)
+        if cached:
+            on_ready(cached)
+            return
         path = filedialog.askopenfilename(
             title="Eigenen Stammbaum wählen (GEDCOM)",
             filetypes=[("GEDCOM", "*.ged *.gedcom"), ("Alle", "*.*")])
         if not path:
             return
-
-        # Wurzelperson abfragen (für die Sosa-/Linien-Benennung). Optional.
         import tkinter.simpledialog as sd
         default_root = getattr(self, "_gedcom_root_name", "") or ""
-        root_name = sd.askstring(
+        root_name = (sd.askstring(
             "Deine Wurzelperson",
             "Wie heißt DU (bzw. die Wurzelperson) im Baum?\n"
-            "Vorname Nachname – für die Linien-Benennung "
-            "(leer lassen = ohne).",
-            initialvalue=default_root) or ""
-        self._gedcom_root_name = root_name.strip()
+            "Vorname Nachname – für die Linien-Benennung (leer = ohne).",
+            initialvalue=default_root) or "").strip()
+        self._gedcom_root_name = root_name
 
-        # Schwergewichtiges Laden + Matching im Hintergrund-Thread (sonst friert
-        # die GUI bei großen Bäumen ein).
         import threading
-        self._set_status("GEDCOM wird geladen & abgeglichen … (läuft im Hintergrund)")
+        self._set_status("GEDCOM wird geladen … (läuft im Hintergrund)")
 
         def _worker():
             try:
-                from core.treematch import (load_gedcom_full, TreeIndex, Person,
-                                            build_ancestor_map, render_kinship,
-                                            find_root_candidate)
+                from core.treematch import (load_gedcom_full, TreeIndex,
+                                            build_ancestor_map, find_root_candidate)
                 people, individuals, families = load_gedcom_full(path)
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror(
@@ -1018,50 +1148,22 @@ class AncestryDnaApp(tk.Tk):
                 self.after(0, lambda: messagebox.showwarning(
                     "Leer", "Kein verwertbarer Inhalt im GEDCOM."))
                 return
-            self.after(0, lambda: self._set_status(
-                f"Eigener Baum geladen: {len(people)} Personen – gleiche ab …"))
             index = TreeIndex(people)
-
-            # Ahnen-Map ab Wurzelperson (für deutsche Linien-Benennung)
             amap = {}
             if root_name:
-                root_id, rscore = find_root_candidate(people, root_name)
-                if root_id and rscore >= 0.6:
-                    amap = build_ancestor_map(root_id, individuals, families)
+                rid, rscore = find_root_candidate(people, root_name)
+                if rid and rscore >= 0.6:
+                    amap = build_ancestor_map(rid, individuals, families)
                     log.info("Wurzelperson erkannt (score %.2f), %d Vorfahren",
                              rscore, len(amap))
+            ged = dict(path=path, people=people, index=index,
+                       individuals=individuals, families=families, amap=amap)
+            self._gedcom = ged
+            self.after(0, lambda: self._set_status(
+                f"Eigener Baum geladen & gecacht: {len(people)} Personen."))
+            self.after(0, lambda: on_ready(ged))
 
-            results = []
-            items = list(peds.items())
-            for i, (guid, info) in enumerate(items, 1):
-                # Alle Treffer der Match-Ahnentafel im eigenen Baum sammeln
-                cands = []  # (score, ped_row, own_person, self_path)
-                for r in info["rows"]:
-                    q = Person(r["given_name"], r["surname"],
-                               r["birth_year"], r["birth_place"])
-                    if not q.stoks:
-                        continue
-                    own, score = index.best_match(q, min_score=0.6)
-                    if own:
-                        cands.append((score, r, own, amap.get(own.ref)))
-                if cands:
-                    # MRCA: Treffer auf deiner DIREKTEN Linie bevorzugen, davon den
-                    # JÜNGSTEN (kürzester Ahnenpfad); sonst bester Score.
-                    direct = [c for c in cands if c[3] is not None]
-                    if direct:
-                        best = min(direct, key=lambda c: (len(c[3]), -c[0]))
-                    else:
-                        best = max(cands, key=lambda c: (c[0], -c[1]["generation"]))
-                    kin = render_kinship(best[3]) if best[3] is not None else ""
-                    results.append((info["name"], info["cm"], best, kin,
-                                    info.get("linked", False)))
-                if i % 20 == 0 or i == len(items):
-                    self.after(0, lambda i=i: self._set_status(
-                        f"GEDCOM-Abgleich: {i}/{len(items)} Matches geprüft …"))
-            results.sort(key=lambda x: (-(x[2][0]), -(x[1] or 0)))
-            self.after(0, lambda: self._show_gedcom_results(results, len(people), len(peds)))
-
-        threading.Thread(target=_worker, daemon=True, name="gedcom-match").start()
+        threading.Thread(target=_worker, daemon=True, name="gedcom-load").start()
 
     def _show_gedcom_results(self, results, n_people, n_peds):
         win = tk.Toplevel(self)
