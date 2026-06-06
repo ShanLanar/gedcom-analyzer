@@ -713,7 +713,8 @@ class AncestryDnaApp(tk.Tk):
 
         col_map = {"name":"display_name","guid":"match_guid","note":"tag_surname",
                    "cm":"shared_cm","seg":"shared_segments",
-                   "rel":"predicted_relationship","tree":"has_tree","starred":"starred"}
+                   "rel":"predicted_relationship","tree":"tree_size",
+                   "ca":"has_common_ancestor","starred":"starred"}
         sort_col = col_map.get(self._sort_col, "shared_cm")
 
         self._matches = self._db.get_matches(

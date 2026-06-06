@@ -323,7 +323,8 @@ class Database:
         offset: int                 = 0,
     ) -> list[DnaMatch]:
         valid_cols = {"display_name", "shared_cm", "shared_segments",
-                      "predicted_relationship", "fetched_at", "starred"}
+                      "predicted_relationship", "fetched_at", "starred",
+                      "tree_size", "tree_status", "has_common_ancestor", "gender"}
         sort_col  = sort_col if sort_col in valid_cols else "shared_cm"
         direction = "ASC" if sort_asc else "DESC"
 
