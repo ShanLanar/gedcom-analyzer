@@ -20,6 +20,7 @@ log = logging.getLogger(__name__)
 # Pause zwischen Name-Requests: großzügig um Rate-Limiting zu vermeiden.
 # Bei 10.000 Matches = ca. 11h overnight-Lauf.
 NAME_REQUEST_DELAY = 4.0
+MAX_NAME_ATTEMPTS  = 3   # nach so vielen erfolglosen Versuchen Profil überspringen (privat/anonym)
 
 
 class DownloadResult:
@@ -369,10 +370,13 @@ class Scraper:
         all_matches = self._db.get_matches(test_guid=test_guid, min_cm=min_cm,
                                            sort_col="shared_cm")
         # Zu erledigen: Name fehlt ODER Stammbaum-Status noch nicht geladen.
+        # Profile, die nach MAX_NAME_ATTEMPTS Versuchen keinen Namen lieferten
+        # (privat/anonym), werden übersprungen – sonst endlose To-do-Liste.
         todo = [
             m for m in all_matches
-            if self._is_placeholder(m.display_name)
-               or not getattr(m, "tree_status", "")
+            if (self._is_placeholder(m.display_name)
+                or not getattr(m, "tree_status", ""))
+               and getattr(m, "name_attempts", 0) < MAX_NAME_ATTEMPTS
         ]
         total = len(todo)
         self._on_status(f"Details nachladen: {total} Matches …")
@@ -425,6 +429,7 @@ class Scraper:
                 log.debug("treeData-Fehler: %s", e)
                 trees = {}
 
+            no_name = []   # Matches, die (wieder) keinen echten Namen lieferten
             try:
                 with self._db._cursor() as cur:
                     for m in batch:
@@ -432,6 +437,12 @@ class Scraper:
                         d    = details.get(sid, {})
                         t    = trees.get(sid, {})
                         name = (d.get("name") or "").strip()
+
+                        # erfolglos = Ergebnisname bleibt Platzhalter
+                        final_name = name if (name and not self._is_placeholder(name)) \
+                                          else m.display_name
+                        if self._is_placeholder(final_name):
+                            no_name.append(sid)
 
                         # Name nur setzen, wenn echt UND aktuell Platzhalter
                         if name and self._is_placeholder(m.display_name):
@@ -474,6 +485,10 @@ class Scraper:
             except Exception as e:
                 log.error("DB-Update Detail-Batch: %s", e)
                 result.errors += 1
+
+            # Erfolglose (privat/anonym) hochzählen → werden später übersprungen
+            if no_name:
+                self._db.bump_name_attempts(test_guid, no_name)
 
             processed += len(batch)
             result.fetched = processed

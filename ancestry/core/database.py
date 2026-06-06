@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 8
+    SCHEMA_VERSION = 9
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -81,6 +81,8 @@ class Database:
                 self._migrate_v6_v7(cur)
             if current < 8:
                 self._migrate_v7_v8(cur)
+            if current < 9:
+                self._migrate_v8_v9(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -256,6 +258,29 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_ped_match ON match_pedigree(match_guid);
             CREATE INDEX IF NOT EXISTS idx_ped_surname ON match_pedigree(surname);
         """)
+
+    def _migrate_v8_v9(self, cur):
+        """Schema v9: Zähler für erfolglose Namens-Abrufe (privat/anonym überspringen)."""
+        try:
+            cur.execute("ALTER TABLE matches ADD COLUMN name_attempts INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
+    def bump_name_attempts(self, test_guid: str, match_guids: list):
+        """Erhöht den Fehlversuch-Zähler für die genannten Matches."""
+        if not match_guids:
+            return
+        with self._cursor() as cur:
+            cur.executemany(
+                "UPDATE matches SET name_attempts = COALESCE(name_attempts,0)+1 "
+                "WHERE match_guid=? AND test_guid=?",
+                [(g, test_guid) for g in match_guids])
+
+    def reset_name_attempts(self, test_guid: str) -> int:
+        """Setzt alle Fehlversuch-Zähler zurück (für erneuten Voll-Versuch)."""
+        with self._cursor() as cur:
+            cur.execute("UPDATE matches SET name_attempts=0 WHERE test_guid=?", (test_guid,))
+            return cur.rowcount
 
     def get_matches_needing_pedigree(self, test_guid: str, min_cm: float = 0.0) -> list:
         """[(match_guid, display_name)] für Matches mit Baum, deren Pedigree noch fehlt."""

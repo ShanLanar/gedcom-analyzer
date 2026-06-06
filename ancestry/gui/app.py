@@ -135,6 +135,8 @@ class AncestryDnaApp(tk.Tk):
         am.add_separator()
         am.add_command(label="Shared Matches zurücksetzen (neu laden) …",
                        command=self._reset_shared_matches)
+        am.add_command(label="Namens-Versuche zurücksetzen (alle erneut) …",
+                       command=self._reset_name_attempts)
         mb.add_cascade(label="Auswertung", menu=am)
 
         hm = tk.Menu(mb, tearoff=False)
@@ -914,6 +916,19 @@ class AncestryDnaApp(tk.Tk):
                 detail.insert("end", f"  • {name or guid[:8]}   {(cm or 0):.0f} cM\n")
         tv.bind("<<TreeviewSelect>>", on_sel)
         reload()
+
+    def _reset_name_attempts(self):
+        """Setzt die Fehlversuch-Zähler zurück, damit übersprungene Profile beim
+        nächsten 'Namen laden' erneut versucht werden."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+        n = self._db.reset_name_attempts(test_guid)
+        self._set_status(f"Namens-Versuche zurückgesetzt: {n} Matches.")
+        messagebox.showinfo("Zurückgesetzt",
+            f"{n} Matches werden beim nächsten 'Namen & Stammbaum laden' "
+            "erneut versucht.")
 
     def _reset_shared_matches(self):
         """Leert die Shared-Matches-Tabelle (alte, mit falschem Endpunkt geladene

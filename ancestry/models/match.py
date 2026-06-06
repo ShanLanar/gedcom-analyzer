@@ -93,6 +93,7 @@ class DnaMatch:
     has_common_ancestor: bool = False
     match_ucdmid: str = ""          # userId für treeData-Abruf
     gender: str = ""                # "M"/"F" aus profileData
+    name_attempts: int = 0          # erfolglose Namens-Abrufversuche (privat/anonym)
 
     starred: bool = False
     note: str = ""
