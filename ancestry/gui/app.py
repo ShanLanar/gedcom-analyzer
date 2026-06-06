@@ -914,36 +914,50 @@ class AncestryDnaApp(tk.Tk):
             if not c:
                 return
             guids = [g for g, _n, _cm in c["members"]]
-            # Gemeinsame Vorfahren des Clusters (Personen, von ≥2 geteilt)
-            groups = self._db.get_pedigree_groups(
-                test_guid, min_matches=2, mode="person", only_guids=guids)
-            if not groups:
-                messagebox.showinfo("Keine gemeinsame Linie",
-                    "Dieser Cluster hat keine von ≥2 Mitgliedern geteilten Vorfahren.\n"
-                    "Ggf. erst Ahnentafeln dieser Matches laden.")
-                return
 
             def _after_load(ged):
-                from core.treematch import Person, render_kinship
+                import threading
+                from core.treematch import Person
                 index, amap = ged["index"], ged["amap"]
-                hits = []
-                for g in groups:
-                    yr = g["detail"].replace("*", "").strip()
-                    q = Person(g["label"], "", yr or None, "")
-                    # label ist 'Vorname Nachname' → in Person aufteilen
-                    parts = g["label"].rsplit(" ", 1)
-                    if len(parts) == 2:
-                        q = Person(parts[0], parts[1], yr or None, "")
-                    if not q.stoks:
-                        continue
-                    own, score = index.best_match(q, min_score=0.6)
-                    if own:
-                        path = amap.get(own.ref)
-                        hits.append((g["count"], score, g["label"], g["detail"],
-                                     own.display, path))
-                hits.sort(key=lambda h: (h[5] is None, len(h[5]) if h[5] else 99,
-                                         -h[0], -h[1]))
-                self.after(0, lambda: self._show_cluster_dock(c, hits))
+
+                def _worker():
+                    # Jedes Cluster-Mitglied einzeln gegen den eigenen Baum matchen.
+                    # Aggregiert nach Person in DEINEM Baum: wie viele Mitglieder
+                    # treffen sie? (Schreibvarianten egal – dein Baum ist Referenz.)
+                    agg = {}      # own.ref -> {"own","members":set,"best":score}
+                    n_with_ped = 0
+                    for guid in guids:
+                        rows = self._db.get_pedigree_for_match(test_guid, guid)
+                        rows = [r for r in rows if (r["generation"] or 0) >= 2]
+                        if rows:
+                            n_with_ped += 1
+                        seen = set()
+                        for r in rows:
+                            q = Person(r["given_name"], r["surname"],
+                                       r["birth_year"], r["birth_place"])
+                            if not q.stoks:
+                                continue
+                            own, score = index.best_match(q, min_score=0.6)
+                            if not own or own.ref in seen:
+                                continue
+                            seen.add(own.ref)
+                            e = agg.setdefault(own.ref,
+                                {"own": own, "members": set(), "best": 0.0})
+                            e["members"].add(guid)
+                            e["best"] = max(e["best"], score)
+                    hits = []
+                    for ref, e in agg.items():
+                        path = amap.get(ref)
+                        hits.append((len(e["members"]), e["best"],
+                                     e["own"].display, e["own"], path))
+                    # Direktlinie + von meisten Mitgliedern geteilt + jüngster zuerst
+                    hits.sort(key=lambda h: (h[4] is None,
+                                             len(h[4]) if h[4] else 99,
+                                             -h[0], -h[1]))
+                    self.after(0, lambda: self._show_cluster_dock(c, hits, n_with_ped))
+
+                threading.Thread(target=_worker, daemon=True,
+                                 name="cluster-dock").start()
 
             self._set_status("Suche Cluster-Linie in deinem Baum …")
             self._ensure_gedcom_loaded(_after_load)
@@ -1014,48 +1028,53 @@ class AncestryDnaApp(tk.Tk):
         tv.bind("<<TreeviewSelect>>", on_sel)
         reload()
 
-    def _show_cluster_dock(self, cluster, hits):
-        """Zeigt, wo die gemeinsame Linie eines Clusters in deinem Baum andockt."""
+    def _show_cluster_dock(self, cluster, hits, n_with_ped):
+        """Zeigt, wo die Cluster-Mitglieder in deinem Baum andocken.
+        hits: [(member_count, best_score, own_display, own_person, self_path)]."""
         from core.treematch import render_kinship
         win = tk.Toplevel(self)
         win.title("Cluster-Linie → Andockpunkt in deinem Baum")
-        win.geometry("820x520")
-        ttk.Label(win, text=(f"Cluster mit {cluster['size']} Matches – "
-                             f"gemeinsame Vorfahren gegen deinen Baum abgeglichen:"),
+        win.geometry("840x540")
+        ttk.Label(win, text=(f"Cluster mit {cluster['size']} Matches "
+                             f"({n_with_ped} mit Ahnentafel) – Treffer in deinem Baum:"),
                   style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
 
-        direct = [h for h in hits if h[5] is not None]
+        direct = [h for h in hits if h[4] is not None]
         if direct:
             best = direct[0]
-            kin = render_kinship(best[5])
-            ttk.Label(win, text=(f"➡  Wahrscheinlicher Andockpunkt: {best[4]}  "
-                                 f"({kin})"),
+            ttk.Label(win, text=(f"➡  Wahrscheinlicher Andockpunkt: {best[2]}  "
+                                 f"({render_kinship(best[4])}) – von {best[0]} "
+                                 f"Mitglied(ern) getroffen"),
                       style="Bold.TLabel", foreground=COLORS.get("primary","#1b5e20")
                       ).pack(anchor="w", padx=10, pady=(0,6))
-        else:
+        elif hits:
             ttk.Label(win, text=("Kein Treffer auf deiner direkten Ahnenlinie – "
-                                 "untenstehende Kandidaten sind Seitenlinien/Vorschläge."),
+                                 "untenstehende sind Seitenlinien/Vorschläge."),
+                      foreground="#a05a00").pack(anchor="w", padx=10, pady=(0,6))
+        else:
+            ttk.Label(win, text=("Keine Treffer im Baum. Mögliche Gründe: Cluster-"
+                                 "Mitglieder haben (noch) keine Ahnentafel geladen, "
+                                 "oder die Linie liegt tiefer → ‚Cluster tiefer laden'."),
                       foreground="#a05a00").pack(anchor="w", padx=10, pady=(0,6))
 
-        cols = ("shared","cab","line","anchor")
+        cols = ("count","line","anchor","score")
         tv = ttk.Treeview(win, columns=cols, show="headings")
-        for c,(lbl,w) in {"shared":("Cluster-Vorfahr",240),"cab":("geteilt von",90),
-                          "line":("Deine Linie",200),"anchor":("Person in deinem Baum",200)}.items():
+        for c,(lbl,w) in {"count":("getroffen von",110),
+                          "line":("Deine Linie",230),
+                          "anchor":("Person in deinem Baum",230),
+                          "score":("Sicherheit",80)}.items():
             tv.heading(c, text=lbl)
-            tv.column(c, width=w, anchor=("center" if c=="cab" else "w"))
+            tv.column(c, width=w, anchor=("center" if c in ("count","score") else "w"))
         tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
         sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
         sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
         tv.tag_configure("direct", background="#d8f0d8")
 
-        for count, score, label, detail, owndisp, path in hits:
+        for count, score, owndisp, own, path in hits:
             kin = render_kinship(path) if path is not None else "— (Seitenlinie)"
             tag = ("direct",) if path is not None else ()
             tv.insert("", "end", tags=tag, values=(
-                f"{label} {detail}".strip(),
-                f"{count}/{cluster['size']}", kin, owndisp))
-        if not hits:
-            tv.insert("", "end", values=("(keine Treffer im Baum)", "", "", ""))
+                f"{count}/{cluster['size']}", kin, owndisp, f"{score:.2f}"))
 
     def _reset_name_attempts(self):
         """Setzt die Fehlversuch-Zähler zurück, damit übersprungene Profile beim
