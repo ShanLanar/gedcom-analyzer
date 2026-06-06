@@ -127,6 +127,9 @@ class AncestryDnaApp(tk.Tk):
                        command=self._show_match_pedigree)
         am.add_command(label="Pedigree-Überlagerung (Cluster) …",
                        command=self._show_pedigree_overlay)
+        am.add_separator()
+        am.add_command(label="Eigenen Baum (GEDCOM) abgleichen …",
+                       command=self._match_own_tree)
         mb.add_cascade(label="Auswertung", menu=am)
 
         hm = tk.Menu(mb, tearoff=False)
@@ -833,6 +836,87 @@ class AncestryDnaApp(tk.Tk):
                                      f"{(cm or 0):.0f} cM   (Gen {gen}, Linie {path or '?'})\n")
         tv.bind("<<TreeviewSelect>>", on_sel)
         reload()
+
+    def _match_own_tree(self):
+        """Gleicht alle geladenen Match-Ahnentafeln gegen den eigenen GEDCOM ab
+        und zeigt, wo jeder Match in DEINEM Baum hängt."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+        peds = self._db.get_all_pedigrees(test_guid)
+        if not peds:
+            messagebox.showinfo("Keine Ahnentafeln",
+                "Noch keine Ahnentafeln geladen. Erst '▶ Ahnentafeln laden' ausführen.")
+            return
+        path = filedialog.askopenfilename(
+            title="Eigenen Stammbaum wählen (GEDCOM)",
+            filetypes=[("GEDCOM", "*.ged *.gedcom"), ("Alle", "*.*")])
+        if not path:
+            return
+
+        try:
+            from core.treematch import load_own_tree, TreeIndex, Person
+        except Exception as e:
+            messagebox.showerror("Fehler", f"Matching-Modul nicht ladbar:\n{e}")
+            return
+        try:
+            people = load_own_tree(path)
+        except Exception as e:
+            messagebox.showerror("GEDCOM-Fehler", f"Konnte GEDCOM nicht laden:\n{e}")
+            return
+        if not people:
+            messagebox.showwarning("Leer", "Kein verwertbarer Inhalt im GEDCOM.")
+            return
+        index = TreeIndex(people)
+
+        # Pro Match besten Anknüpfungspunkt im eigenen Baum suchen
+        results = []
+        for guid, info in peds.items():
+            best = None  # (score, ped_row, own_person)
+            for r in info["rows"]:
+                q = Person(r["given_name"], r["surname"],
+                           r["birth_year"], r["birth_place"])
+                if not q.stoks:
+                    continue
+                own, score = index.best_match(q, min_score=0.6)
+                if own and (best is None or score > best[0]
+                            or (score == best[0] and r["generation"] < best[1]["generation"])):
+                    best = (score, r, own)
+            if best:
+                results.append((info["name"], info["cm"], best))
+        results.sort(key=lambda x: (-(x[2][0]), -(x[1] or 0)))
+
+        win = tk.Toplevel(self)
+        win.title("GEDCOM-Abgleich – wo hängt jeder Match in deinem Baum?")
+        win.geometry("960x600")
+        ttk.Label(win, text=(f"Eigener Baum: {len(people)} Personen · "
+                             f"{len(results)} von {len(peds)} Matches mit Ahnentafel "
+                             f"im eigenen Baum verankert:"),
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
+
+        cols = ("match","cm","anchor","abirth","line","score")
+        tv = ttk.Treeview(win, columns=cols, show="headings")
+        heads = {"match":("Match",200),"cm":("cM",55),
+                 "anchor":("Anknüpfung in deinem Baum",230),
+                 "abirth":("* Anknüpfung",150),"line":("Match-Linie",90),
+                 "score":("Sicherheit",80)}
+        for c,(lbl,w) in heads.items():
+            tv.heading(c, text=lbl)
+            tv.column(c, width=w, anchor=("center" if c in ("cm","line","score") else "w"))
+        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
+        sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
+        tv.tag_configure("strong", background="#d8f0d8")
+
+        for name, cm, (score, r, own) in results:
+            ab = " ".join(x for x in (str(own.year or ""), own.place) if x).strip()
+            tag = ("strong",) if score >= 0.8 else ()
+            tv.insert("", "end", tags=tag, values=(
+                name or "?", f"{(cm or 0):.0f}", own.display, ab,
+                r["ahnen_path"] or "?", f"{score:.2f}"))
+
+        self._set_status(f"GEDCOM-Abgleich: {len(results)}/{len(peds)} Matches verankert.")
 
     def _stop_download(self):
         if self._scraper:

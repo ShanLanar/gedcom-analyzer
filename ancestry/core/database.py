@@ -296,6 +296,27 @@ class Database:
                 "ORDER BY generation, ahnen_path", (test_guid, match_guid))
             return [dict(r) for r in cur.fetchall()]
 
+    def get_all_pedigrees(self, test_guid: str) -> dict:
+        """{match_guid: {"name", "cm", "rows":[...]}} für alle geladenen Ahnentafeln
+        (ohne Generation 1 = der Match selbst)."""
+        with self._cursor() as cur:
+            cur.execute("""
+                SELECT p.match_guid, m.display_name, m.shared_cm, p.generation,
+                       p.ahnen_path, p.given_name, p.surname, p.birth_year,
+                       p.birth_place, p.death_year
+                FROM match_pedigree p
+                JOIN matches m ON m.match_guid=p.match_guid AND m.test_guid=p.test_guid
+                WHERE p.test_guid=? AND p.generation>=2
+                ORDER BY m.shared_cm DESC, p.generation, p.ahnen_path
+            """, (test_guid,))
+            rows = cur.fetchall()
+        out: dict = {}
+        for r in rows:
+            g = out.setdefault(r["match_guid"], {
+                "name": r["display_name"], "cm": r["shared_cm"], "rows": []})
+            g["rows"].append(dict(r))
+        return out
+
     def get_matches_needing_ancestors(self, test_guid: str) -> list:
         """[(match_guid, display_name)] für Matches mit gemeinsamem Vorfahren,
         die noch nicht abgerufen wurden."""
