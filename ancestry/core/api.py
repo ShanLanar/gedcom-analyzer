@@ -133,7 +133,13 @@ class AncestryApiClient:
                 or self._s.cookies.get("_csrf")
                 or self._s.cookies.get("XSRF-TOKEN") or "")
         if csrf:
-            headers["X-CSRF-Token"] = csrf
+            from urllib.parse import unquote
+            csrf_decoded = unquote(csrf)
+            headers["X-CSRF-Token"] = csrf_decoded
+            if not getattr(self, "_logged_csrf", False):
+                self._logged_csrf = True
+                log.debug("profileData CSRF-Token: '%s…' (len=%d)",
+                          csrf_decoded[:20], len(csrf_decoded))
 
         payload = {"matchSampleIds": list(sample_ids)}
 
@@ -152,7 +158,7 @@ class AncestryApiClient:
             try:
                 r = self._s.post(url, json=payload, headers=headers,
                                  timeout=cfg.REQUEST_TIMEOUT,
-                                 allow_redirects=False)
+                                 allow_redirects=True)
             except Exception as e:
                 delay = _jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
                 log.warning("profileData Versuch %d/%d Fehler: %s → %.0fs …",
@@ -161,44 +167,10 @@ class AncestryApiClient:
                 continue
 
             if r.status_code in (301, 302, 303, 307, 308):
-                location = r.headers.get("Location", "")
-                log.debug("profileData HTTP %s → Location: '%s'", r.status_code, location)
-                # '?' oder leer = relativer Redirect auf dieselbe URL (POST→GET-Muster)
-                if not location or location in ("?", "./"):
-                    get_url = url
-                elif location.startswith("http"):
-                    get_url = location
-                else:
-                    get_url = cfg.BASE_URL + location
-                try:
-                    r2 = self._s.get(get_url, headers={
-                        "Accept": "application/json",
-                        "Referer": url,
-                        "X-Requested-With": "XMLHttpRequest",
-                    }, timeout=cfg.REQUEST_TIMEOUT, allow_redirects=True)
-                    log.debug("profileData GET nach Redirect: HTTP %s (%d Bytes)",
-                              r2.status_code, len(r2.content))
-                    if r2.status_code == 200:
-                        try:
-                            data = r2.json()
-                            if isinstance(data, dict) and data:
-                                names = {}
-                                for sid, info in data.items():
-                                    name = self._pick_name(info)
-                                    if name:
-                                        names[sid] = name
-                                log.debug("profileData (via GET): %d/%d Namen",
-                                          len(names), len(sample_ids))
-                                return names
-                        except Exception:
-                            pass
-                        log.debug("profileData GET-Antwort kein JSON: %s",
-                                  r2.text[:300])
-                except Exception as e2:
-                    log.debug("profileData GET nach Redirect fehlgeschlagen: %s", e2)
-                # Redirect führte nicht zu JSON → Session ungültig
-                log.error("profileData: 303-Redirect ohne JSON-Antwort. "
-                          "Bitte ancestry.json neu exportieren.")
+                log.warning("profileData HTTP %s nach Redirect-Folge → URL: %s",
+                            r.status_code, r.url)
+                log.debug("profileData Antwort (%d Bytes): %s",
+                          len(r.content), r.text[:300])
                 self._detail_blocked = True
                 return {}
 
@@ -223,10 +195,20 @@ class AncestryApiClient:
                     continue
                 return {}
 
+            # Prüfen ob wir auf Login-Seite umgeleitet wurden (200 aber HTML)
+            ct = r.headers.get("Content-Type", "")
+            if "html" in ct:
+                log.error("profileData: 200 aber HTML-Antwort (Login-Redirect?) – "
+                          "URL: %s", r.url)
+                log.debug("profileData HTML: %s", r.text[:300])
+                self._detail_blocked = True
+                return {}
+
             try:
                 data = r.json()
             except Exception as e:
-                log.error("profileData JSON-Fehler: %s", e)
+                log.error("profileData JSON-Fehler: %s | Antwort: %s",
+                          e, r.text[:200])
                 return {}
 
             names = {}
