@@ -72,8 +72,54 @@ def _surname_tokens(surname: str) -> set:
     return {t for t in s.split() if t and t not in _STOP and len(t) > 1}
 
 
+# Deutsch↔Englisch (anglisierte Auswanderer-Vornamen) → gemeinsame Kanon-Form.
+_NAME_EQUIV_GROUPS = [
+    ("heinrich", "henry", "harry", "hank"),
+    ("wilhelm", "william", "will", "willie", "bill"),
+    ("johann", "johannes", "john", "johan", "john", "jack"),
+    ("friedrich", "frederick", "fred", "frederic", "fritz"),
+    ("karl", "carl", "charles", "charlie", "chuck"),
+    ("ludwig", "louis", "lewis", "lou"),
+    ("georg", "george"),
+    ("jakob", "jacob", "jake"),
+    ("franz", "frank", "francis"),
+    ("ernst", "ernest", "ernie"),
+    ("hermann", "herman"),
+    ("august", "augustus", "gus"),
+    ("gottlieb", "godlove"),
+    ("gottfried", "godfrey"),
+    ("bernhard", "bernard", "barney"),
+    ("albrecht", "albert", "al"),
+    ("conrad", "konrad"),
+    ("theodor", "theodore", "ted"),
+    ("rudolf", "rudolph", "rudy"),
+    ("adolf", "adolph"),
+    ("gustav", "gustave", "gustaf"),
+    ("anna", "anne", "ann", "annie"),
+    ("maria", "mary", "marie", "maja"),
+    ("margarethe", "margaretha", "margaret", "margarete", "maggie", "greta"),
+    ("elisabeth", "elizabeth", "lisbeth", "betty", "liz", "elise"),
+    ("katharina", "catherine", "katherine", "kathryn", "kate", "katie"),
+    ("dorothea", "dorothy", "dora"),
+    ("sophie", "sophia", "sophy"),
+    ("wilhelmine", "wilma", "minnie"),
+    ("caroline", "karoline", "carolina", "carrie"),
+    ("luise", "louise", "luisa"),
+    ("auguste", "augusta"),
+    ("henriette", "harriet"),
+    ("friederike", "frederica"),
+    ("christine", "christina", "christiane", "tina"),
+    ("magdalena", "magdalene", "lena"),
+]
+_NAME_CANON = {v: grp[0] for grp in _NAME_EQUIV_GROUPS for v in grp}
+
+
+def _canon_given(tok: str) -> str:
+    return _NAME_CANON.get(tok, tok)
+
+
 def _given_tokens(given: str) -> set:
-    return {t for t in _norm(given).split() if t and len(t) > 1}
+    return {_canon_given(t) for t in _norm(given).split() if t and len(t) > 1}
 
 
 # ── Personen-Schlüssel ──────────────────────────────────────────────────────
