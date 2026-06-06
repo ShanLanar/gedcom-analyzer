@@ -5,6 +5,7 @@ Läuft in einem eigenen Thread, damit die GUI nicht blockiert.
 
 import logging
 import random
+import re
 import threading
 import time as _time
 from typing import Callable, Optional
@@ -345,13 +346,20 @@ class Scraper:
 
     @staticmethod
     def _is_placeholder(name: str) -> bool:
-        """True, wenn display_name nur ein Platzhalter ist (leer/Anonym/GUID-Kürzel)."""
+        """True, wenn display_name nur ein Platzhalter ist (leer/Anonym/GUID-Kürzel).
+        ACHTUNG: kurze echte Namen ('Meyer', 'John') sind KEINE Platzhalter –
+        früher führte eine len<=8-Heuristik dazu, dass sie endlos neu geladen wurden."""
         if not name:
             return True
         n = name.strip()
-        if n in ("Anonym", "?") or len(n) <= 8:
+        if n in ("Anonym", "?", "Unbekannt"):
             return True
-        return n.endswith(" (m.)") or n.endswith(" (w.)")
+        if n.endswith(" (m.)") or n.endswith(" (w.)"):
+            return True
+        # GUID-Kürzel wie 'AB12CD34' (genau 8 Hex-Zeichen, kein Leerzeichen)
+        if re.fullmatch(r"[0-9A-Fa-f]{8}", n):
+            return True
+        return False
 
     def _run_fetch_names(self, test_guid: str, min_cm: float):
         """Lädt pro Batch (20) Name + Geschlecht, gemeinsamen Vorfahren und
@@ -433,20 +441,36 @@ class Scraper:
                                 (name, sid, test_guid))
                             result.new += 1
 
-                        cur.execute(
-                            "UPDATE matches SET "
-                            "  gender=?, match_ucdmid=?, has_common_ancestor=?, "
-                            "  tree_status=?, tree_size=?, has_tree=? "
-                            "WHERE match_guid=? AND test_guid=?",
-                            (
-                                d.get("gender", "") or "",
-                                d.get("ucdmid", "") or "",
-                                1 if sid in common else 0,
-                                t.get("tree_status", ""),
-                                int(t.get("tree_size", 0) or 0),
-                                1 if t.get("has_tree") else 0,
-                                sid, test_guid,
-                            ))
+                        if t:
+                            # Vollständiges Update inkl. Baum-Status (nur wenn
+                            # treeData wirklich etwas geliefert hat).
+                            cur.execute(
+                                "UPDATE matches SET "
+                                "  gender=?, match_ucdmid=?, has_common_ancestor=?, "
+                                "  tree_status=?, tree_size=?, has_tree=? "
+                                "WHERE match_guid=? AND test_guid=?",
+                                (
+                                    d.get("gender", "") or "",
+                                    d.get("ucdmid", "") or "",
+                                    1 if sid in common else 0,
+                                    t.get("tree_status", "") or "Kein Baum",
+                                    int(t.get("tree_size", 0) or 0),
+                                    1 if t.get("has_tree") else 0,
+                                    sid, test_guid,
+                                ))
+                        else:
+                            # Kein treeData → vorhandenen Baum-Status NICHT
+                            # überschreiben, nur die Profilfelder aktualisieren.
+                            cur.execute(
+                                "UPDATE matches SET "
+                                "  gender=?, match_ucdmid=?, has_common_ancestor=? "
+                                "WHERE match_guid=? AND test_guid=?",
+                                (
+                                    d.get("gender", "") or "",
+                                    d.get("ucdmid", "") or "",
+                                    1 if sid in common else 0,
+                                    sid, test_guid,
+                                ))
             except Exception as e:
                 log.error("DB-Update Detail-Batch: %s", e)
                 result.errors += 1
