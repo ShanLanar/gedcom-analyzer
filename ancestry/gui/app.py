@@ -881,9 +881,11 @@ class AncestryDnaApp(tk.Tk):
         tframe = ttk.Frame(pane); pane.add(tframe, weight=2)
         bframe = ttk.Frame(pane); pane.add(bframe, weight=3)
 
-        tv = ttk.Treeview(tframe, columns=("cluster","size"), show="headings", selectmode="browse")
-        tv.heading("cluster", text="Cluster"); tv.column("cluster", width=120, anchor="center")
-        tv.heading("size", text="Mitglieder"); tv.column("size", width=100, anchor="center")
+        tv = ttk.Treeview(tframe, columns=("cluster","size","dens","conf"),
+                          show="headings", selectmode="browse")
+        for col,(lbl,w) in {"cluster":("Cluster",100),"size":("Mitglieder",80),
+                            "dens":("Dichte",70),"conf":("Echt-Güte",110)}.items():
+            tv.heading(col, text=lbl); tv.column(col, width=w, anchor="center")
         tv.pack(side="left", fill="both", expand=True)
         sb = ttk.Scrollbar(tframe, orient="vertical", command=tv.yview); sb.pack(side="right", fill="y")
         tv.configure(yscrollcommand=sb.set)
@@ -898,10 +900,16 @@ class AncestryDnaApp(tk.Tk):
                 lo = float(lo_var.get() or 0); hi = float(hi_var.get() or 9999)
             except ValueError:
                 lo, hi = 20.0, 400.0
+            from core.treematch import cluster_confidence
             clusters = self._db.get_shared_clusters(test_guid, lo, hi)
             tv.delete(*tv.get_children()); store.clear()
             for i, c in enumerate(clusters, 1):
-                iid = tv.insert("", "end", values=(f"Cluster {i}", c["size"]))
+                conf = cluster_confidence(c["size"], c.get("density", 0),
+                                          c.get("median_cm", 0))
+                c["_conf"] = conf
+                iid = tv.insert("", "end", values=(
+                    f"Cluster {i}", c["size"], f"{c.get('density',0):.2f}",
+                    f"{conf['realness']*100:.0f}% ({conf['label']})"))
                 store[iid] = c
             info.configure(text=(f"{len(clusters)} Cluster gefunden "
                                  f"({lo:.0f}–{hi:.0f} cM)." if clusters else
@@ -1017,7 +1025,14 @@ class AncestryDnaApp(tk.Tk):
             c = store.get(sel[0]); detail.delete("1.0","end")
             if not c: return
             guids = [g for g, _n, _cm in c["members"]]
-            detail.insert("end", f"{c['size']} Matches in dieser Gruppe "
+            conf = c.get("_conf", {})
+            detail.insert("end",
+                f"Echt-Güte: {conf.get('realness',0)*100:.0f}% "
+                f"({conf.get('label','?')}) · Dichte {c.get('density',0):.2f} "
+                f"({c.get('edges',0)} Verbindungen) · Median {c.get('median_cm',0):.0f} cM\n")
+            if conf.get("note"):
+                detail.insert("end", f"⚠ {conf['note']}\n")
+            detail.insert("end", f"\n{c['size']} Matches in dieser Gruppe "
                                  f"(wahrscheinlich gemeinsame Ahnenlinie):\n")
             for guid, name, cm in c["members"]:
                 detail.insert("end", f"  • {name or guid[:8]}   {(cm or 0):.0f} cM\n")
@@ -1122,6 +1137,21 @@ class AncestryDnaApp(tk.Tk):
                 f"entferntestes {cms[-1]:.0f} cM = {lbl_far}).  "
                 "⚠ Endogamie → cM überhöht, echter Vorfahr eher tiefer."),
                 foreground="#555").pack(anchor="w", padx=10, pady=(0,2))
+
+        # ── Confidence (Echtheit × Konvergenz) ─────────────────────────────────
+        from core.treematch import cluster_confidence
+        conv_frac = (max((len(r["members"]) for r in rows), default=0)
+                     / n_with_ped) if n_with_ped else 0.0
+        conf = cluster_confidence(size, cluster.get("density", 0),
+                                  cluster.get("median_cm", 0), conv_frac)
+        ttk.Label(win, text=(
+            f"Bewertung: Cluster echt ~{conf['realness']*100:.0f}% ({conf['label']}, "
+            f"Dichte {cluster.get('density',0):.2f}) · "
+            f"Pedigree-Konvergenz {conv_frac*100:.0f}% "
+            f"(max. {max((len(r['members']) for r in rows), default=0)}/{n_with_ped} "
+            f"auf einen Vorfahren)"
+            + (f"  ⚠ {conf['note']}" if conf['note'] else "")),
+            foreground="#333", style="Bold.TLabel").pack(anchor="w", padx=10, pady=(0,4))
 
         def _birth(rep):
             d = rep.bdate or (str(rep.year) if rep.year else "")

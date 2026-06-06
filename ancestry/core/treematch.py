@@ -216,6 +216,37 @@ def render_kinship(path: str) -> str:
     return label + " " + side
 
 
+def cluster_confidence(size: int, density: float, median_cm: float = 0.0,
+                       conv_frac: float = None):
+    """Bewertet einen Cluster. Liefert dict mit:
+      realness  – P(Cluster ist echt, kein Zufall) 0..1 (Größe × Dichte)
+      cohesion  – Dichte (eine Linie vs. mehrere verschmolzen)
+      conv      – Anteil Mitglieder, die auf denselben Vorfahren konvergieren
+      label, note.
+    Mitglieder sind NICHT unabhängig – darum dominiert die gegenseitige
+    Vernetzung (Dichte), nicht die bloße Anzahl."""
+    size = max(size, 1)
+    d = max(0.0, min(density or 0.0, 1.0))
+    # effektive 'unabhängige Bestätigungen' ~ Größe gewichtet mit Dichte
+    eff = 1 + (size - 1) * max(d, 0.25)
+    realness = 1 - 0.5 ** eff
+    if realness >= 0.97:
+        label = "sehr hoch"
+    elif realness >= 0.85:
+        label = "hoch"
+    elif realness >= 0.6:
+        label = "mittel"
+    else:
+        label = "niedrig"
+    note = ""
+    if d < 0.3 and size >= 6:
+        note = "lose vernetzt → evtl. mehrere Linien verschmolzen (Endogamie?)"
+    elif conv_frac is not None and conv_frac < 0.4 and size >= 4:
+        note = "geringe Pedigree-Konvergenz → Vorhersage unsicher"
+    return {"realness": realness, "cohesion": d, "conv": conv_frac,
+            "label": label, "note": note}
+
+
 def cm_to_mrca(cm: float):
     """Schätzt aus geteilten cM die Beziehung und die Pedigree-Generation des
     gemeinsamen Vorfahren (Wurzel=Gen 1). Basiert auf Shared-cM-Project-Mittelwerten.

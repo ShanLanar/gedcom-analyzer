@@ -795,9 +795,20 @@ class Database:
         for a, b in edges:
             union(a, b)
 
+        # ungerichtete Kanten je Komponente zählen (Dichte = Triangulationsstärke)
+        undirected = set()
+        for a, b in edges:
+            if a != b:
+                undirected.add((a, b) if a < b else (b, a))
+
         comps: dict = {}
         for node in list(parent.keys()):
             comps.setdefault(find(node), set()).add(node)
+
+        edge_count: dict = {}
+        for a, b in undirected:
+            r = find(a)
+            edge_count[r] = edge_count.get(r, 0) + 1
 
         # Namen + cM nachladen
         guids = [g for members in comps.values() for g in members]
@@ -811,14 +822,23 @@ class Database:
                 for r in cur.fetchall():
                     info[r["match_guid"]] = (r["display_name"], r["shared_cm"])
 
+        import statistics
         out = []
-        for members in comps.values():
-            if len(members) < min_size:
+        for root, members in comps.items():
+            n = len(members)
+            if n < min_size:
                 continue
             mlist = [(g, info.get(g, ("?", 0))[0], info.get(g, ("?", 0))[1])
                      for g in members]
             mlist.sort(key=lambda x: -(x[2] or 0))
-            out.append({"size": len(mlist), "members": mlist})
+            cms = [cm for _g, _n, cm in mlist if cm]
+            possible = n * (n - 1) / 2
+            density = (edge_count.get(root, 0) / possible) if possible else 0.0
+            med_cm = statistics.median(cms) if cms else 0.0
+            out.append({"size": n, "members": mlist,
+                        "density": round(density, 3),
+                        "median_cm": round(med_cm, 1),
+                        "edges": edge_count.get(root, 0)})
         out.sort(key=lambda c: c["size"], reverse=True)
         return out
 
