@@ -391,24 +391,30 @@ class Database:
                         "WHERE match_guid=? AND test_guid=?", (match_guid, test_guid))
 
     def get_pedigree_groups(self, test_guid: str, min_matches: int = 2,
-                            mode: str = "person") -> list:
+                            mode: str = "person", only_guids: list = None) -> list:
         """Pedigree-Überlagerung: Vorfahren, die in mehreren Match-Ahnentafeln
         auftauchen. Generation 1 (=der Match selbst) wird ausgeschlossen.
 
         mode='person'  → Gruppierung nach Name+Geburtsjahr (echte Personen)
         mode='surname' → Gruppierung nach Nachname allein (Sippen-Cluster)
         mode='place'   → Gruppierung nach Geburtsort
+        only_guids     → optional auf diese Match-GUIDs einschränken (Cluster-Analyse)
 
-        Liefert [{label, detail, count, matches:[(guid,name,path,gen)]}]."""
+        Liefert [{label, detail, count, matches:[(guid,name,path,gen,cm)]}]."""
+        sql = """
+            SELECT p.given_name, p.surname, p.birth_year, p.birth_place,
+                   p.generation, p.ahnen_path, p.match_guid,
+                   m.display_name, m.shared_cm
+            FROM match_pedigree p
+            JOIN matches m ON m.match_guid=p.match_guid AND m.test_guid=p.test_guid
+            WHERE p.test_guid=? AND p.generation>=2
+        """
+        params = [test_guid]
+        if only_guids:
+            sql += " AND p.match_guid IN (%s)" % ",".join("?" * len(only_guids))
+            params.extend(only_guids)
         with self._cursor() as cur:
-            cur.execute("""
-                SELECT p.given_name, p.surname, p.birth_year, p.birth_place,
-                       p.generation, p.ahnen_path, p.match_guid,
-                       m.display_name, m.shared_cm
-                FROM match_pedigree p
-                JOIN matches m ON m.match_guid=p.match_guid AND m.test_guid=p.test_guid
-                WHERE p.test_guid=? AND p.generation>=2
-            """, (test_guid,))
+            cur.execute(sql, params)
             rows = cur.fetchall()
 
         groups: dict = {}

@@ -910,10 +910,31 @@ class AncestryDnaApp(tk.Tk):
             if not sel: return
             c = store.get(sel[0]); detail.delete("1.0","end")
             if not c: return
+            guids = [g for g, _n, _cm in c["members"]]
             detail.insert("end", f"{c['size']} Matches in dieser Gruppe "
-                                 f"(wahrscheinlich gemeinsame Ahnenlinie):\n\n")
+                                 f"(wahrscheinlich gemeinsame Ahnenlinie):\n")
             for guid, name, cm in c["members"]:
                 detail.insert("end", f"  • {name or guid[:8]}   {(cm or 0):.0f} cM\n")
+
+            # Gemeinsame Vorfahren-Linien INNERHALB des Clusters – das ist die
+            # belastbare Linie, die bei dir andocken muss.
+            detail.insert("end", "\n── Gemeinsame Vorfahren im Cluster "
+                                 "(von ≥2 Mitgliedern geteilt) ──\n")
+            found = False
+            for mode, titel in (("person", "Personen"), ("surname", "Nachnamen"),
+                                ("place", "Orte")):
+                groups = self._db.get_pedigree_groups(
+                    test_guid, min_matches=2, mode=mode, only_guids=guids)
+                if not groups:
+                    continue
+                found = True
+                detail.insert("end", f"\n{titel}:\n")
+                for g in groups[:12]:
+                    detail.insert("end", f"  • {g['label']} {g['detail']}"
+                                         f"  ({g['count']}/{c['size']} Matches)\n")
+            if not found:
+                detail.insert("end", "  (keine geteilten Vorfahren – ggf. erst "
+                                     "Ahnentafeln für diese Matches laden)\n")
         tv.bind("<<TreeviewSelect>>", on_sel)
         reload()
 
