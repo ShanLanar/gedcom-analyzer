@@ -95,6 +95,8 @@ DETAIL_REQUEST_DELAY = 1.5
 PAGE_SIZE       = 50    # itemsPerPage (wie Ancestry-UI)
 MAX_PAGES       = 0
 REQUEST_DELAY   = 4.0   # Basis-Pause zwischen Requests (Sekunden)
+# Eigene, kürzere Pause fürs Shared-Matches-Blättern (leichtere GETs).
+SHARED_REQUEST_DELAY = 2.0
 REQUEST_TIMEOUT = 30
 
 # ── Datenbank / Logging / Export ──────────────────────────────────────────────

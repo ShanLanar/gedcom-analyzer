@@ -371,7 +371,8 @@ class AncestryDnaApp(tk.Tk):
         ttk.Label(f, text=(
             "Lädt für jeden gespeicherten Match dessen gemeinsame Matches mit cM-Werten.\n"
             "Empfehlung: erst Matches (A) herunterladen, dann Shared Matches (B).\n"
-            "Ab 20 cM sinnvoll – erfasst auch entferntere Verwandte. Kann bei vielen Matches mehrere Stunden dauern!"
+            "Ab 20 cM sinnvoll – erfasst auch entferntere Verwandte.\n"
+            "Tipp: Höherer cM-Wert = deutlich weniger primäre Matches = viel schneller (kann sonst Stunden dauern)."
         ), foreground="#555555").grid(row=13, column=0, columnspan=4, sticky="w", padx=14)
 
         sf2 = ttk.Frame(f); sf2.grid(row=14, column=0, columnspan=4, sticky="w", **p)

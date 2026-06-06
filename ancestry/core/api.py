@@ -627,7 +627,7 @@ class AncestryApiClient:
             if page >= total_pages or data.get("isLastPage"):
                 break
             page += 1
-            time.sleep(_jitter(cfg.REQUEST_DELAY))
+            time.sleep(_jitter(cfg.SHARED_REQUEST_DELAY))
 
         log.debug("Shared Matches %s: %d gesamt", match_guid_a[:16], fetched)
 
