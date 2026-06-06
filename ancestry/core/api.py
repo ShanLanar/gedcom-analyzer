@@ -271,6 +271,16 @@ class AncestryApiClient:
                                  test_guid, "commonAncestors")
         return set(data) if isinstance(data, list) else set()
 
+    def get_matches_in_tree(self, test_guid: str, sample_ids: list[str]) -> set:
+        """matchesInTree → Set der sampleIds, die in DEINEM Baum verknüpft sind
+        ('View in tree' – unabhängig von ThruLines/gemeinsamem Vorfahren)."""
+        if not sample_ids or self._detail_blocked:
+            return set()
+        url  = cfg.MATCHES_IN_TREE_URL.format(test_guid=test_guid)
+        data = self._signed_post(url, {"sampleIds": list(sample_ids)},
+                                 test_guid, "matchesInTree")
+        return set(data) if isinstance(data, list) else set()
+
     # ── Stammbaum-Daten ──────────────────────────────────────────────────────────
 
     @staticmethod

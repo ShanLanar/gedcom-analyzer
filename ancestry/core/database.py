@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 9
+    SCHEMA_VERSION = 10
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -83,6 +83,8 @@ class Database:
                 self._migrate_v7_v8(cur)
             if current < 9:
                 self._migrate_v8_v9(cur)
+            if current < 10:
+                self._migrate_v9_v10(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -259,6 +261,13 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_ped_surname ON match_pedigree(surname);
         """)
 
+    def _migrate_v9_v10(self, cur):
+        """Schema v10: 'View in tree' – Match in deinem Baum verknüpft (kein ThruLine)."""
+        try:
+            cur.execute("ALTER TABLE matches ADD COLUMN linked_in_tree INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
     def _migrate_v8_v9(self, cur):
         """Schema v9: Zähler für erfolglose Namens-Abrufe (privat/anonym überspringen)."""
         try:
@@ -328,7 +337,9 @@ class Database:
         with self._cursor() as cur:
             cur.execute("""
                 SELECT p.match_guid, m.display_name, m.shared_cm,
-                       m.has_common_ancestor, p.generation,
+                       m.has_common_ancestor,
+                       COALESCE(m.linked_in_tree,0) AS linked_in_tree,
+                       p.generation,
                        p.ahnen_path, p.given_name, p.surname, p.birth_year,
                        p.birth_place, p.death_year
                 FROM match_pedigree p
@@ -339,9 +350,11 @@ class Database:
             rows = cur.fetchall()
         out: dict = {}
         for r in rows:
+            # 'linked' = in DEINEM Baum verknüpft (View in tree) ODER ThruLine
             g = out.setdefault(r["match_guid"], {
                 "name": r["display_name"], "cm": r["shared_cm"],
-                "linked": bool(r["has_common_ancestor"]), "rows": []})
+                "linked": bool(r["linked_in_tree"] or r["has_common_ancestor"]),
+                "rows": []})
             g["rows"].append(dict(r))
         return out
 

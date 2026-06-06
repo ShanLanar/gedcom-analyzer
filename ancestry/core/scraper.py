@@ -460,6 +460,12 @@ class Scraper:
                 log.debug("commonAncestors-Fehler: %s", e)
                 common = set()
 
+            try:
+                in_tree = self._client.get_matches_in_tree(test_guid, sample_ids)
+            except Exception as e:
+                log.debug("matchesInTree-Fehler: %s", e)
+                in_tree = set()
+
             sid_to_ucdmid = {sid: d.get("ucdmid")
                              for sid, d in details.items() if d.get("ucdmid")}
             try:
@@ -497,12 +503,14 @@ class Scraper:
                             cur.execute(
                                 "UPDATE matches SET "
                                 "  gender=?, match_ucdmid=?, has_common_ancestor=?, "
+                                "  linked_in_tree=?, "
                                 "  tree_status=?, tree_size=?, has_tree=? "
                                 "WHERE match_guid=? AND test_guid=?",
                                 (
                                     d.get("gender", "") or "",
                                     d.get("ucdmid", "") or "",
                                     1 if sid in common else 0,
+                                    1 if sid in in_tree else 0,
                                     t.get("tree_status", "") or "Kein Baum",
                                     int(t.get("tree_size", 0) or 0),
                                     1 if t.get("has_tree") else 0,
@@ -513,12 +521,14 @@ class Scraper:
                             # überschreiben, nur die Profilfelder aktualisieren.
                             cur.execute(
                                 "UPDATE matches SET "
-                                "  gender=?, match_ucdmid=?, has_common_ancestor=? "
+                                "  gender=?, match_ucdmid=?, has_common_ancestor=?, "
+                                "  linked_in_tree=? "
                                 "WHERE match_guid=? AND test_guid=?",
                                 (
                                     d.get("gender", "") or "",
                                     d.get("ucdmid", "") or "",
                                     1 if sid in common else 0,
+                                    1 if sid in in_tree else 0,
                                     sid, test_guid,
                                 ))
             except Exception as e:

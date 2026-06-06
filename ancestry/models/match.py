@@ -94,6 +94,7 @@ class DnaMatch:
     match_ucdmid: str = ""          # userId für treeData-Abruf
     gender: str = ""                # "M"/"F" aus profileData
     name_attempts: int = 0          # erfolglose Namens-Abrufversuche (privat/anonym)
+    linked_in_tree: bool = False    # 'View in tree' – in DEINEM Baum verknüpft
 
     starred: bool = False
     note: str = ""

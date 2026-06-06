@@ -41,6 +41,8 @@ PROFILE_DATA_BATCH = 20   # sampleIds pro Request (wie Ancestry-UI)
 # userId in treeData == matchUcdmid aus profileData.
 COMMON_ANCESTORS_URL = f"{DNA_LIST_BASE}/commonAncestors/{{test_guid}}"
 TREE_DATA_URL        = f"{DNA_LIST_BASE}/treeData/{{test_guid}}"
+# Bulk: welche Matches sind in DEINEM Baum verknüpft ('View in tree'). POST sampleIds.
+MATCHES_IN_TREE_URL  = f"{DNA_LIST_BASE}/badges/matchesInTree/{{test_guid}}"
 
 # ── Compare-Seite: gemeinsame Vorfahren + Geburtsorte (bestätigt via Spion) ────
 # Beides GET (wie matchList) → kein CSRF nötig.
