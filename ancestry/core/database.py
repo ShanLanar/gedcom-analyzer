@@ -674,7 +674,28 @@ class Database:
     def bulk_upsert_shared(self, items: list[SharedMatch]) -> int:
         for sm in items:
             self.upsert_shared_match(sm)
+        # Shared-Personen sind selbst Matches → als Stub registrieren (ohne Namen
+        # zu überschreiben), damit sie in der Liste auftauchen und ein späterer
+        # 'Namen laden'-Lauf ihre Namen füllt. INSERT OR IGNORE schützt echte Daten.
+        self.register_shared_stubs(items)
         return len(items)
+
+    def register_shared_stubs(self, items: list[SharedMatch]):
+        """Legt für Shared-Personen, die noch kein Match sind, einen minimalen
+        Match-Eintrag an (ID + cM-mit-dir + Beziehung). Vorhandene bleiben unberührt."""
+        if not items:
+            return
+        with self._cursor() as cur:
+            for sm in items:
+                if not sm.match_guid_b:
+                    continue
+                cur.execute("""
+                    INSERT OR IGNORE INTO matches
+                        (match_guid, test_guid, display_name, shared_cm,
+                         predicted_relationship)
+                    VALUES (?,?,?,?,?)
+                """, (sm.match_guid_b, sm.test_guid, "",
+                      float(sm.shared_cm_b or 0), sm.relationship_b or ""))
 
     def mark_shared_fetched(self, test_guid: str, match_guid_a: str, fetched_at: str):
         with self._cursor() as cur:
