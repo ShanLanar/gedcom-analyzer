@@ -140,7 +140,10 @@ def _parse_name(raw: str, givn: str, surn: str):
     m = re.search(r"/([^/]*)/", raw)
     if m:
         surname = m.group(1).strip()
-        given = (raw[:m.start()] + raw[m.end():]).strip()
+        # Vorname = NUR der Teil VOR dem Nachnamen. Den Teil danach (Suffix wie
+        # 'Jr.' oder Forschungssymbole ‼/✠) NICHT an den Vornamen hängen, sonst
+        # erscheint er fälschlich vor dem Nachnamen.
+        given = raw[:m.start()].strip()
         return given, surname
     parts = raw.rsplit(" ", 1)
     return (parts[0], parts[1]) if len(parts) == 2 else (raw, "")
