@@ -4,6 +4,7 @@ Läuft in einem eigenen Thread, damit die GUI nicht blockiert.
 """
 
 import logging
+import random
 import threading
 import time as _time
 from typing import Callable, Optional
@@ -218,12 +219,20 @@ class Scraper:
         self._on_done(result)
 
     def _run_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0):
-        """Holt pro Match (mit Baum) die volle Ahnentafel (~5 Generationen)."""
+        """Holt pro Match (mit Baum) die volle Ahnentafel (~5 Generationen).
+        Parallelisiert über mehrere Worker (HTTP serialisiert im Client per Lock,
+        die Wartezeiten überlappen → deutlich schneller)."""
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+
         result = DownloadResult()
         todo = self._db.get_matches_needing_pedigree(test_guid, min_cm)
         total = len(todo)
-        self._on_status(f"Ahnentafeln laden: {total} Matches mit Baum (ab {min_cm:.0f} cM) …")
-        log.info("Pedigree-Download: %d Matches", total)
+        workers = max(1, int(getattr(cfg, "PEDIGREE_WORKERS", 4)))
+        delay   = float(getattr(cfg, "PEDIGREE_REQUEST_DELAY", 1.0))
+        self._on_status(f"Ahnentafeln laden: {total} Matches mit Baum "
+                        f"(ab {min_cm:.0f} cM, {workers} parallel) …")
+        log.info("Pedigree-Download: %d Matches, %d Worker", total, workers)
 
         if not todo:
             result.message = ("Keine offenen Matches mit Baum. "
@@ -233,32 +242,47 @@ class Scraper:
             self._on_done(result)
             return
 
-        for idx, (guid, name) in enumerate(todo, 1):
-            if self._stop.is_set():
-                result.message = f"Abgebrochen nach {idx-1}/{total}."
-                result.success = False
-                break
+        lock = threading.Lock()
+        counter = {"done": 0}
 
+        def _work(item):
+            guid, name = item
+            if self._stop.is_set():
+                return
             try:
                 ancestors = self._client.get_pedigree(test_guid, guid)
                 self._db.save_match_pedigree(test_guid, guid, ancestors)
-                if ancestors:
-                    result.new += 1
-                result.fetched += 1
+                with lock:
+                    result.fetched += 1
+                    if ancestors:
+                        result.new += 1
             except Exception as e:
                 log.error("Pedigree-Fehler %s: %s", guid[:8], e)
-                result.errors += 1
-
+                with lock:
+                    result.errors += 1
+            with lock:
+                counter["done"] += 1
+                idx = counter["done"]
             self._on_progress(idx, total, name or guid[:8])
             if idx % 10 == 0 or idx == total:
                 self._on_status(f"Ahnentafeln: {idx}/{total} – "
                                 f"{result.new} mit Daten …")
-            _time.sleep(NAME_REQUEST_DELAY)
+            _time.sleep(delay * (0.7 + random.random() * 0.6))
 
-        if not result.message:
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_work, it) for it in todo]
+            for f in futures:
+                if self._stop.is_set():
+                    break
+                f.result()
+
+        if self._stop.is_set():
+            result.success = False
+            result.message = f"Abgebrochen nach {counter['done']}/{total}."
+        else:
             result.success = True
             result.message = (f"Ahnentafeln geladen: {result.new} von {total} Matches "
-                              f"mit Daten ({'abgebrochen' if self._stop.is_set() else 'fertig'}).")
+                              f"mit Daten (fertig).")
         log.info(result.message)
         self._on_status(result.message)
         self._on_done(result)

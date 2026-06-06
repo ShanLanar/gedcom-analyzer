@@ -108,6 +108,9 @@ MAX_PAGES       = 0
 REQUEST_DELAY   = 4.0   # Basis-Pause zwischen Requests (Sekunden)
 # Eigene, kürzere Pause fürs Shared-Matches-Blättern (leichtere GETs).
 SHARED_REQUEST_DELAY = 2.0
+# Pedigree-Abruf (reine GETs): kürzere Pause + kontrollierte Parallelität.
+PEDIGREE_REQUEST_DELAY = 1.0
+PEDIGREE_WORKERS       = 5     # parallele Worker für Ahnentafel-Download
 REQUEST_TIMEOUT = 30
 
 # ── Datenbank / Logging / Export ──────────────────────────────────────────────

@@ -107,6 +107,7 @@ class AncestryApiClient:
         self._s = session
         self._detail_blocked = False   # True wenn Namen-API 401/403 lieferte
         self._csrf_mode = None         # gecachte CSRF-Form sobald eine 200 lieferte
+        self._http_lock = __import__("threading").Lock()  # serialisiert HTTP bei Parallelität
 
     @staticmethod
     def _pick_name(info: dict) -> str:
@@ -396,7 +397,8 @@ class AncestryApiClient:
     def get_match_tree_link(self, test_guid: str, match_guid: str) -> Optional[tuple]:
         """Liefert (tree_id, focus_person_id, person_count) des verknüpften Baums."""
         url = cfg.MATCH_TREES_URL.format(test_guid=test_guid, match_guid=match_guid)
-        r = _api_get(self._s, url)
+        with self._http_lock:
+            r = _api_get(self._s, url)
         if not r or r.status_code != 200:
             return None
         try:
@@ -450,7 +452,8 @@ class AncestryApiClient:
             return []
         tree_id, focus_pid, _ = link
         url = cfg.PEDIGREE_URL.format(tree_id=tree_id, focus_pid=focus_pid)
-        r = _api_get(self._s, url)
+        with self._http_lock:
+            r = _api_get(self._s, url)
         if not r or r.status_code != 200:
             return []
         try:
