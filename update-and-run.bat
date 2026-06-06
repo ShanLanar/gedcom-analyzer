@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal EnableExtensions
 title gedcom-analyzer Updater
 cd /d "%~dp0" >nul 2>&1
 
@@ -46,41 +46,51 @@ echo Python: %PYTHON%
 echo.
 
 REM --- Clone oder Update --------------------------------------------------------
-if not exist "%REPO_DIR%\.git" (
-    if exist "%REPO_DIR%" (
-        echo [FEHLER] %REPO_DIR% existiert bereits, ist aber kein Git-Repo.
-        echo          Bitte den Ordner umbenennen oder loeschen und erneut starten.
-        pause & exit /b 1
-    )
-    echo Clone Repository (Branch %BRANCH%) nach %REPO_DIR% ...
-    git clone --branch "%BRANCH%" "%REPO_URL%" "%REPO_DIR%"
-    if errorlevel 1 ( echo [FEHLER] git clone fehlgeschlagen. & pause & exit /b 1 )
-) else (
-    echo Aktualisiere Repository in %REPO_DIR% ...
-    pushd "%REPO_DIR%" >nul
-    REM Aktuell ausgecheckten Branch erkennen (statt fest 'main').
-    for /f "delims=" %%B in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "BRANCH=%%B"
-    if "!BRANCH!"=="" set "BRANCH=%DEFAULT_BRANCH%"
-    if "!BRANCH!"=="HEAD" (
-        echo [WARNUNG] Detached HEAD erkannt - wechsle auf %DEFAULT_BRANCH%.
-        set "BRANCH=%DEFAULT_BRANCH%"
-        git checkout "%DEFAULT_BRANCH%" >nul 2>&1
-    )
-    echo Branch: !BRANCH!
-    git fetch --prune origin "!BRANCH!"
-    if errorlevel 1 ( echo [FEHLER] git fetch fehlgeschlagen. & popd >nul & pause & exit /b 1 )
-    git checkout "!BRANCH!" >nul 2>&1
-    git reset --hard "origin/!BRANCH!"
-    if errorlevel 1 (
-        echo [FEHLER] git reset fehlgeschlagen.
-        popd >nul & pause & exit /b 1
-    )
-    if exist "__pycache__"        rmdir /s /q "__pycache__"
-    if exist "lib\__pycache__"    rmdir /s /q "lib\__pycache__"
-    if exist "tasks\__pycache__"  rmdir /s /q "tasks\__pycache__"
-    if exist "ancestry\__pycache__" rmdir /s /q "ancestry\__pycache__"
-    popd >nul
+REM Update-Logik bewusst in einer Subroutine (CALL) statt im if/else-Block:
+REM so funktioniert normales %BRANCH% zeilenweise – KEIN Delayed Expansion nötig,
+REM was den selbst-modifizierenden Batch robust macht.
+if not exist "%REPO_DIR%\.git" goto do_clone
+call :do_update
+if errorlevel 1 ( pause & exit /b 1 )
+goto after_repo
+
+:do_clone
+if exist "%REPO_DIR%" (
+    echo [FEHLER] %REPO_DIR% existiert bereits, ist aber kein Git-Repo.
+    echo          Bitte den Ordner umbenennen oder loeschen und erneut starten.
+    pause & exit /b 1
 )
+echo Clone Repository (Branch %DEFAULT_BRANCH%) nach %REPO_DIR% ...
+git clone --branch "%DEFAULT_BRANCH%" "%REPO_URL%" "%REPO_DIR%"
+if errorlevel 1 ( echo [FEHLER] git clone fehlgeschlagen. & pause & exit /b 1 )
+goto after_repo
+
+REM --- Subroutine: vorhandenes Repo aktualisieren ------------------------------
+:do_update
+echo Aktualisiere Repository in %REPO_DIR% ...
+pushd "%REPO_DIR%" >nul
+set "BRANCH=%DEFAULT_BRANCH%"
+for /f "delims=" %%B in ('git rev-parse --abbrev-ref HEAD 2^>nul') do set "BRANCH=%%B"
+if "%BRANCH%"=="" set "BRANCH=%DEFAULT_BRANCH%"
+if /i "%BRANCH%"=="HEAD" (
+    echo [WARNUNG] Detached HEAD erkannt - wechsle auf %DEFAULT_BRANCH%.
+    set "BRANCH=%DEFAULT_BRANCH%"
+    git checkout "%DEFAULT_BRANCH%" >nul 2>&1
+)
+echo Branch: %BRANCH%
+git fetch --prune origin "%BRANCH%"
+if errorlevel 1 ( echo [FEHLER] git fetch fehlgeschlagen. & popd >nul & exit /b 1 )
+git checkout "%BRANCH%" >nul 2>&1
+git reset --hard "origin/%BRANCH%"
+if errorlevel 1 ( echo [FEHLER] git reset fehlgeschlagen. & popd >nul & exit /b 1 )
+if exist "__pycache__"          rmdir /s /q "__pycache__"
+if exist "lib\__pycache__"      rmdir /s /q "lib\__pycache__"
+if exist "tasks\__pycache__"    rmdir /s /q "tasks\__pycache__"
+if exist "ancestry\__pycache__" rmdir /s /q "ancestry\__pycache__"
+popd >nul
+exit /b 0
+
+:after_repo
 
 REM --- Aktuelle Version anzeigen ------------------------------------------------
 pushd "%REPO_DIR%" >nul
