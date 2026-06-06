@@ -318,12 +318,14 @@ class Database:
         return out
 
     def get_matches_needing_ancestors(self, test_guid: str) -> list:
-        """[(match_guid, display_name)] für Matches mit gemeinsamem Vorfahren,
-        die noch nicht abgerufen wurden."""
+        """[(match_guid, display_name)] für Matches MIT BAUM, die noch nicht
+        abgerufen wurden. Bewusst NICHT auf Ancestrys has_common_ancestor-Flag
+        beschränkt: Geburtsorte gibt es für jeden Baum, commonancestors liefert
+        wo vorhanden zusätzlich Ancestrys Linie."""
         with self._cursor() as cur:
             cur.execute(
                 "SELECT match_guid, display_name FROM matches "
-                "WHERE test_guid=? AND has_common_ancestor=1 "
+                "WHERE test_guid=? AND (has_tree=1 OR has_common_ancestor=1) "
                 "AND COALESCE(ancestors_fetched,0)=0 "
                 "ORDER BY shared_cm DESC", (test_guid,))
             return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]

@@ -352,7 +352,8 @@ class AncestryDnaApp(tk.Tk):
         ttk.Label(f, text=(
             "Lädt Namen, Geschlecht, Stammbaum-Status/-Größe und ob ein\n"
             "gemeinsamer Vorfahre existiert (20 Matches pro Anfrage).\n"
-            "Einmalig ausführen – danach ist alles gespeichert."
+            "Danach: 'Vorfahren & Orte' + 'Ahnentafeln' laden für ALLE Matches\n"
+            "mit Baum (nicht nur Ancestrys erkannte) – dann Auswertung/GEDCOM-Abgleich."
         ), foreground="#555555").grid(row=8, column=0, columnspan=4, sticky="w", padx=14)
 
         sf_names = ttk.Frame(f); sf_names.grid(row=9, column=0, columnspan=4, sticky="w", **p)

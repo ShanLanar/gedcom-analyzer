@@ -170,15 +170,16 @@ class Scraper:
         self._on_done(result)
 
     def _run_fetch_ancestors(self, test_guid: str):
-        """Holt pro Match (mit gemeinsamem Vorfahren) die Vorfahren + Geburtsorte."""
+        """Holt pro Match MIT BAUM die Geburtsorte (+ Ancestrys gemeinsame Vorfahren,
+        falls vorhanden)."""
         result = DownloadResult()
         todo = self._db.get_matches_needing_ancestors(test_guid)
         total = len(todo)
-        self._on_status(f"Vorfahren laden: {total} Matches mit gemeinsamem Vorfahren …")
-        log.info("Vorfahren-Download: %d Matches", total)
+        self._on_status(f"Vorfahren & Orte laden: {total} Matches mit Baum …")
+        log.info("Vorfahren-Download: %d Matches mit Baum", total)
 
         if not todo:
-            result.message = ("Keine offenen Matches mit gemeinsamem Vorfahren. "
+            result.message = ("Keine offenen Matches mit Baum. "
                               "Erst 'Namen & Stammbaum laden' ausführen.")
             result.success = True
             self._on_status(result.message)
