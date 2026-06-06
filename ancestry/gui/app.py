@@ -140,6 +140,8 @@ class AncestryDnaApp(tk.Tk):
         am.add_separator()
         am.add_command(label="Verknüpfungen aktualisieren (View in tree) …",
                        command=self._refresh_links)
+        am.add_command(label="GEDCOM / Wurzelperson ändern …",
+                       command=self._change_gedcom_settings)
         mb.add_cascade(label="Auswertung", menu=am)
 
         hm = tk.Menu(mb, tearoff=False)
@@ -1387,6 +1389,15 @@ class AncestryDnaApp(tk.Tk):
             tv.insert("", "end", tags=tag, values=(
                 f"{count}/{cluster['size']}", kin, owndisp, f"{score:.2f}"))
 
+    def _change_gedcom_settings(self):
+        """GEDCOM-Datei + Wurzelperson neu wählen (überschreibt die gemerkten)."""
+        self._gedcom = None   # Cache verwerfen → Neuladen
+        self._ensure_gedcom_loaded(
+            lambda ged: self._set_status(
+                f"GEDCOM/Wurzelperson gesetzt: {len(ged['people'])} Personen, "
+                f"{len(ged['amap'])} Vorfahren auf deiner Linie."),
+            force_ask=True)
+
     def _refresh_links(self):
         """Zieht 'View in tree' + gemeinsamer Vorfahr für ALLE Matches nach."""
         guid = self._get_kit_guid()
@@ -1498,27 +1509,63 @@ class AncestryDnaApp(tk.Tk):
 
         self._ensure_gedcom_loaded(_after_load)
 
-    def _ensure_gedcom_loaded(self, on_ready):
+    def _settings_path(self):
+        import os
+        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        d = os.path.join(base, "data")
+        os.makedirs(d, exist_ok=True)
+        return os.path.join(d, "ui_settings.json")
+
+    def _load_settings(self) -> dict:
+        import json, os
+        try:
+            with open(self._settings_path(), encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return {}
+
+    def _save_settings(self, **kw):
+        import json
+        s = self._load_settings(); s.update(kw)
+        try:
+            with open(self._settings_path(), "w", encoding="utf-8") as f:
+                json.dump(s, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            log.debug("Settings speichern fehlgeschlagen: %s", e)
+
+    def _ensure_gedcom_loaded(self, on_ready, force_ask=False):
         """Lädt den eigenen GEDCOM (mit Cache) + baut Index/Ahnen-Map, dann
-        ruft on_ready(ged_dict) auf dem Main-Thread. ged_dict hat: people, index,
-        individuals, families, amap, path."""
+        ruft on_ready(ged_dict) auf dem Main-Thread. GEDCOM-Pfad und Wurzelperson
+        werden persistent gemerkt (data/ui_settings.json) – kein erneutes Fragen."""
+        import os
         cached = getattr(self, "_gedcom", None)
-        if cached:
+        if cached and not force_ask:
             on_ready(cached)
             return
-        path = filedialog.askopenfilename(
-            title="Eigenen Stammbaum wählen (GEDCOM)",
-            filetypes=[("GEDCOM", "*.ged *.gedcom"), ("Alle", "*.*")])
-        if not path:
-            return
-        import tkinter.simpledialog as sd
-        default_root = getattr(self, "_gedcom_root_name", "") or ""
-        root_name = (sd.askstring(
-            "Deine Wurzelperson",
-            "Wie heißt DU (bzw. die Wurzelperson) im Baum?\n"
-            "Vorname Nachname – für die Linien-Benennung (leer = ohne).",
-            initialvalue=default_root) or "").strip()
+
+        st = self._load_settings()
+        path = st.get("gedcom_path") if not force_ask else None
+        root_name = st.get("gedcom_root", "") or ""
+
+        # GEDCOM-Pfad: gemerkten nutzen, wenn er noch existiert – sonst fragen.
+        if not path or not os.path.exists(path):
+            path = filedialog.askopenfilename(
+                title="Eigenen Stammbaum wählen (GEDCOM)",
+                filetypes=[("GEDCOM", "*.ged *.gedcom"), ("Alle", "*.*")])
+            if not path:
+                return
+
+        # Wurzelperson: gemerkte nutzen; nur fragen, wenn keine bekannt (oder force).
+        if force_ask or not root_name:
+            import tkinter.simpledialog as sd
+            root_name = (sd.askstring(
+                "Deine Wurzelperson",
+                "Wie heißt DU (bzw. die Wurzelperson) im Baum?\n"
+                "Vorname Nachname – wird dauerhaft gemerkt (leer = ohne).",
+                initialvalue=root_name) or "").strip()
+
         self._gedcom_root_name = root_name
+        self._save_settings(gedcom_path=path, gedcom_root=root_name)
 
         import threading
         self._set_status("GEDCOM wird geladen … (läuft im Hintergrund)")
