@@ -79,13 +79,15 @@ def _given_tokens(given: str) -> set:
 # ── Personen-Schlüssel ──────────────────────────────────────────────────────
 
 class Person:
-    __slots__ = ("given", "surname", "year", "place", "gtoks", "stoks", "ref")
+    __slots__ = ("given", "surname", "year", "place", "bdate",
+                 "gtoks", "stoks", "ref")
 
-    def __init__(self, given, surname, year, place, ref=None):
+    def __init__(self, given, surname, year, place, ref=None, bdate=""):
         self.given = given or ""
         self.surname = surname or ""
         self.year = year
         self.place = place or ""
+        self.bdate = bdate or ""      # volles Geburtsdatum, falls vorhanden
         self.gtoks = _given_tokens(self.given)
         self.stoks = _surname_tokens(self.surname)
         self.ref = ref

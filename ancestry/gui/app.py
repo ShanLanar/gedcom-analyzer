@@ -1063,7 +1063,8 @@ class AncestryDnaApp(tk.Tk):
                 for r in rows:
                     p = Person(r["given_name"], r["surname"],
                                r["birth_year"], r["birth_place"],
-                               ref=(guid, r["generation"]))
+                               ref=(guid, r["generation"]),
+                               bdate=r["birth_date"])
                     if p.stoks:
                         persons.append(p)
             groups = merge_person_list(persons)
@@ -1106,26 +1107,46 @@ class AncestryDnaApp(tk.Tk):
                              f"{len(shared)} von ≥2 Mitgliedern geteilt"),
                   style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,2))
 
-        # Andockpunkt: geteilter Vorfahr auf deiner direkten Linie, jüngster
-        if has_ged:
-            dock = [r for r in shared if r["path"] is not None]
-            dock.sort(key=lambda r: (len(r["path"]), -len(r["members"])))
-            if dock:
-                d = dock[0]
-                ttk.Label(win, text=(f"➡  Andockpunkt: {d['own'].display} "
-                                     f"({render_kinship(d['path'])}) – geteilt von "
-                                     f"{len(d['members'])} Mitgliedern"),
-                          style="Bold.TLabel",
-                          foreground=COLORS.get("primary","#1b5e20")
-                          ).pack(anchor="w", padx=10, pady=(0,4))
-            else:
-                ttk.Label(win, text="Kein geteilter Vorfahr auf deiner direkten "
-                          "Linie – evtl. tiefer laden.", foreground="#a05a00"
-                          ).pack(anchor="w", padx=10, pady=(0,4))
+        def _birth(rep):
+            d = rep.bdate or (str(rep.year) if rep.year else "")
+            return " · ".join(x for x in (d, rep.place) if x)
+
+        # ── Vorhersage: gemeinsamer Vorfahr des Clusters (MRCA) ─────────────────
+        box = ttk.LabelFrame(win, text="🔮 Vorhergesagter gemeinsamer Vorfahr des Clusters")
+        box.pack(fill="x", padx=10, pady=(2,6))
+        # bevorzugt Treffer auf deiner direkten Linie (jüngster, meist geteilt);
+        # sonst der am häufigsten geteilte verschmolzene Vorfahr.
+        direct = sorted([r for r in shared if r["path"] is not None],
+                        key=lambda r: (len(r["path"]), -len(r["members"])))
+        pred = direct[0] if direct else (shared[0] if shared else (rows[0] if rows else None))
+        if not pred:
+            ttk.Label(box, text="Zu wenig Daten – Ahnentafeln der Mitglieder laden.",
+                      foreground="#a05a00").pack(anchor="w", padx=8, pady=4)
         else:
-            ttk.Label(win, text="(GEDCOM nicht geladen → keine Andock-Spalte. "
-                      "Erst 'Cluster-Linie in meinem Baum suchen' nutzt den Baum.)",
-                      foreground="#888").pack(anchor="w", padx=10, pady=(0,4))
+            rep = pred["rep"]
+            ttk.Label(box, text=f"{rep.display}   ({_birth(rep) or 'kein Datum/Ort'})",
+                      style="Bold.TLabel").pack(anchor="w", padx=8, pady=(4,0))
+            ttk.Label(box, text=f"geteilt von {len(pred['members'])}/{size} "
+                      f"Mitgliedern · Generation {pred['gen']}").pack(anchor="w", padx=8)
+            if pred["path"] is not None:
+                ttk.Label(box, text=(f"✓ Andockpunkt in deinem Baum: "
+                          f"{pred['own'].display} – {render_kinship(pred['path'])}"),
+                          foreground=COLORS.get("primary","#1b5e20"),
+                          style="Bold.TLabel").pack(anchor="w", padx=8, pady=(0,4))
+            elif pred["own"] is not None:
+                ttk.Label(box, text=(f"In deinem Baum als Seitenlinie: "
+                          f"{pred['own'].display} (nicht direkte Ahnenlinie)"),
+                          foreground="#a05a00").pack(anchor="w", padx=8, pady=(0,4))
+            else:
+                ttk.Label(box, text=("❗ NICHT in deinem Baum → Forschungsziel: "
+                          "diese Person suchen/eintragen, dann liefert Ancestry "
+                          "ThruLines-Hints für den ganzen Cluster."),
+                          foreground="#b00020", style="Bold.TLabel"
+                          ).pack(anchor="w", padx=8, pady=(0,4))
+        if not has_ged:
+            ttk.Label(win, text="(GEDCOM nicht geladen → ohne Andock-Spalte. "
+                      "Über 'Cluster-Linie in meinem Baum suchen' wird der Baum geladen.)",
+                      foreground="#888").pack(anchor="w", padx=10)
 
         cols = ("person","shared","gen","cms","dock")
         tv = ttk.Treeview(win, columns=cols, show="headings")
@@ -1144,7 +1165,9 @@ class AncestryDnaApp(tk.Tk):
         for r in rows:
             rep = r["rep"]
             indent = "  " * max(0, r["gen"] - 2)
-            disp = f"{indent}{rep.display}" + (f"  (*{rep.year})" if rep.year else "")
+            bd = rep.bdate or (str(rep.year) if rep.year else "")
+            binfo = " · ".join(x for x in (bd, rep.place) if x)
+            disp = f"{indent}{rep.display}" + (f"  (*{binfo})" if binfo else "")
             nshare = len(r["members"])
             dock = ""
             if r["path"] is not None:
