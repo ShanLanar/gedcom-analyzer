@@ -152,6 +152,12 @@ class Scraper:
             result.errors += 1
             result.message = f"Fehler: {e}"
 
+        # Optional: Namen direkt im Anschluss nachladen (profileData-Bulk)
+        if fetch_names and not self._stop.is_set():
+            self._on_status(result.message + " – lade jetzt Namen …")
+            self._run_fetch_names(test_guid, 0.0)
+            return
+
         self._on_status(result.message)
         self._on_done(result)
 
@@ -209,7 +215,7 @@ class Scraper:
         self._on_done(result)
 
     def _run_fetch_names(self, test_guid: str, min_cm: float):
-        """Lädt Namen für namenlose Matches via matchesservice JSON-API."""
+        """Lädt Namen via profileData-Bulk-API (20 Namen pro Request)."""
         result = DownloadResult()
 
         all_matches = self._db.get_matches(test_guid=test_guid, min_cm=min_cm,
@@ -231,51 +237,54 @@ class Scraper:
             self._on_done(result)
             return
 
-        for idx, m in enumerate(todo):
+        batch_size = cfg.PROFILE_DATA_BATCH
+        processed  = 0
+
+        for start in range(0, total, batch_size):
             if self._stop.is_set():
-                result.message = f"Abgebrochen nach {idx}/{total}."
+                result.message = f"Abgebrochen nach {processed}/{total}."
                 result.success = False
                 break
 
-            # Abbruch nur wenn BEIDE Methoden als nicht verfügbar markiert
             if self._client.detail_names_blocked():
                 result.message = (
-                    f"Namen-Download gestoppt: matchesservice-API nicht verfügbar "
-                    f"({result.new} von {idx} Namen gefunden)."
+                    f"Namen-Download gestoppt: API nicht verfügbar – bitte "
+                    f"ancestry.json neu exportieren ({result.new}/{processed})."
                 )
                 result.success = False
                 break
 
+            batch = todo[start:start + batch_size]
+            sample_ids = [m.match_guid for m in batch]
+
             try:
-                name = self._client.get_match_name_curl(m.test_guid, m.match_guid)
-                # curl_cffi durch Cloudflare geblockt → Playwright-Fallback
-                if not name and self._client._consecutive_520 >= 3:
-                    name = self._client.get_match_name_playwright(
-                        m.test_guid, m.match_guid)
+                names = self._client.get_match_names_bulk(test_guid, sample_ids)
             except Exception as e:
-                log.debug("Namen-Fehler %s: %s", m.match_guid[:8], e)
-                name = ""
+                log.debug("Bulk-Namen-Fehler: %s", e)
+                names = {}
 
-            result.fetched += 1
-
-            if name:
+            if names:
                 try:
                     with self._db._cursor() as cur:
-                        cur.execute(
-                            "UPDATE matches SET display_name=? "
-                            "WHERE match_guid=? AND test_guid=?",
-                            (name, m.match_guid, m.test_guid),
-                        )
-                    result.new += 1
+                        for sid, name in names.items():
+                            cur.execute(
+                                "UPDATE matches SET display_name=? "
+                                "WHERE match_guid=? AND test_guid=?",
+                                (name, sid, test_guid),
+                            )
+                    result.new += len(names)
                 except Exception as e:
-                    log.error("DB-Update %s: %s", m.match_guid[:8], e)
+                    log.error("DB-Update Bulk: %s", e)
                     result.errors += 1
 
-            self._on_progress(idx + 1, total, name or m.match_guid[:8])
-            if (idx + 1) % 100 == 0:
-                self._on_status(
-                    f"Namen: {idx+1}/{total} verarbeitet, {result.new} gefunden …"
-                )
+            processed += len(batch)
+            result.fetched = processed
+            last = batch[-1]
+            self._on_progress(processed, total,
+                              names.get(last.match_guid, last.match_guid[:8]))
+            self._on_status(
+                f"Namen: {processed}/{total} verarbeitet, {result.new} gefunden …"
+            )
 
             _time.sleep(NAME_REQUEST_DELAY)
 

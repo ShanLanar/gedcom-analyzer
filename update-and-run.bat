@@ -94,13 +94,6 @@ if %errorlevel% neq 0 (
     echo [FEHLER] pip install fehlgeschlagen.
     pause & exit /b 1
 )
-echo Installiere Playwright-Browser (Chromium) ...
-%PYTHON% -m playwright install chromium
-if %errorlevel% neq 0 (
-    echo [WARNUNG] Playwright-Browser konnte nicht installiert werden.
-    echo          Namen-Download wird ohne Playwright gestartet.
-)
-echo.
 
 REM --- Programmauswahl ----------------------------------------------------------
 echo Welches Programm starten?

@@ -22,7 +22,16 @@ SHARED_MATCHES_URL = f"{DNA_LIST_BASE}/matchList/{{test_guid}}"
 # Kit-Verwaltung (alter Endpunkt, ggf. nicht verfügbar)
 MANAGE_TESTS_URL = f"{BASE_URL}/dna/api/uhura/v2/people/{{uid}}/managetests"
 
-# ── Match-Detail (voller Name) ────────────────────────────────────────────────
+# ── Match-Namen: Bulk-Endpunkt (bestätigt via DevTools, Juni 2026) ────────────
+# POST /discoveryui-matches/cluster/api/profileData/{test_guid}
+#   Body:     {"matchSampleIds": [ ... bis zu 20 sampleIds ... ]}
+#   Antwort:  { "<sampleId>": {"matchName": "...", "managedName": "...", ...}, ... }
+# Gleicher Service wie matchList (discoveryui-matches) → kein Cloudflare-520.
+# Liefert echte Anzeigenamen – ein Request pro 20 Matches.
+PROFILE_DATA_URL  = f"{DNA_CLUSTER_BASE}/profileData/{{test_guid}}"
+PROFILE_DATA_BATCH = 20   # sampleIds pro Request (wie Ancestry-UI)
+
+# ── Match-Detail (Legacy, nicht mehr genutzt) ─────────────────────────────────
 # matchList liefert keine Namen. Wir probieren mehrere Endpunkte der Reihe nach;
 # zuerst den parents/list-Service (selber Host, kein Akamai-Block),
 # dann den matchesservice (oft durch Akamai 520 blockiert).

@@ -31,6 +31,12 @@ def _jitter(base: float) -> float:
     return base * (0.8 + random.random() * 0.4)
 
 
+def _is_initials_only(name: str) -> bool:
+    """True bei initialisierten Privatprofilen wie 'L. S.' oder 'K. F.'."""
+    import re
+    return bool(re.fullmatch(r"(?:[A-ZÄÖÜ]\.\s*){1,3}", name.strip()))
+
+
 def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
     headers = {
         "Accept"          : "application/json, text/plain, */*",
@@ -78,159 +84,115 @@ class AncestryApiClient:
 
     def __init__(self, session):
         self._s = session
-        self._working_detail_url: Optional[str] = None
-        self._session_warmed_up = False
-        self._consecutive_520 = 0
-        self._pw_fetcher = None     # PlaywrightNameFetcher (lazy, Fallback bei 520)
-
-    def _warm_up_session(self, test_guid: str):
-        """Öffnet die Match-Listenseite und extrahiert Namen aus SSR-Daten (falls vorhanden)."""
-        if self._session_warmed_up:
-            return
-        self._session_warmed_up = True
-        url = f"{cfg.BASE_URL}/dna/matches/{test_guid}/list"
-        try:
-            r = self._s.get(url, timeout=cfg.REQUEST_TIMEOUT)
-            log.debug("Warm-up list → HTTP %s (%d Bytes)", r.status_code, len(r.content))
-            if r.status_code == 200:
-                # Ersten 5000 Zeichen loggen um HTML-Struktur zu erkennen
-                snippet = r.text[:5000]
-                log.debug("Warm-up HTML Anfang:\n%s", snippet)
-        except Exception as e:
-            log.debug("Warm-up fehlgeschlagen: %s", e)
+        self._detail_blocked = False   # True wenn Namen-API 401/403 lieferte
 
     @staticmethod
-    def _extract_name_from_detail(data: dict) -> str:
-        """Sucht in einer JSON-Antwort nach dem vollen Anzeigenamen."""
-        if not isinstance(data, dict):
+    def _pick_name(info: dict) -> str:
+        """Wählt aus einem profileData-Eintrag den besten Anzeigenamen."""
+        if not isinstance(info, dict):
             return ""
+        name = (info.get("matchName") or "").strip()
+        # "L. S." o.ä. sind initialisierte Privatprofile – managedName ist
+        # oft aussagekräftiger (z.B. "kathy_stevers").
+        managed = (info.get("managedName") or "").strip()
+        if name and not _is_initials_only(name):
+            return name
+        if managed:
+            return managed
+        return name
 
-        def nested(d, *path):
-            cur = d
-            for k in path:
-                if not isinstance(cur, dict):
-                    return ""
-                cur = cur.get(k)
-            return cur if isinstance(cur, str) else ""
+    def get_match_names_bulk(self, test_guid: str,
+                             sample_ids: list[str]) -> dict[str, str]:
+        """Holt Anzeigenamen für mehrere Matches in einem POST-Request.
 
-        return (nested(data, "displayName")
-                or nested(data, "matchProfile", "displayName")
-                or nested(data, "matchProfile", "name")
-                or nested(data, "adminDisplayName")
-                or nested(data, "admin", "displayName")
-                or nested(data, "matchTestDisplayName")
-                or nested(data, "userDisplayName")
-                or nested(data, "match", "displayName")
-                or nested(data, "testDisplayName")
-                or nested(data, "name")
-                or "")
+        Bestätigter Endpunkt (Juni 2026):
+          POST /discoveryui-matches/cluster/api/profileData/{test_guid}
+          Body: {"matchSampleIds": [...]}
+          Antwort: { "<sampleId>": {"matchName": "...", ...}, ... }
 
-    def get_match_name_curl(self, test_guid: str, sample_id: str) -> str:
-        """Holt den Match-Namen via matchesservice JSON-API (curl_cffi).
-
-        Verwendet _api_get für eingebautes 429-Handling (Retry-After).
-        Merkt sich den ersten funktionierenden Endpunkt-Template.
-        Setzt __none__ nur bei echten 404-Antworten, nicht bei Rate-Limiting.
+        Gibt {sampleId: name} zurück (nur gefundene Namen).
         """
-        if self._working_detail_url == "__none__":
-            return ""
-        if self._consecutive_520 >= 3:
-            # Nach 3x 520 in Folge aufgeben – Akamai blockiert dauerhaft
-            self._working_detail_url = "__none__"
-            log.info("Matchesservice: 3× HTTP 520 in Folge – Akamai blockiert, "
-                     "Namen-Download gestoppt.")
-            return ""
+        if not sample_ids:
+            return {}
+        if self._detail_blocked:
+            return {}
 
-        # Einmalig Listenseite besuchen → Akamai-Session-Cookie setzen
-        self._warm_up_session(test_guid)
-
-        api_headers = {
-            **cfg.MATCHESSERVICE_HEADERS,
-            "Referer": cfg.MATCHESSERVICE_REFERER.format(test_guid=test_guid),
-            "sec-ch-ua": '"Chromium";v="136", "Google Chrome";v="136", "Not-A.Brand";v="99"',
-            "sec-ch-ua-mobile": "?0",
-            "sec-ch-ua-platform": '"Windows"',
+        url = cfg.PROFILE_DATA_URL.format(test_guid=test_guid)
+        headers = {
+            "Accept"          : "application/json",
+            "Content-Type"    : "application/json",
+            "Origin"          : cfg.BASE_URL,
+            "Referer"         : f"{cfg.BASE_URL}/discoveryui-matches/list/{test_guid}",
+            "X-Requested-With": "XMLHttpRequest",
+            "Sec-Fetch-Site"  : "same-origin",
+            "Sec-Fetch-Mode"  : "cors",
+            "Sec-Fetch-Dest"  : "empty",
         }
+        # CSRF-Token aus dem dnamatches-Cookie (vom Frontend gesetzt)
+        csrf = (self._s.cookies.get("_dnamatches-matchlistui-x-csrf-token")
+                or self._s.cookies.get("_csrf")
+                or self._s.cookies.get("XSRF-TOKEN") or "")
+        if csrf:
+            headers["X-CSRF-Token"] = csrf
 
-        # Wenn bereits ein funktionierender Endpunkt bekannt: nur den probieren
-        if self._working_detail_url:
-            candidates = [self._working_detail_url.format(
-                test_guid=test_guid, sample_id=sample_id)]
-        else:
-            candidates = [
-                t.format(test_guid=test_guid, sample_id=sample_id)
-                for t in cfg.MATCH_DETAIL_CANDIDATES
-            ]
+        payload = {"matchSampleIds": list(sample_ids)}
 
-        not_found_count = 0
-        for url in candidates:
-            r = _api_get(self._s, url, extra_headers=api_headers)
-
-            if r is None:
-                log.debug("Namen-API %s: alle Retries erschöpft", url.split("/api/", 1)[-1][:40])
+        for attempt in range(MAX_RETRIES):
+            try:
+                r = self._s.post(url, json=payload, headers=headers,
+                                 timeout=cfg.REQUEST_TIMEOUT)
+            except Exception as e:
+                delay = _jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
+                log.warning("profileData Versuch %d/%d Fehler: %s → %.0fs …",
+                            attempt+1, MAX_RETRIES, e, delay)
+                time.sleep(delay)
                 continue
 
-            log.debug("Namen-API %-45s → HTTP %s",
-                      url.split("/api/", 1)[-1][:45], r.status_code)
+            if r.status_code == 429:
+                retry_after = int(r.headers.get("Retry-After", 0))
+                delay = max(retry_after, RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
+                log.warning("profileData 429 → warte %ds …", delay)
+                time.sleep(delay)
+                continue
 
-            if r.status_code == 200:
-                self._consecutive_520 = 0
-                try:
-                    data = r.json()
-                    name = self._extract_name_from_detail(data)
-                    if name:
-                        if not self._working_detail_url:
-                            tmpl = (url
-                                    .replace(test_guid, "{test_guid}")
-                                    .replace(sample_id, "{sample_id}"))
-                            self._working_detail_url = tmpl
-                            log.info("Matchesservice-Endpunkt aktiv: %s",
-                                     tmpl.split("/api/", 1)[-1])
-                        log.debug("API Name %s → %r", sample_id[:8], name)
-                        return name
-                    log.debug("API %s HTTP 200, kein Name: %s",
-                              sample_id[:8], str(data)[:200])
-                except Exception as e:
-                    log.debug("API JSON %s: %s", sample_id[:8], e)
+            if r.status_code in (401, 403):
+                log.error("profileData HTTP %s – Cookies/CSRF abgelaufen. "
+                          "Bitte ancestry.json neu exportieren.", r.status_code)
+                self._detail_blocked = True
+                return {}
 
-            elif r.status_code in (404, 410):
-                not_found_count += 1
+            if r.status_code != 200:
+                log.warning("profileData HTTP %s (Versuch %d/%d)",
+                            r.status_code, attempt+1, MAX_RETRIES)
+                if r.status_code in RETRY_STATUSES:
+                    time.sleep(_jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)]))
+                    continue
+                return {}
 
-            elif r.status_code == 520:
-                # 520 nur für matchesservice zählen (Akamai-Pfad)
-                if "matchesservice" in url:
-                    self._consecutive_520 += 1
-                else:
-                    not_found_count += 1
+            try:
+                data = r.json()
+            except Exception as e:
+                log.error("profileData JSON-Fehler: %s", e)
+                return {}
 
-        if self._working_detail_url is None and not_found_count == len(candidates):
-            self._working_detail_url = "__none__"
-            log.info("Matchesservice: alle Endpunkte liefern 404 – "
-                     "Namen-Download nicht möglich.")
+            names = {}
+            for sid, info in (data or {}).items():
+                name = self._pick_name(info)
+                if name:
+                    names[sid] = name
+            log.debug("profileData: %d/%d Namen erhalten",
+                      len(names), len(sample_ids))
+            return names
 
-        return ""
-
-    def get_match_name_playwright(self, test_guid: str, sample_id: str) -> str:
-        """Fallback: fetch() via Playwright-Browser (passiert Cloudflare)."""
-        if self._pw_fetcher is None:
-            from core.playwright_names import PlaywrightNameFetcher
-            self._pw_fetcher = PlaywrightNameFetcher(self._s)
-            ok = self._pw_fetcher.start(test_guid)
-            if not ok:
-                self._pw_fetcher = False   # False = nicht verfügbar
-                return ""
-        if not self._pw_fetcher:
-            return ""
-        return self._pw_fetcher.get_name(test_guid, sample_id)
+        log.error("profileData: alle %d Versuche fehlgeschlagen.", MAX_RETRIES)
+        return {}
 
     def detail_names_blocked(self) -> bool:
-        return (self._working_detail_url == "__none__"
-                and self._pw_fetcher is False)
+        return self._detail_blocked
 
     def stop_playwright(self):
-        if self._pw_fetcher and self._pw_fetcher is not False:
-            self._pw_fetcher.stop()
-            self._pw_fetcher = None
+        """No-op – Playwright wird nicht mehr genutzt."""
+        pass
 
     # ── DNA-Kits ──────────────────────────────────────────────────────────────
 

@@ -329,14 +329,14 @@ class AncestryDnaApp(tk.Tk):
         ttk.Checkbutton(bf, text="👤 Volle Namen versuchen (oft von Ancestry blockiert)",
                         variable=self._fetch_names_var).pack(side="left", padx=14)
 
-        # ── Bereich A2: Namen nachladen (Playwright) ──────────────────────────
+        # ── Bereich A2: Namen nachladen (profileData-Bulk-API) ────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=6, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text="A2: Namen nachladen (Playwright)",
+        ttk.Label(f, text="A2: Namen nachladen",
                   style="Bold.TLabel").grid(row=7, column=0, columnspan=4, sticky="w", **p)
         ttk.Label(f, text=(
-            "Öffnet für jeden namenlosen Match die Vergleichsseite im Hintergrund\n"
-            "und liest den echten Namen aus (5 Tabs parallel, ~3h für 10.000 Matches).\n"
+            "Lädt die echten Anzeigenamen über die profileData-API\n"
+            "(20 Namen pro Anfrage, ~10 Min. für 10.000 Matches).\n"
             "Einmalig ausführen – danach sind alle Namen gespeichert."
         ), foreground="#555555").grid(row=8, column=0, columnspan=4, sticky="w", padx=14)
 
