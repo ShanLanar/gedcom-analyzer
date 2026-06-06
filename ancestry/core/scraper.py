@@ -572,18 +572,26 @@ class Scraper:
                                     sid, test_guid,
                                 ))
                         else:
-                            # Kein treeData → vorhandenen Baum-Status NICHT
-                            # überschreiben, nur die Profilfelder aktualisieren.
+                            # Kein treeData für diesen Match. Wenn die Profil-Abfrage
+                            # GRUNDSÄTZLICH lief (irgendein Detail/Tree kam zurück),
+                            # gilt: dieser Match hat keinen verknüpfbaren Baum →
+                            # tree_status='Kein Baum' setzen, damit er die To-do-Liste
+                            # VERLÄSST (sonst ewiges Nachladen ohne Mehrwert).
+                            fetch_worked = bool(details) or bool(trees)
+                            new_status = ("Kein Baum"
+                                          if (fetch_worked and not (m.tree_status or ""))
+                                          else (m.tree_status or ""))
                             cur.execute(
                                 "UPDATE matches SET "
                                 "  gender=?, match_ucdmid=?, has_common_ancestor=?, "
-                                "  linked_in_tree=? "
+                                "  linked_in_tree=?, tree_status=? "
                                 "WHERE match_guid=? AND test_guid=?",
                                 (
                                     d.get("gender", "") or "",
                                     d.get("ucdmid", "") or "",
                                     1 if sid in common else 0,
                                     1 if sid in in_tree else 0,
+                                    new_status,
                                     sid, test_guid,
                                 ))
             except Exception as e:
