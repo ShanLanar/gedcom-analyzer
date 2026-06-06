@@ -1,6 +1,20 @@
 @echo off
 setlocal EnableExtensions
 title gedcom-analyzer Updater
+
+REM === Selbst-Schutz gegen Selbst-Modifikation =================================
+REM Das git-Update überschreibt diese .bat. Würde sie sich selbst ausführen,
+REM stürzt cmd.exe ab (liest ab altem Byte-Offset in der neuen Datei weiter).
+REM Lösung: beim Start einmal nach %TEMP% kopieren und von DORT laufen – das
+REM git-Update trifft dann nur die Repo-Datei, nicht die laufende Kopie.
+if "%~1"=="__fromtemp" goto :main_start
+set "SELFCOPY=%TEMP%\gedcom-updater"
+if not exist "%SELFCOPY%" mkdir "%SELFCOPY%" >nul 2>&1
+copy /y "%~f0" "%SELFCOPY%\update-and-run.bat" >nul
+call "%SELFCOPY%\update-and-run.bat" __fromtemp
+exit /b %errorlevel%
+
+:main_start
 cd /d "%~dp0" >nul 2>&1
 
 REM === Konfiguration ============================================================
