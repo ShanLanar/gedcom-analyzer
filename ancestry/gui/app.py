@@ -560,7 +560,7 @@ class AncestryDnaApp(tk.Tk):
                                 on_progress=self._on_progress,
                                 on_status=lambda m: self.after(0, lambda: self._set_status(m)),
                                 on_done=lambda r: self.after(0, lambda: self._on_ancestors_done(r)))
-        self._scraper.start_fetch_ancestors(guid)
+        self._scraper.start_fetch_ancestors(guid, self._a2_min_cm())
 
     def _on_ancestors_done(self, result: "DownloadResult"):
         self._anc_start_btn.configure(state="normal")
@@ -584,7 +584,14 @@ class AncestryDnaApp(tk.Tk):
                                 on_progress=self._on_progress,
                                 on_status=lambda m: self.after(0, lambda: self._set_status(m)),
                                 on_done=lambda r: self.after(0, lambda: self._on_pedigrees_done(r)))
-        self._scraper.start_fetch_pedigrees(guid)
+        self._scraper.start_fetch_pedigrees(guid, self._a2_min_cm())
+
+    def _a2_min_cm(self) -> float:
+        """cM-Schwelle aus dem A2-Feld 'Nur ab (cM)'."""
+        try:
+            return float(self._names_min_cm_var.get() or 0)
+        except (ValueError, AttributeError):
+            return 0.0
 
     def _on_pedigrees_done(self, result: "DownloadResult"):
         self._ped_start_btn.configure(state="normal")

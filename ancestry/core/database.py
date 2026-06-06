@@ -257,14 +257,14 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_ped_surname ON match_pedigree(surname);
         """)
 
-    def get_matches_needing_pedigree(self, test_guid: str) -> list:
+    def get_matches_needing_pedigree(self, test_guid: str, min_cm: float = 0.0) -> list:
         """[(match_guid, display_name)] für Matches mit Baum, deren Pedigree noch fehlt."""
         with self._cursor() as cur:
             cur.execute(
                 "SELECT match_guid, display_name FROM matches "
                 "WHERE test_guid=? AND has_tree=1 "
-                "AND COALESCE(pedigree_fetched,0)=0 "
-                "ORDER BY shared_cm DESC", (test_guid,))
+                "AND COALESCE(pedigree_fetched,0)=0 AND shared_cm>=? "
+                "ORDER BY shared_cm DESC", (test_guid, min_cm))
             return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]
 
     def save_match_pedigree(self, test_guid: str, match_guid: str, ancestors: list):
@@ -317,7 +317,7 @@ class Database:
             g["rows"].append(dict(r))
         return out
 
-    def get_matches_needing_ancestors(self, test_guid: str) -> list:
+    def get_matches_needing_ancestors(self, test_guid: str, min_cm: float = 0.0) -> list:
         """[(match_guid, display_name)] für Matches MIT BAUM, die noch nicht
         abgerufen wurden. Bewusst NICHT auf Ancestrys has_common_ancestor-Flag
         beschränkt: Geburtsorte gibt es für jeden Baum, commonancestors liefert
@@ -326,8 +326,8 @@ class Database:
             cur.execute(
                 "SELECT match_guid, display_name FROM matches "
                 "WHERE test_guid=? AND (has_tree=1 OR has_common_ancestor=1) "
-                "AND COALESCE(ancestors_fetched,0)=0 "
-                "ORDER BY shared_cm DESC", (test_guid,))
+                "AND COALESCE(ancestors_fetched,0)=0 AND shared_cm>=? "
+                "ORDER BY shared_cm DESC", (test_guid, min_cm))
             return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]
 
     def save_match_ancestors(self, test_guid: str, match_guid: str,

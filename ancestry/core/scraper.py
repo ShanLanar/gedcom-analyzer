@@ -67,13 +67,13 @@ class Scraper:
         """Lädt Namen für Matches ohne Namen via curl_cffi nach (kein Playwright)."""
         self._launch("_run_fetch_names", test_guid, min_cm)
 
-    def start_fetch_ancestors(self, test_guid: str):
-        """Lädt gemeinsame Vorfahren + Geburtsorte für Matches mit 👪-Flag."""
-        self._launch("_run_fetch_ancestors", test_guid)
+    def start_fetch_ancestors(self, test_guid: str, min_cm: float = 0.0):
+        """Lädt Geburtsorte (+ gemeinsame Vorfahren) für Matches mit Baum ab min_cm."""
+        self._launch("_run_fetch_ancestors", test_guid, min_cm)
 
-    def start_fetch_pedigrees(self, test_guid: str):
-        """Lädt die volle Ahnentafel (Pedigree, ~5 Gen.) für Matches mit Baum."""
-        self._launch("_run_fetch_pedigrees", test_guid)
+    def start_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0):
+        """Lädt die volle Ahnentafel (Pedigree, ~5 Gen.) für Matches mit Baum ab min_cm."""
+        self._launch("_run_fetch_pedigrees", test_guid, min_cm)
 
     def start_shared(self, test_guid: str,
                      min_cm: float = 0.0, skip_existing: bool = True):
@@ -169,13 +169,13 @@ class Scraper:
         self._on_status(result.message)
         self._on_done(result)
 
-    def _run_fetch_ancestors(self, test_guid: str):
+    def _run_fetch_ancestors(self, test_guid: str, min_cm: float = 0.0):
         """Holt pro Match MIT BAUM die Geburtsorte (+ Ancestrys gemeinsame Vorfahren,
         falls vorhanden)."""
         result = DownloadResult()
-        todo = self._db.get_matches_needing_ancestors(test_guid)
+        todo = self._db.get_matches_needing_ancestors(test_guid, min_cm)
         total = len(todo)
-        self._on_status(f"Vorfahren & Orte laden: {total} Matches mit Baum …")
+        self._on_status(f"Vorfahren & Orte laden: {total} Matches mit Baum (ab {min_cm:.0f} cM) …")
         log.info("Vorfahren-Download: %d Matches mit Baum", total)
 
         if not todo:
@@ -217,12 +217,12 @@ class Scraper:
         self._on_status(result.message)
         self._on_done(result)
 
-    def _run_fetch_pedigrees(self, test_guid: str):
+    def _run_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0):
         """Holt pro Match (mit Baum) die volle Ahnentafel (~5 Generationen)."""
         result = DownloadResult()
-        todo = self._db.get_matches_needing_pedigree(test_guid)
+        todo = self._db.get_matches_needing_pedigree(test_guid, min_cm)
         total = len(todo)
-        self._on_status(f"Ahnentafeln laden: {total} Matches mit Baum …")
+        self._on_status(f"Ahnentafeln laden: {total} Matches mit Baum (ab {min_cm:.0f} cM) …")
         log.info("Pedigree-Download: %d Matches", total)
 
         if not todo:
