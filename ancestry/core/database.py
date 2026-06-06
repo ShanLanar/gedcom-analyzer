@@ -723,6 +723,22 @@ class Database:
                 out.append(sm)
             return out
 
+    def delete_shared_for(self, test_guid: str, match_guid_a: str):
+        """Löscht alle Shared-Zeilen eines primären Matches (vor Neu-Abruf)."""
+        with self._cursor() as cur:
+            cur.execute("DELETE FROM shared_matches WHERE test_guid=? AND match_guid_a=?",
+                        (test_guid, match_guid_a))
+
+    def reset_shared_matches(self, test_guid: str) -> int:
+        """Leert die komplette Shared-Matches-Tabelle für ein Kit. Liefert Anzahl
+        gelöschter Zeilen. Setzt auch die 'abgerufen'-Marker zurück."""
+        with self._cursor() as cur:
+            cur.execute("SELECT COUNT(*) FROM shared_matches WHERE test_guid=?", (test_guid,))
+            n = cur.fetchone()[0]
+            cur.execute("DELETE FROM shared_matches WHERE test_guid=?", (test_guid,))
+            cur.execute("DELETE FROM shared_matches_fetched WHERE test_guid=?", (test_guid,))
+        return n
+
     def get_shared_match_count(self, test_guid: str,
                                 match_guid_a: Optional[str] = None) -> int:
         with self._cursor() as cur:

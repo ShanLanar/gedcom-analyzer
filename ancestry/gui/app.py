@@ -130,6 +130,9 @@ class AncestryDnaApp(tk.Tk):
         am.add_separator()
         am.add_command(label="Eigenen Baum (GEDCOM) abgleichen …",
                        command=self._match_own_tree)
+        am.add_separator()
+        am.add_command(label="Shared Matches zurücksetzen (neu laden) …",
+                       command=self._reset_shared_matches)
         mb.add_cascade(label="Auswertung", menu=am)
 
         hm = tk.Menu(mb, tearoff=False)
@@ -844,6 +847,25 @@ class AncestryDnaApp(tk.Tk):
                                      f"{(cm or 0):.0f} cM   (Gen {gen}, Linie {path or '?'})\n")
         tv.bind("<<TreeviewSelect>>", on_sel)
         reload()
+
+    def _reset_shared_matches(self):
+        """Leert die Shared-Matches-Tabelle (alte, mit falschem Endpunkt geladene
+        Daten) – danach Schritt B neu ausführen."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+        if not messagebox.askyesno(
+                "Shared Matches zurücksetzen",
+                "Alle gespeicherten Shared Matches dieses Kits löschen?\n\n"
+                "Nötig, um die fehlerhaften Alt-Daten (ganze Liste) zu entfernen.\n"
+                "Danach Tab »Herunterladen« → Schritt B erneut ausführen."):
+            return
+        n = self._db.reset_shared_matches(test_guid)
+        self._set_status(f"Shared Matches zurückgesetzt: {n} Zeilen gelöscht.")
+        messagebox.showinfo("Zurückgesetzt",
+            f"{n} Shared-Match-Zeilen gelöscht.\n"
+            "Jetzt Schritt B (Shared Matches herunterladen) neu starten.")
 
     def _match_own_tree(self):
         """Gleicht alle geladenen Match-Ahnentafeln gegen den eigenen GEDCOM ab

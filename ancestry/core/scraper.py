@@ -314,6 +314,9 @@ class Scraper:
 
             batch: list[SharedMatch] = []
             try:
+                # Alte (ggf. fehlerhafte) Shared-Zeilen dieses Matches zuerst löschen,
+                # damit überzählige Alt-Einträge nicht stehen bleiben.
+                self._db.delete_shared_for(test_guid, guid_a)
                 for sm in self._client.iter_shared_matches(test_guid, guid_a, self._stop):
                     batch.append(sm)
                     result.fetched += 1
