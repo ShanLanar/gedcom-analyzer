@@ -817,13 +817,17 @@ class Database:
             with self._cursor() as cur:
                 qmarks = ",".join("?" * len(guids))
                 cur.execute(f"""SELECT match_guid, display_name, shared_cm,
-                                       shared_segments, longest_segment
+                                       shared_segments, longest_segment,
+                                       has_common_ancestor,
+                                       COALESCE(linked_in_tree,0) AS linked_in_tree
                                 FROM matches WHERE test_guid=? AND match_guid IN ({qmarks})""",
                             (test_guid, *guids))
                 for r in cur.fetchall():
                     info[r["match_guid"]] = (r["display_name"], r["shared_cm"],
                                              r["shared_segments"] or 0,
-                                             r["longest_segment"] or 0)
+                                             r["longest_segment"] or 0,
+                                             r["has_common_ancestor"] or 0,
+                                             r["linked_in_tree"] or 0)
 
         import statistics
         from core.treematch import endogamy_flag
@@ -832,15 +836,18 @@ class Database:
             n = len(members)
             if n < min_size:
                 continue
-            mlist = [(g, info.get(g, ("?", 0, 0, 0))[0], info.get(g, ("?", 0, 0, 0))[1])
+            blank = ("?", 0, 0, 0, 0, 0)
+            mlist = [(g, info.get(g, blank)[0], info.get(g, blank)[1])
                      for g in members]
             mlist.sort(key=lambda x: -(x[2] or 0))
-            cms  = [info.get(g, ("?", 0, 0, 0))[1] for g in members]
+            cms  = [info.get(g, blank)[1] for g in members]
             cms  = [c for c in cms if c]
-            segs = [info.get(g, ("?", 0, 0, 0))[2] for g in members]
+            segs = [info.get(g, blank)[2] for g in members]
             segs = [s for s in segs if s]
-            longs = [info.get(g, ("?", 0, 0, 0))[3] for g in members]
+            longs = [info.get(g, blank)[3] for g in members]
             longs = [l for l in longs if l]
+            n_thru   = sum(1 for g in members if info.get(g, blank)[4])
+            n_linked = sum(1 for g in members if info.get(g, blank)[5])
             possible = n * (n - 1) / 2
             density = (edge_count.get(root, 0) / possible) if possible else 0.0
             med_cm   = statistics.median(cms) if cms else 0.0
@@ -853,8 +860,10 @@ class Database:
                         "median_segments": med_segs,
                         "median_longest": round(med_long, 1),
                         "endogamy": endo,
-                        "seg_by_member": {g: (info.get(g, ("?",0,0,0))[2],
-                                              info.get(g, ("?",0,0,0))[3]) for g in members},
+                        "n_thrulines": n_thru,
+                        "n_linked": n_linked,
+                        "seg_by_member": {g: (info.get(g, blank)[2],
+                                              info.get(g, blank)[3]) for g in members},
                         "edges": edge_count.get(root, 0)})
         out.sort(key=lambda c: c["size"], reverse=True)
         return out

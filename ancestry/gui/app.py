@@ -906,7 +906,9 @@ class AncestryDnaApp(tk.Tk):
             for i, c in enumerate(clusters, 1):
                 conf = cluster_confidence(c["size"], c.get("density", 0),
                                           c.get("median_cm", 0),
-                                          endogamy_score=c.get("endogamy", 0))
+                                          endogamy_score=c.get("endogamy", 0),
+                                          n_confirmed=c.get("n_thrulines", 0)
+                                                      + c.get("n_linked", 0))
                 c["_conf"] = conf
                 iid = tv.insert("", "end", values=(
                     f"Cluster {i}", c["size"], f"{c.get('density',0):.2f}",
@@ -1032,6 +1034,11 @@ class AncestryDnaApp(tk.Tk):
                 f"({conf.get('label','?')}) · Dichte {c.get('density',0):.2f} "
                 f"({c.get('edges',0)} Verbindungen) · Median {c.get('median_cm',0):.0f} cM, "
                 f"{c.get('median_segments',0)} Segm., längstes {c.get('median_longest',0):.0f} cM\n")
+            nt, nl = c.get("n_thrulines", 0), c.get("n_linked", 0)
+            if nt or nl:
+                detail.insert("end",
+                    f"✓ Bestätigt: {nt} mit ThruLine, {nl} in deinem Baum verknüpft "
+                    f"→ Linie zu dir belegt\n")
             if conf.get("note"):
                 detail.insert("end", f"⚠ {conf['note']}\n")
             detail.insert("end", f"\n{c['size']} Matches in dieser Gruppe "
@@ -1184,7 +1191,9 @@ class AncestryDnaApp(tk.Tk):
                      / n_with_ped) if n_with_ped else 0.0
         conf = cluster_confidence(size, cluster.get("density", 0),
                                   cluster.get("median_cm", 0), conv_frac,
-                                  endogamy_score=cluster.get("endogamy", 0))
+                                  endogamy_score=cluster.get("endogamy", 0),
+                                  n_confirmed=cluster.get("n_thrulines", 0)
+                                              + cluster.get("n_linked", 0))
         ttk.Label(win, text=(
             f"Bewertung: Cluster echt ~{conf['realness']*100:.0f}% ({conf['label']}, "
             f"Dichte {cluster.get('density',0):.2f}) · "

@@ -305,7 +305,8 @@ def longest_to_generation(longest: float):
 
 
 def cluster_confidence(size: int, density: float, median_cm: float = 0.0,
-                       conv_frac: float = None, endogamy_score: float = 0.0):
+                       conv_frac: float = None, endogamy_score: float = 0.0,
+                       n_confirmed: int = 0):
     """Bewertet einen Cluster. Liefert dict mit:
       realness  – P(Cluster ist echt, kein Zufall) 0..1 (Größe × Dichte)
       cohesion  – Dichte (eine Linie vs. mehrere verschmolzen)
@@ -326,8 +327,11 @@ def cluster_confidence(size: int, density: float, median_cm: float = 0.0,
     # (2) cM-Evidenz: hohe cM ⇒ Mitglied praktisch sicher echt (kein IBC-Zufall)
     cm = median_cm or 0
     p_cm = 1 - 0.5 ** (cm / 18.0)          # 18cM→0.5, 36→0.75, 54→0.875, 90→0.97
-    # Noisy-OR der unabhängigen Quellen
-    realness = 1 - (1 - p_struct) * (1 - p_cm)
+    # (3) Bestätigungs-Evidenz: ≥1 Mitglied mit ThruLine/Baum-Link ⇒ die
+    # Verbindung des Clusters zu DIR ist unabhängig belegt (auch niedrige cM echt).
+    p_conf = 1 - 0.15 ** n_confirmed if n_confirmed else 0.0
+    # Noisy-OR der unabhängigen Quellen (Gegenwahrscheinlichkeiten multiplizieren)
+    realness = 1 - (1 - p_struct) * (1 - p_cm) * (1 - p_conf)
     if realness >= 0.97:
         label = "sehr hoch"
     elif realness >= 0.85:
@@ -337,7 +341,10 @@ def cluster_confidence(size: int, density: float, median_cm: float = 0.0,
     else:
         label = "niedrig"
     note = ""
-    if cm and cm < 15:
+    if n_confirmed:
+        note = (f"durch {n_confirmed} Mitglied(er) mit ThruLine/Baum-Link "
+                "bestätigt – auch niedrige cM hier echt")
+    elif cm and cm < 15:
         note = "niedrige cM → je Mitglied erhöhtes False-Positive-Risiko (IBC)"
     elif endogamy_score and endogamy_score >= 0.6:
         note = "viele kleine Segmente → Endogamie wahrscheinlich (mehrere Linien)"
