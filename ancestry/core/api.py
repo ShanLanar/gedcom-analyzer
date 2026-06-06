@@ -161,35 +161,44 @@ class AncestryApiClient:
                 continue
 
             if r.status_code in (301, 302, 303, 307, 308):
-                location = r.headers.get("Location", "?")
-                log.warning("profileData HTTP %s → Redirect nach: %s",
-                            r.status_code, location)
-                # Versuche dem Redirect zu folgen (GET auf Location-URL)
+                location = r.headers.get("Location", "")
+                log.debug("profileData HTTP %s → Location: '%s'", r.status_code, location)
+                # '?' oder leer = relativer Redirect auf dieselbe URL (POST→GET-Muster)
+                if not location or location in ("?", "./"):
+                    get_url = url
+                elif location.startswith("http"):
+                    get_url = location
+                else:
+                    get_url = cfg.BASE_URL + location
                 try:
-                    r2 = self._s.get(location, headers={
+                    r2 = self._s.get(get_url, headers={
                         "Accept": "application/json",
                         "Referer": url,
+                        "X-Requested-With": "XMLHttpRequest",
                     }, timeout=cfg.REQUEST_TIMEOUT, allow_redirects=True)
-                    log.debug("profileData Redirect-Ziel HTTP %s (%d Bytes)",
+                    log.debug("profileData GET nach Redirect: HTTP %s (%d Bytes)",
                               r2.status_code, len(r2.content))
                     if r2.status_code == 200:
                         try:
                             data = r2.json()
-                            names = {}
-                            for sid, info in (data or {}).items():
-                                name = self._pick_name(info)
-                                if name:
-                                    names[sid] = name
-                            if names:
+                            if isinstance(data, dict) and data:
+                                names = {}
+                                for sid, info in data.items():
+                                    name = self._pick_name(info)
+                                    if name:
+                                        names[sid] = name
+                                log.debug("profileData (via GET): %d/%d Namen",
+                                          len(names), len(sample_ids))
                                 return names
                         except Exception:
-                            log.debug("profileData Redirect-Ziel ist kein JSON: %s",
-                                      r2.text[:200])
+                            pass
+                        log.debug("profileData GET-Antwort kein JSON: %s",
+                                  r2.text[:300])
                 except Exception as e2:
-                    log.debug("profileData Redirect-Abruf fehlgeschlagen: %s", e2)
-                # Redirect war kein API-Ergebnis → Session ungültig
-                log.error("profileData: Redirect deutet auf ungültige Session hin. "
-                          "Bitte ancestry.json mit geöffneter DNA-Matches-Seite neu exportieren.")
+                    log.debug("profileData GET nach Redirect fehlgeschlagen: %s", e2)
+                # Redirect führte nicht zu JSON → Session ungültig
+                log.error("profileData: 303-Redirect ohne JSON-Antwort. "
+                          "Bitte ancestry.json neu exportieren.")
                 self._detail_blocked = True
                 return {}
 
