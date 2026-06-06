@@ -7,6 +7,9 @@ import time
 import math
 import random
 import logging
+import base64
+import json
+import uuid
 from typing import Iterator, Optional
 
 try:
@@ -29,6 +32,24 @@ BURST_PAUSE     = 20.0
 
 def _jitter(base: float) -> float:
     return base * (0.8 + random.random() * 0.4)
+
+
+def _build_ube_header(session) -> str:
+    """Baut den ancestry-context-ube Header (base64-JSON) den Ancestry erwartet."""
+    session_id = session.cookies.get("ANCSESSIONID") or str(uuid.uuid4())
+    payload = {
+        "eventId": "00000000-0000-0000-0000-000000000000",
+        "correlatedScreenViewedId": str(uuid.uuid4()),
+        "correlatedSessionId": session_id,
+        "screenNameStandard": "ancestry : global : en : dna-matches-ui : match-list",
+        "screenName": "ancestry us : dnamatches-matchlistui : dna-matches-ui : match-list",
+        "userConsent": "necessary|preference|performance|analytics1st|analytics3rd|advertising1st|attribution3rd",
+        "vendors": "adobemc",
+        "vendorConfigurations": json.dumps({"adobemc": {"mid": "", "sdid": ""}}),
+    }
+    return base64.b64encode(
+        json.dumps(payload, separators=(",", ":")).encode()
+    ).decode()
 
 
 def _is_initials_only(name: str) -> bool:
@@ -118,81 +139,49 @@ class AncestryApiClient:
             return {}
 
         url = cfg.PROFILE_DATA_URL.format(test_guid=test_guid)
-        headers = {
-            "Accept"          : "application/json",
-            "Content-Type"    : "application/json",
-            "Origin"          : cfg.BASE_URL,
-            "Referer"         : f"{cfg.BASE_URL}/discoveryui-matches/list/{test_guid}",
-            "X-Requested-With": "XMLHttpRequest",
-            "Sec-Fetch-Site"  : "same-origin",
-            "Sec-Fetch-Mode"  : "cors",
-            "Sec-Fetch-Dest"  : "empty",
-        }
-        # CSRF-Token aus dem dnamatches-Cookie (vom Frontend gesetzt)
-        csrf = (self._s.cookies.get("_dnamatches-matchlistui-x-csrf-token")
-                or self._s.cookies.get("_csrf")
-                or self._s.cookies.get("XSRF-TOKEN") or "")
-        if csrf:
-            from urllib.parse import unquote
-            csrf_decoded = unquote(csrf)
-            headers["X-CSRF-Token"] = csrf_decoded
-            if not getattr(self, "_logged_csrf", False):
-                self._logged_csrf = True
-                log.debug("profileData CSRF-Token: '%s…' (len=%d)",
-                          csrf_decoded[:20], len(csrf_decoded))
+        from urllib.parse import unquote
+        csrf = unquote(
+            self._s.cookies.get("_dnamatches-matchlistui-x-csrf-token")
+            or self._s.cookies.get("_csrf")
+            or self._s.cookies.get("XSRF-TOKEN") or ""
+        )
 
         payload = {"matchSampleIds": list(sample_ids)}
+        hdrs = {
+            "Accept"              : "application/json",
+            "Content-Type"        : "application/json",
+            "Origin"              : cfg.BASE_URL,
+            "Referer"             : f"{cfg.BASE_URL}/discoveryui-matches/list/{test_guid}",
+            "X-Requested-With"    : "XMLHttpRequest",
+            "Sec-Fetch-Site"      : "same-origin",
+            "Sec-Fetch-Mode"      : "cors",
+            "Sec-Fetch-Dest"      : "empty",
+            "X-CSRF-Token"        : csrf,
+            "ancestry-context-ube": _build_ube_header(self._s),
+        }
 
-        # Einmalig: verfügbare Cookie-Namen loggen (Diagnose)
-        if not getattr(self, "_logged_cookies", False):
-            self._logged_cookies = True
-            cookie_names = sorted(self._s.cookies.keys())
-            log.info("profileData: %d Cookies geladen: %s", len(cookie_names), cookie_names)
-
-        csrf2 = self._s.cookies.get("_csrf") or ""
-
-        # Versuche mehrere Header-Varianten (Ancestry prüft Kombination aus CSRF + Headers)
-        header_variants = [
-            # V1: Minimal
-            {"Accept": "application/json", "Content-Type": "application/json",
-             "X-CSRF-Token": csrf},
-            # V2: Mit Referer + XHR
-            {"Accept": "application/json", "Content-Type": "application/json",
-             "Referer": f"{cfg.BASE_URL}/discoveryui-matches/list/{test_guid}",
-             "X-Requested-With": "XMLHttpRequest", "X-CSRF-Token": csrf},
-            # V3: _csrf statt dnamatches-Token
-            {"Accept": "application/json", "Content-Type": "application/json",
-             "Referer": f"{cfg.BASE_URL}/discoveryui-matches/list/{test_guid}",
-             "X-Requested-With": "XMLHttpRequest", "X-CSRF-Token": csrf2},
-            # V4: Kein CSRF-Header
-            {"Accept": "application/json", "Content-Type": "application/json",
-             "Referer": f"{cfg.BASE_URL}/discoveryui-matches/list/{test_guid}",
-             "X-Requested-With": "XMLHttpRequest"},
-            # V5: Mit Origin + Sec-Fetch (volle Browser-Header)
-            {"Accept": "application/json", "Content-Type": "application/json",
-             "Origin": cfg.BASE_URL,
-             "Referer": f"{cfg.BASE_URL}/discoveryui-matches/list/{test_guid}",
-             "X-Requested-With": "XMLHttpRequest",
-             "Sec-Fetch-Site": "same-origin", "Sec-Fetch-Mode": "cors",
-             "Sec-Fetch-Dest": "empty", "X-CSRF-Token": csrf},
-        ]
-
-        for v_idx, hdrs in enumerate(header_variants):
+        for attempt in range(MAX_RETRIES):
             try:
                 r = self._s.post(url, json=payload, headers=hdrs,
                                  timeout=cfg.REQUEST_TIMEOUT,
                                  allow_redirects=True)
             except Exception as e:
-                log.debug("profileData V%d Fehler: %s", v_idx + 1, e)
+                delay = _jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
+                log.warning("profileData Versuch %d/%d Fehler: %s → %.0fs",
+                            attempt+1, MAX_RETRIES, e, delay)
+                time.sleep(delay)
                 continue
 
-            log.debug("profileData V%d: HTTP %s", v_idx + 1, r.status_code)
-
             if r.status_code in (301, 302, 303, 307, 308):
-                continue  # nächste Variante
+                log.error("profileData HTTP %s – ancestry-context-ube fehlerhaft? "
+                          "Bitte ancestry.json neu exportieren.", r.status_code)
+                self._detail_blocked = True
+                return {}
 
             if r.status_code == 429:
-                time.sleep(RETRY_DELAYS[0])
+                delay = int(r.headers.get("Retry-After", RETRY_DELAYS[attempt]))
+                log.warning("profileData 429 → warte %ds", delay)
+                time.sleep(delay)
                 continue
 
             if r.status_code in (401, 403):
@@ -200,32 +189,29 @@ class AncestryApiClient:
                 self._detail_blocked = True
                 return {}
 
-            if r.status_code != 200:
+            if r.status_code in RETRY_STATUSES:
+                time.sleep(_jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)]))
                 continue
 
-            ct = r.headers.get("Content-Type", "")
-            if "html" in ct:
-                log.debug("profileData V%d: HTML statt JSON", v_idx + 1)
-                continue
+            if r.status_code != 200:
+                log.warning("profileData HTTP %s", r.status_code)
+                return {}
 
             try:
                 data = r.json()
-            except Exception:
-                log.debug("profileData V%d: kein JSON – %s", v_idx + 1, r.text[:100])
-                continue
+            except Exception as e:
+                log.error("profileData JSON-Fehler: %s | %s", e, r.text[:200])
+                return {}
 
             names = {}
             for sid, info in (data or {}).items():
                 name = self._pick_name(info)
                 if name:
                     names[sid] = name
-            log.info("profileData V%d: %d/%d Namen erhalten",
-                     v_idx + 1, len(names), len(sample_ids))
+            log.debug("profileData: %d/%d Namen erhalten", len(names), len(sample_ids))
             return names
 
-        log.error("profileData: alle Varianten schlugen fehl. "
-                  "Bitte ancestry.json auf der DNA-Matches-Seite neu exportieren.")
-        self._detail_blocked = True
+        log.error("profileData: alle %d Versuche fehlgeschlagen.", MAX_RETRIES)
         return {}
 
     def detail_names_blocked(self) -> bool:
