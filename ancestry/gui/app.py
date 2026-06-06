@@ -1522,7 +1522,7 @@ class AncestryDnaApp(tk.Tk):
         os.makedirs(d, exist_ok=True)
         return os.path.join(d, "ui_settings.json")
 
-    def _load_settings(self) -> dict:
+    def _load_ui_settings(self) -> dict:
         import json, os
         try:
             with open(self._settings_path(), encoding="utf-8") as f:
@@ -1531,9 +1531,9 @@ class AncestryDnaApp(tk.Tk):
         except Exception:
             return {}
 
-    def _save_settings(self, **kw):
+    def _save_ui_settings(self, **kw):
         import json
-        s = self._load_settings(); s.update(kw)
+        s = self._load_ui_settings(); s.update(kw)
         try:
             with open(self._settings_path(), "w", encoding="utf-8") as f:
                 json.dump(s, f, ensure_ascii=False, indent=2)
@@ -1550,7 +1550,7 @@ class AncestryDnaApp(tk.Tk):
             on_ready(cached)
             return
 
-        st = self._load_settings()
+        st = self._load_ui_settings()
         path = st.get("gedcom_path") if not force_ask else None
         root_name = st.get("gedcom_root", "") or ""
 
@@ -1572,7 +1572,7 @@ class AncestryDnaApp(tk.Tk):
                 initialvalue=root_name) or "").strip()
 
         self._gedcom_root_name = root_name
-        self._save_settings(gedcom_path=path, gedcom_root=root_name)
+        self._save_ui_settings(gedcom_path=path, gedcom_root=root_name)
 
         import threading
         self._set_status("GEDCOM wird geladen … (läuft im Hintergrund)")
@@ -2030,7 +2030,7 @@ class AncestryDnaApp(tk.Tk):
 
     def _set_endogamy_cluster(self, match):
         """Dialog: Endogamie-Cluster-Namen eingeben oder aus bekannten wählen."""
-        known = self._load_settings().get("endogamy_clusters", [])
+        known = self._load_ui_settings().get("endogamy_clusters", [])
         current = getattr(match, "endogamy_cluster", "") or ""
 
         dlg = tk.Toplevel(self)
@@ -2056,7 +2056,7 @@ class AncestryDnaApp(tk.Tk):
             match.endogamy_cluster = name
             if name and name not in known:
                 known.append(name)
-                self._save_settings(endogamy_clusters=known)
+                self._save_ui_settings(endogamy_clusters=known)
             self._refresh_match_table()
             dlg.destroy()
 
