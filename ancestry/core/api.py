@@ -123,62 +123,7 @@ class AncestryApiClient:
             return managed
         return name
 
-    def get_match_names_bulk(self, test_guid: str,
-                             sample_ids: list[str]) -> dict[str, str]:
-        """Holt Anzeigenamen für mehrere Matches in einem POST-Request.
-
-        Bestätigter Endpunkt (Juni 2026):
-          POST /discoveryui-matches/cluster/api/profileData/{test_guid}
-          Body: {"matchSampleIds": [...]}
-          Antwort: { "<sampleId>": {"matchName": "...", ...}, ... }
-
-        Gibt {sampleId: name} zurück (nur gefundene Namen).
-        """
-        if not sample_ids:
-            return {}
-        if self._detail_blocked:
-            return {}
-
-        url     = cfg.PROFILE_DATA_URL.format(test_guid=test_guid)
-        payload = {"matchSampleIds": list(sample_ids)}
-
-        # Steht die richtige CSRF-Form schon fest? → direkt nutzen.
-        if self._csrf_mode is not None:
-            r = self._post_profiledata(url, payload, test_guid, self._csrf_mode)
-            return self._parse_profiledata(r, len(sample_ids))
-
-        # Erststart: alle CSRF-Formen in EINEM Lauf durchprobieren.
-        for mode in ("raw", "decoded", "prefix", "none"):
-            tok = self._csrf_value(mode)
-            if mode in ("raw", "decoded", "prefix") and not tok:
-                continue  # kein Token vorhanden → diese Form überspringen
-            r = self._post_profiledata(url, payload, test_guid, mode)
-            code = getattr(r, "status_code", "—")
-            log.info("profileData CSRF-Form '%s': HTTP %s", mode, code)
-
-            if r is not None and r.status_code == 200:
-                self._csrf_mode = mode
-                names = self._parse_profiledata(r, len(sample_ids))
-                log.info("profileData OK mit CSRF-Form '%s' – %d/%d Namen",
-                         mode, len(names), len(sample_ids))
-                return names
-
-            if r is not None and r.status_code in (401, 403):
-                log.error("profileData HTTP %s – Cookies/Session abgelaufen. "
-                          "Bitte ancestry.json neu exportieren.", r.status_code)
-                self._detail_blocked = True
-                return {}
-
-        # Keine Form lieferte 200 → automatischer Switch auf Browser-Fallback.
-        log.error(
-            "profileData: keine CSRF-Form erfolgreich (alle 303/Redirect). "
-            "→ Browser-Namens-Export nutzen (siehe ancestry/tools/NAMEN_LADEN.md), "
-            "dann im Menü 'Namen importieren'."
-        )
-        self._detail_blocked = True
-        return {}
-
-    # ── profileData-Hilfsfunktionen ──────────────────────────────────────────
+    # ── Signierte POSTs (profileData / commonAncestors / treeData) ────────────
 
     def _csrf_value(self, mode: str) -> str:
         """Liefert das CSRF-Token in der gewünschten Form ('raw'/'decoded'/'prefix')."""
@@ -195,8 +140,7 @@ class AncestryApiClient:
             return unquote(raw).split("|", 1)[0]
         return ""  # 'none'
 
-    def _post_profiledata(self, url: str, payload: dict,
-                          test_guid: str, mode: str):
+    def _post_once(self, url: str, payload: dict, test_guid: str, mode: str):
         """Ein POST-Versuch mit der angegebenen CSRF-Form. Gibt Response/None."""
         hdrs = {
             "Accept"              : "application/json",
@@ -221,14 +165,13 @@ class AncestryApiClient:
                                  allow_redirects=False)
             except Exception as e:
                 delay = _jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
-                log.warning("profileData POST-Fehler (%s) %d/%d: %s → %.0fs",
+                log.warning("POST-Fehler (%s) %d/%d: %s → %.0fs",
                             mode, attempt+1, MAX_RETRIES, e, delay)
                 time.sleep(delay)
                 continue
-
             if r.status_code == 429:
                 delay = int(r.headers.get("Retry-After", RETRY_DELAYS[attempt]))
-                log.warning("profileData 429 → warte %ds", delay)
+                log.warning("429 → warte %ds", delay)
                 time.sleep(delay)
                 continue
             if r.status_code in RETRY_STATUSES:
@@ -237,39 +180,134 @@ class AncestryApiClient:
             return r
         return None
 
-    def _parse_profiledata(self, r, expected: int) -> dict:
-        """Wandelt eine profileData-200-Antwort in {sampleId: name}."""
+    def _signed_post(self, url: str, payload: dict, test_guid: str, label: str):
+        """Signierter POST mit automatischer CSRF-Form-Erkennung + Caching.
+
+        Beim ersten Aufruf werden alle CSRF-Formen durchprobiert; die erste mit
+        HTTP 200 wird für alle weiteren Aufrufe gecacht (self._csrf_mode).
+        Gibt das geparste JSON (dict/list) zurück – oder None bei Fehler.
+        """
+        if self._detail_blocked:
+            return None
+
+        # Form bereits bekannt → direkt nutzen.
+        if self._csrf_mode is not None:
+            r = self._post_once(url, payload, test_guid, self._csrf_mode)
+            return self._parse_json(r, label)
+
+        # Erststart: Formen der Reihe nach testen.
+        for mode in ("raw", "decoded", "prefix", "none"):
+            tok = self._csrf_value(mode)
+            if mode in ("raw", "decoded", "prefix") and not tok:
+                continue
+            r = self._post_once(url, payload, test_guid, mode)
+            log.info("%s CSRF-Form '%s': HTTP %s",
+                     label, mode, getattr(r, "status_code", "—"))
+            if r is not None and r.status_code == 200:
+                self._csrf_mode = mode
+                log.info("%s OK mit CSRF-Form '%s'", label, mode)
+                return self._parse_json(r, label)
+            if r is not None and r.status_code in (401, 403):
+                log.error("%s HTTP %s – Session abgelaufen.", label, r.status_code)
+                self._detail_blocked = True
+                return None
+
+        log.error("%s: keine CSRF-Form erfolgreich (alle 303/Redirect). "
+                  "→ Browser-Export nutzen (siehe ancestry/tools/NAMEN_LADEN.md).",
+                  label)
+        self._detail_blocked = True
+        return None
+
+    @staticmethod
+    def _parse_json(r, label: str):
         if r is None or r.status_code != 200:
-            return {}
-        ct = r.headers.get("Content-Type", "")
-        if "html" in ct:
-            log.warning("profileData: HTML statt JSON (Login-Redirect?)")
-            return {}
+            return None
+        if "html" in r.headers.get("Content-Type", ""):
+            log.warning("%s: HTML statt JSON (Login-Redirect?)", label)
+            return None
         try:
-            data = r.json()
+            return r.json()
         except Exception as e:
-            log.error("profileData JSON-Fehler: %s | %s", e, r.text[:200])
+            log.error("%s JSON-Fehler: %s | %s", label, e, r.text[:200])
+            return None
+
+    # ── Namen / Profil-Details ─────────────────────────────────────────────────
+
+    def get_profile_details_bulk(self, test_guid: str,
+                                 sample_ids: list[str]) -> dict[str, dict]:
+        """profileData → {sampleId: {"name":.., "ucdmid":.., "gender":..}}."""
+        if not sample_ids or self._detail_blocked:
             return {}
-
-        # Einmalige Diagnose: alle Felder eines profileData-Eintrags zeigen,
-        # damit wir sehen, ob Baum-Status / Personenzahl / gemeinsamer Vorfahre
-        # mitgeliefert werden.
-        if data and not getattr(self, "_logged_pd_sample", False):
-            self._logged_pd_sample = True
-            import json as _dj
-            first = next(iter(data.values()), {})
-            log.info("profileData-FELDER: %s", sorted(first.keys())
-                     if isinstance(first, dict) else type(first))
-            log.info("profileData-BEISPIEL: %s",
-                     _dj.dumps(first, ensure_ascii=False)[:1500])
-
-        names = {}
+        url  = cfg.PROFILE_DATA_URL.format(test_guid=test_guid)
+        data = self._signed_post(url, {"matchSampleIds": list(sample_ids)},
+                                 test_guid, "profileData")
+        out = {}
         for sid, info in (data or {}).items():
-            name = self._pick_name(info)
-            if name:
-                names[sid] = name
-        log.debug("profileData: %d/%d Namen erhalten", len(names), expected)
-        return names
+            if not isinstance(info, dict):
+                continue
+            out[sid] = {
+                "name"  : self._pick_name(info),
+                "ucdmid": info.get("matchUcdmid") or "",
+                "gender": info.get("displayGender") or "",
+            }
+        return out
+
+    def get_match_names_bulk(self, test_guid: str,
+                             sample_ids: list[str]) -> dict[str, str]:
+        """Rückwärtskompatibel: nur {sampleId: name}."""
+        details = self.get_profile_details_bulk(test_guid, sample_ids)
+        return {sid: d["name"] for sid, d in details.items() if d.get("name")}
+
+    # ── Gemeinsamer Vorfahre ────────────────────────────────────────────────────
+
+    def get_common_ancestors(self, test_guid: str,
+                             sample_ids: list[str]) -> set:
+        """commonAncestors → Set der sampleIds, die einen gemeinsamen Vorfahren haben."""
+        if not sample_ids or self._detail_blocked:
+            return set()
+        url  = cfg.COMMON_ANCESTORS_URL.format(test_guid=test_guid)
+        data = self._signed_post(url, {"sampleIds": list(sample_ids)},
+                                 test_guid, "commonAncestors")
+        return set(data) if isinstance(data, list) else set()
+
+    # ── Stammbaum-Daten ──────────────────────────────────────────────────────────
+
+    @staticmethod
+    def _tree_status(info: dict) -> dict:
+        """Wandelt treeData-Flags in {tree_status, tree_size, has_tree}."""
+        size = int(info.get("treeSize") or 0)
+        if info.get("hasNoTrees"):
+            status, has = "Kein Baum", False
+        elif info.get("isTreeUnavailable"):
+            status, has = "Nicht verfügbar", False
+        elif info.get("isUnlinkedTree"):
+            status, has = "Unverknüpft", False
+        elif info.get("isPrivateTree"):
+            status, has = "Privat", True
+        elif info.get("isPublicTree"):
+            status, has = "Öffentlich", True
+        else:
+            status, has = "", False
+        return {"tree_status": status, "tree_size": size, "has_tree": has}
+
+    def get_tree_data_bulk(self, test_guid: str,
+                           sid_to_ucdmid: dict) -> dict[str, dict]:
+        """treeData → {sampleId: {tree_status, tree_size, has_tree}}.
+
+        Braucht pro Match die userId (== matchUcdmid aus profileData).
+        """
+        match_list = [{"sampleId": sid, "matchProfile": {"userId": uc}}
+                      for sid, uc in sid_to_ucdmid.items() if uc]
+        if not match_list or self._detail_blocked:
+            return {}
+        url  = cfg.TREE_DATA_URL.format(test_guid=test_guid)
+        data = self._signed_post(url, {"matchList": match_list},
+                                 test_guid, "treeData")
+        out = {}
+        for sid, info in (data or {}).items():
+            if isinstance(info, dict):
+                out[sid] = self._tree_status(info)
+        return out
 
     def detail_names_blocked(self) -> bool:
         return self._detail_blocked

@@ -11,9 +11,10 @@ from models import DnaMatch, SharedMatch
 log = logging.getLogger(__name__)
 
 MATCH_COLUMNS = [
-    "display_name", "shared_cm", "shared_segments", "longest_segment",
+    "display_name", "gender", "shared_cm", "shared_segments", "longest_segment",
     "predicted_relationship", "confidence", "relationship_range",
-    "has_tree", "tree_size", "starred", "note", "custom_relationship",
+    "has_tree", "tree_status", "tree_size", "has_common_ancestor",
+    "starred", "note", "custom_relationship",
     "ethnicity_regions", "last_login", "fetched_at", "match_guid",
 ]
 
@@ -25,6 +26,7 @@ SHARED_COLUMNS = [
 
 MATCH_LABELS = {
     "display_name"           : "Name",
+    "gender"                 : "Geschlecht",
     "shared_cm"              : "Gemeinsame cM",
     "shared_segments"        : "Segmente",
     "longest_segment"        : "Längstes Segment (cM)",
@@ -32,7 +34,9 @@ MATCH_LABELS = {
     "confidence"             : "Konfidenz",
     "relationship_range"     : "Beziehungsbereich",
     "has_tree"               : "Hat Stammbaum",
+    "tree_status"            : "Stammbaum-Status",
     "tree_size"              : "Stammbaum-Personen",
+    "has_common_ancestor"    : "Gemeinsamer Vorfahre",
     "starred"                : "Markiert",
     "note"                   : "Notiz",
     "custom_relationship"    : "Eigene Beziehung",

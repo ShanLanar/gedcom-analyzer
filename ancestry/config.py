@@ -31,6 +31,16 @@ MANAGE_TESTS_URL = f"{BASE_URL}/dna/api/uhura/v2/people/{{uid}}/managetests"
 PROFILE_DATA_URL  = f"{DNA_CLUSTER_BASE}/profileData/{{test_guid}}"
 PROFILE_DATA_BATCH = 20   # sampleIds pro Request (wie Ancestry-UI)
 
+# ── Stammbaum & gemeinsamer Vorfahre (bestätigt via Spion, Juni 2026) ─────────
+# Beide POSTs auf der parents/list-API (gleicher CSRF-Trick wie profileData).
+#   commonAncestors: Body {"sampleIds":[...]}  → Array der sampleIds MIT Vorfahr
+#   treeData:        Body {"matchList":[{"sampleId":..,"matchProfile":{"userId":..}}]}
+#                    → {sid: {isPublicTree,isPrivateTree,isUnlinkedTree,
+#                             hasNoTrees,isTreeUnavailable,treeSize}}
+# userId in treeData == matchUcdmid aus profileData.
+COMMON_ANCESTORS_URL = f"{DNA_LIST_BASE}/commonAncestors/{{test_guid}}"
+TREE_DATA_URL        = f"{DNA_LIST_BASE}/treeData/{{test_guid}}"
+
 # ── Match-Detail (Legacy, nicht mehr genutzt) ─────────────────────────────────
 # matchList liefert keine Namen. Wir probieren mehrere Endpunkte der Reihe nach;
 # zuerst den parents/list-Service (selber Host, kein Akamai-Block),

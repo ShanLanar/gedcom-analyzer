@@ -332,12 +332,12 @@ class AncestryDnaApp(tk.Tk):
         # ── Bereich A2: Namen nachladen (profileData-Bulk-API) ────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=6, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text="A2: Namen nachladen",
+        ttk.Label(f, text="A2: Namen & Stammbaum nachladen",
                   style="Bold.TLabel").grid(row=7, column=0, columnspan=4, sticky="w", **p)
         ttk.Label(f, text=(
-            "Lädt die echten Anzeigenamen über die profileData-API\n"
-            "(20 Namen pro Anfrage, ~10 Min. für 10.000 Matches).\n"
-            "Einmalig ausführen – danach sind alle Namen gespeichert."
+            "Lädt Namen, Geschlecht, Stammbaum-Status/-Größe und ob ein\n"
+            "gemeinsamer Vorfahre existiert (20 Matches pro Anfrage).\n"
+            "Einmalig ausführen – danach ist alles gespeichert."
         ), foreground="#555555").grid(row=8, column=0, columnspan=4, sticky="w", padx=14)
 
         sf_names = ttk.Frame(f); sf_names.grid(row=9, column=0, columnspan=4, sticky="w", **p)
@@ -346,7 +346,7 @@ class AncestryDnaApp(tk.Tk):
         ttk.Entry(sf_names, textvariable=self._names_min_cm_var, width=6).pack(side="left", padx=6)
 
         bf_names = ttk.Frame(f); bf_names.grid(row=10, column=0, columnspan=4, sticky="w", **p)
-        self._names_start_btn = ttk.Button(bf_names, text="▶ Namen nachladen",
+        self._names_start_btn = ttk.Button(bf_names, text="▶ Namen & Stammbaum laden",
                                             command=self._start_fetch_names)
         self._names_start_btn.pack(side="left", padx=4)
         self._names_stop_btn = ttk.Button(bf_names, text="⏹ Stoppen",
@@ -604,17 +604,18 @@ class AncestryDnaApp(tk.Tk):
         self._build_detail_panel(right)
 
     def _build_match_tree(self, parent):
-        cols = ("name","guid","note","cm","seg","rel","tree","starred")
+        cols = ("name","guid","note","cm","seg","rel","tree","ca","starred")
         self._tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
         for col, (label, width, anchor) in {
-            "name"   : ("Name / ID",   200, "w"),
-            "guid"   : ("GUID",        110, "w"),
-            "note"   : ("Bemerkung",   170, "w"),
-            "cm"     : ("cM",           70, "e"),
-            "seg"    : ("Seg.",          50, "e"),
-            "rel"    : ("Beziehung",   160, "w"),
-            "tree"   : ("Stammbaum",    90, "center"),
-            "starred": ("⭐",            45, "center"),
+            "name"   : ("Name / ID",   190, "w"),
+            "guid"   : ("GUID",         95, "w"),
+            "note"   : ("Bemerkung",   150, "w"),
+            "cm"     : ("cM",           65, "e"),
+            "seg"    : ("Seg.",          45, "e"),
+            "rel"    : ("Beziehung",   150, "w"),
+            "tree"   : ("Stammbaum",   140, "w"),
+            "ca"     : ("Vorfahre",     70, "center"),
+            "starred": ("⭐",            40, "center"),
         }.items():
             self._tree.heading(col, text=label, command=lambda c=col: self._sort_by(c))
             self._tree.column(col, width=width, anchor=anchor, stretch=(col == "name"))
@@ -650,7 +651,8 @@ class AncestryDnaApp(tk.Tk):
         inf = ttk.Frame(info_frame); inf.pack(fill="x", padx=8)
         self._detail_fields: dict[str, tk.StringVar] = {}
         for lbl in ("cM","Segmente","Längstes Seg.","Beziehung",
-                    "Konfidenz","Stammbaum","Letzter Login"):
+                    "Konfidenz","Stammbaum","Gem. Vorfahre","Geschlecht",
+                    "Letzter Login"):
             row = ttk.Frame(inf); row.pack(fill="x", pady=1)
             ttk.Label(row, text=lbl + ":", width=15, anchor="e",
                       foreground="#555555").pack(side="left")
@@ -732,6 +734,18 @@ class AncestryDnaApp(tk.Tk):
                 "parent","child","sibling","aunt/uncle","first cousin",
                 "1st cousin","half sibling","close"): tags.append("close")
             if not m.has_tree: tags.append("no_tree")
+
+            # Stammbaum-Spalte: Status (+ Personenzahl falls vorhanden)
+            status = getattr(m, "tree_status", "") or ""
+            if status and m.tree_size:
+                tree_txt = f"{status} ({m.tree_size})"
+            elif status:
+                tree_txt = status
+            elif m.has_tree:
+                tree_txt = f"✓ ({m.tree_size})" if m.tree_size else "✓"
+            else:
+                tree_txt = "—"
+
             self._tree.insert("", "end", iid=m.match_guid, tags=tags, values=(
                 m.display_name,
                 m.match_guid[:8],
@@ -739,7 +753,8 @@ class AncestryDnaApp(tk.Tk):
                 f"{m.shared_cm:.1f}" if m.shared_cm else "—",
                 m.shared_segments or "—",
                 m.predicted_relationship or "—",
-                f"✓ ({m.tree_size})" if m.has_tree else "—",
+                tree_txt,
+                "👪" if getattr(m, "has_common_ancestor", False) else "—",
                 "⭐" if m.starred else "",
             ))
 
@@ -806,6 +821,17 @@ class AncestryDnaApp(tk.Tk):
             self._sort_asc = col in ("name","rel")
         self._refresh_match_table()
 
+    @staticmethod
+    def _tree_detail_text(match) -> str:
+        status = getattr(match, "tree_status", "") or ""
+        if status and match.tree_size:
+            return f"{status} ({match.tree_size} Personen)"
+        if status:
+            return status
+        if match.has_tree:
+            return f"Ja ({match.tree_size})" if match.tree_size else "Ja"
+        return "Nein"
+
     def _on_match_select(self, _):
         sel = self._tree.selection()
         if not sel: return
@@ -821,7 +847,10 @@ class AncestryDnaApp(tk.Tk):
             ("Längstes Seg.",  f"{match.longest_segment:.2f} cM"),
             ("Beziehung",      match.predicted_relationship or "—"),
             ("Konfidenz",      match.confidence or "—"),
-            ("Stammbaum",      f"Ja ({match.tree_size})" if match.has_tree else "Nein"),
+            ("Stammbaum",      self._tree_detail_text(match)),
+            ("Gem. Vorfahre",  "Ja 👪" if getattr(match, "has_common_ancestor", False) else "Nein"),
+            ("Geschlecht",     {"M":"♂ männlich","F":"♀ weiblich"}.get(
+                                   getattr(match, "gender", ""), "—")),
             ("Letzter Login",  match.last_login[:10] if match.last_login else "—"),
         ]:
             self._detail_fields[lbl].set(val)

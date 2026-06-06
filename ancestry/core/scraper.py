@@ -214,24 +214,35 @@ class Scraper:
         self._on_status(result.message)
         self._on_done(result)
 
+    @staticmethod
+    def _is_placeholder(name: str) -> bool:
+        """True, wenn display_name nur ein Platzhalter ist (leer/Anonym/GUID-Kürzel)."""
+        if not name:
+            return True
+        n = name.strip()
+        if n in ("Anonym", "?") or len(n) <= 8:
+            return True
+        return n.endswith(" (m.)") or n.endswith(" (w.)")
+
     def _run_fetch_names(self, test_guid: str, min_cm: float):
-        """Lädt Namen via profileData-Bulk-API (20 Namen pro Request)."""
+        """Lädt pro Batch (20) Name + Geschlecht, gemeinsamen Vorfahren und
+        Stammbaum-Status/-Größe via profileData / commonAncestors / treeData."""
         result = DownloadResult()
 
         all_matches = self._db.get_matches(test_guid=test_guid, min_cm=min_cm,
                                            sort_col="shared_cm")
+        # Zu erledigen: Name fehlt ODER Stammbaum-Status noch nicht geladen.
         todo = [
             m for m in all_matches
-            if not m.display_name
-               or len(m.display_name) <= 8
-               or m.display_name == "Anonym"
+            if self._is_placeholder(m.display_name)
+               or not getattr(m, "tree_status", "")
         ]
         total = len(todo)
-        self._on_status(f"Namen nachladen: {total} Matches ohne Namen …")
-        log.info("Namen-Download: %d Matches ohne Namen (min_cm=%.0f)", total, min_cm)
+        self._on_status(f"Details nachladen: {total} Matches …")
+        log.info("Detail-Download: %d Matches (min_cm=%.0f)", total, min_cm)
 
         if not todo:
-            result.message = "Alle Matches haben bereits einen Namen."
+            result.message = "Alle Matches sind bereits vollständig."
             result.success = True
             self._on_status(result.message)
             self._on_done(result)
@@ -248,7 +259,7 @@ class Scraper:
 
             if self._client.detail_names_blocked():
                 result.message = (
-                    f"Namen-Download gestoppt: API nicht verfügbar – bitte "
+                    f"Detail-Download gestoppt: API nicht verfügbar – bitte "
                     f"ancestry.json neu exportieren ({result.new}/{processed})."
                 )
                 result.success = False
@@ -258,32 +269,68 @@ class Scraper:
             sample_ids = [m.match_guid for m in batch]
 
             try:
-                names = self._client.get_match_names_bulk(test_guid, sample_ids)
+                details = self._client.get_profile_details_bulk(test_guid, sample_ids)
             except Exception as e:
-                log.debug("Bulk-Namen-Fehler: %s", e)
-                names = {}
+                log.debug("Bulk-Detail-Fehler: %s", e)
+                details = {}
 
-            if names:
-                try:
-                    with self._db._cursor() as cur:
-                        for sid, name in names.items():
+            try:
+                common = self._client.get_common_ancestors(test_guid, sample_ids)
+            except Exception as e:
+                log.debug("commonAncestors-Fehler: %s", e)
+                common = set()
+
+            sid_to_ucdmid = {sid: d.get("ucdmid")
+                             for sid, d in details.items() if d.get("ucdmid")}
+            try:
+                trees = self._client.get_tree_data_bulk(test_guid, sid_to_ucdmid)
+            except Exception as e:
+                log.debug("treeData-Fehler: %s", e)
+                trees = {}
+
+            try:
+                with self._db._cursor() as cur:
+                    for m in batch:
+                        sid  = m.match_guid
+                        d    = details.get(sid, {})
+                        t    = trees.get(sid, {})
+                        name = (d.get("name") or "").strip()
+
+                        # Name nur setzen, wenn echt UND aktuell Platzhalter
+                        if name and self._is_placeholder(m.display_name):
                             cur.execute(
                                 "UPDATE matches SET display_name=? "
                                 "WHERE match_guid=? AND test_guid=?",
-                                (name, sid, test_guid),
-                            )
-                    result.new += len(names)
-                except Exception as e:
-                    log.error("DB-Update Bulk: %s", e)
-                    result.errors += 1
+                                (name, sid, test_guid))
+                            result.new += 1
+
+                        cur.execute(
+                            "UPDATE matches SET "
+                            "  gender=?, match_ucdmid=?, has_common_ancestor=?, "
+                            "  tree_status=?, tree_size=?, has_tree=? "
+                            "WHERE match_guid=? AND test_guid=?",
+                            (
+                                d.get("gender", "") or "",
+                                d.get("ucdmid", "") or "",
+                                1 if sid in common else 0,
+                                t.get("tree_status", ""),
+                                int(t.get("tree_size", 0) or 0),
+                                1 if t.get("has_tree") else 0,
+                                sid, test_guid,
+                            ))
+            except Exception as e:
+                log.error("DB-Update Detail-Batch: %s", e)
+                result.errors += 1
 
             processed += len(batch)
             result.fetched = processed
             last = batch[-1]
             self._on_progress(processed, total,
-                              names.get(last.match_guid, last.match_guid[:8]))
+                              details.get(last.match_guid, {}).get(
+                                  "name", last.match_guid[:8]))
             self._on_status(
-                f"Namen: {processed}/{total} verarbeitet, {result.new} gefunden …"
+                f"Details: {processed}/{total} verarbeitet, "
+                f"{result.new} Namen, {len(common)}× Vorfahre im Batch …"
             )
 
             _time.sleep(NAME_REQUEST_DELAY)
@@ -291,7 +338,8 @@ class Scraper:
         if not result.message:
             result.success = True
             result.message = (
-                f"Namen geladen: {result.new} von {total} gefunden "
+                f"Details geladen: {processed}/{total} verarbeitet, "
+                f"{result.new} neue Namen "
                 f"({'abgebrochen' if self._stop.is_set() else 'fertig'})."
             )
 

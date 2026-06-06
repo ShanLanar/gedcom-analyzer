@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 5
+    SCHEMA_VERSION = 6
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -75,6 +75,8 @@ class Database:
                 self._migrate_v2_v3(cur)
             if current < 4:
                 self._migrate_v3_v4(cur)
+            if current < 6:
+                self._migrate_v5_v6(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -122,7 +124,11 @@ class Database:
                 tag_path                TEXT DEFAULT '',
                 tags_json               TEXT DEFAULT '',
                 meiosis                 INTEGER DEFAULT 0,
-                ignored                 INTEGER DEFAULT 0
+                ignored                 INTEGER DEFAULT 0,
+                tree_status             TEXT    DEFAULT '',
+                has_common_ancestor     INTEGER DEFAULT 0,
+                match_ucdmid            TEXT    DEFAULT '',
+                gender                  TEXT    DEFAULT ''
             );
 
             CREATE INDEX IF NOT EXISTS idx_matches_test_guid  ON matches(test_guid);
@@ -163,6 +169,20 @@ class Database:
             """)
         except Exception:
             pass
+
+    def _migrate_v5_v6(self, cur):
+        """Schema v6: Stammbaum-Status/-Größe, gemeinsamer Vorfahre, ucdmid, Geschlecht."""
+        new_cols = [
+            ("tree_status",         "TEXT    DEFAULT ''"),
+            ("has_common_ancestor", "INTEGER DEFAULT 0"),
+            ("match_ucdmid",        "TEXT    DEFAULT ''"),
+            ("gender",              "TEXT    DEFAULT ''"),
+        ]
+        for col, typedef in new_cols:
+            try:
+                cur.execute(f"ALTER TABLE matches ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass  # Spalte existiert bereits
 
     def _migrate_v2_v3(self, cur):
         """Schema v3: Shared-Matches-Tabelle."""
@@ -259,8 +279,9 @@ class Database:
                     confidence=excluded.confidence,
                     relationship_range=excluded.relationship_range,
                     has_hint=excluded.has_hint,
-                    has_tree=excluded.has_tree,
-                    tree_size=excluded.tree_size,
+                    -- has_tree/tree_size NICHT überschreiben: matchList liefert
+                    -- keine Baum-Daten (immer 0); sie kommen aus treeData und
+                    -- würden sonst bei jedem Matches-Download zurückgesetzt.
                     tree_id=excluded.tree_id,
                     starred=excluded.starred,
                     ethnicity_regions=excluded.ethnicity_regions,

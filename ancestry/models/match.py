@@ -88,6 +88,12 @@ class DnaMatch:
     tree_size: int = 0
     tree_id: str = ""
 
+    # Stammbaum-Status + gemeinsamer Vorfahre (via treeData/commonAncestors-API)
+    tree_status: str = ""           # "Öffentlich", "Privat", "Unverknüpft", "Kein Baum", …
+    has_common_ancestor: bool = False
+    match_ucdmid: str = ""          # userId für treeData-Abruf
+    gender: str = ""                # "M"/"F" aus profileData
+
     starred: bool = False
     note: str = ""
     custom_relationship: str = ""
