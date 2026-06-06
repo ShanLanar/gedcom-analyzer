@@ -1526,7 +1526,8 @@ class AncestryDnaApp(tk.Tk):
         import json, os
         try:
             with open(self._settings_path(), encoding="utf-8") as f:
-                return json.load(f)
+                data = json.load(f)
+                return data if isinstance(data, dict) else {}
         except Exception:
             return {}
 
