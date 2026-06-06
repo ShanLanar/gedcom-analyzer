@@ -905,7 +905,8 @@ class AncestryDnaApp(tk.Tk):
             tv.delete(*tv.get_children()); store.clear()
             for i, c in enumerate(clusters, 1):
                 conf = cluster_confidence(c["size"], c.get("density", 0),
-                                          c.get("median_cm", 0))
+                                          c.get("median_cm", 0),
+                                          endogamy_score=c.get("endogamy", 0))
                 c["_conf"] = conf
                 iid = tv.insert("", "end", values=(
                     f"Cluster {i}", c["size"], f"{c.get('density',0):.2f}",
@@ -1029,13 +1030,17 @@ class AncestryDnaApp(tk.Tk):
             detail.insert("end",
                 f"Echt-Güte: {conf.get('realness',0)*100:.0f}% "
                 f"({conf.get('label','?')}) · Dichte {c.get('density',0):.2f} "
-                f"({c.get('edges',0)} Verbindungen) · Median {c.get('median_cm',0):.0f} cM\n")
+                f"({c.get('edges',0)} Verbindungen) · Median {c.get('median_cm',0):.0f} cM, "
+                f"{c.get('median_segments',0)} Segm., längstes {c.get('median_longest',0):.0f} cM\n")
             if conf.get("note"):
                 detail.insert("end", f"⚠ {conf['note']}\n")
             detail.insert("end", f"\n{c['size']} Matches in dieser Gruppe "
                                  f"(wahrscheinlich gemeinsame Ahnenlinie):\n")
+            seg = c.get("seg_by_member", {})
             for guid, name, cm in c["members"]:
-                detail.insert("end", f"  • {name or guid[:8]}   {(cm or 0):.0f} cM\n")
+                s, lg = seg.get(guid, (0, 0))
+                detail.insert("end", f"  • {name or guid[:8]}   {(cm or 0):.0f} cM"
+                                     f"  ({s} Segm., längstes {lg:.0f})\n")
 
             # Gemeinsame Vorfahren-Linien INNERHALB des Clusters – das ist die
             # belastbare Linie, die bei dir andocken muss.
@@ -1143,7 +1148,8 @@ class AncestryDnaApp(tk.Tk):
         conv_frac = (max((len(r["members"]) for r in rows), default=0)
                      / n_with_ped) if n_with_ped else 0.0
         conf = cluster_confidence(size, cluster.get("density", 0),
-                                  cluster.get("median_cm", 0), conv_frac)
+                                  cluster.get("median_cm", 0), conv_frac,
+                                  endogamy_score=cluster.get("endogamy", 0))
         ttk.Label(win, text=(
             f"Bewertung: Cluster echt ~{conf['realness']*100:.0f}% ({conf['label']}, "
             f"Dichte {cluster.get('density',0):.2f}) · "

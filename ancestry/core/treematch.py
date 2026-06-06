@@ -216,20 +216,69 @@ def render_kinship(path: str) -> str:
     return label + " " + side
 
 
+def endogamy_flag(total_cm: float, num_segments: int, longest: float):
+    """Schätzt aus Segmentdaten, ob Endogamie/mehrere Linien vorliegen.
+    Viele kleine Segmente bei moderater Gesamt-cM = mehrere geteilte Ahnenlinien.
+    Ein großes längstes Segment = jüngerer gemeinsamer Vorfahr (eine klare Linie).
+    Liefert (label, score 0..1) – score hoch = Endogamie wahrscheinlich."""
+    total_cm = total_cm or 0
+    num = num_segments or 0
+    longest = longest or 0
+    if num <= 0:
+        return "unbekannt", 0.0
+    avg = total_cm / num
+    score = 0.0
+    # viele Segmente, aber im Schnitt klein → typische Endogamie-Signatur
+    if num >= 4 and avg < 12:
+        score += 0.5
+    if num >= 7 and longest < 15:
+        score += 0.3
+    if total_cm < 90 and num >= 5:
+        score += 0.2
+    # großes längstes Segment spricht GEGEN Endogamie (jüngere, klare Linie)
+    if longest >= 30:
+        score -= 0.4
+    score = max(0.0, min(score, 1.0))
+    label = ("Endogamie wahrscheinlich" if score >= 0.6 else
+             "Endogamie möglich" if score >= 0.3 else
+             "eher eine klare Linie")
+    return label, round(score, 2)
+
+
+def longest_to_generation(longest: float):
+    """Grobe Generation des gemeinsamen Vorfahren aus dem längsten Segment
+    (endogamie-robuster als Gesamt-cM). Wurzel=Gen 1."""
+    l = longest or 0
+    for thr, gen in [(90, 3), (50, 4), (30, 5), (18, 6), (12, 7), (0, 8)]:
+        if l >= thr:
+            return gen
+    return 8
+
+
 def cluster_confidence(size: int, density: float, median_cm: float = 0.0,
-                       conv_frac: float = None):
+                       conv_frac: float = None, endogamy_score: float = 0.0):
     """Bewertet einen Cluster. Liefert dict mit:
       realness  – P(Cluster ist echt, kein Zufall) 0..1 (Größe × Dichte)
       cohesion  – Dichte (eine Linie vs. mehrere verschmolzen)
       conv      – Anteil Mitglieder, die auf denselben Vorfahren konvergieren
       label, note.
     Mitglieder sind NICHT unabhängig – darum dominiert die gegenseitige
-    Vernetzung (Dichte), nicht die bloße Anzahl."""
+    Vernetzung (Dichte), nicht die bloße Anzahl.
+
+    Kombination per Noisy-OR: realness = 1 − ∏(1 − pᵢ) über die UNABHÄNGIGEN
+    Evidenzquellen (1) Struktur=Größe×Dichte und (2) cM-Höhe. Innerhalb des
+    Clusters wird NICHT pro Mitglied multipliziert (keine Unabhängigkeit) –
+    die Größe geht dichte-gewichtet als 'effektive Bestätigungen' ein."""
     size = max(size, 1)
     d = max(0.0, min(density or 0.0, 1.0))
-    # effektive 'unabhängige Bestätigungen' ~ Größe gewichtet mit Dichte
+    # (1) Strukturelle Evidenz: effektive Bestätigungen ~ Größe × Dichte
     eff = 1 + (size - 1) * max(d, 0.25)
-    realness = 1 - 0.5 ** eff
+    p_struct = 1 - 0.5 ** eff
+    # (2) cM-Evidenz: hohe cM ⇒ Mitglied praktisch sicher echt (kein IBC-Zufall)
+    cm = median_cm or 0
+    p_cm = 1 - 0.5 ** (cm / 18.0)          # 18cM→0.5, 36→0.75, 54→0.875, 90→0.97
+    # Noisy-OR der unabhängigen Quellen
+    realness = 1 - (1 - p_struct) * (1 - p_cm)
     if realness >= 0.97:
         label = "sehr hoch"
     elif realness >= 0.85:
@@ -239,12 +288,16 @@ def cluster_confidence(size: int, density: float, median_cm: float = 0.0,
     else:
         label = "niedrig"
     note = ""
-    if d < 0.3 and size >= 6:
+    if cm and cm < 15:
+        note = "niedrige cM → je Mitglied erhöhtes False-Positive-Risiko (IBC)"
+    elif endogamy_score and endogamy_score >= 0.6:
+        note = "viele kleine Segmente → Endogamie wahrscheinlich (mehrere Linien)"
+    elif d < 0.3 and size >= 6:
         note = "lose vernetzt → evtl. mehrere Linien verschmolzen (Endogamie?)"
     elif conv_frac is not None and conv_frac < 0.4 and size >= 4:
         note = "geringe Pedigree-Konvergenz → Vorhersage unsicher"
     return {"realness": realness, "cohesion": d, "conv": conv_frac,
-            "label": label, "note": note}
+            "label": label, "note": note, "endogamy": endogamy_score}
 
 
 def cm_to_mrca(cm: float):

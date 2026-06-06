@@ -816,28 +816,45 @@ class Database:
         if guids:
             with self._cursor() as cur:
                 qmarks = ",".join("?" * len(guids))
-                cur.execute(f"""SELECT match_guid, display_name, shared_cm
+                cur.execute(f"""SELECT match_guid, display_name, shared_cm,
+                                       shared_segments, longest_segment
                                 FROM matches WHERE test_guid=? AND match_guid IN ({qmarks})""",
                             (test_guid, *guids))
                 for r in cur.fetchall():
-                    info[r["match_guid"]] = (r["display_name"], r["shared_cm"])
+                    info[r["match_guid"]] = (r["display_name"], r["shared_cm"],
+                                             r["shared_segments"] or 0,
+                                             r["longest_segment"] or 0)
 
         import statistics
+        from core.treematch import endogamy_flag
         out = []
         for root, members in comps.items():
             n = len(members)
             if n < min_size:
                 continue
-            mlist = [(g, info.get(g, ("?", 0))[0], info.get(g, ("?", 0))[1])
+            mlist = [(g, info.get(g, ("?", 0, 0, 0))[0], info.get(g, ("?", 0, 0, 0))[1])
                      for g in members]
             mlist.sort(key=lambda x: -(x[2] or 0))
-            cms = [cm for _g, _n, cm in mlist if cm]
+            cms  = [info.get(g, ("?", 0, 0, 0))[1] for g in members]
+            cms  = [c for c in cms if c]
+            segs = [info.get(g, ("?", 0, 0, 0))[2] for g in members]
+            segs = [s for s in segs if s]
+            longs = [info.get(g, ("?", 0, 0, 0))[3] for g in members]
+            longs = [l for l in longs if l]
             possible = n * (n - 1) / 2
             density = (edge_count.get(root, 0) / possible) if possible else 0.0
-            med_cm = statistics.median(cms) if cms else 0.0
+            med_cm   = statistics.median(cms) if cms else 0.0
+            med_segs = statistics.median(segs) if segs else 0
+            med_long = statistics.median(longs) if longs else 0.0
+            _lbl, endo = endogamy_flag(med_cm, med_segs, med_long)
             out.append({"size": n, "members": mlist,
                         "density": round(density, 3),
                         "median_cm": round(med_cm, 1),
+                        "median_segments": med_segs,
+                        "median_longest": round(med_long, 1),
+                        "endogamy": endo,
+                        "seg_by_member": {g: (info.get(g, ("?",0,0,0))[2],
+                                              info.get(g, ("?",0,0,0))[3]) for g in members},
                         "edges": edge_count.get(root, 0)})
         out.sort(key=lambda c: c["size"], reverse=True)
         return out
