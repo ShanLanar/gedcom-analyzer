@@ -698,16 +698,30 @@ class Database:
         min_cm: float = 0.0,
         sort_asc: bool = False,
     ) -> list[SharedMatch]:
-        """Gibt alle shared Matches für einen primären Match zurück."""
+        """Gibt alle shared Matches für einen primären Match zurück.
+        Namen werden aus der matches-Tabelle ergänzt (Shared-Person ist oft
+        selbst ein gespeicherter Match)."""
         direction = "ASC" if sort_asc else "DESC"
         with self._cursor() as cur:
             cur.execute(f"""
-                SELECT * FROM shared_matches
-                WHERE test_guid=? AND match_guid_a=?
-                  AND shared_cm_b >= ?
-                ORDER BY shared_cm_b {direction}
+                SELECT s.*, m.display_name AS _resolved_name
+                FROM shared_matches s
+                LEFT JOIN matches m
+                  ON m.match_guid = s.match_guid_b AND m.test_guid = s.test_guid
+                WHERE s.test_guid=? AND s.match_guid_a=?
+                  AND s.shared_cm_b >= ?
+                ORDER BY s.shared_cm_b {direction}
             """, (test_guid, match_guid_a, min_cm))
-            return [SharedMatch.from_db_row(dict(r)) for r in cur.fetchall()]
+            out = []
+            for r in cur.fetchall():
+                d = dict(r)
+                resolved = d.pop("_resolved_name", None)
+                sm = SharedMatch.from_db_row(d)
+                if resolved and (not sm.display_name_b
+                                 or sm.display_name_b in ("", "Unbekannt")):
+                    sm.display_name_b = resolved
+                out.append(sm)
+            return out
 
     def get_shared_match_count(self, test_guid: str,
                                 match_guid_a: Optional[str] = None) -> int:

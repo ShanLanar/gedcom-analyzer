@@ -15,9 +15,10 @@ DNA_CLUSTER_BASE = f"{BASE_URL}/discoveryui-matches/cluster/api"
 MATCHES_URL      = f"{DNA_LIST_BASE}/matchList/{{test_guid}}"
 MATCH_COUNT_URL  = f"{DNA_LIST_BASE}/matchCount/{{test_guid}}"
 
-# Shared Matches: gleicher matchList-Endpunkt + matchSampleId-Parameter (bestätigt)
-SHARED_MATCHES_URL = f"{DNA_LIST_BASE}/matchList/{{test_guid}}"
-# matchSampleId={sampleId}&page=1&pageSize=20 wird in api.py angehängt
+# Shared Matches: eigener Pfad-Endpunkt /with/{match_guid} (per DevTools bestätigt).
+# Die früher genutzte Form matchList/{test}?matchSampleId=… ignoriert den Filter
+# und liefert ALLE Matches – daher die /with/-Pfadform verwenden.
+SHARED_MATCHES_URL = f"{DNA_LIST_BASE}/matchList/{{test_guid}}/with/{{match_guid}}"
 
 # Kit-Verwaltung (alter Endpunkt, ggf. nicht verfügbar)
 MANAGE_TESTS_URL = f"{BASE_URL}/dna/api/uhura/v2/people/{{uid}}/managetests"

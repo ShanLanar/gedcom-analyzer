@@ -692,7 +692,8 @@ class AncestryApiClient:
     ) -> Iterator[SharedMatch]:
         from datetime import datetime, timezone
         fetched_at  = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
-        base_url    = cfg.SHARED_MATCHES_URL.format(test_guid=test_guid)
+        base_url    = cfg.SHARED_MATCHES_URL.format(test_guid=test_guid,
+                                                     match_guid=match_guid_a)
         page        = 1
         total_pages = None
         fetched     = 0
@@ -702,8 +703,7 @@ class AncestryApiClient:
                 return
 
             url = (base_url
-                   + f"?matchSampleId={match_guid_a}"
-                   + f"&currentPage={page}&itemsPerPage={cfg.PAGE_SIZE}")
+                   + f"?currentPage={page}&itemsPerPage={cfg.PAGE_SIZE}")
 
             r = _api_get(self._s, url)
             if r is None:

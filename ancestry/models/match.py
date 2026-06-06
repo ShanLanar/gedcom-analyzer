@@ -349,26 +349,30 @@ class SharedMatch:
             v = data.get(key)
             return v.get(sub, "") if isinstance(v, dict) else ""
 
-        name   = (safe("displayName")
-                  or nested("matchProfile", "displayName")
-                  or nested("matchProfile", "name")
-                  or safe("matchTestDisplayName")
-                  or nested("matchMember", "displayName")
-                  or "Unbekannt")
         guid_b = (safe("sampleId") or safe("matchGuid")
-                  or safe("matchMember", {}).get("guid", "")
                   or safe("guid", ""))
 
         rel    = data.get("relationship") or {}
-        rel_info = data.get("relationshipInfo") or {}
-        shared_cm = (rel.get("sharedCentimorgans")
-                     if isinstance(rel, dict)
-                     else data.get("sharedCentimorgans") or 0)
-        relationship = ((rel.get("label") if isinstance(rel, dict)
-                        else rel_info.get("label")) or "")
+        if not isinstance(rel, dict):
+            rel = {}
+        # cM von B mit DIR
+        shared_cm   = rel.get("sharedCentimorgans") or data.get("sharedCentimorgans") or 0
+        segments    = rel.get("numSharedSegments") or rel.get("sharedSegments") or 0
+        # cM von B mit dem gewählten Match A (in-common)
+        in_common   = rel.get("matchInCommon") or {}
+        shared_cm_ab = in_common.get("sharedCentimorgans", 0) if isinstance(in_common, dict) else 0
+
+        # Name kommt im /with/-Endpunkt NICHT mit → später per DB-JOIN auflösen.
+        # Als Sofort-Fallback der Nachname-Tag (tags['3']), sonst leer.
+        tags = data.get("tags") or {}
+        surname_tag = tags.get("3") if isinstance(tags, dict) else None
+        name   = (safe("displayName")
+                  or nested("matchProfile", "displayName")
+                  or surname_tag or "")
+
+        relationship = rel.get("label") or ""
         if not relationship:
-            mei = rel.get("meiosis", 0) if isinstance(rel, dict) else 0
-            relationship = derive_relationship(shared_cm, mei)
+            relationship = derive_relationship(shared_cm, rel.get("meiosis", 0))
 
         tree_info = data.get("treeInfo") or {}
         has_tree  = bool(tree_info.get("treeId")) or bool(data.get("hasTree"))
@@ -379,9 +383,8 @@ class SharedMatch:
             match_guid_b    = guid_b,
             display_name_b  = name,
             shared_cm_b     = float(shared_cm or 0),
-            shared_segments_b = int(data.get("sharedSegments") or
-                                    rel.get("sharedSegments", 0)
-                                    if isinstance(rel, dict) else 0),
+            shared_cm_ab    = float(shared_cm_ab or 0),
+            shared_segments_b = int(segments or 0),
             relationship_b  = relationship,
             has_tree_b      = has_tree,
             fetched_at      = fetched_at,

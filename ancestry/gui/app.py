@@ -1091,13 +1091,14 @@ class AncestryDnaApp(tk.Tk):
                   foreground=COLORS["primary"]).pack(side="left")
 
         # Tabelle
-        cols = ("name","cm","rel")
+        cols = ("name","cm","cmab","rel")
         self._sm_tree = ttk.Treeview(parent, columns=cols, show="headings",
                                       selectmode="browse", height=14)
         for col, (lbl, w, anchor) in {
-            "name": ("Shared Match", 180, "w"),
-            "cm"  : ("cM",            70, "e"),
-            "rel" : ("Beziehung",    130, "w"),
+            "name": ("Shared Match",     170, "w"),
+            "cm"  : ("cM mit dir",        75, "e"),
+            "cmab": ("cM mit Match",      80, "e"),
+            "rel" : ("Beziehung zu dir", 130, "w"),
         }.items():
             self._sm_tree.heading(col, text=lbl)
             self._sm_tree.column(col, width=w, anchor=anchor, stretch=(col=="name"))
@@ -1288,8 +1289,9 @@ class AncestryDnaApp(tk.Tk):
         self._sm_count_var.set(f"{len(shared)} Shared Match(es) mit {match.display_name}")
         for sm in shared:
             self._sm_tree.insert("", "end", values=(
-                sm.display_name_b,
-                f"{sm.shared_cm_b:.1f}" if sm.shared_cm_b else "—",
+                sm.display_name_b or "(unbekannt)",
+                f"{sm.shared_cm_b:.0f}" if sm.shared_cm_b else "—",
+                f"{sm.shared_cm_ab:.0f}" if sm.shared_cm_ab else "—",
                 sm.relationship_b or "—",
             ))
 
