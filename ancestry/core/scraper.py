@@ -74,9 +74,10 @@ class Scraper:
         """Lädt Geburtsorte (+ gemeinsame Vorfahren) für Matches mit Baum ab min_cm."""
         self._launch("_run_fetch_ancestors", test_guid, min_cm)
 
-    def start_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0):
-        """Lädt die volle Ahnentafel (Pedigree, ~5 Gen.) für Matches mit Baum ab min_cm."""
-        self._launch("_run_fetch_pedigrees", test_guid, min_cm)
+    def start_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0,
+                              max_generations: int = 5):
+        """Lädt Ahnentafeln für Matches mit Baum ab min_cm. max_generations > 5 aktiviert Re-Fokussierung."""
+        self._launch("_run_fetch_pedigrees", test_guid, min_cm, max_generations)
 
     def start_deepen_pedigrees(self, test_guid: str, guids: list):
         """Lädt für gezielte Matches TIEFE Ahnentafeln (Re-Fokussierung)."""
@@ -228,10 +229,11 @@ class Scraper:
         self._on_status(result.message)
         self._on_done(result)
 
-    def _run_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0):
-        """Holt pro Match (mit Baum) die volle Ahnentafel (~5 Generationen).
-        Parallelisiert über mehrere Worker (HTTP serialisiert im Client per Lock,
-        die Wartezeiten überlappen → deutlich schneller)."""
+    def _run_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0,
+                             max_generations: int = 5):
+        """Holt pro Match (mit Baum) die Ahnentafel.
+        max_generations > 5 aktiviert Re-Fokussierung (mehr API-Calls pro Match).
+        Parallelisiert über mehrere Worker."""
         from concurrent.futures import ThreadPoolExecutor
         import threading
 
@@ -240,9 +242,11 @@ class Scraper:
         total = len(todo)
         workers = max(1, int(getattr(cfg, "PEDIGREE_WORKERS", 4)))
         delay   = float(getattr(cfg, "PEDIGREE_REQUEST_DELAY", 1.0))
+        max_extra = 0 if max_generations <= 5 else max(8, (max_generations - 4) * 4)
         self._on_status(f"Ahnentafeln laden: {total} Matches mit Baum "
-                        f"(ab {min_cm:.0f} cM, {workers} parallel) …")
-        log.info("Pedigree-Download: %d Matches, %d Worker", total, workers)
+                        f"(ab {min_cm:.0f} cM, {max_generations} Gen., {workers} parallel) …")
+        log.info("Pedigree-Download: %d Matches, %d Gen., %d Extra-Calls, %d Worker",
+                 total, max_generations, max_extra, workers)
 
         if not todo:
             result.message = ("Keine offenen Matches mit Baum. "
@@ -260,7 +264,9 @@ class Scraper:
             if self._stop.is_set():
                 return
             try:
-                ancestors = self._client.get_pedigree(test_guid, guid)
+                ancestors = self._client.get_pedigree(test_guid, guid,
+                                                      max_generations=max_generations,
+                                                      max_extra_calls=max_extra)
                 self._db.save_match_pedigree(test_guid, guid, ancestors)
                 with lock:
                     result.fetched += 1

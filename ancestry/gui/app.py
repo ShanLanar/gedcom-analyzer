@@ -372,6 +372,13 @@ class AncestryDnaApp(tk.Tk):
         ttk.Label(sf_names, text="Nur ab (cM):").pack(side="left")
         self._names_min_cm_var = tk.StringVar(value="0")
         ttk.Entry(sf_names, textvariable=self._names_min_cm_var, width=6).pack(side="left", padx=6)
+        ttk.Label(sf_names, text="Tiefe (Generationen):").pack(side="left", padx=(18, 0))
+        self._ped_gens_var = tk.StringVar(value="5")
+        ttk.Combobox(sf_names, textvariable=self._ped_gens_var,
+                     values=["5", "6", "7", "8", "10"], width=4,
+                     state="readonly").pack(side="left", padx=4)
+        ttk.Label(sf_names, text="(>5 = langsamer, mehr Extra-Calls)",
+                  foreground="#888888").pack(side="left")
 
         bf_names = ttk.Frame(f); bf_names.grid(row=10, column=0, columnspan=4, sticky="w", **p)
         self._names_start_btn = ttk.Button(bf_names, text="▶ Namen & Stammbaum laden",
@@ -592,11 +599,15 @@ class AncestryDnaApp(tk.Tk):
         self._ped_start_btn.configure(state="disabled")
         self._names_stop_btn.configure(state="normal")
         self._progress_var.set(0)
+        try:
+            max_gen = int(self._ped_gens_var.get())
+        except (ValueError, AttributeError):
+            max_gen = 5
         self._scraper = Scraper(self._client, self._db,
                                 on_progress=self._on_progress,
                                 on_status=lambda m: self.after(0, lambda: self._set_status(m)),
                                 on_done=lambda r: self.after(0, lambda: self._on_pedigrees_done(r)))
-        self._scraper.start_fetch_pedigrees(guid, self._a2_min_cm())
+        self._scraper.start_fetch_pedigrees(guid, self._a2_min_cm(), max_gen)
 
     def _a2_min_cm(self) -> float:
         """cM-Schwelle aus dem A2-Feld 'Nur ab (cM)'."""
