@@ -29,3 +29,4 @@ output/*.html
 # Ancestry-DNA-Tool Laufzeit-Daten
 ancestry/ancestry_dna.db
 ancestry/ancestry_dna.db-*
+ancestry/data/
