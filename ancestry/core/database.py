@@ -1040,7 +1040,9 @@ class Database:
     # ── Statistiken ───────────────────────────────────────────────────────────
 
     def get_statistics(self, test_guid: Optional[str] = None) -> dict:
-        cond = f"WHERE test_guid='{test_guid}'" if test_guid else ""
+        where = "WHERE test_guid=?" if test_guid else ""
+        params = (test_guid,) if test_guid else ()
+        and_tg = "AND test_guid=?" if test_guid else ""
         with self._cursor() as cur:
             cur.execute(f"""
                 SELECT
@@ -1050,41 +1052,40 @@ class Database:
                     SUM(CASE WHEN starred=1 THEN 1 ELSE 0 END)      AS starred_count,
                     SUM(CASE WHEN has_tree=1 THEN 1 ELSE 0 END)     AS with_tree,
                     SUM(CASE WHEN note != '' AND note IS NOT NULL THEN 1 ELSE 0 END) AS with_note
-                FROM matches {cond}
-            """)
+                FROM matches {where}
+            """, params)
             r = dict(cur.fetchone())
 
             cur.execute(f"""
                 SELECT predicted_relationship, COUNT(*) AS cnt
-                FROM matches {cond}
-                WHERE predicted_relationship != ''
+                FROM matches
+                WHERE predicted_relationship != '' {and_tg}
                 GROUP BY predicted_relationship
                 ORDER BY cnt DESC LIMIT 10
-            """)
+            """, params)
             r["relationship_breakdown"] = [(row[0], row[1]) for row in cur.fetchall()]
 
             # Shared-Match-Statistik
-            sm_cond = f"WHERE test_guid='{test_guid}'" if test_guid else ""
-            cur.execute(f"SELECT COUNT(*) FROM shared_matches {sm_cond}")
+            cur.execute(f"SELECT COUNT(*) FROM shared_matches {where}", params)
             r["shared_total"] = cur.fetchone()[0]
 
             cur.execute(f"""
-                SELECT COUNT(DISTINCT match_guid_a) FROM shared_matches {sm_cond}
-            """)
+                SELECT COUNT(DISTINCT match_guid_a) FROM shared_matches {where}
+            """, params)
             r["shared_primary_count"] = cur.fetchone()[0]
 
             # Pedigree-Vollständigkeit
-            ped_cond = f"AND test_guid='{test_guid}'" if test_guid else ""
+            ped_cond = "AND test_guid=?" if test_guid else ""
             cur.execute(f"""
                 SELECT COUNT(DISTINCT match_guid) FROM match_pedigree
                 WHERE generation >= 2 {ped_cond}
-            """)
+            """, params)
             r["ped_loaded"] = cur.fetchone()[0]
 
             cur.execute(f"""
                 SELECT COUNT(DISTINCT surname) FROM match_pedigree
                 WHERE surname != '' AND surname IS NOT NULL {ped_cond}
-            """)
+            """, params)
             r["ped_surnames"] = cur.fetchone()[0]
 
             cur.execute(f"""
@@ -1093,7 +1094,7 @@ class Database:
                     FROM match_pedigree WHERE 1=1 {ped_cond}
                     GROUP BY match_guid
                 )
-            """)
+            """, params)
             row = cur.fetchone()
             r["ped_avg_depth"] = round(row[0], 1) if row and row[0] else 0.0
         return r

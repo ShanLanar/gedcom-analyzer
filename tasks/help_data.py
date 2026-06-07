@@ -360,6 +360,38 @@ HELP_ENTRIES: dict = {
         "output":  "~/.ahnen-cache.pkl (typisch 50–200 MB) + SHA-256 der GEDCOM.",
         "details": "Beim nächsten Lauf: 'State-Cache laden' + nur Export-Tasks aktivieren → übergeht alle Re-Berechnungen.",
     },
+    "online_research": {
+        "title":   "Online-Sterbedaten (Wikidata + GND)",
+        "group":   "Analysen",
+        "purpose": "Ergänzt fehlende Sterbejahre aus Wikidata und der Deutschen Nationalbibliothek (GND) — rein lesend, kein GEDCOM-Schreiben.",
+        "input":   "Personen im GEDCOM ohne Sterbejahr.",
+        "output":  "Vorschlags-Liste mit Quellen-URL und Konfidenz; kein automatisches Einpflegen.",
+        "details": "Benötigt aktive Internetverbindung. Bei großen Bäumen (>5 000 Personen) kann der Lauf mehrere Minuten dauern.",
+    },
+    "book_statistics": {
+        "title":   "Buch-Statistiken (21 Analysen)",
+        "group":   "Analysen",
+        "purpose": "Implementiert alle 21 demografischen Analysen aus 'The Village in the Field': Sterbespitzen, Heiratsdistanz, Auswanderer vs. Stayer, Hofnamen, Berufsstand u.v.m.",
+        "input":   "Vollständig geladenes GEDCOM.",
+        "output":  "Ergebnis-Dicts im _state; werden von Excel-, HTML- und Dashboard-Export genutzt.",
+        "details": "Aktivieren, bevor Export-Tasks gestartet werden — export_gravity_map und export_cousins_map benötigen diese Analyse.",
+    },
+    "export_gravity_map": {
+        "title":   "Karte: Demografischer Schwerpunkt (Zeitraffer)",
+        "group":   "Export",
+        "purpose": "Erzeugt eine animierte Leaflet-Karte, die zeigt, wie sich der geografische Sterbepunkt-Schwerpunkt der Familie im Zeitverlauf verschiebt.",
+        "input":   "Sterbeorte + Koordinaten aus 'Buch-Statistiken'.",
+        "output":  "HTML-Datei mit Leaflet-Animation (ein Frame pro Dekade).",
+        "details": "Benötigt 'Buch-Statistiken' als Vorgänger-Task. Eignet sich besonders für Auswanderer-Familien.",
+    },
+    "export_cousins_map": {
+        "title":   "Karte: Lebende Cousins nach US-County",
+        "group":   "Export",
+        "purpose": "Leaflet-Karte mit Kreisen pro US-County — Kreisgröße entspricht der Anzahl lebender Verwandter in diesem County.",
+        "input":   "Cousin-Analyse-Ergebnisse aus 'Buch-Statistiken'.",
+        "output":  "HTML-Datei mit interaktiver Leaflet-Karte.",
+        "details": "Benötigt 'Buch-Statistiken' aktiv. Sinnvoll für Familien mit starker US-Auswanderung.",
+    },
 }
 
 
