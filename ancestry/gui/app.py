@@ -39,6 +39,56 @@ COLORS = {
     "cluster" : ["#FFD6D6","#D6F5E3","#D6E4FF","#FFF3CD","#F0D6FF","#D6F0FF"],
 }
 
+TRANSLATIONS: dict[str, dict[str, str]] = {
+    # Tabs
+    "tab_login":    {"de": "  🔑 Login  ",        "en": "  🔑 Login  "},
+    "tab_download": {"de": "  ⬇ Herunterladen  ", "en": "  ⬇ Download  "},
+    "tab_matches":  {"de": "  🧬 Matches  ",       "en": "  🧬 Matches  "},
+    "tab_cluster":  {"de": "  🌳 Cluster  ",       "en": "  🌳 Cluster  "},
+    "tab_stats":    {"de": "  📊 Statistiken  ",   "en": "  📊 Statistics  "},
+    # Main match table
+    "m.name":    {"de": "Name / ID",   "en": "Name / ID"},
+    "m.guid":    {"de": "GUID",        "en": "GUID"},
+    "m.note":    {"de": "Bemerkung",   "en": "Note"},
+    "m.cm":      {"de": "cM",          "en": "cM"},
+    "m.seg":     {"de": "Seg.",        "en": "Seg."},
+    "m.rel":     {"de": "Beziehung",   "en": "Relationship"},
+    "m.tree":    {"de": "Stammbaum",   "en": "Tree"},
+    "m.ca":      {"de": "Vorfahre",    "en": "Ancestor"},
+    "m.starred": {"de": "⭐",           "en": "⭐"},
+    # Cluster list
+    "cl.cid":   {"de": "Cluster",   "en": "Cluster"},
+    "cl.count": {"de": "Matches",   "en": "Matches"},
+    "cl.maxcm": {"de": "Max cM",    "en": "Max cM"},
+    "cl.top":   {"de": "Top-Match", "en": "Top Match"},
+    # Cluster members
+    "mb.name": {"de": "Name",      "en": "Name"},
+    "mb.cm":   {"de": "cM",        "en": "cM"},
+    "mb.rel":  {"de": "Beziehung", "en": "Relationship"},
+    "mb.baum": {"de": "Baum",      "en": "Tree"},
+    # Pairwise
+    "pw.a":  {"de": "Match A",      "en": "Match A"},
+    "pw.b":  {"de": "Match B",      "en": "Match B"},
+    "pw.cm": {"de": "Gemeinsam cM", "en": "Shared cM"},
+    # GEDCOM comparison window
+    "gc.cluster": {"de": "Cluster",   "en": "Cluster"},
+    "gc.link":    {"de": "Verknüpft", "en": "Linked"},
+    "gc.match":   {"de": "Match",     "en": "Match"},
+    "gc.cm":      {"de": "cM",        "en": "cM"},
+    "gc.anchor":  {"de": "Anknüpfung in deinem Baum", "en": "Anchor in your tree"},
+    "gc.abirth":  {"de": "* Anknüpfung", "en": "* Anchor"},
+    "gc.kin":     {"de": "Deine Linie",  "en": "Your line"},
+    "gc.line":    {"de": "Match-Linie",  "en": "Match line"},
+    "gc.score":   {"de": "Sicherheit",   "en": "Confidence"},
+    # Cluster tree analysis window
+    "ct.count":   {"de": "Anz.",       "en": "Count"},
+    "ct.person":  {"de": "Person",     "en": "Person"},
+    "ct.birth":   {"de": "* Jahr",     "en": "* Year"},
+    "ct.place":   {"de": "Geburtsort", "en": "Birth place"},
+    "ct.gen":     {"de": "Gen.",       "en": "Gen."},
+    "ct.matches": {"de": "In welchen Matches", "en": "In which matches"},
+}
+
 
 class AncestryDnaApp(tk.Tk):
 
@@ -57,6 +107,10 @@ class AncestryDnaApp(tk.Tk):
         self._matches : list[DnaMatch]              = []
         self._current_test_guid : Optional[str]     = None
 
+        self._lang: str = "de"
+        self._lang_headings: list = []   # (tv, col, key) tuples
+        self._lang_nb_tabs:  list = []   # (frame, key) tuples
+
         self._build_style()
         self._build_menu()
         self._build_main()
@@ -64,6 +118,7 @@ class AncestryDnaApp(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(200, self._load_settings)
+        self.after(400, self._load_lang_setting)
 
     # ── Styling ───────────────────────────────────────────────────────────────
 
@@ -115,6 +170,8 @@ class AncestryDnaApp(tk.Tk):
         vm = tk.Menu(mb, tearoff=False)
         vm.add_command(label="Tabelle aktualisieren", command=self._refresh_match_table)
         vm.add_command(label="Cluster neu berechnen", command=self._refresh_cluster)
+        vm.add_separator()
+        vm.add_command(label="🌐 Sprache: Deutsch / English", command=self._toggle_lang)
         mb.add_cascade(label="Ansicht", menu=vm)
 
         am = tk.Menu(mb, tearoff=False)
@@ -158,16 +215,17 @@ class AncestryDnaApp(tk.Tk):
         self._nb.pack(fill="both", expand=True, padx=8, pady=8)
 
         tabs = [
-            ("_tab_login",    "  🔑 Login  "),
-            ("_tab_download", "  ⬇ Herunterladen  "),
-            ("_tab_matches",  "  🧬 Matches  "),
-            ("_tab_cluster",  "  🌳 Cluster  "),
-            ("_tab_stats",    "  📊 Statistiken  "),
+            ("_tab_login",    "tab_login"),
+            ("_tab_download", "tab_download"),
+            ("_tab_matches",  "tab_matches"),
+            ("_tab_cluster",  "tab_cluster"),
+            ("_tab_stats",    "tab_stats"),
         ]
-        for attr, label in tabs:
+        for attr, key in tabs:
             frame = ttk.Frame(self._nb)
             setattr(self, attr, frame)
-            self._nb.add(frame, text=label)
+            self._nb.add(frame, text=self._t(key))
+            self._lang_nb_tabs.append((frame, key))
 
         self._build_tab_login()
         self._build_tab_download()
@@ -1551,6 +1609,35 @@ class AncestryDnaApp(tk.Tk):
         except Exception as e:
             log.debug("Settings speichern fehlgeschlagen: %s", e)
 
+    # ── Sprache / Localisation ────────────────────────────────────────────────
+
+    def _t(self, key: str) -> str:
+        entry = TRANSLATIONS.get(key, {})
+        return entry.get(self._lang, entry.get("de", key))
+
+    def _toggle_lang(self):
+        self._lang = "en" if self._lang == "de" else "de"
+        self._apply_lang()
+        self._save_ui_settings(lang=self._lang)
+
+    def _apply_lang(self):
+        for frame, key in self._lang_nb_tabs:
+            try:
+                self._nb.tab(frame, text=self._t(key))
+            except Exception:
+                pass
+        for tv, col, key in self._lang_headings:
+            try:
+                tv.heading(col, text=self._t(key))
+            except Exception:
+                pass
+
+    def _load_lang_setting(self):
+        lang = self._load_ui_settings().get("lang", "de")
+        if lang in ("de", "en") and lang != self._lang:
+            self._lang = lang
+            self._apply_lang()
+
     def _ensure_gedcom_loaded(self, on_ready, force_ask=False):
         """Lädt den eigenen GEDCOM (mit Cache) + baut Index/Ahnen-Map, dann
         ruft on_ready(ged_dict) auf dem Main-Thread. GEDCOM-Pfad und Wurzelperson
@@ -1667,22 +1754,32 @@ class AncestryDnaApp(tk.Tk):
         hdr = ttk.Label(win, text="", style="Bold.TLabel")
         hdr.pack(anchor="w", padx=10, pady=(0,2))
 
+        # Cluster-Stammbaum-Button – vor frame packen (side=bottom), damit
+        # frame mit expand=True den verbleibenden Mittelbereich füllt
+        btn_bar = ttk.Frame(win)
+        _cluster_btn = ttk.Button(btn_bar,
+                                  text="🌳 Stammbaum-Analyse für diesen Cluster",
+                                  state="disabled")
+        _cluster_btn.pack(side="left", padx=4)
+        btn_bar.pack(fill="x", padx=10, pady=(0, 4), side="bottom")
+        _sel_cid: list = [None]
+
         cols = ("cluster","link","match","cm","anchor","abirth","kin","line","score")
         heads = {
-            "cluster": ("Cluster", 58),
-            "link":    ("Verknüpft", 72),
-            "match":   ("Match", 165),
-            "cm":      ("cM", 52),
-            "anchor":  ("Anknüpfung in deinem Baum", 185),
-            "abirth":  ("* Anknüpfung", 115),
-            "kin":     ("Deine Linie", 165),
-            "line":    ("Match-Linie", 72),
-            "score":   ("Sicherheit", 65),
+            "cluster": ("gc.cluster", 58),
+            "link":    ("gc.link",    72),
+            "match":   ("gc.match",  165),
+            "cm":      ("gc.cm",      52),
+            "anchor":  ("gc.anchor", 185),
+            "abirth":  ("gc.abirth", 115),
+            "kin":     ("gc.kin",    165),
+            "line":    ("gc.line",    72),
+            "score":   ("gc.score",   65),
         }
         frame = ttk.Frame(win)
         frame.pack(fill="both", expand=True, padx=(10,0), pady=6)
         tv = ttk.Treeview(frame, columns=cols, show="headings")
-        for c, (lbl, w) in heads.items():
+        for c, (key, w) in heads.items():
             tv.column(c, width=w,
                       anchor=("center" if c in ("cluster","cm","line","score","link") else "w"))
         tv.pack(side="left", fill="both", expand=True)
@@ -1694,6 +1791,43 @@ class AncestryDnaApp(tk.Tk):
         clr = COLORS["cluster"]
         for i in range(1, len(clr) + 1):
             tv.tag_configure(f"cl{i}", background=clr[(i - 1) % len(clr)])
+
+        def _on_tv_select(_):
+            sel = tv.selection()
+            _sel_cid[0] = None
+            if not sel:
+                _cluster_btn.configure(state="disabled")
+                return
+            vals = tv.item(sel[0], "values")
+            cstr = vals[0] if vals else ""
+            if cstr and cstr != "—":
+                try:
+                    cid = int(cstr.lstrip("#"))
+                    if cid in getattr(self, "_clusters", {}):
+                        _sel_cid[0] = cid
+                        _cluster_btn.configure(state="normal")
+                        return
+                except (ValueError, AttributeError):
+                    pass
+            _cluster_btn.configure(state="disabled")
+
+        def _open_cluster_tree():
+            cid = _sel_cid[0]
+            clusters = getattr(self, "_clusters", {})
+            if cid is None or cid not in clusters:
+                messagebox.showinfo(
+                    "Cluster nicht berechnet",
+                    "Bitte zuerst im Cluster-Tab Clustering durchführen.")
+                return
+            members = clusters[cid]
+            cluster_obj = {"members": [(m["guid"], m["name"], m["cm"])
+                                       for m in members]}
+            tg = self._current_test_guid or self._current_guid()
+            if tg:
+                self._build_cluster_tree(tg, cluster_obj)
+
+        _cluster_btn.configure(command=_open_cluster_tree)
+        tv.bind("<<TreeviewSelect>>", _on_tv_select)
 
         state = {"col": "cm", "desc": True}
 
@@ -1731,15 +1865,15 @@ class AncestryDnaApp(tk.Tk):
                     d["kin"], d["line"], f"{d['score']:.2f}"))
             hdr.configure(text=(f"Eigener Baum: {n_people} Pers. · "
                 f"{len(data)} verankert ({n_new} neu) · angezeigt: {len(rows)} · "
-                f"Sort: {heads[col][0]} {'▼' if desc else '▲'}"))
+                f"Sort: {self._t(heads[col][0])} {'▼' if desc else '▲'}"))
 
         def sort_by(col):
             state["desc"] = not state["desc"] if state["col"] == col else True
             state["col"] = col
             populate()
 
-        for c, (lbl, w) in heads.items():
-            tv.heading(c, text=lbl, command=lambda c=c: sort_by(c))
+        for c, (key, w) in heads.items():
+            tv.heading(c, text=self._t(key), command=lambda c=c: sort_by(c))
 
         for var in (f_search, f_new, f_direct, f_cm, f_cluster):
             var.trace_add("write", populate)
@@ -1835,19 +1969,20 @@ class AncestryDnaApp(tk.Tk):
     def _build_match_tree(self, parent):
         cols = ("name","guid","note","cm","seg","rel","tree","ca","starred")
         self._tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
-        for col, (label, width, anchor) in {
-            "name"   : ("Name / ID",   190, "w"),
-            "guid"   : ("GUID",         95, "w"),
-            "note"   : ("Bemerkung",   150, "w"),
-            "cm"     : ("cM",           65, "e"),
-            "seg"    : ("Seg.",          45, "e"),
-            "rel"    : ("Beziehung",   150, "w"),
-            "tree"   : ("Stammbaum",   140, "w"),
-            "ca"     : ("Vorfahre",     70, "center"),
-            "starred": ("⭐",            40, "center"),
+        for col, (key, width, anchor) in {
+            "name"   : ("m.name",    190, "w"),
+            "guid"   : ("m.guid",     95, "w"),
+            "note"   : ("m.note",    150, "w"),
+            "cm"     : ("m.cm",       65, "e"),
+            "seg"    : ("m.seg",      45, "e"),
+            "rel"    : ("m.rel",     150, "w"),
+            "tree"   : ("m.tree",    140, "w"),
+            "ca"     : ("m.ca",       70, "center"),
+            "starred": ("m.starred",  40, "center"),
         }.items():
-            self._tree.heading(col, text=label, command=lambda c=col: self._sort_by(c))
+            self._tree.heading(col, text=self._t(key), command=lambda c=col: self._sort_by(c))
             self._tree.column(col, width=width, anchor=anchor, stretch=(col == "name"))
+            self._lang_headings.append((self._tree, col, key))
 
         self._tree.tag_configure("close",    background="#D6F5E3")
         self._tree.tag_configure("starred",  background="#FFF3CD")
@@ -2243,14 +2378,15 @@ class AncestryDnaApp(tk.Tk):
         pane.add(left, weight=1)
         self._cluster_list = ttk.Treeview(left, columns=("cid","count","max_cm","top"),
                                            show="headings", selectmode="browse")
-        for col, (lbl, w) in {
-            "cid"    : ("Cluster", 55),
-            "count"  : ("Matches",  60),
-            "max_cm" : ("Max cM",   70),
-            "top"    : ("Top-Match",200),
+        for col, (key, w) in {
+            "cid"    : ("cl.cid",    55),
+            "count"  : ("cl.count",  60),
+            "max_cm" : ("cl.maxcm",  70),
+            "top"    : ("cl.top",   200),
         }.items():
-            self._cluster_list.heading(col, text=lbl)
+            self._cluster_list.heading(col, text=self._t(key))
             self._cluster_list.column(col, width=w, stretch=(col=="top"))
+            self._lang_headings.append((self._cluster_list, col, key))
         sy1 = ttk.Scrollbar(left, orient="vertical", command=self._cluster_list.yview)
         self._cluster_list.configure(yscrollcommand=sy1.set)
         self._cluster_list.pack(side="left", fill="both", expand=True)
@@ -2260,15 +2396,17 @@ class AncestryDnaApp(tk.Tk):
         # Mittlere Seite: Mitglieder
         mid = ttk.LabelFrame(pane, text="Cluster-Mitglieder", padding=6)
         pane.add(mid, weight=2)
-        self._member_tree = ttk.Treeview(mid, columns=("name","cm","rel"),
+        self._member_tree = ttk.Treeview(mid, columns=("name","cm","rel","baum"),
                                           show="headings", selectmode="browse")
-        for col, (lbl, w, anchor) in {
-            "name": ("Name",     240, "w"),
-            "cm"  : ("cM",        70, "e"),
-            "rel" : ("Beziehung", 160, "w"),
+        for col, (key, w, anchor) in {
+            "name": ("mb.name", 190, "w"),
+            "cm"  : ("mb.cm",    60, "e"),
+            "rel" : ("mb.rel",  150, "w"),
+            "baum": ("mb.baum",  55, "center"),
         }.items():
-            self._member_tree.heading(col, text=lbl)
+            self._member_tree.heading(col, text=self._t(key))
             self._member_tree.column(col, width=w, anchor=anchor, stretch=(col=="name"))
+            self._lang_headings.append((self._member_tree, col, key))
         sy2 = ttk.Scrollbar(mid, orient="vertical", command=self._member_tree.yview)
         self._member_tree.configure(yscrollcommand=sy2.set)
         self._member_tree.pack(side="left", fill="both", expand=True)
@@ -2279,13 +2417,14 @@ class AncestryDnaApp(tk.Tk):
         pane.add(right, weight=2)
         self._pairwise_tree = ttk.Treeview(right, columns=("a","b","cm"),
                                             show="headings", selectmode="none")
-        for col, (lbl, w, anch) in {
-            "a":  ("Match A", 190, "w"),
-            "b":  ("Match B", 190, "w"),
-            "cm": ("Gemeinsam cM", 90, "e"),
+        for col, (key, w, anch) in {
+            "a":  ("pw.a",  190, "w"),
+            "b":  ("pw.b",  190, "w"),
+            "cm": ("pw.cm",  90, "e"),
         }.items():
-            self._pairwise_tree.heading(col, text=lbl)
+            self._pairwise_tree.heading(col, text=self._t(key))
             self._pairwise_tree.column(col, width=w, anchor=anch, stretch=(col in ("a","b")))
+            self._lang_headings.append((self._pairwise_tree, col, key))
         sy3 = ttk.Scrollbar(right, orient="vertical", command=self._pairwise_tree.yview)
         self._pairwise_tree.configure(yscrollcommand=sy3.set)
         self._pairwise_tree.pack(side="left", fill="both", expand=True)
@@ -2345,11 +2484,28 @@ class AncestryDnaApp(tk.Tk):
         members = self._clusters.get(cid, [])
         color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
 
+        # Build guid → match lookup for tree-link indicators
+        test_guid = self._current_guid()
+        guid_match: dict = {}
+        if test_guid:
+            try:
+                guid_match = {m.match_guid: m for m in self._db.get_matches(test_guid)}
+            except Exception:
+                pass
+
         self._member_tree.delete(*self._member_tree.get_children())
         self._member_tree.tag_configure("row", background=color)
         for m in members:
+            match = guid_match.get(m["guid"])
+            if match and getattr(match, "linked_in_tree", False):
+                baum_val = "🔗 Baum"
+            elif match and getattr(match, "has_tree", False):
+                baum_val = "🌳"
+            else:
+                baum_val = "—"
             self._member_tree.insert("", "end", tags=("row",),
-                                      values=(m["name"], f"{m['cm']:.1f}", m.get("rel","")))
+                                      values=(m["name"], f"{m['cm']:.1f}",
+                                              m.get("rel",""), baum_val))
 
         # Paarweise cM zwischen den Cluster-Mitgliedern
         self._pairwise_tree.delete(*self._pairwise_tree.get_children())
@@ -2413,21 +2569,23 @@ class AncestryDnaApp(tk.Tk):
                         "surname": sn, "given": gn,
                         "birth_year": str(by) if by else "",
                         "birth_place": bp,
-                        "generation": gen,
+                        "generations": set(),   # alle Gen.-Werte (auch Mehrfachauftreten)
+                        "guid_gens":   {},       # guid → {gen, ...} für Annotationen
                         "guids": set(),
                         "names": set(),
                     }
                 ent = merged[key]
                 ent["guids"].add(guid)
                 ent["names"].add(id_name.get(guid, guid[:10]))
-                # Früheste Generation und vollständigste Ortsangabe bevorzugen
-                if gen and (not ent["generation"] or gen < ent["generation"]):
-                    ent["generation"] = gen
+                if gen:
+                    ent["generations"].add(gen)
+                    ent["guid_gens"].setdefault(guid, set()).add(gen)
                 if bp and not ent["birth_place"]:
                     ent["birth_place"] = bp
 
         persons = sorted(merged.values(),
-                         key=lambda p: (-len(p["guids"]), p["generation"] or 99))
+                         key=lambda p: (-len(p["guids"]),
+                                        min(p["generations"]) if p["generations"] else 99))
 
         # ── Fenster ──────────────────────────────────────────────────────────
         color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
@@ -2449,18 +2607,18 @@ class AncestryDnaApp(tk.Tk):
 
         cols  = ("count","person","birth","place","gen","matches")
         heads = {
-            "count":   ("Anz.",         45),
-            "person":  ("Person",       220),
-            "birth":   ("* Jahr",        65),
-            "place":   ("Geburtsort",   180),
-            "gen":     ("Gen.",          45),
-            "matches": ("In welchen Matches",  500),
+            "count":   ("ct.count",   45),
+            "person":  ("ct.person", 220),
+            "birth":   ("ct.birth",   65),
+            "place":   ("ct.place",  180),
+            "gen":     ("ct.gen",     55),
+            "matches": ("ct.matches", 500),
         }
         frame = ttk.Frame(win)
         frame.pack(fill="both", expand=True, padx=12, pady=4)
         tv = ttk.Treeview(frame, columns=cols, show="headings")
-        for c, (lbl, w) in heads.items():
-            tv.heading(c, text=lbl, command=lambda c=c: _sort(c))
+        for c, (key, w) in heads.items():
+            tv.heading(c, text=self._t(key), command=lambda c=c: _sort(c))
             tv.column(c, width=w,
                       anchor=("center" if c in ("count","birth","gen") else "w"),
                       stretch=(c == "matches"))
@@ -2483,7 +2641,7 @@ class AncestryDnaApp(tk.Tk):
                 "person": lambda p: (p["surname"] + " " + p["given"]).lower(),
                 "birth":  lambda p: p["birth_year"] or "9999",
                 "place":  lambda p: p["birth_place"].lower(),
-                "gen":    lambda p: p["generation"] or 99,
+                "gen":    lambda p: min(p["generations"]) if p["generations"] else 99,
                 "matches":lambda p: ", ".join(sorted(p["names"])),
             }
             data = sorted(persons, key=sort_key.get(col, sort_key["count"]),
@@ -2492,14 +2650,25 @@ class AncestryDnaApp(tk.Tk):
             for p in data:
                 n = len(p["guids"])
                 nm = f"{p['given']} {p['surname']}".strip() or "?"
-                ms = ", ".join(sorted(p["names"]))
+                all_gens = sorted(p["generations"])
+                gen_str = "/".join(str(g) for g in all_gens)
+                show_gen_ann = len(all_gens) > 1
+                match_parts = []
+                for guid in sorted(p["guids"], key=lambda g: id_name.get(g, g)):
+                    mname = id_name.get(guid, guid[:10])
+                    if show_gen_ann:
+                        gg = sorted(p["guid_gens"].get(guid, set()))
+                        if gg:
+                            mname += f" ({', '.join(str(g) for g in gg)})"
+                    match_parts.append(mname)
+                ms = ", ".join(match_parts)
                 tag = ("all" if n >= n_total and n_total > 1
                        else "many" if n >= 3
                        else "two" if n >= 2
                        else "one")
                 tv.insert("", "end", tags=(tag,), values=(
                     n, nm, p["birth_year"], p["birth_place"],
-                    p["generation"] or "", ms))
+                    gen_str, ms))
 
         def _sort(col):
             st["desc"] = not st["desc"] if st["col"] == col else True
