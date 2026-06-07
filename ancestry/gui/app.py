@@ -114,6 +114,107 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "gc.new":       {"de": "neu?",              "en": "new?"},
     "gc.tree_btn":  {"de": "🌳 Stammbaum-Analyse für diesen Cluster",
                      "en": "🌳 Cluster tree analysis"},
+    # Login tab
+    "lg.meth1":     {"de": "Methode 1: Automatischer Login",       "en": "Method 1: Automatic Login"},
+    "lg.email":     {"de": "E-Mail:",                              "en": "E-Mail:"},
+    "lg.password":  {"de": "Passwort:",                            "en": "Password:"},
+    "lg.login_btn": {"de": "Einloggen",                            "en": "Log in"},
+    "lg.meth2":     {"de": "Methode 2: Cookie-Datei (empfohlen)",  "en": "Method 2: Cookie File (recommended)"},
+    "lg.choose":    {"de": "Datei wählen …",                       "en": "Choose file …"},
+    "lg.login_ck":  {"de": "Mit Cookies einloggen",                "en": "Log in with cookies"},
+    "lg.manual":    {"de": "Manuelle Kit-GUID",                    "en": "Manual Kit GUID"},
+    "lg.use_guid":  {"de": "GUID übernehmen",                      "en": "Use GUID"},
+    # Download tab
+    "dl.kit":       {"de": "DNA-Kit:",                             "en": "DNA Kit:"},
+    "dl.sec_a":     {"de": "A: Matches herunterladen",             "en": "A: Download Matches"},
+    "dl.filter":    {"de": "Filter:",                              "en": "Filter:"},
+    "dl.f_all":     {"de": "Alle",                                 "en": "All"},
+    "dl.f_star":    {"de": "Markierte",                            "en": "Starred"},
+    "dl.f_close":   {"de": "Nahe",                                 "en": "Close"},
+    "dl.f_distant": {"de": "Entfernte",                            "en": "Distant"},
+    "dl.sort":      {"de": "Sortierung:",                          "en": "Sort:"},
+    "dl.s_rel":     {"de": "Nach Beziehung",                       "en": "By relationship"},
+    "dl.s_cm":      {"de": "Nach cM",                              "en": "By cM"},
+    "dl.start_m":   {"de": "▶ Matches starten",                    "en": "▶ Start matches"},
+    "dl.stop":      {"de": "⏹ Stoppen",                            "en": "⏹ Stop"},
+    "dl.only_new":  {"de": "✨ Nur neue (inkrementell)",            "en": "✨ New only (incremental)"},
+    "dl.full_names":{"de": "👤 Volle Namen versuchen (oft von Ancestry blockiert)",
+                     "en": "👤 Try full names (often blocked by Ancestry)"},
+    "dl.sec_a2":    {"de": "A2: Namen & Stammbaum nachladen",      "en": "A2: Reload Names & Tree"},
+    "dl.min_cm":    {"de": "Nur ab (cM):",                         "en": "Only from (cM):"},
+    "dl.depth":     {"de": "Tiefe (Generationen):",                "en": "Depth (generations):"},
+    "dl.reload_all":{"de": "🔄 Alle neu laden",                    "en": "🔄 Reload all"},
+    "dl.start_nm":  {"de": "▶ Namen & Stammbaum laden",            "en": "▶ Load names & tree"},
+    "dl.start_anc": {"de": "▶ Vorfahren & Orte laden",             "en": "▶ Load ancestors & places"},
+    "dl.start_ped": {"de": "▶ Ahnentafeln laden",                  "en": "▶ Load pedigrees"},
+    "dl.sec_b":     {"de": "B: Shared Matches herunterladen",      "en": "B: Download Shared Matches"},
+    "dl.prim_min":  {"de": "Nur primäre Matches ab (cM):",         "en": "Only primary matches from (cM):"},
+    "dl.skip_ex":   {"de": "Bereits geholte überspringen",         "en": "Skip already fetched"},
+    "dl.start_sh":  {"de": "▶ Shared Matches starten",             "en": "▶ Start shared matches"},
+    "dl.progress":  {"de": "Fortschritt:",                         "en": "Progress:"},
+    "dl.log":       {"de": "Protokoll:",                           "en": "Log:"},
+    # Match detail panel inner tabs
+    "md.tab_info":  {"de": "Info & Notiz",                         "en": "Info & Note"},
+    "md.tab_shared":{"de": "Shared Matches",                       "en": "Shared Matches"},
+    # Match detail field labels (colon included)
+    "md.cm":        {"de": "cM:",                                  "en": "cM:"},
+    "md.seg":       {"de": "Segmente:",                            "en": "Segments:"},
+    "md.longseg":   {"de": "Längstes Seg.:",                       "en": "Longest seg.:"},
+    "md.rel":       {"de": "Beziehung:",                           "en": "Relationship:"},
+    "md.conf":      {"de": "Konfidenz:",                           "en": "Confidence:"},
+    "md.tree_lbl":  {"de": "Stammbaum:",                           "en": "Tree:"},
+    "md.anc":       {"de": "Gem. Vorfahre:",                       "en": "Com. Ancestor:"},
+    "md.sex":       {"de": "Geschlecht:",                          "en": "Gender:"},
+    "md.last":      {"de": "Letzter Login:",                       "en": "Last Login:"},
+    "md.note":      {"de": "Notiz:",                               "en": "Note:"},
+    "md.save_note": {"de": "💾 Notiz speichern",                   "en": "💾 Save note"},
+    "md.open_anc":  {"de": "🔗 In Ancestry öffnen",                "en": "🔗 Open in Ancestry"},
+    # Statistics tab
+    "st.refresh":   {"de": "↻ Aktualisieren",                     "en": "↻ Refresh"},
+    "st.kz":        {"de": "Kennzahlen",                           "en": "Key Figures"},
+    "st.total":     {"de": "Gesamtzahl Matches:",                  "en": "Total matches:"},
+    "st.max_cm":    {"de": "Höchste cM:",                          "en": "Highest cM:"},
+    "st.avg_cm":    {"de": "Ø cM:",                                "en": "Avg. cM:"},
+    "st.starred":   {"de": "Markierte:",                           "en": "Starred:"},
+    "st.with_tree": {"de": "Mit Stammbaum:",                       "en": "With tree:"},
+    "st.with_note": {"de": "Mit Notiz:",                           "en": "With note:"},
+    "st.shared_tot":{"de": "Shared-Match-Einträge:",               "en": "Shared match entries:"},
+    "st.shared_pri":{"de": "Primäre m. Shared:",                   "en": "Primary w. shared:"},
+    "st.rel_dist":  {"de": "Beziehungsverteilung (Top 10)",        "en": "Relationship distribution (top 10)"},
+    "st.rel":       {"de": "Beziehung",                            "en": "Relationship"},
+    "st.count":     {"de": "Anzahl",                               "en": "Count"},
+    # Menu bar — cascade labels
+    "mn.file":      {"de": "Datei",                                "en": "File"},
+    "mn.view":      {"de": "Ansicht",                              "en": "View"},
+    "mn.analysis":  {"de": "Auswertung",                           "en": "Analysis"},
+    "mn.help":      {"de": "Hilfe",                                "en": "Help"},
+    # File menu items
+    "mn.exp_csv":   {"de": "Matches als CSV …",                    "en": "Matches as CSV …"},
+    "mn.exp_xlsx":  {"de": "Matches als XLSX …",                   "en": "Matches as XLSX …"},
+    "mn.exp_sh_csv":{"de": "Shared Matches als CSV …",             "en": "Shared matches as CSV …"},
+    "mn.exp_all":   {"de": "Alles als XLSX (2 Blätter)…",          "en": "All as XLSX (2 sheets)…"},
+    "mn.imp_names": {"de": "Namen importieren (JSON/CSV) …",       "en": "Import names (JSON/CSV) …"},
+    "mn.quit":      {"de": "Beenden",                              "en": "Quit"},
+    # View menu items
+    "mn.refresh_t": {"de": "Tabelle aktualisieren",                "en": "Refresh table"},
+    "mn.recalc_cl": {"de": "Cluster neu berechnen",                "en": "Recalculate clusters"},
+    "mn.language":  {"de": "🌐 Sprache: Deutsch / English",        "en": "🌐 Language: Deutsch / English"},
+    # Analysis menu items
+    "mn.anc_groups":{"de": "Gemeinsame Vorfahren (Überlagerung) …","en": "Common ancestors (overlay) …"},
+    "mn.exp_anc":   {"de": "Vorfahren-Gruppen als CSV …",          "en": "Ancestor groups as CSV …"},
+    "mn.pedigree":  {"de": "Ahnentafel des Matches anzeigen …",    "en": "Show match pedigree …"},
+    "mn.ped_overlay":{"de": "Pedigree-Überlagerung (Cluster) …",   "en": "Pedigree overlay (cluster) …"},
+    "mn.own_tree":  {"de": "Eigenen Baum (GEDCOM) abgleichen …",   "en": "Match own tree (GEDCOM) …"},
+    "mn.sh_cluster":{"de": "Shared-Cluster (Triangulation) …",     "en": "Shared cluster (triangulation) …"},
+    "mn.reset_sh":  {"de": "Shared Matches zurücksetzen (neu laden) …",
+                     "en": "Reset shared matches (reload) …"},
+    "mn.reset_nm":  {"de": "Namens-Versuche zurücksetzen (alle erneut) …",
+                     "en": "Reset name attempts (all again) …"},
+    "mn.refresh_lk":{"de": "Verknüpfungen aktualisieren (View in tree) …",
+                     "en": "Update links (view in tree) …"},
+    "mn.chg_ged":   {"de": "GEDCOM / Wurzelperson ändern …",       "en": "Change GEDCOM / root person …"},
+    # Help menu items
+    "mn.about":     {"de": "Über …",                               "en": "About …"},
 }
 
 
@@ -135,9 +236,11 @@ class AncestryDnaApp(tk.Tk):
         self._current_test_guid : Optional[str]     = None
 
         self._lang: str = "de"
-        self._lang_headings: list = []   # (tv, col, key) tuples
-        self._lang_nb_tabs:  list = []   # (frame, key) tuples
-        self._lang_widgets:  list = []   # (widget_or_svar, key) tuples
+        self._lang_headings:       list = []   # (tv, col, key) tuples
+        self._lang_nb_tabs:        list = []   # (frame, key) tuples
+        self._lang_widgets:        list = []   # (widget_or_sv, key[, suffix]) tuples
+        self._lang_menus:          list = []   # (menu, index, key) tuples
+        self._lang_inner_nb_tabs:  list = []   # (notebook, frame, key) tuples
 
         self._build_style()
         self._build_menu()
@@ -185,53 +288,58 @@ class AncestryDnaApp(tk.Tk):
         self.configure(menu=mb)
 
         fm = tk.Menu(mb, tearoff=False)
-        fm.add_command(label="Matches als CSV …",           command=self._export_csv)
-        fm.add_command(label="Matches als XLSX …",          command=self._export_xlsx)
-        fm.add_command(label="Shared Matches als CSV …",    command=self._export_shared_csv)
-        fm.add_command(label="Alles als XLSX (2 Blätter)…", command=self._export_all_xlsx)
+        fm.add_command(label=self._t("mn.exp_csv"),    command=self._export_csv)
+        fm.add_command(label=self._t("mn.exp_xlsx"),   command=self._export_xlsx)
+        fm.add_command(label=self._t("mn.exp_sh_csv"), command=self._export_shared_csv)
+        fm.add_command(label=self._t("mn.exp_all"),    command=self._export_all_xlsx)
         fm.add_separator()
-        fm.add_command(label="Namen importieren (JSON/CSV) …", command=self._import_names)
+        fm.add_command(label=self._t("mn.imp_names"),  command=self._import_names)
         fm.add_separator()
-        fm.add_command(label="Beenden", command=self._on_close)
-        mb.add_cascade(label="Datei", menu=fm)
+        fm.add_command(label=self._t("mn.quit"),       command=self._on_close)
+        mb.add_cascade(label=self._t("mn.file"), menu=fm)
+        for idx, key in [(0,"mn.exp_csv"),(1,"mn.exp_xlsx"),(2,"mn.exp_sh_csv"),
+                         (3,"mn.exp_all"),(5,"mn.imp_names"),(7,"mn.quit")]:
+            self._lang_menus.append((fm, idx, key))
+        self._lang_menus.append((mb, 0, "mn.file"))
 
         vm = tk.Menu(mb, tearoff=False)
-        vm.add_command(label="Tabelle aktualisieren", command=self._refresh_match_table)
-        vm.add_command(label="Cluster neu berechnen", command=self._refresh_cluster)
+        vm.add_command(label=self._t("mn.refresh_t"), command=self._refresh_match_table)
+        vm.add_command(label=self._t("mn.recalc_cl"), command=self._refresh_cluster)
         vm.add_separator()
-        vm.add_command(label="🌐 Sprache: Deutsch / English", command=self._toggle_lang)
-        mb.add_cascade(label="Ansicht", menu=vm)
+        vm.add_command(label=self._t("mn.language"),  command=self._toggle_lang)
+        mb.add_cascade(label=self._t("mn.view"), menu=vm)
+        for idx, key in [(0,"mn.refresh_t"),(1,"mn.recalc_cl"),(3,"mn.language")]:
+            self._lang_menus.append((vm, idx, key))
+        self._lang_menus.append((mb, 1, "mn.view"))
 
         am = tk.Menu(mb, tearoff=False)
-        am.add_command(label="Gemeinsame Vorfahren (Überlagerung) …",
-                       command=self._show_ancestor_groups)
-        am.add_command(label="Vorfahren-Gruppen als CSV …",
-                       command=self._export_ancestor_groups)
+        am.add_command(label=self._t("mn.anc_groups"),  command=self._show_ancestor_groups)
+        am.add_command(label=self._t("mn.exp_anc"),     command=self._export_ancestor_groups)
         am.add_separator()
-        am.add_command(label="Ahnentafel des Matches anzeigen …",
-                       command=self._show_match_pedigree)
-        am.add_command(label="Pedigree-Überlagerung (Cluster) …",
-                       command=self._show_pedigree_overlay)
+        am.add_command(label=self._t("mn.pedigree"),    command=self._show_match_pedigree)
+        am.add_command(label=self._t("mn.ped_overlay"), command=self._show_pedigree_overlay)
         am.add_separator()
-        am.add_command(label="Eigenen Baum (GEDCOM) abgleichen …",
-                       command=self._match_own_tree)
-        am.add_command(label="Shared-Cluster (Triangulation) …",
-                       command=self._show_shared_clusters)
+        am.add_command(label=self._t("mn.own_tree"),    command=self._match_own_tree)
+        am.add_command(label=self._t("mn.sh_cluster"),  command=self._show_shared_clusters)
         am.add_separator()
-        am.add_command(label="Shared Matches zurücksetzen (neu laden) …",
-                       command=self._reset_shared_matches)
-        am.add_command(label="Namens-Versuche zurücksetzen (alle erneut) …",
-                       command=self._reset_name_attempts)
+        am.add_command(label=self._t("mn.reset_sh"),    command=self._reset_shared_matches)
+        am.add_command(label=self._t("mn.reset_nm"),    command=self._reset_name_attempts)
         am.add_separator()
-        am.add_command(label="Verknüpfungen aktualisieren (View in tree) …",
-                       command=self._refresh_links)
-        am.add_command(label="GEDCOM / Wurzelperson ändern …",
-                       command=self._change_gedcom_settings)
-        mb.add_cascade(label="Auswertung", menu=am)
+        am.add_command(label=self._t("mn.refresh_lk"),  command=self._refresh_links)
+        am.add_command(label=self._t("mn.chg_ged"),     command=self._change_gedcom_settings)
+        mb.add_cascade(label=self._t("mn.analysis"), menu=am)
+        for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
+                         (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
+                         (9,"mn.reset_sh"),(10,"mn.reset_nm"),(12,"mn.refresh_lk"),
+                         (13,"mn.chg_ged")]:
+            self._lang_menus.append((am, idx, key))
+        self._lang_menus.append((mb, 2, "mn.analysis"))
 
         hm = tk.Menu(mb, tearoff=False)
-        hm.add_command(label="Über …", command=self._show_about)
-        mb.add_cascade(label="Hilfe", menu=hm)
+        hm.add_command(label=self._t("mn.about"), command=self._show_about)
+        mb.add_cascade(label=self._t("mn.help"), menu=hm)
+        self._lang_menus.append((hm, 0, "mn.about"))
+        self._lang_menus.append((mb, 3, "mn.help"))
 
     # ── Hauptlayout ───────────────────────────────────────────────────────────
 
@@ -281,21 +389,34 @@ class AncestryDnaApp(tk.Tk):
         f = self._tab_login
         p = {"padx": 16, "pady": 8}
 
-        ttk.Label(f, text="Methode 1: Automatischer Login",
+        _sv = tk.StringVar(value=self._t("lg.meth1"))
+        ttk.Label(f, textvariable=_sv,
                   style="Bold.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", **p)
-        ttk.Label(f, text="E-Mail:").grid(row=1, column=0, sticky="e", **p)
+        self._lang_widgets.append((_sv, "lg.meth1"))
+
+        _sv = tk.StringVar(value=self._t("lg.email"))
+        ttk.Label(f, textvariable=_sv).grid(row=1, column=0, sticky="e", **p)
+        self._lang_widgets.append((_sv, "lg.email"))
         self._email_var = tk.StringVar()
         ttk.Entry(f, textvariable=self._email_var, width=36).grid(row=1, column=1, sticky="w", **p)
-        ttk.Label(f, text="Passwort:").grid(row=2, column=0, sticky="e", **p)
+
+        _sv = tk.StringVar(value=self._t("lg.password"))
+        ttk.Label(f, textvariable=_sv).grid(row=2, column=0, sticky="e", **p)
+        self._lang_widgets.append((_sv, "lg.password"))
         self._pw_var = tk.StringVar()
         ttk.Entry(f, textvariable=self._pw_var, show="•", width=36).grid(row=2, column=1, sticky="w", **p)
-        ttk.Button(f, text="Einloggen", command=self._do_login).grid(row=3, column=1, sticky="w", **p)
+
+        _sv = tk.StringVar(value=self._t("lg.login_btn"))
+        ttk.Button(f, textvariable=_sv, command=self._do_login).grid(row=3, column=1, sticky="w", **p)
+        self._lang_widgets.append((_sv, "lg.login_btn"))
 
         ttk.Separator(f, orient="horizontal").grid(row=4, column=0, columnspan=3,
                                                     sticky="ew", padx=16, pady=12)
 
-        ttk.Label(f, text="Methode 2: Cookie-Datei (empfohlen)",
+        _sv = tk.StringVar(value=self._t("lg.meth2"))
+        ttk.Label(f, textvariable=_sv,
                   style="Bold.TLabel").grid(row=5, column=0, columnspan=3, sticky="w", **p)
+        self._lang_widgets.append((_sv, "lg.meth2"))
         ttk.Label(f, text=(
             "1. Chrome/Firefox-Extension »Cookie-Editor« installieren\n"
             "2. Auf ancestry.com einloggen\n"
@@ -305,22 +426,30 @@ class AncestryDnaApp(tk.Tk):
         self._cookie_file_var = tk.StringVar()
         ttk.Entry(f, textvariable=self._cookie_file_var, width=36,
                   state="readonly").grid(row=7, column=1, sticky="w", **p)
-        ttk.Button(f, text="Datei wählen …",
+        _sv = tk.StringVar(value=self._t("lg.choose"))
+        ttk.Button(f, textvariable=_sv,
                    command=self._choose_cookie_file).grid(row=7, column=0, sticky="e", **p)
-        ttk.Button(f, text="Mit Cookies einloggen",
+        self._lang_widgets.append((_sv, "lg.choose"))
+        _sv = tk.StringVar(value=self._t("lg.login_ck"))
+        ttk.Button(f, textvariable=_sv,
                    command=self._do_login_cookies).grid(row=8, column=1, sticky="w", **p)
+        self._lang_widgets.append((_sv, "lg.login_ck"))
 
         ttk.Separator(f, orient="horizontal").grid(row=9, column=0, columnspan=3,
                                                     sticky="ew", padx=16, pady=12)
-        ttk.Label(f, text="Manuelle Kit-GUID",
+        _sv = tk.StringVar(value=self._t("lg.manual"))
+        ttk.Label(f, textvariable=_sv,
                   style="Bold.TLabel").grid(row=10, column=0, columnspan=3, sticky="w", **p)
+        self._lang_widgets.append((_sv, "lg.manual"))
         ttk.Label(f, text="URL: ancestry.com/dna/tests/<GUID>/matches",
                   foreground="#555555").grid(row=11, column=0, columnspan=3, sticky="w", padx=16)
         self._manual_guid_var = tk.StringVar()
         ttk.Entry(f, textvariable=self._manual_guid_var, width=44).grid(
             row=12, column=1, sticky="w", **p)
-        ttk.Button(f, text="GUID übernehmen",
+        _sv = tk.StringVar(value=self._t("lg.use_guid"))
+        ttk.Button(f, textvariable=_sv,
                    command=self._use_manual_guid).grid(row=12, column=0, sticky="e", **p)
+        self._lang_widgets.append((_sv, "lg.use_guid"))
 
         self._login_status_var = tk.StringVar(value="Nicht eingeloggt.")
         self._login_status_lbl = ttk.Label(f, textvariable=self._login_status_var,
@@ -409,7 +538,9 @@ class AncestryDnaApp(tk.Tk):
         p = {"padx": 14, "pady": 6}
 
         # Kit-Auswahl
-        ttk.Label(f, text="DNA-Kit:", style="Bold.TLabel").grid(row=0, column=0, sticky="e", **p)
+        _sv = tk.StringVar(value=self._t("dl.kit"))
+        ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(row=0, column=0, sticky="e", **p)
+        self._lang_widgets.append((_sv, "dl.kit"))
         self._kit_var = tk.StringVar()
         self._kit_combo = ttk.Combobox(f, textvariable=self._kit_var, width=46, state="readonly")
         self._kit_combo.grid(row=0, column=1, columnspan=2, sticky="w", **p)
@@ -418,43 +549,60 @@ class AncestryDnaApp(tk.Tk):
         # ── Bereich A: Matches ────────────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=1, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text="A: Matches herunterladen",
+        _sv = tk.StringVar(value=self._t("dl.sec_a"))
+        ttk.Label(f, textvariable=_sv,
                   style="Bold.TLabel").grid(row=2, column=0, columnspan=4, sticky="w", **p)
+        self._lang_widgets.append((_sv, "dl.sec_a"))
 
-        ttk.Label(f, text="Filter:").grid(row=3, column=0, sticky="e", **p)
+        _sv = tk.StringVar(value=self._t("dl.filter"))
+        ttk.Label(f, textvariable=_sv).grid(row=3, column=0, sticky="e", **p)
+        self._lang_widgets.append((_sv, "dl.filter"))
         self._filter_var = tk.StringVar(value="ALL")
         ff = ttk.Frame(f); ff.grid(row=3, column=1, sticky="w", **p)
-        for val, lbl in [("ALL","Alle"),("STARRED","Markierte"),
-                          ("CLOSE","Nahe"),("DISTANT","Entfernte")]:
-            ttk.Radiobutton(ff, text=lbl, variable=self._filter_var, value=val).pack(
+        for val, key in [("ALL","dl.f_all"),("STARRED","dl.f_star"),
+                         ("CLOSE","dl.f_close"),("DISTANT","dl.f_distant")]:
+            _sv = tk.StringVar(value=self._t(key))
+            ttk.Radiobutton(ff, textvariable=_sv, variable=self._filter_var, value=val).pack(
                 side="left", padx=5)
+            self._lang_widgets.append((_sv, key))
 
-        ttk.Label(f, text="Sortierung:").grid(row=4, column=0, sticky="e", **p)
+        _sv = tk.StringVar(value=self._t("dl.sort"))
+        ttk.Label(f, textvariable=_sv).grid(row=4, column=0, sticky="e", **p)
+        self._lang_widgets.append((_sv, "dl.sort"))
         self._sort_var = tk.StringVar(value="RELATIONSHIP")
         sf = ttk.Frame(f); sf.grid(row=4, column=1, sticky="w", **p)
-        for val, lbl in [("RELATIONSHIP","Nach Beziehung"),("SHARED_CM","Nach cM")]:
-            ttk.Radiobutton(sf, text=lbl, variable=self._sort_var, value=val).pack(
+        for val, key in [("RELATIONSHIP","dl.s_rel"),("SHARED_CM","dl.s_cm")]:
+            _sv = tk.StringVar(value=self._t(key))
+            ttk.Radiobutton(sf, textvariable=_sv, variable=self._sort_var, value=val).pack(
                 side="left", padx=5)
+            self._lang_widgets.append((_sv, key))
 
         bf = ttk.Frame(f); bf.grid(row=5, column=0, columnspan=4, sticky="w", **p)
-        self._start_btn = ttk.Button(bf, text="▶ Matches starten",
-                                      command=self._start_matches)
+        _sv_start_m = tk.StringVar(value=self._t("dl.start_m"))
+        self._start_btn = ttk.Button(bf, textvariable=_sv_start_m, command=self._start_matches)
         self._start_btn.pack(side="left", padx=4)
-        self._stop_btn = ttk.Button(bf, text="⏹ Stoppen",
-                                     command=self._stop_download, state="disabled")
+        self._lang_widgets.append((_sv_start_m, "dl.start_m"))
+        _sv_stop1 = tk.StringVar(value=self._t("dl.stop"))
+        self._stop_btn = ttk.Button(bf, textvariable=_sv_stop1,
+                                    command=self._stop_download, state="disabled")
         self._stop_btn.pack(side="left", padx=4)
+        self._lang_widgets.append((_sv_stop1, "dl.stop"))
         self._only_new_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bf, text="✨ Nur neue (inkrementell)",
-                        variable=self._only_new_var).pack(side="left", padx=14)
+        _sv = tk.StringVar(value=self._t("dl.only_new"))
+        ttk.Checkbutton(bf, textvariable=_sv, variable=self._only_new_var).pack(side="left", padx=14)
+        self._lang_widgets.append((_sv, "dl.only_new"))
         self._fetch_names_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bf, text="👤 Volle Namen versuchen (oft von Ancestry blockiert)",
-                        variable=self._fetch_names_var).pack(side="left", padx=14)
+        _sv = tk.StringVar(value=self._t("dl.full_names"))
+        ttk.Checkbutton(bf, textvariable=_sv, variable=self._fetch_names_var).pack(side="left", padx=14)
+        self._lang_widgets.append((_sv, "dl.full_names"))
 
-        # ── Bereich A2: Namen nachladen (profileData-Bulk-API) ────────────────
+        # ── Bereich A2: Namen nachladen ───────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=6, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text="A2: Namen & Stammbaum nachladen",
+        _sv = tk.StringVar(value=self._t("dl.sec_a2"))
+        ttk.Label(f, textvariable=_sv,
                   style="Bold.TLabel").grid(row=7, column=0, columnspan=4, sticky="w", **p)
+        self._lang_widgets.append((_sv, "dl.sec_a2"))
         ttk.Label(f, text=(
             "Lädt Namen, Geschlecht, Stammbaum-Status/-Größe und ob ein\n"
             "gemeinsamer Vorfahre existiert (20 Matches pro Anfrage).\n"
@@ -463,39 +611,55 @@ class AncestryDnaApp(tk.Tk):
         ), foreground="#555555").grid(row=8, column=0, columnspan=4, sticky="w", padx=14)
 
         sf_names = ttk.Frame(f); sf_names.grid(row=9, column=0, columnspan=4, sticky="w", **p)
-        ttk.Label(sf_names, text="Nur ab (cM):").pack(side="left")
+        _sv = tk.StringVar(value=self._t("dl.min_cm"))
+        ttk.Label(sf_names, textvariable=_sv).pack(side="left")
+        self._lang_widgets.append((_sv, "dl.min_cm"))
         self._names_min_cm_var = tk.StringVar(value="0")
         ttk.Entry(sf_names, textvariable=self._names_min_cm_var, width=6).pack(side="left", padx=6)
-        ttk.Label(sf_names, text="Tiefe (Generationen):").pack(side="left", padx=(18, 0))
+        _sv = tk.StringVar(value=self._t("dl.depth"))
+        ttk.Label(sf_names, textvariable=_sv).pack(side="left", padx=(18, 0))
+        self._lang_widgets.append((_sv, "dl.depth"))
         self._ped_gens_var = tk.StringVar(value="5")
         ttk.Combobox(sf_names, textvariable=self._ped_gens_var,
                      values=["5", "6", "7", "8", "10"], width=4,
                      state="readonly").pack(side="left", padx=4)
         self._ped_force_var = tk.BooleanVar(value=False)
-        ttk.Checkbutton(sf_names, text="🔄 Alle neu laden",
+        _sv = tk.StringVar(value=self._t("dl.reload_all"))
+        ttk.Checkbutton(sf_names, textvariable=_sv,
                         variable=self._ped_force_var).pack(side="left", padx=(12, 4))
+        self._lang_widgets.append((_sv, "dl.reload_all"))
         ttk.Label(sf_names, text="(>5 Gen. = langsamer, mehr Extra-Calls)",
                   foreground="#888888").pack(side="left")
 
         bf_names = ttk.Frame(f); bf_names.grid(row=10, column=0, columnspan=4, sticky="w", **p)
-        self._names_start_btn = ttk.Button(bf_names, text="▶ Namen & Stammbaum laden",
+        _sv_nm = tk.StringVar(value=self._t("dl.start_nm"))
+        self._names_start_btn = ttk.Button(bf_names, textvariable=_sv_nm,
                                             command=self._start_fetch_names)
         self._names_start_btn.pack(side="left", padx=4)
-        self._names_stop_btn = ttk.Button(bf_names, text="⏹ Stoppen",
+        self._lang_widgets.append((_sv_nm, "dl.start_nm"))
+        _sv_stop2 = tk.StringVar(value=self._t("dl.stop"))
+        self._names_stop_btn = ttk.Button(bf_names, textvariable=_sv_stop2,
                                            command=self._stop_download, state="disabled")
         self._names_stop_btn.pack(side="left", padx=4)
-        self._anc_start_btn = ttk.Button(bf_names, text="▶ Vorfahren & Orte laden",
+        self._lang_widgets.append((_sv_stop2, "dl.stop"))
+        _sv_anc = tk.StringVar(value=self._t("dl.start_anc"))
+        self._anc_start_btn = ttk.Button(bf_names, textvariable=_sv_anc,
                                          command=self._start_fetch_ancestors)
         self._anc_start_btn.pack(side="left", padx=(16,4))
-        self._ped_start_btn = ttk.Button(bf_names, text="▶ Ahnentafeln laden",
+        self._lang_widgets.append((_sv_anc, "dl.start_anc"))
+        _sv_ped = tk.StringVar(value=self._t("dl.start_ped"))
+        self._ped_start_btn = ttk.Button(bf_names, textvariable=_sv_ped,
                                          command=self._start_fetch_pedigrees)
         self._ped_start_btn.pack(side="left", padx=4)
+        self._lang_widgets.append((_sv_ped, "dl.start_ped"))
 
         # ── Bereich B: Shared Matches ─────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=11, column=0, columnspan=4, sticky="ew", padx=14, pady=6)
-        ttk.Label(f, text="B: Shared Matches herunterladen",
+        _sv = tk.StringVar(value=self._t("dl.sec_b"))
+        ttk.Label(f, textvariable=_sv,
                   style="Bold.TLabel").grid(row=12, column=0, columnspan=4, sticky="w", **p)
+        self._lang_widgets.append((_sv, "dl.sec_b"))
         ttk.Label(f, text=(
             "Lädt für jeden gespeicherten Match dessen gemeinsame Matches mit cM-Werten.\n"
             "Empfehlung: erst Matches (A) herunterladen, dann Shared Matches (B).\n"
@@ -504,26 +668,34 @@ class AncestryDnaApp(tk.Tk):
         ), foreground="#555555").grid(row=13, column=0, columnspan=4, sticky="w", padx=14)
 
         sf2 = ttk.Frame(f); sf2.grid(row=14, column=0, columnspan=4, sticky="w", **p)
-        ttk.Label(sf2, text="Nur primäre Matches ab (cM):").pack(side="left")
+        _sv = tk.StringVar(value=self._t("dl.prim_min"))
+        ttk.Label(sf2, textvariable=_sv).pack(side="left")
+        self._lang_widgets.append((_sv, "dl.prim_min"))
         self._shared_min_cm_var = tk.StringVar(value="20")
-        ttk.Entry(sf2, textvariable=self._shared_min_cm_var, width=6).pack(
-            side="left", padx=6)
+        ttk.Entry(sf2, textvariable=self._shared_min_cm_var, width=6).pack(side="left", padx=6)
         self._skip_existing_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(sf2, text="Bereits geholte überspringen",
+        _sv = tk.StringVar(value=self._t("dl.skip_ex"))
+        ttk.Checkbutton(sf2, textvariable=_sv,
                          variable=self._skip_existing_var).pack(side="left", padx=12)
+        self._lang_widgets.append((_sv, "dl.skip_ex"))
 
         bf2 = ttk.Frame(f); bf2.grid(row=15, column=0, columnspan=4, sticky="w", **p)
-        self._shared_start_btn = ttk.Button(bf2, text="▶ Shared Matches starten",
-                                             command=self._start_shared)
+        _sv_sh = tk.StringVar(value=self._t("dl.start_sh"))
+        self._shared_start_btn = ttk.Button(bf2, textvariable=_sv_sh, command=self._start_shared)
         self._shared_start_btn.pack(side="left", padx=4)
-        self._shared_stop_btn = ttk.Button(bf2, text="⏹ Stoppen",
+        self._lang_widgets.append((_sv_sh, "dl.start_sh"))
+        _sv_stop3 = tk.StringVar(value=self._t("dl.stop"))
+        self._shared_stop_btn = ttk.Button(bf2, textvariable=_sv_stop3,
                                             command=self._stop_download, state="disabled")
         self._shared_stop_btn.pack(side="left", padx=4)
+        self._lang_widgets.append((_sv_stop3, "dl.stop"))
 
         # ── Fortschritt ───────────────────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=16, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text="Fortschritt:").grid(row=17, column=0, sticky="e", **p)
+        _sv = tk.StringVar(value=self._t("dl.progress"))
+        ttk.Label(f, textvariable=_sv).grid(row=17, column=0, sticky="e", **p)
+        self._lang_widgets.append((_sv, "dl.progress"))
         self._progress_var = tk.DoubleVar()
         ttk.Progressbar(f, variable=self._progress_var, maximum=100, length=380).grid(
             row=17, column=1, sticky="w", **p)
@@ -531,8 +703,10 @@ class AncestryDnaApp(tk.Tk):
         ttk.Label(f, textvariable=self._progress_lbl).grid(row=17, column=2, sticky="w", **p)
 
         # ── Log ───────────────────────────────────────────────────────────────
-        ttk.Label(f, text="Protokoll:", style="Bold.TLabel").grid(
+        _sv = tk.StringVar(value=self._t("dl.log"))
+        ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
             row=18, column=0, sticky="ne", padx=14, pady=(10, 4))
+        self._lang_widgets.append((_sv, "dl.log"))
         lf = ttk.Frame(f); lf.grid(row=18, column=1, columnspan=3, sticky="nsew",
                                      padx=14, pady=4)
         self._log_text = tk.Text(lf, height=12, width=72, font=("Consolas", 9),
@@ -1677,12 +1851,25 @@ class AncestryDnaApp(tk.Tk):
                 tv.heading(col, text=self._t(key))
             except Exception:
                 pass
-        for widget, key in self._lang_widgets:
+        for item in self._lang_widgets:
+            widget, key = item[0], item[1]
+            suffix = item[2] if len(item) > 2 else ""
             try:
+                text = self._t(key) + suffix
                 if isinstance(widget, tk.StringVar):
-                    widget.set(self._t(key))
+                    widget.set(text)
                 else:
-                    widget.configure(text=self._t(key))
+                    widget.configure(text=text)
+            except Exception:
+                pass
+        for menu, index, key in self._lang_menus:
+            try:
+                menu.entryconfigure(index, label=self._t(key))
+            except Exception:
+                pass
+        for nb, frame, key in self._lang_inner_nb_tabs:
+            try:
+                nb.tab(frame, text=self._t(key))
             except Exception:
                 pass
 
@@ -2067,12 +2254,13 @@ class AncestryDnaApp(tk.Tk):
 
     def _build_detail_panel(self, parent):
         # Oberer Teil: Matchdetails
-        detail_nb = ttk.Notebook(parent)
-        detail_nb.pack(fill="both", expand=True)
+        self._detail_nb = ttk.Notebook(parent)
+        self._detail_nb.pack(fill="both", expand=True)
 
         # Sub-Tab 1: Info + Notiz
-        info_frame = ttk.Frame(detail_nb)
-        detail_nb.add(info_frame, text="Info & Notiz")
+        info_frame = ttk.Frame(self._detail_nb)
+        self._detail_nb.add(info_frame, text=self._t("md.tab_info"))
+        self._lang_inner_nb_tabs.append((self._detail_nb, info_frame, "md.tab_info"))
 
         self._detail_name_var = tk.StringVar(value="—")
         ttk.Label(info_frame, textvariable=self._detail_name_var,
@@ -2080,29 +2268,40 @@ class AncestryDnaApp(tk.Tk):
 
         inf = ttk.Frame(info_frame); inf.pack(fill="x", padx=8)
         self._detail_fields: dict[str, tk.StringVar] = {}
-        for lbl in ("cM","Segmente","Längstes Seg.","Beziehung",
-                    "Konfidenz","Stammbaum","Gem. Vorfahre","Geschlecht",
-                    "Letzter Login"):
+        for de_lbl, key in [("cM","md.cm"),("Segmente","md.seg"),
+                             ("Längstes Seg.","md.longseg"),("Beziehung","md.rel"),
+                             ("Konfidenz","md.conf"),("Stammbaum","md.tree_lbl"),
+                             ("Gem. Vorfahre","md.anc"),("Geschlecht","md.sex"),
+                             ("Letzter Login","md.last")]:
             row = ttk.Frame(inf); row.pack(fill="x", pady=1)
-            ttk.Label(row, text=lbl + ":", width=15, anchor="e",
+            sv_lbl = tk.StringVar(value=self._t(key))
+            ttk.Label(row, textvariable=sv_lbl, width=15, anchor="e",
                       foreground="#555555").pack(side="left")
+            self._lang_widgets.append((sv_lbl, key))
             var = tk.StringVar(value="—")
             ttk.Label(row, textvariable=var, anchor="w").pack(side="left", padx=4)
-            self._detail_fields[lbl] = var
+            self._detail_fields[de_lbl] = var
 
         ttk.Separator(info_frame, orient="horizontal").pack(fill="x", padx=8, pady=6)
-        ttk.Label(info_frame, text="Notiz:", style="Bold.TLabel").pack(anchor="w", padx=8)
+        _sv = tk.StringVar(value=self._t("md.note"))
+        ttk.Label(info_frame, textvariable=_sv, style="Bold.TLabel").pack(anchor="w", padx=8)
+        self._lang_widgets.append((_sv, "md.note"))
         self._note_text = tk.Text(info_frame, height=5, font=("Segoe UI", 9),
                                    wrap="word", relief="solid", borderwidth=1)
         self._note_text.pack(fill="x", padx=8, pady=4)
-        ttk.Button(info_frame, text="💾 Notiz speichern",
+        _sv = tk.StringVar(value=self._t("md.save_note"))
+        ttk.Button(info_frame, textvariable=_sv,
                    command=self._save_note).pack(anchor="w", padx=8, pady=2)
-        ttk.Button(info_frame, text="🔗 In Ancestry öffnen",
+        self._lang_widgets.append((_sv, "md.save_note"))
+        _sv = tk.StringVar(value=self._t("md.open_anc"))
+        ttk.Button(info_frame, textvariable=_sv,
                    command=self._open_in_ancestry).pack(anchor="w", padx=8, pady=2)
+        self._lang_widgets.append((_sv, "md.open_anc"))
 
         # Sub-Tab 2: Shared Matches
-        sm_frame = ttk.Frame(detail_nb)
-        detail_nb.add(sm_frame, text="Shared Matches")
+        sm_frame = ttk.Frame(self._detail_nb)
+        self._detail_nb.add(sm_frame, text=self._t("md.tab_shared"))
+        self._lang_inner_nb_tabs.append((self._detail_nb, sm_frame, "md.tab_shared"))
         self._build_shared_panel(sm_frame)
 
         self._selected_match: Optional[DnaMatch] = None
@@ -2775,40 +2974,48 @@ class AncestryDnaApp(tk.Tk):
 
     def _build_tab_stats(self):
         f = self._tab_stats
-        ttk.Button(f, text="↻ Aktualisieren",
+        _sv = tk.StringVar(value=self._t("st.refresh"))
+        ttk.Button(f, textvariable=_sv,
                    command=self._refresh_stats).pack(anchor="ne", padx=14, pady=8)
+        self._lang_widgets.append((_sv, "st.refresh"))
 
-        kz = ttk.LabelFrame(f, text="Kennzahlen", padding=10)
+        kz = ttk.LabelFrame(f, text=self._t("st.kz"), padding=10)
         kz.pack(fill="x", padx=14, pady=4)
+        self._lang_widgets.append((kz, "st.kz"))
 
         self._stat_vars: dict[str, tk.StringVar] = {}
-        labels = [
-            ("total",              "Gesamtzahl Matches"),
-            ("max_cm",             "Höchste cM"),
-            ("avg_cm",             "Ø cM"),
-            ("starred_count",      "Markierte"),
-            ("with_tree",          "Mit Stammbaum"),
-            ("with_note",          "Mit Notiz"),
-            ("shared_total",       "Shared-Match-Einträge"),
-            ("shared_primary_count","Primäre m. Shared"),
+        stat_label_keys = [
+            ("total",               "st.total"),
+            ("max_cm",              "st.max_cm"),
+            ("avg_cm",              "st.avg_cm"),
+            ("starred_count",       "st.starred"),
+            ("with_tree",           "st.with_tree"),
+            ("with_note",           "st.with_note"),
+            ("shared_total",        "st.shared_tot"),
+            ("shared_primary_count","st.shared_pri"),
         ]
-        for i, (key, lbl) in enumerate(labels):
-            ttk.Label(kz, text=lbl + ":", foreground="#555555").grid(
+        for i, (stat_key, t_key) in enumerate(stat_label_keys):
+            sv_lbl = tk.StringVar(value=self._t(t_key))
+            ttk.Label(kz, textvariable=sv_lbl, foreground="#555555").grid(
                 row=i // 4, column=(i % 4) * 2, sticky="e", padx=(14,4), pady=3)
+            self._lang_widgets.append((sv_lbl, t_key))
             var = tk.StringVar(value="—")
             ttk.Label(kz, textvariable=var, font=("Segoe UI", 10, "bold"),
                       foreground=COLORS["primary"]).grid(
                 row=i // 4, column=(i % 4) * 2 + 1, sticky="w")
-            self._stat_vars[key] = var
+            self._stat_vars[stat_key] = var
 
-        rf = ttk.LabelFrame(f, text="Beziehungsverteilung (Top 10)", padding=10)
+        rf = ttk.LabelFrame(f, text=self._t("st.rel_dist"), padding=10)
         rf.pack(fill="both", expand=True, padx=14, pady=4)
+        self._lang_widgets.append((rf, "st.rel_dist"))
         self._rel_tree = ttk.Treeview(rf, columns=("rel","count"), show="headings", height=10)
-        self._rel_tree.heading("rel",   text="Beziehung")
-        self._rel_tree.heading("count", text="Anzahl")
+        self._rel_tree.heading("rel",   text=self._t("st.rel"))
+        self._rel_tree.heading("count", text=self._t("st.count"))
         self._rel_tree.column("rel",    width=300)
         self._rel_tree.column("count",  width=80, anchor="e")
         self._rel_tree.pack(fill="both", expand=True)
+        self._lang_headings.append((self._rel_tree, "rel",   "st.rel"))
+        self._lang_headings.append((self._rel_tree, "count", "st.count"))
         self._refresh_stats()
 
     def _refresh_stats(self):
