@@ -68,9 +68,14 @@ def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
     if extra_headers:
         headers.update(extra_headers)
     # DNA-Match-UI braucht seinen eigenen CSRF-Token; _csrf als Fallback
-    csrf = (session.cookies.get("_dnamatches-matchlistui-x-csrf-token")
-            or session.cookies.get("_csrf")
-            or session.cookies.get("XSRF-TOKEN") or "")
+    try:
+        csrf = session.cookies.get("_dnamatches-matchlistui-x-csrf-token",
+                                   domain="www.ancestry.com")
+    except Exception:
+        csrf = None
+    if not csrf:
+        csrf = (session.cookies.get("_csrf")
+                or session.cookies.get("XSRF-TOKEN") or "")
     if csrf:
         headers["X-CSRF-Token"] = csrf
 
