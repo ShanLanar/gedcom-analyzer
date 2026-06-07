@@ -13,8 +13,10 @@ import logging
 import os
 import threading
 import tkinter as tk
+import webbrowser
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
+from urllib.parse import quote
 
 import config as cfg
 from core.auth import AncestryAuth
@@ -183,6 +185,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "st.rel_dist":  {"de": "Beziehungsverteilung (Top 10)",        "en": "Relationship distribution (top 10)"},
     "st.rel":       {"de": "Beziehung",                            "en": "Relationship"},
     "st.count":     {"de": "Anzahl",                               "en": "Count"},
+    "st.ped_kz":    {"de": "Ahnentafel-Vollständigkeit",           "en": "Pedigree completeness"},
+    "st.ped_loaded":{"de": "Ahnentafeln geladen:",                 "en": "Pedigrees loaded:"},
+    "st.ped_depth": {"de": "Ø Generationstiefe:",                  "en": "Avg. generation depth:"},
+    "st.ped_surn":  {"de": "Unterschiedliche Nachnamen:",          "en": "Distinct surnames:"},
     # Menu bar — cascade labels
     "mn.file":      {"de": "Datei",                                "en": "File"},
     "mn.view":      {"de": "Ansicht",                              "en": "View"},
@@ -215,6 +221,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mn.chg_ged":   {"de": "GEDCOM / Wurzelperson ändern …",       "en": "Change GEDCOM / root person …"},
     # Help menu items
     "mn.about":     {"de": "Über …",                               "en": "About …"},
+    # New analysis windows
+    "mn.surnames":  {"de": "Nachname-Analyse (Namenskarte) …",     "en": "Surname analysis (name map) …"},
+    "mn.places":    {"de": "Geburtsort-Analyse …",                 "en": "Birth place analysis …"},
+    "mn.mrca":      {"de": "MRCA-Wahrscheinlichkeit …",            "en": "MRCA probability …"},
+    "mn.net_graph": {"de": "Cluster-Netzwerkgraph …",              "en": "Cluster network graph …"},
 }
 
 
@@ -327,11 +338,17 @@ class AncestryDnaApp(tk.Tk):
         am.add_separator()
         am.add_command(label=self._t("mn.refresh_lk"),  command=self._refresh_links)
         am.add_command(label=self._t("mn.chg_ged"),     command=self._change_gedcom_settings)
+        am.add_separator()
+        am.add_command(label=self._t("mn.surnames"),    command=self._show_surname_analysis)
+        am.add_command(label=self._t("mn.places"),      command=self._show_place_analysis)
+        am.add_command(label=self._t("mn.mrca"),        command=self._show_mrca_analysis)
+        am.add_command(label=self._t("mn.net_graph"),   command=self._show_network_graph)
         mb.add_cascade(label=self._t("mn.analysis"), menu=am)
         for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
                          (9,"mn.reset_sh"),(10,"mn.reset_nm"),(12,"mn.refresh_lk"),
-                         (13,"mn.chg_ged")]:
+                         (13,"mn.chg_ged"),(15,"mn.surnames"),(16,"mn.places"),
+                         (17,"mn.mrca"),(18,"mn.net_graph")]:
             self._lang_menus.append((am, idx, key))
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
@@ -899,6 +916,533 @@ class AncestryDnaApp(tk.Tk):
     def _current_guid(self):
         return self._get_kit_guid() or getattr(self, "_current_test_guid", None)
 
+    # ── Namenskarte.com helper ────────────────────────────────────────────────
+
+    def _open_namenskarte(self, surname: str):
+        """Opens namenskarte.com for the given surname in the default browser."""
+        url = f"https://www.namenskarte.com/nachname/{quote(surname)}"
+        webbrowser.open(url)
+
+    # ── Nachname-Analyse ──────────────────────────────────────────────────────
+
+    def _show_surname_analysis(self):
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Nachname-Analyse – Häufigste Nachnamen in Match-Ahnentafeln")
+        win.geometry("960x640")
+
+        top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
+        ttk.Label(top, text="Min. Matches:", style="Bold.TLabel").pack(side="left")
+        min_var = tk.StringVar(value="2")
+        ttk.Spinbox(top, from_=1, to=99, width=4, textvariable=min_var).pack(side="left", padx=4)
+        ttk.Label(top, text="  Suche:").pack(side="left", padx=(12,0))
+        search_var = tk.StringVar()
+        ttk.Entry(top, textvariable=search_var, width=18).pack(side="left", padx=4)
+
+        info = ttk.Label(win, text="", style="Bold.TLabel")
+        info.pack(anchor="w", padx=10, pady=(2,2))
+
+        # Toolbar
+        tb = ttk.Frame(win); tb.pack(fill="x", padx=10, pady=(0,4))
+
+        pane = ttk.PanedWindow(win, orient="vertical")
+        pane.pack(fill="both", expand=True, padx=10, pady=(0,6))
+
+        tframe = ttk.Frame(pane); pane.add(tframe, weight=4)
+        bframe = ttk.Frame(pane); pane.add(bframe, weight=2)
+
+        cols = ("surname","count","avg_cm","max_cm","gen_range")
+        tv = ttk.Treeview(tframe, columns=cols, show="headings", selectmode="browse")
+        for c,(lbl,w,anch) in {
+            "surname":   ("Nachname",       260, "w"),
+            "count":     ("Matches",         80, "center"),
+            "avg_cm":    ("Ø cM",            80, "e"),
+            "max_cm":    ("Max cM",          80, "e"),
+            "gen_range": ("Generationen",   100, "center"),
+        }.items():
+            tv.heading(c, text=lbl, command=lambda c=c: _sort(c))
+            tv.column(c, width=w, anchor=anch)
+        sy = ttk.Scrollbar(tframe, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sy.set)
+        tv.pack(side="left", fill="both", expand=True)
+        sy.pack(side="right", fill="y")
+
+        ttk.Label(bframe, text="Matches mit diesem Nachnamen:",
+                  style="Bold.TLabel").pack(anchor="w", pady=(4,2))
+        detail = tk.Text(bframe, height=6, wrap="word", font=("Segoe UI", 9))
+        ds = ttk.Scrollbar(bframe, orient="vertical", command=detail.yview)
+        detail.configure(yscrollcommand=ds.set)
+        detail.pack(side="left", fill="both", expand=True)
+        ds.pack(side="right", fill="y")
+
+        store = {}
+        _sort_col = ["count"]; _sort_asc = [False]
+
+        def _get_selected_surname():
+            sel = tv.selection()
+            if not sel: return None
+            g = store.get(sel[0])
+            return g["label"] if g else None
+
+        def _namenskarte():
+            s = _get_selected_surname()
+            if s:
+                self._open_namenskarte(s)
+            else:
+                messagebox.showinfo("Kein Name", "Bitte zuerst einen Nachnamen auswählen.")
+
+        ttk.Button(tb, text="🗺 Namenskarte.com öffnen",
+                   command=_namenskarte).pack(side="left", padx=4)
+        ttk.Button(tb, text="↻ Aktualisieren",
+                   command=lambda: reload()).pack(side="left", padx=4)
+
+        def _sort(col):
+            if _sort_col[0] == col:
+                _sort_asc[0] = not _sort_asc[0]
+            else:
+                _sort_col[0] = col; _sort_asc[0] = col not in ("count","avg_cm","max_cm")
+            reload()
+
+        def reload(*_):
+            try:
+                mm = max(1, int(min_var.get() or 1))
+            except ValueError:
+                mm = 1
+            q = search_var.get().strip().lower()
+            groups = self._db.get_pedigree_groups(test_guid, min_matches=mm, mode="surname")
+            if q:
+                groups = [g for g in groups if q in g["label"].lower()]
+            tv.delete(*tv.get_children()); store.clear()
+            def _key(g):
+                cms = [cm for _, _, _, _, cm in g["matches"] if cm]
+                avg = sum(cms)/len(cms) if cms else 0
+                mx  = max(cms) if cms else 0
+                gens = [gen for _, _, _, gen, _ in g["matches"] if gen]
+                return g["label"], g["count"], avg, mx, gens
+            enriched = [(_key(g), g) for g in groups]
+            col = _sort_col[0]
+            ci  = {"surname":0,"count":1,"avg_cm":2,"max_cm":3,"gen_range":4}.get(col,1)
+            enriched.sort(key=lambda x: x[0][ci], reverse=not _sort_asc[0])
+            for (lbl, cnt, avg, mx, gens), g in enriched:
+                gen_range = (f"{min(gens)}–{max(gens)}" if gens else "?")
+                iid = tv.insert("", "end", values=(
+                    lbl, cnt,
+                    f"{avg:.0f}" if avg else "—",
+                    f"{mx:.0f}"  if mx  else "—",
+                    gen_range,
+                ))
+                store[iid] = g
+            info.configure(text=(
+                f"{len(groups)} Nachnamen in ≥{mm} Match-Ahnentafeln." if groups
+                else "Keine Daten – erst '▶ Ahnentafeln laden' ausführen."))
+
+        def on_sel(_):
+            sel = tv.selection()
+            if not sel: return
+            g = store.get(sel[0])
+            if not g: return
+            detail.delete("1.0","end")
+            for guid, name, path, gen, cm in sorted(g["matches"], key=lambda x:-(x[4] or 0)):
+                detail.insert("end", f"  • {name or guid[:8]}   {(cm or 0):.0f} cM"
+                              f"   Gen {gen}"
+                              f"   Linie {path or '?'}\n")
+
+        tv.bind("<<TreeviewSelect>>", on_sel)
+        tv.bind("<Double-1>", lambda _: _namenskarte())
+        min_var.trace_add("write", reload)
+        search_var.trace_add("write", reload)
+        reload()
+
+    # ── Geburtsort-Analyse ────────────────────────────────────────────────────
+
+    def _show_place_analysis(self):
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Geburtsort-Analyse – Häufigste Orte in Match-Ahnentafeln")
+        win.geometry("960x600")
+
+        top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
+        ttk.Label(top, text="Min. Matches:", style="Bold.TLabel").pack(side="left")
+        min_var = tk.StringVar(value="2")
+        ttk.Spinbox(top, from_=1, to=99, width=4, textvariable=min_var).pack(side="left", padx=4)
+        ttk.Label(top, text="  Suche:").pack(side="left", padx=(12,0))
+        search_var = tk.StringVar()
+        ttk.Entry(top, textvariable=search_var, width=22).pack(side="left", padx=4)
+
+        info = ttk.Label(win, text="", style="Bold.TLabel")
+        info.pack(anchor="w", padx=10, pady=(2,2))
+
+        tb = ttk.Frame(win); tb.pack(fill="x", padx=10, pady=(0,4))
+
+        pane = ttk.PanedWindow(win, orient="vertical")
+        pane.pack(fill="both", expand=True, padx=10, pady=(0,6))
+        tframe = ttk.Frame(pane); pane.add(tframe, weight=4)
+        bframe = ttk.Frame(pane); pane.add(bframe, weight=2)
+
+        cols = ("place","count","avg_cm","gen_range")
+        tv = ttk.Treeview(tframe, columns=cols, show="headings", selectmode="browse")
+        for c,(lbl,w,anch) in {
+            "place":     ("Geburtsort",     350, "w"),
+            "count":     ("Matches",         80, "center"),
+            "avg_cm":    ("Ø cM",            80, "e"),
+            "gen_range": ("Generationen",   100, "center"),
+        }.items():
+            tv.heading(c, text=lbl)
+            tv.column(c, width=w, anchor=anch)
+        sy = ttk.Scrollbar(tframe, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sy.set)
+        tv.pack(side="left", fill="both", expand=True)
+        sy.pack(side="right", fill="y")
+
+        ttk.Label(bframe, text="Matches mit diesem Ort:",
+                  style="Bold.TLabel").pack(anchor="w", pady=(4,2))
+        detail = tk.Text(bframe, height=6, wrap="word", font=("Segoe UI", 9))
+        ds = ttk.Scrollbar(bframe, orient="vertical", command=detail.yview)
+        detail.configure(yscrollcommand=ds.set)
+        detail.pack(side="left", fill="both", expand=True)
+        ds.pack(side="right", fill="y")
+
+        store = {}
+
+        def _search_maps():
+            sel = tv.selection()
+            if not sel: return
+            g = store.get(sel[0])
+            if not g: return
+            q = quote(g["label"])
+            webbrowser.open(f"https://www.google.com/maps/search/{q}")
+
+        ttk.Button(tb, text="🗺 Google Maps öffnen",
+                   command=_search_maps).pack(side="left", padx=4)
+        ttk.Button(tb, text="🔍 Meyers Gazetteer",
+                   command=lambda: (lambda sel: webbrowser.open(
+                       f"https://gov.genealogy.net/search/index#q={quote(store[sel[0]]['label'])}"
+                       ) if (sel := tv.selection()) else None)(tv.selection())).pack(
+                   side="left", padx=4)
+
+        def reload(*_):
+            try:
+                mm = max(1, int(min_var.get() or 1))
+            except ValueError:
+                mm = 1
+            q = search_var.get().strip().lower()
+            groups = self._db.get_pedigree_groups(test_guid, min_matches=mm, mode="place")
+            if q:
+                groups = [g for g in groups if q in g["label"].lower()]
+            tv.delete(*tv.get_children()); store.clear()
+            for g in groups:
+                cms  = [cm for _, _, _, _, cm in g["matches"] if cm]
+                avg  = sum(cms)/len(cms) if cms else 0
+                gens = [gen for _, _, _, gen, _ in g["matches"] if gen]
+                gen_range = (f"{min(gens)}–{max(gens)}" if gens else "?")
+                iid = tv.insert("", "end", values=(
+                    g["label"], g["count"],
+                    f"{avg:.0f}" if avg else "—",
+                    gen_range,
+                ))
+                store[iid] = g
+            info.configure(text=(
+                f"{len(groups)} Orte in ≥{mm} Match-Ahnentafeln." if groups
+                else "Keine Daten – erst '▶ Ahnentafeln laden' ausführen."))
+
+        def on_sel(_):
+            sel = tv.selection()
+            if not sel: return
+            g = store.get(sel[0])
+            if not g: return
+            detail.delete("1.0","end")
+            for guid, name, path, gen, cm in sorted(g["matches"], key=lambda x:-(x[4] or 0)):
+                detail.insert("end", f"  • {name or guid[:8]}   {(cm or 0):.0f} cM"
+                              f"   Gen {gen}\n")
+
+        tv.bind("<<TreeviewSelect>>", on_sel)
+        min_var.trace_add("write", reload)
+        search_var.trace_add("write", reload)
+        reload()
+
+    # ── MRCA-Wahrscheinlichkeit ───────────────────────────────────────────────
+
+    # cM → relationship probability table (Shared cM Project 2020 + DNAPainter)
+    _CM_RANGES = [
+        (2600, 3900, "Elternteil / Kind",               1),
+        (1700, 2600, "Halbgeschwister / Großelternteil", 2),
+        (1200, 1700, "Halbgeschwister / Großelternteil", 2),
+        ( 550, 1200, "Onkel/Tante · 1. Cousin",         2),
+        ( 330,  550, "1. Cousin",                        3),
+        ( 200,  330, "1. Cousin 1× entf. · 2. Cousin",  3),
+        ( 100,  200, "2. Cousin",                        4),
+        (  55,  100, "2. Cousin 1× entf. · 3. Cousin",  4),
+        (  20,   55, "3. Cousin · 4. Cousin",            5),
+        (   7,   20, "4. Cousin · 5. Cousin",            6),
+        (   3,    7, "5. Cousin und weiter",              7),
+    ]
+
+    def _show_mrca_analysis(self, match=None):
+        """Zeigt cM-basierte MRCA-Wahrscheinlichkeiten für den gewählten Match
+        oder – ohne Argument – für den aktuell selektierten Match."""
+        if match is None:
+            match = getattr(self, "_selected_match", None)
+        if match is None:
+            messagebox.showinfo("Kein Match", "Bitte zuerst einen Match in der Tabelle auswählen.")
+            return
+
+        try:
+            from core.treematch import cm_to_mrca
+        except ImportError:
+            cm_to_mrca = None
+
+        cm = getattr(match, "shared_cm", 0) or 0
+        segs = getattr(match, "shared_segments", 0) or 0
+        longest = getattr(match, "longest_segment", 0) or 0
+
+        win = tk.Toplevel(self)
+        win.title(f"MRCA-Analyse: {match.display_name}")
+        win.geometry("580x460")
+        win.resizable(True, True)
+
+        ttk.Label(win, text=f"{match.display_name}",
+                  style="Bold.TLabel", font=("Segoe UI",12,"bold")).pack(anchor="w", padx=14, pady=(12,2))
+        ttk.Label(win, text=f"{cm:.1f} cM  ·  {segs} Segmente  ·  längstes {longest:.1f} cM"
+                            f"  ·  {match.predicted_relationship or '?'}",
+                  foreground="#555").pack(anchor="w", padx=14, pady=(0,6))
+
+        # cM lookup
+        rel_frame = ttk.LabelFrame(win, text="Beziehungsbereich (Shared cM Project 2020)", padding=8)
+        rel_frame.pack(fill="x", padx=14, pady=4)
+
+        match_row = None
+        for lo, hi, label, gen in self._CM_RANGES:
+            if lo <= cm <= hi:
+                match_row = (lo, hi, label, gen)
+                break
+        # best fit even outside exact ranges
+        if match_row is None:
+            dists = [(abs(cm - (lo+hi)/2), lo, hi, label, gen) for lo,hi,label,gen in self._CM_RANGES]
+            dists.sort()
+            _, lo, hi, label, gen = dists[0]
+            match_row = (lo, hi, label, gen)
+
+        cols2 = ttk.Treeview(rel_frame, columns=("rel","range","gen","match"),
+                             show="headings", height=len(self._CM_RANGES))
+        cols2.heading("rel",   text="Beziehung")
+        cols2.heading("range", text="cM-Bereich")
+        cols2.heading("gen",   text="Gen.")
+        cols2.heading("match", text="Trifft zu")
+        cols2.column("rel",   width=260, anchor="w")
+        cols2.column("range", width=110, anchor="center")
+        cols2.column("gen",   width=45,  anchor="center")
+        cols2.column("match", width=70,  anchor="center")
+        cols2.tag_configure("hit", background="#d8f0d8", font=("Segoe UI",9,"bold"))
+        for lo, hi, label, gen in self._CM_RANGES:
+            tag = ("hit",) if (lo, hi) == (match_row[0], match_row[1]) else ()
+            cols2.insert("", "end", tags=tag, values=(
+                label, f"{lo}–{hi}", gen,
+                "✓" if (lo, hi) == (match_row[0], match_row[1]) else ""))
+        cols2.pack(fill="x")
+
+        # MRCA generation estimate
+        if cm_to_mrca:
+            try:
+                lbl_mrca, gen_mrca = cm_to_mrca(cm)
+            except Exception:
+                lbl_mrca, gen_mrca = match_row[2], match_row[3]
+        else:
+            lbl_mrca, gen_mrca = match_row[2], match_row[3]
+
+        inf_frame = ttk.LabelFrame(win, text="Schätzung gemeinsamer Vorfahr (MRCA)", padding=8)
+        inf_frame.pack(fill="x", padx=14, pady=4)
+        ttk.Label(inf_frame,
+                  text=f"Geschätzte Beziehung: {lbl_mrca}",
+                  style="Bold.TLabel").pack(anchor="w")
+        ttk.Label(inf_frame,
+                  text=f"Gemeinsamer Vorfahr ca. Generation {gen_mrca} zurück",
+                  foreground="#333").pack(anchor="w")
+        if longest > 0:
+            ttk.Label(inf_frame,
+                      text=f"Längstes Segment {longest:.1f} cM → "
+                           f"{'identisches Segment wahrscheinlich' if longest > 30 else 'entfernter Verwandter, IBD möglich'}",
+                      foreground="#555").pack(anchor="w")
+        if segs > 0 and cm > 0:
+            avg_seg = cm / segs
+            ttk.Label(inf_frame,
+                      text=f"Ø Segment {avg_seg:.1f} cM · "
+                           f"{'viele kurze Segmente → mögliche Endogamie' if segs > 12 and avg_seg < 15 else 'normal'}",
+                      foreground="#555").pack(anchor="w")
+
+    # ── Cluster-Netzwerkgraph (Canvas) ────────────────────────────────────────
+
+    def _show_network_graph(self):
+        """Canvas-basierter Netzwerkgraph der Cluster-Mitglieder mit shared-cM als Kantengewicht."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Cluster-Netzwerkgraph")
+        win.geometry("1000x700")
+
+        top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
+        ttk.Label(top, text="Primäre Matches ab (cM):", style="Bold.TLabel").pack(side="left")
+        lo_var = tk.StringVar(value="80")
+        ttk.Entry(top, textvariable=lo_var, width=6).pack(side="left", padx=4)
+        ttk.Label(top, text="bis:").pack(side="left")
+        hi_var = tk.StringVar(value="900")
+        ttk.Entry(top, textvariable=hi_var, width=6).pack(side="left", padx=4)
+        ttk.Label(top, text="  Min. shared cM:").pack(side="left", padx=(12,0))
+        edge_var = tk.StringVar(value="15")
+        ttk.Entry(top, textvariable=edge_var, width=5).pack(side="left", padx=4)
+
+        info = ttk.Label(win, text="", foreground="#555")
+        info.pack(anchor="w", padx=10)
+
+        canvas = tk.Canvas(win, bg="#1a1a2e", cursor="crosshair")
+        canvas.pack(fill="both", expand=True, padx=6, pady=4)
+
+        legend = ttk.Frame(win); legend.pack(fill="x", padx=10, pady=(0,6))
+        ttk.Label(legend, text="● Knotengröße ∝ cM  ·  Liniendicke ∝ shared cM zwischen Matches  "
+                               "·  Farbe = Cluster").pack(side="left")
+
+        _node_data = {}  # tag → (name, cm)
+
+        def _draw(*_):
+            canvas.delete("all")
+            _node_data.clear()
+            try:
+                lo = float(lo_var.get() or 0)
+                hi = float(hi_var.get() or 9999)
+                min_edge = float(edge_var.get() or 0)
+            except ValueError:
+                return
+
+            clusters = self._db.get_shared_clusters(test_guid, lo, hi)
+            if not clusters:
+                canvas.create_text(500, 300, text="Keine Cluster – erst Shared Matches laden (Schritt B).",
+                                   fill="white", font=("Segoe UI",12))
+                return
+
+            # Collect all members (deduplicated) and their cluster assignments
+            import math, random
+            random.seed(42)
+            W = canvas.winfo_width() or 980
+            H = canvas.winfo_height() or 650
+            all_members: dict = {}  # guid → {name, cm, cluster_idx, cluster_color}
+            cl_colors = COLORS["cluster"]
+            for ci, cl in enumerate(clusters[:20]):
+                col = cl_colors[ci % len(cl_colors)]
+                for guid, name, cm in cl["members"]:
+                    if guid not in all_members:
+                        all_members[guid] = {"name": name, "cm": cm or 0,
+                                             "ci": ci, "color": col}
+
+            if not all_members:
+                return
+
+            # Simple force-directed layout (spring model, 30 iterations)
+            guids = list(all_members.keys())
+            n = len(guids)
+            angle_step = 2 * math.pi / max(n, 1)
+            r0 = min(W, H) * 0.38
+            # Initial positions: circle
+            pos = {g: (W/2 + r0 * math.cos(i * angle_step),
+                       H/2 + r0 * math.sin(i * angle_step))
+                   for i, g in enumerate(guids)}
+
+            # Collect edges from shared_matches
+            edges: list = []
+            for ci, cl in enumerate(clusters[:20]):
+                cl_guids = [g for g, _, _ in cl["members"]]
+                pairs = self._db.get_pairwise_shared(test_guid, cl_guids)
+                for (ga, gb, cm_ab) in pairs:
+                    if cm_ab and cm_ab >= min_edge and ga in pos and gb in pos:
+                        edges.append((ga, gb, cm_ab))
+
+            # Spring layout iterations
+            k = math.sqrt(W * H / max(n, 1)) * 0.6
+            for _ in range(40):
+                disp = {g: [0.0, 0.0] for g in guids}
+                # Repulsion
+                for i in range(n):
+                    for j in range(i+1, n):
+                        gi, gj = guids[i], guids[j]
+                        dx = pos[gi][0] - pos[gj][0]
+                        dy = pos[gi][1] - pos[gj][1]
+                        d  = max(math.hypot(dx, dy), 1)
+                        f  = k*k / d
+                        disp[gi][0] += dx/d*f; disp[gi][1] += dy/d*f
+                        disp[gj][0] -= dx/d*f; disp[gj][1] -= dy/d*f
+                # Attraction along edges
+                for ga, gb, cm_ab in edges:
+                    if ga not in pos or gb not in pos: continue
+                    dx = pos[ga][0] - pos[gb][0]
+                    dy = pos[ga][1] - pos[gb][1]
+                    d  = max(math.hypot(dx, dy), 1)
+                    f  = d*d / k
+                    disp[ga][0] -= dx/d*f; disp[ga][1] -= dy/d*f
+                    disp[gb][0] += dx/d*f; disp[gb][1] += dy/d*f
+                # Apply displacement (damped)
+                temp = 20
+                for g in guids:
+                    dm = math.hypot(*disp[g])
+                    if dm > 0:
+                        scale = min(dm, temp) / dm
+                        x = max(40, min(W-40, pos[g][0] + disp[g][0]*scale))
+                        y = max(40, min(H-40, pos[g][1] + disp[g][1]*scale))
+                        pos[g] = (x, y)
+
+            # Draw edges
+            max_cm_edge = max((cm for _, _, cm in edges), default=1)
+            for ga, gb, cm_ab in edges:
+                if ga not in pos or gb not in pos: continue
+                w = max(1, int(cm_ab / max_cm_edge * 5))
+                alpha_hex = f"#{int(cm_ab/max_cm_edge*180):02x}{int(cm_ab/max_cm_edge*180):02x}ff"
+                try:
+                    canvas.create_line(pos[ga][0], pos[ga][1], pos[gb][0], pos[gb][1],
+                                       width=w, fill="#4488cc", smooth=True)
+                except Exception:
+                    pass
+
+            # Draw nodes
+            max_cm_node = max((d["cm"] for d in all_members.values()), default=1)
+            for guid, d in all_members.items():
+                if guid not in pos: continue
+                x, y = pos[guid]
+                r = max(8, min(28, int(d["cm"] / max_cm_node * 26) + 8))
+                tag = f"node_{guid}"
+                canvas.create_oval(x-r, y-r, x+r, y+r,
+                                   fill=d["color"], outline="white", width=1, tags=tag)
+                short = (d["name"] or guid[:8])[:14]
+                canvas.create_text(x, y+r+7, text=short, fill="white",
+                                   font=("Segoe UI",7), tags=tag)
+                _node_data[tag] = (d["name"], d["cm"])
+
+            info.configure(text=(f"{len(all_members)} Matches · {len(edges)} Verbindungen ≥{min_edge} cM  "
+                                 f"(Cluster 1–{min(len(clusters),20)} von {len(clusters)} gezeigt)"))
+
+        def _on_node_hover(event):
+            items = canvas.find_overlapping(event.x-5, event.y-5, event.x+5, event.y+5)
+            for item in items:
+                tags = canvas.gettags(item)
+                for t in tags:
+                    if t.startswith("node_") and t in _node_data:
+                        name, cm = _node_data[t]
+                        canvas.itemconfig(item, outline="yellow", width=2)
+                        info.configure(text=f"  {name}  ·  {cm:.0f} cM")
+                        return
+
+        canvas.bind("<Configure>", _draw)
+        canvas.bind("<Motion>", _on_node_hover)
+        ttk.Button(top, text="↻ Zeichnen", command=_draw).pack(side="left", padx=8)
+        win.after(200, _draw)
+
     def _show_ancestor_groups(self):
         guid = self._current_guid()
         if not guid:
@@ -1091,7 +1635,10 @@ class AncestryDnaApp(tk.Tk):
         info = ttk.Label(win, text="", style="Bold.TLabel")
         info.pack(anchor="w", padx=10, pady=(4,2))
 
-        pane = ttk.PanedWindow(win, orient="vertical"); pane.pack(fill="both", expand=True, padx=10, pady=6)
+        # Toolbar with namenskarte button (only active in surname mode)
+        tb = ttk.Frame(win); tb.pack(fill="x", padx=10, pady=(0,2))
+
+        pane = ttk.PanedWindow(win, orient="vertical"); pane.pack(fill="both", expand=True, padx=10, pady=4)
         tframe = ttk.Frame(pane); pane.add(tframe, weight=3)
         bframe = ttk.Frame(pane); pane.add(bframe, weight=2)
 
@@ -1111,6 +1658,25 @@ class AncestryDnaApp(tk.Tk):
         detail.pack(fill="both", expand=True)
 
         store = {}
+
+        def _namenskarte_from_overlay():
+            sel = tv.selection()
+            if not sel:
+                return
+            g = store.get(sel[0])
+            if not g:
+                return
+            if mode_var.get() == "surname":
+                self._open_namenskarte(g["label"])
+            else:
+                # extract surname token from person name
+                parts = g["label"].split()
+                if parts:
+                    self._open_namenskarte(parts[-1])
+
+        ttk.Button(tb, text="🗺 Namenskarte.com",
+                   command=_namenskarte_from_overlay).pack(side="left", padx=4)
+
         def reload(*_):
             try:
                 mm = max(2, int(minm_var.get() or 2))
@@ -1138,6 +1704,7 @@ class AncestryDnaApp(tk.Tk):
                 detail.insert("end", f"  • {name or guid_m[:8]}   "
                                      f"{(cm or 0):.0f} cM   (Gen {gen}, Linie {path or '?'})\n")
         tv.bind("<<TreeviewSelect>>", on_sel)
+        tv.bind("<Double-1>", lambda _: _namenskarte_from_overlay())
         reload()
 
     def _show_shared_clusters(self):
@@ -1546,6 +2113,19 @@ class AncestryDnaApp(tk.Tk):
                 mt = f"Mutter: {mo.display} ({_birth(mo) or '?'})" if mo else "Mutter: ?"
                 ttk.Label(box, text=f"   └ {ft}   |   {mt}",
                           foreground="#444").pack(anchor="w", padx=8, pady=(0,4))
+            # Namenskarte buttons for predicted ancestor's surnames
+            if pred:
+                rep = pred["rep"]
+                btn_frame = ttk.Frame(box); btn_frame.pack(anchor="w", padx=8, pady=(0,4))
+                surnames = {s for s in [
+                    getattr(rep, "surname", None),
+                    getattr(fa, "surname", None) if pred.get("father") else None,
+                    getattr(mo, "surname", None) if pred.get("mother") else None,
+                ] if s}
+                for sur in list(surnames)[:4]:
+                    ttk.Button(btn_frame, text=f"🗺 {sur}",
+                               command=lambda s=sur: self._open_namenskarte(s)
+                               ).pack(side="left", padx=2)
         if not has_ged:
             ttk.Label(win, text="(GEDCOM nicht geladen → ohne Andock-Spalte. "
                       "Über 'Cluster-Linie in meinem Baum suchen' wird der Baum geladen.)",
@@ -1565,6 +2145,7 @@ class AncestryDnaApp(tk.Tk):
         tv.tag_configure("shared", background="#fff3b0")   # Konvergenz
         tv.tag_configure("dock", background="#d8f0d8")      # dockt direkt an
 
+        row_reps = {}
         for r in rows:
             rep = r["rep"]
             indent = "  " * max(0, r["gen"] - 2)
@@ -1580,8 +2161,30 @@ class AncestryDnaApp(tk.Tk):
             cms = ", ".join(f"{c:.0f}" for c in r["cms"][:6])
             tag = ("dock",) if r["path"] is not None else \
                   (("shared",) if nshare >= 2 else ())
-            tv.insert("", "end", tags=tag, values=(
+            iid = tv.insert("", "end", tags=tag, values=(
                 disp, f"{nshare}/{size}", r["gen"], cms, dock))
+            row_reps[iid] = rep
+
+        # Namenskarte button below treeview
+        nk_frame = ttk.Frame(win); nk_frame.pack(anchor="w", padx=10, pady=(0,4), side="bottom")
+        nk_lbl = ttk.Label(nk_frame, text="Ausgewählter Vorfahr → Namenskarte:",
+                           foreground="#555")
+        nk_lbl.pack(side="left")
+        nk_btn = ttk.Button(nk_frame, text="🗺 Namenskarte.com",
+                            state="disabled",
+                            command=lambda: None)
+        nk_btn.pack(side="left", padx=6)
+
+        def _on_tree_sel(_):
+            sel = tv.selection()
+            if not sel: return
+            rep = row_reps.get(sel[0])
+            if not rep: return
+            sur = getattr(rep, "surname", None) or rep.display.split()[-1]
+            nk_btn.configure(state="normal",
+                             command=lambda s=sur: self._open_namenskarte(s))
+
+        tv.bind("<<TreeviewSelect>>", _on_tree_sel)
 
     def _show_cluster_relationships(self, test_guid, cluster):
         """Interne Beziehungs-Struktur: paarweise cM zwischen Cluster-Mitgliedern
@@ -2550,6 +3153,15 @@ class AncestryDnaApp(tk.Tk):
         self._note_text.delete("1.0","end")
         self._note_text.insert("1.0", match.note or "")
 
+        # MRCA-Schätzung im Status (einzeilig, nicht invasiv)
+        cm = match.shared_cm or 0
+        mrca_hint = ""
+        for lo, hi, label, gen in self._CM_RANGES:
+            if lo <= cm <= hi:
+                mrca_hint = f"  →  ~{label} (Gen {gen})"
+                break
+        self._set_status(f"{match.display_name}  ·  {cm:.0f} cM{mrca_hint}")
+
         # Shared Matches laden
         self._load_shared_panel(match)
 
@@ -3003,6 +3615,25 @@ class AncestryDnaApp(tk.Tk):
             ttk.Label(kz, textvariable=var, font=("Segoe UI", 10, "bold"),
                       foreground=COLORS["primary"]).grid(
                 row=i // 4, column=(i % 4) * 2 + 1, sticky="w")
+            self._stat_vars[stat_key] = var
+
+        # Pedigree completeness section
+        pz = ttk.LabelFrame(f, text=self._t("st.ped_kz"), padding=10)
+        pz.pack(fill="x", padx=14, pady=4)
+        self._lang_widgets.append((pz, "st.ped_kz"))
+        ped_label_keys = [
+            ("ped_loaded", "st.ped_loaded"),
+            ("ped_avg_depth", "st.ped_depth"),
+            ("ped_surnames", "st.ped_surn"),
+        ]
+        for i, (stat_key, t_key) in enumerate(ped_label_keys):
+            sv_lbl = tk.StringVar(value=self._t(t_key))
+            ttk.Label(pz, textvariable=sv_lbl, foreground="#555555").grid(
+                row=0, column=i*2, sticky="e", padx=(14,4), pady=3)
+            self._lang_widgets.append((sv_lbl, t_key))
+            var = tk.StringVar(value="—")
+            ttk.Label(pz, textvariable=var, font=("Segoe UI", 10, "bold"),
+                      foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
             self._stat_vars[stat_key] = var
 
         rf = ttk.LabelFrame(f, text=self._t("st.rel_dist"), padding=10)

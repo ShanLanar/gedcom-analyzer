@@ -1072,4 +1072,28 @@ class Database:
                 SELECT COUNT(DISTINCT match_guid_a) FROM shared_matches {sm_cond}
             """)
             r["shared_primary_count"] = cur.fetchone()[0]
+
+            # Pedigree-Vollständigkeit
+            ped_cond = f"AND test_guid='{test_guid}'" if test_guid else ""
+            cur.execute(f"""
+                SELECT COUNT(DISTINCT match_guid) FROM match_pedigree
+                WHERE generation >= 2 {ped_cond}
+            """)
+            r["ped_loaded"] = cur.fetchone()[0]
+
+            cur.execute(f"""
+                SELECT COUNT(DISTINCT surname) FROM match_pedigree
+                WHERE surname != '' AND surname IS NOT NULL {ped_cond}
+            """)
+            r["ped_surnames"] = cur.fetchone()[0]
+
+            cur.execute(f"""
+                SELECT AVG(max_gen) FROM (
+                    SELECT match_guid, MAX(generation) AS max_gen
+                    FROM match_pedigree WHERE 1=1 {ped_cond}
+                    GROUP BY match_guid
+                )
+            """)
+            row = cur.fetchone()
+            r["ped_avg_depth"] = round(row[0], 1) if row and row[0] else 0.0
         return r
