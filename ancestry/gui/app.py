@@ -274,6 +274,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.chk3":      {"de": "In Cluster eingeordnet",               "en": "Assigned to cluster"},
     "md.chk4":      {"de": "Seite zugewiesen (v/m)",               "en": "Side assigned (p/m)"},
     "md.fs_link":   {"de": "🔍 FamilySearch …",                    "en": "🔍 FamilySearch …"},
+    "md.tab_gedcom":{"de": "🌳 GEDCOM-Treffer",                   "en": "🌳 GEDCOM Hits"},
+    "md.ged_none":  {"de": "Kein GEDCOM geladen – Analyse → Eigenen Baum abgleichen", "en": "No GEDCOM loaded – Analysis → Match own tree"},
+    "md.ged_no_ped":{"de": "Keine Ahnentafel-Daten für diesen Match.", "en": "No pedigree data for this match."},
+    "md.ged_searching": {"de": "Suche …", "en": "Searching …"},
+    "md.ged_run_all":   {"de": "🔄 Alle Matches abgleichen", "en": "🔄 Match all"},
     # Cluster tab
     "cl.quality":   {"de": "Güte",           "en": "Quality"},
     "cl.desc":      {"de": "Cluster-Beschreibung:",                "en": "Cluster description:"},
@@ -3174,6 +3179,12 @@ class AncestryDnaApp(tk.Tk):
         self._lang_inner_nb_tabs.append((self._detail_nb, sm_frame, "md.tab_shared"))
         self._build_shared_panel(sm_frame)
 
+        # Sub-Tab 3: GEDCOM-Bridge
+        ged_frame = ttk.Frame(self._detail_nb)
+        self._detail_nb.add(ged_frame, text=self._t("md.tab_gedcom"))
+        self._lang_inner_nb_tabs.append((self._detail_nb, ged_frame, "md.tab_gedcom"))
+        self._build_gedcom_link_panel(ged_frame)
+
         self._selected_match: Optional[DnaMatch] = None
 
     def _build_shared_panel(self, parent):
@@ -3201,6 +3212,145 @@ class AncestryDnaApp(tk.Tk):
         self._sm_tree.configure(yscrollcommand=sy.set)
         self._sm_tree.pack(side="left", fill="both", expand=True, padx=(6,0), pady=4)
         sy.pack(side="right", fill="y", pady=4)
+
+    def _build_gedcom_link_panel(self, parent):
+        """Sub-Tab 3: GEDCOM-Treffer — zeigt Verbindungen zwischen Match-Vorfahren
+        und Personen im eigenen GEDCOM-Baum."""
+        tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=4)
+        self._ged_link_status = tk.StringVar(value=self._t("md.ged_none"))
+        ttk.Label(tb, textvariable=self._ged_link_status,
+                  foreground=COLORS["primary"]).pack(side="left")
+        _sv_all = tk.StringVar(value=self._t("md.ged_run_all"))
+        ttk.Button(tb, textvariable=_sv_all,
+                   command=self._run_gedcom_match_all).pack(side="right")
+        self._lang_widgets.append((_sv_all, "md.ged_run_all"))
+
+        cols = ("gen", "path", "ped_name", "ped_year", "icon",
+                "ged_name", "ged_year", "score", "method")
+        self._ged_link_tree = ttk.Treeview(parent, columns=cols,
+                                            show="headings", selectmode="browse")
+        widths = {"gen": 35, "path": 55, "ped_name": 155, "ped_year": 50,
+                  "icon": 30, "ged_name": 155, "ged_year": 50,
+                  "score": 50, "method": 70}
+        labels = {"gen": "Gen", "path": "Ahnen", "ped_name": "Vorfahre (Match)",
+                  "ped_year": "Jahr", "icon": "", "ged_name": "GEDCOM-Person",
+                  "ged_year": "Jahr", "score": "Score", "method": "Methode"}
+        for col in cols:
+            self._ged_link_tree.heading(col, text=labels[col])
+            self._ged_link_tree.column(col, width=widths[col],
+                                        anchor="center" if col in ("gen","icon","score","ped_year","ged_year") else "w",
+                                        stretch=(col in ("ped_name","ged_name")))
+        self._ged_link_tree.tag_configure("strong", foreground=COLORS["success"])
+        self._ged_link_tree.tag_configure("weak",   foreground="#888888")
+        sy = ttk.Scrollbar(parent, orient="vertical", command=self._ged_link_tree.yview)
+        self._ged_link_tree.configure(yscrollcommand=sy.set)
+        self._ged_link_tree.pack(side="left", fill="both", expand=True, padx=(6,0), pady=2)
+        sy.pack(side="right", fill="y", pady=2)
+
+        # Doppelklick → GEDCOM-Person im Browser öffnen (FamilySearch-Suche)
+        self._ged_link_tree.bind("<Double-1>", self._on_ged_link_dblclick)
+
+    def _load_gedcom_link_panel(self, match: "DnaMatch"):
+        """Füllt den GEDCOM-Treffer-Tab für den ausgewählten Match."""
+        self._ged_link_tree.delete(*self._ged_link_tree.get_children())
+        ged = getattr(self, "_gedcom", None)
+        if not ged:
+            self._ged_link_status.set(self._t("md.ged_none"))
+            return
+
+        test_guid = self._current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set(self._t("md.ged_searching"))
+
+        def _worker():
+            try:
+                from core import bridge
+                bridge.ensure_tables(self._db)
+                # GEDCOM-Personen importieren, falls leer
+                if bridge.get_gedcom_person_count(self._db) == 0:
+                    n = bridge.import_gedcom_persons(
+                        self._db, ged["individuals"], ged.get("path", ""))
+                    log.info("bridge: %d Personen importiert", n)
+                rows = bridge.run_match_for_match(self._db, test_guid, match.match_guid)
+                self.after(0, lambda: self._fill_ged_link_tree(rows, match))
+            except Exception as exc:
+                log.warning("bridge: %s", exc)
+                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="bridge").start()
+
+    def _fill_ged_link_tree(self, rows: list, match: "DnaMatch"):
+        self._ged_link_tree.delete(*self._ged_link_tree.get_children())
+        if not rows:
+            self._ged_link_status.set(self._t("md.ged_no_ped"))
+            return
+        hits = sum(1 for r in rows if r["icon"])
+        self._ged_link_status.set(
+            f"{hits} Treffer von {len(rows)} Vorfahren  ·  {match.display_name}")
+        for r in rows:
+            tag = "strong" if r["icon"] == "✓" else ("weak" if not r["icon"] else "")
+            self._ged_link_tree.insert("", "end", values=(
+                r["generation"], r["ahnen_path"],
+                r["ped_name"],   r["ped_year"],
+                r["icon"],
+                r["ged_name"],   r["ged_year"],
+                r["score"],      r["method"],
+            ), tags=(tag,) if tag else ())
+
+    def _on_ged_link_dblclick(self, _event):
+        """Doppelklick auf eine GEDCOM-Treffer-Zeile → FamilySearch-Suche nach Name."""
+        sel = self._ged_link_tree.selection()
+        if not sel:
+            return
+        vals = self._ged_link_tree.item(sel[0], "values")
+        if not vals or vals[5] == "—" or not vals[5]:
+            return
+        ged_name = vals[5]
+        ged_year = vals[6] or ""
+        from urllib.parse import quote
+        parts = ged_name.split()
+        if parts:
+            q = quote(parts[-1])
+            url = (f"https://www.familysearch.org/search/record/results"
+                   f"?q.surname={q}" + (f"&q.birthLikeDate.from={ged_year}&q.birthLikeDate.to={ged_year}"
+                                        if ged_year else ""))
+            import webbrowser
+            webbrowser.open(url)
+
+    def _run_gedcom_match_all(self):
+        """Bulk-Abgleich aller Matches gegen den GEDCOM-Baum."""
+        ged = getattr(self, "_gedcom", None)
+        if not ged:
+            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            return
+        test_guid = self._current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set("Bulk-Abgleich läuft …")
+
+        def _worker():
+            try:
+                from core import bridge
+                bridge.ensure_tables(self._db)
+                if bridge.get_gedcom_person_count(self._db) == 0:
+                    bridge.import_gedcom_persons(
+                        self._db, ged["individuals"], ged.get("path", ""))
+                total = bridge.run_match_all(self._db, test_guid)
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"Bulk-Abgleich fertig: {total} Treffer gesamt"))
+                # Aktuell angezeigten Match neu laden
+                if self._selected_match:
+                    self.after(0, lambda: self._load_gedcom_link_panel(self._selected_match))
+            except Exception as exc:
+                log.warning("bridge bulk: %s", exc)
+                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="bridge-bulk").start()
 
     def _refresh_match_table(self, *_):
         try:
@@ -3473,8 +3623,9 @@ class AncestryDnaApp(tk.Tk):
         for i, var in enumerate(self._checklist_vars):
             var.set(bool(flags & (1 << i)))
 
-        # Shared Matches laden
+        # Shared Matches + GEDCOM-Bridge laden
         self._load_shared_panel(match)
+        self._load_gedcom_link_panel(match)
 
     def _load_shared_panel(self, match: DnaMatch):
         """Lädt Shared Matches für den ausgewählten primären Match."""
