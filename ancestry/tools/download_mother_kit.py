@@ -153,6 +153,21 @@ def main():
 
     log.info("Verwende Kit-GUID: %s", kit_guid)
 
+    # ── Session aufwärmen (DNA-Seite besuchen → CSRF + JWT frisch) ────────────
+    log.info("Wärme Session auf (besuche DNA-Seite) …")
+    _session = auth.get_session()
+    for _warm_url in [
+        f"https://www.ancestry.com/discoveryui-matches/list/{kit_guid}",
+        "https://www.ancestry.com/dna/home",
+    ]:
+        try:
+            _r = _session.get(_warm_url, timeout=15)
+            log.info("  %s → %s", _warm_url[:60], _r.status_code)
+            if _r.status_code == 200:
+                break
+        except Exception as _e:
+            log.warning("  Warmup-Fehler: %s", _e)
+
     # ── Datenbank ──────────────────────────────────────────────────────────────
     db = Database(os.path.abspath(DB_FILE))
     db.upsert_kit(DnaKit(

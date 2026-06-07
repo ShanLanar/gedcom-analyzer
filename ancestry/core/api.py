@@ -67,7 +67,10 @@ def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
     }
     if extra_headers:
         headers.update(extra_headers)
-    csrf = session.cookies.get("_csrf") or session.cookies.get("XSRF-TOKEN") or ""
+    # DNA-Match-UI braucht seinen eigenen CSRF-Token; _csrf als Fallback
+    csrf = (session.cookies.get("_dnamatches-matchlistui-x-csrf-token")
+            or session.cookies.get("_csrf")
+            or session.cookies.get("XSRF-TOKEN") or "")
     if csrf:
         headers["X-CSRF-Token"] = csrf
 
@@ -657,6 +660,11 @@ class AncestryApiClient:
                 break
             if r.status_code in (401, 403):
                 log.error("HTTP %s – Cookies abgelaufen.", r.status_code)
+                break
+            if r.status_code in (301, 302, 303, 307, 308):
+                log.error("HTTP %s (Redirect) auf Seite %d – Session nicht bereit.\n"
+                          "  → DNA-Matches-Seite im Browser öffnen, dann Cookies neu exportieren.",
+                          r.status_code, page)
                 break
             if r.status_code == 404:
                 log.error("HTTP 404 – Endpunkt nicht gefunden.")
