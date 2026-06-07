@@ -87,6 +87,33 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "ct.place":   {"de": "Geburtsort", "en": "Birth place"},
     "ct.gen":     {"de": "Gen.",       "en": "Gen."},
     "ct.matches": {"de": "In welchen Matches", "en": "In which matches"},
+    # Match-Tab Filterleiste
+    "mf.search":  {"de": "Suche:",                  "en": "Search:"},
+    "mf.rel":     {"de": "  Beziehung:",            "en": "  Relationship:"},
+    "mf.mincm":   {"de": "  min cM:",               "en": "  min cM:"},
+    "mf.starred": {"de": "Markierte",               "en": "Starred"},
+    "mf.tree":    {"de": "Mit Stammbaum",           "en": "With tree"},
+    "mf.endo":    {"de": "🔇 Rauschen ausblenden",  "en": "🔇 Hide noise"},
+    # Cluster-Tab Steuerung
+    "cl.prim_from":  {"de": "Primäre cM von:",  "en": "Primary cM from:"},
+    "cl.prim_to":    {"de": "bis:",             "en": "to:"},
+    "cl.shared_min": {"de": "Min. cM Shared:",  "en": "Min. cM shared:"},
+    "cl.calc_btn":   {"de": "🔄 Cluster berechnen",  "en": "🔄 Calculate clusters"},
+    "cl.tree_btn":   {"de": "🌳 Stammbaum-Analyse",  "en": "🌳 Tree analysis"},
+    "cl.frm_left":   {"de": "Cluster",               "en": "Cluster"},
+    "cl.frm_mid":    {"de": "Cluster-Mitglieder",    "en": "Cluster members"},
+    "cl.frm_right":  {"de": "Gegenseitige cM (Mitglieder untereinander)",
+                      "en": "Pairwise cM (members)"},
+    # GEDCOM-Abgleich Filterleiste
+    "gc.f.search":  {"de": "Suche:",            "en": "Search:"},
+    "gc.f.new":     {"de": "nur neue Leads",    "en": "new leads only"},
+    "gc.f.direct":  {"de": "nur direkte Linie", "en": "direct line only"},
+    "gc.f.mincm":   {"de": "ab cM:",            "en": "from cM:"},
+    "gc.f.cluster": {"de": "Cluster:",          "en": "Cluster:"},
+    "gc.linked":    {"de": "✓ im Baum",         "en": "✓ in tree"},
+    "gc.new":       {"de": "neu?",              "en": "new?"},
+    "gc.tree_btn":  {"de": "🌳 Stammbaum-Analyse für diesen Cluster",
+                     "en": "🌳 Cluster tree analysis"},
 }
 
 
@@ -110,6 +137,7 @@ class AncestryDnaApp(tk.Tk):
         self._lang: str = "de"
         self._lang_headings: list = []   # (tv, col, key) tuples
         self._lang_nb_tabs:  list = []   # (frame, key) tuples
+        self._lang_widgets:  list = []   # (widget_or_svar, key) tuples
 
         self._build_style()
         self._build_menu()
@@ -208,8 +236,16 @@ class AncestryDnaApp(tk.Tk):
     # ── Hauptlayout ───────────────────────────────────────────────────────────
 
     def _build_main(self):
-        ttk.Label(self, text="🧬  Ancestry DNA Tool",
-                  style="Header.TLabel").pack(fill="x")
+        hf = tk.Frame(self, bg=COLORS["primary"])
+        hf.pack(fill="x")
+        ttk.Label(hf, text="🧬  Ancestry DNA Tool",
+                  style="Header.TLabel").pack(side="left", fill="x", expand=True)
+        self._lang_btn = tk.Button(
+            hf, text="🌐 → EN", font=("Segoe UI", 10, "bold"),
+            bg="#2E75B6", fg="white", activebackground="#1F4E79", activeforeground="white",
+            relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
+            command=self._toggle_lang)
+        self._lang_btn.pack(side="right", padx=10, pady=4)
 
         self._nb = ttk.Notebook(self)
         self._nb.pack(fill="both", expand=True, padx=8, pady=8)
@@ -435,7 +471,10 @@ class AncestryDnaApp(tk.Tk):
         ttk.Combobox(sf_names, textvariable=self._ped_gens_var,
                      values=["5", "6", "7", "8", "10"], width=4,
                      state="readonly").pack(side="left", padx=4)
-        ttk.Label(sf_names, text="(>5 = langsamer, mehr Extra-Calls)",
+        self._ped_force_var = tk.BooleanVar(value=False)
+        ttk.Checkbutton(sf_names, text="🔄 Alle neu laden",
+                        variable=self._ped_force_var).pack(side="left", padx=(12, 4))
+        ttk.Label(sf_names, text="(>5 Gen. = langsamer, mehr Extra-Calls)",
                   foreground="#888888").pack(side="left")
 
         bf_names = ttk.Frame(f); bf_names.grid(row=10, column=0, columnspan=4, sticky="w", **p)
@@ -661,11 +700,12 @@ class AncestryDnaApp(tk.Tk):
             max_gen = int(self._ped_gens_var.get())
         except (ValueError, AttributeError):
             max_gen = 5
+        force = bool(getattr(self, "_ped_force_var", None) and self._ped_force_var.get())
         self._scraper = Scraper(self._client, self._db,
                                 on_progress=self._on_progress,
                                 on_status=lambda m: self.after(0, lambda: self._set_status(m)),
                                 on_done=lambda r: self.after(0, lambda: self._on_pedigrees_done(r)))
-        self._scraper.start_fetch_pedigrees(guid, self._a2_min_cm(), max_gen)
+        self._scraper.start_fetch_pedigrees(guid, self._a2_min_cm(), max_gen, force)
 
     def _a2_min_cm(self) -> float:
         """cM-Schwelle aus dem A2-Feld 'Nur ab (cM)'."""
@@ -1615,12 +1655,18 @@ class AncestryDnaApp(tk.Tk):
         entry = TRANSLATIONS.get(key, {})
         return entry.get(self._lang, entry.get("de", key))
 
+    def _update_lang_btn(self):
+        if hasattr(self, "_lang_btn"):
+            self._lang_btn.configure(
+                text="🌐 → EN" if self._lang == "de" else "🌐 → DE")
+
     def _toggle_lang(self):
         self._lang = "en" if self._lang == "de" else "de"
         self._apply_lang()
         self._save_ui_settings(lang=self._lang)
 
     def _apply_lang(self):
+        self._update_lang_btn()
         for frame, key in self._lang_nb_tabs:
             try:
                 self._nb.tab(frame, text=self._t(key))
@@ -1631,10 +1677,18 @@ class AncestryDnaApp(tk.Tk):
                 tv.heading(col, text=self._t(key))
             except Exception:
                 pass
+        for widget, key in self._lang_widgets:
+            try:
+                if isinstance(widget, tk.StringVar):
+                    widget.set(self._t(key))
+                else:
+                    widget.configure(text=self._t(key))
+            except Exception:
+                pass
 
     def _load_lang_setting(self):
         lang = self._load_ui_settings().get("lang", "de")
-        if lang in ("de", "en") and lang != self._lang:
+        if lang in ("de", "en"):
             self._lang = lang
             self._apply_lang()
 
@@ -1720,7 +1774,7 @@ class AncestryDnaApp(tk.Tk):
             cid = cl.get(guid)
             data.append({
                 "linked": linked,
-                "link": "✓ im Baum" if linked else "neu?",
+                "link": self._t("gc.linked") if linked else self._t("gc.new"),
                 "match": name or "?", "cm": float(cm or 0),
                 "anchor": own.display, "abirth": ab,
                 "kin": kin or "—", "line": r["ahnen_path"] or "?",
@@ -1732,19 +1786,19 @@ class AncestryDnaApp(tk.Tk):
 
         # ── Filterleiste ────────────────────────────────────────────────────────
         bar = ttk.Frame(win); bar.pack(fill="x", padx=10, pady=(10,2))
-        ttk.Label(bar, text="Suche:").pack(side="left")
+        ttk.Label(bar, text=self._t("gc.f.search")).pack(side="left")
         f_search = tk.StringVar()
         ttk.Entry(bar, textvariable=f_search, width=20).pack(side="left", padx=4)
         f_new = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text="nur neue Leads",
+        ttk.Checkbutton(bar, text=self._t("gc.f.new"),
                         variable=f_new).pack(side="left", padx=6)
         f_direct = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text="nur direkte Linie",
+        ttk.Checkbutton(bar, text=self._t("gc.f.direct"),
                         variable=f_direct).pack(side="left", padx=6)
-        ttk.Label(bar, text="ab cM:").pack(side="left")
+        ttk.Label(bar, text=self._t("gc.f.mincm")).pack(side="left")
         f_cm = tk.StringVar(value="0")
         ttk.Entry(bar, textvariable=f_cm, width=5).pack(side="left", padx=4)
-        ttk.Label(bar, text="Cluster:").pack(side="left", padx=(10,0))
+        ttk.Label(bar, text=self._t("gc.f.cluster")).pack(side="left", padx=(10,0))
         f_cluster = tk.StringVar(value="")
         cluster_opts = [""] + [str(c) for c in cluster_ids]
         cb_cluster = ttk.Combobox(bar, textvariable=f_cluster,
@@ -1758,7 +1812,7 @@ class AncestryDnaApp(tk.Tk):
         # frame mit expand=True den verbleibenden Mittelbereich füllt
         btn_bar = ttk.Frame(win)
         _cluster_btn = ttk.Button(btn_bar,
-                                  text="🌳 Stammbaum-Analyse für diesen Cluster",
+                                  text=self._t("gc.tree_btn"),
                                   state="disabled")
         _cluster_btn.pack(side="left", padx=4)
         btn_bar.pack(fill="x", padx=10, pady=(0, 4), side="bottom")
@@ -1924,32 +1978,44 @@ class AncestryDnaApp(tk.Tk):
 
         # Filter-Leiste
         fl = ttk.Frame(f); fl.pack(fill="x", padx=10, pady=6)
-        ttk.Label(fl, text="Suche:").pack(side="left", padx=(0,4))
+        _lbl_s = ttk.Label(fl, text=self._t("mf.search"))
+        _lbl_s.pack(side="left", padx=(0,4))
+        self._lang_widgets.append((_lbl_s, "mf.search"))
         self._search_var = tk.StringVar()
         self._search_var.trace_add("write", lambda *_: self._refresh_match_table())
         ttk.Entry(fl, textvariable=self._search_var, width=20).pack(side="left")
 
-        ttk.Label(fl, text="  Beziehung:").pack(side="left", padx=(10,4))
+        _lbl_r = ttk.Label(fl, text=self._t("mf.rel"))
+        _lbl_r.pack(side="left", padx=(10,4))
+        self._lang_widgets.append((_lbl_r, "mf.rel"))
         self._rel_var = tk.StringVar(value="(alle)")
         self._rel_combo = ttk.Combobox(fl, textvariable=self._rel_var, width=22, state="readonly")
         self._rel_combo.pack(side="left")
         self._rel_combo.bind("<<ComboboxSelected>>", lambda _: self._refresh_match_table())
 
-        ttk.Label(fl, text="  min cM:").pack(side="left", padx=(10,4))
+        _lbl_c = ttk.Label(fl, text=self._t("mf.mincm"))
+        _lbl_c.pack(side="left", padx=(10,4))
+        self._lang_widgets.append((_lbl_c, "mf.mincm"))
         self._min_cm_var = tk.StringVar(value="0")
         ttk.Entry(fl, textvariable=self._min_cm_var, width=6).pack(side="left")
         ttk.Button(fl, text="↩", width=3, command=self._refresh_match_table).pack(side="left", padx=2)
 
         self._starred_var = tk.BooleanVar()
-        ttk.Checkbutton(fl, text="Markierte", variable=self._starred_var,
-                         command=self._refresh_match_table).pack(side="left", padx=(10,0))
+        _cb_starred = ttk.Checkbutton(fl, text=self._t("mf.starred"), variable=self._starred_var,
+                                       command=self._refresh_match_table)
+        _cb_starred.pack(side="left", padx=(10,0))
+        self._lang_widgets.append((_cb_starred, "mf.starred"))
         self._tree_var = tk.BooleanVar()
-        ttk.Checkbutton(fl, text="Mit Stammbaum", variable=self._tree_var,
-                         command=self._refresh_match_table).pack(side="left", padx=6)
+        _cb_tree = ttk.Checkbutton(fl, text=self._t("mf.tree"), variable=self._tree_var,
+                                    command=self._refresh_match_table)
+        _cb_tree.pack(side="left", padx=6)
+        self._lang_widgets.append((_cb_tree, "mf.tree"))
         self._hide_endo_var = tk.BooleanVar()
-        ttk.Checkbutton(fl, text="🔇 Rauschen ausblenden",
-                        variable=self._hide_endo_var,
-                        command=self._refresh_match_table).pack(side="left", padx=6)
+        _cb_endo = ttk.Checkbutton(fl, text=self._t("mf.endo"),
+                                    variable=self._hide_endo_var,
+                                    command=self._refresh_match_table)
+        _cb_endo.pack(side="left", padx=6)
+        self._lang_widgets.append((_cb_endo, "mf.endo"))
 
         self._match_count_var = tk.StringVar(value="")
         ttk.Label(fl, textvariable=self._match_count_var,
@@ -2346,22 +2412,27 @@ class AncestryDnaApp(tk.Tk):
 
         # Einstellungen
         cf = ttk.Frame(f); cf.pack(fill="x", padx=14, pady=8)
-        ttk.Label(cf, text="Primäre cM von:").pack(side="left")
+        _lbl_pf = ttk.Label(cf, text=self._t("cl.prim_from")); _lbl_pf.pack(side="left")
+        self._lang_widgets.append((_lbl_pf, "cl.prim_from"))
         self._cluster_min_cm_var = tk.StringVar(value="20")
         ttk.Entry(cf, textvariable=self._cluster_min_cm_var, width=6).pack(side="left", padx=6)
-        ttk.Label(cf, text="bis:").pack(side="left", padx=(4,4))
+        _lbl_pt = ttk.Label(cf, text=self._t("cl.prim_to")); _lbl_pt.pack(side="left", padx=(4,4))
+        self._lang_widgets.append((_lbl_pt, "cl.prim_to"))
         self._cluster_max_cm_var = tk.StringVar(value="400")
         ttk.Entry(cf, textvariable=self._cluster_max_cm_var, width=6).pack(side="left")
-        ttk.Label(cf, text="Min. cM Shared:").pack(side="left", padx=(14,4))
+        _lbl_sm = ttk.Label(cf, text=self._t("cl.shared_min")); _lbl_sm.pack(side="left", padx=(14,4))
+        self._lang_widgets.append((_lbl_sm, "cl.shared_min"))
         self._cluster_shared_cm_var = tk.StringVar(value="20")
         ttk.Entry(cf, textvariable=self._cluster_shared_cm_var, width=6).pack(side="left")
-        ttk.Button(cf, text="🔄 Cluster berechnen",
-                   command=self._refresh_cluster).pack(side="left", padx=14)
+        _cl_calc = ttk.Button(cf, text=self._t("cl.calc_btn"), command=self._refresh_cluster)
+        _cl_calc.pack(side="left", padx=14)
+        self._lang_widgets.append((_cl_calc, "cl.calc_btn"))
         self._cluster_count_var = tk.StringVar(value="")
         ttk.Label(cf, textvariable=self._cluster_count_var,
                   foreground=COLORS["primary"]).pack(side="left")
-        ttk.Button(cf, text="🌳 Stammbaum-Analyse",
-                   command=self._show_cluster_tree).pack(side="left", padx=14)
+        _cl_tree = ttk.Button(cf, text=self._t("cl.tree_btn"), command=self._show_cluster_tree)
+        _cl_tree.pack(side="left", padx=14)
+        self._lang_widgets.append((_cl_tree, "cl.tree_btn"))
 
         # Interpretation
         self._cluster_text_var = tk.StringVar(value="")
@@ -2374,7 +2445,8 @@ class AncestryDnaApp(tk.Tk):
         pane.pack(fill="both", expand=True, padx=14, pady=4)
 
         # Linke Seite: Cluster-Liste
-        left = ttk.LabelFrame(pane, text="Cluster", padding=6)
+        left = ttk.LabelFrame(pane, text=self._t("cl.frm_left"), padding=6)
+        self._lang_widgets.append((left, "cl.frm_left"))
         pane.add(left, weight=1)
         self._cluster_list = ttk.Treeview(left, columns=("cid","count","max_cm","top"),
                                            show="headings", selectmode="browse")
@@ -2394,7 +2466,8 @@ class AncestryDnaApp(tk.Tk):
         self._cluster_list.bind("<<TreeviewSelect>>", self._on_cluster_select)
 
         # Mittlere Seite: Mitglieder
-        mid = ttk.LabelFrame(pane, text="Cluster-Mitglieder", padding=6)
+        mid = ttk.LabelFrame(pane, text=self._t("cl.frm_mid"), padding=6)
+        self._lang_widgets.append((mid, "cl.frm_mid"))
         pane.add(mid, weight=2)
         self._member_tree = ttk.Treeview(mid, columns=("name","cm","rel","baum"),
                                           show="headings", selectmode="browse")
@@ -2413,7 +2486,8 @@ class AncestryDnaApp(tk.Tk):
         sy2.pack(side="right", fill="y")
 
         # Rechte Seite: Paarweise cM zwischen Mitgliedern
-        right = ttk.LabelFrame(pane, text="Gegenseitige cM (Mitglieder untereinander)", padding=6)
+        right = ttk.LabelFrame(pane, text=self._t("cl.frm_right"), padding=6)
+        self._lang_widgets.append((right, "cl.frm_right"))
         pane.add(right, weight=2)
         self._pairwise_tree = ttk.Treeview(right, columns=("a","b","cm"),
                                             show="headings", selectmode="none")

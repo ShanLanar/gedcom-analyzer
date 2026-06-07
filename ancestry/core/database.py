@@ -300,13 +300,15 @@ class Database:
             cur.execute("UPDATE matches SET name_attempts=0 WHERE test_guid=?", (test_guid,))
             return cur.rowcount
 
-    def get_matches_needing_pedigree(self, test_guid: str, min_cm: float = 0.0) -> list:
+    def get_matches_needing_pedigree(self, test_guid: str, min_cm: float = 0.0,
+                                      force: bool = False) -> list:
         """[(match_guid, display_name)] für Matches mit Baum, deren Pedigree noch fehlt."""
+        skip_fetched = "" if force else "AND COALESCE(pedigree_fetched,0)=0 "
         with self._cursor() as cur:
             cur.execute(
                 "SELECT match_guid, display_name FROM matches "
                 "WHERE test_guid=? AND has_tree=1 "
-                "AND COALESCE(pedigree_fetched,0)=0 AND shared_cm>=? "
+                f"{skip_fetched}AND shared_cm>=? "
                 "ORDER BY shared_cm DESC", (test_guid, min_cm))
             return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]
 

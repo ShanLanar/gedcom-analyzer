@@ -75,9 +75,9 @@ class Scraper:
         self._launch("_run_fetch_ancestors", test_guid, min_cm)
 
     def start_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0,
-                              max_generations: int = 5):
+                              max_generations: int = 5, force: bool = False):
         """Lädt Ahnentafeln für Matches mit Baum ab min_cm. max_generations > 5 aktiviert Re-Fokussierung."""
-        self._launch("_run_fetch_pedigrees", test_guid, min_cm, max_generations)
+        self._launch("_run_fetch_pedigrees", test_guid, min_cm, max_generations, force)
 
     def start_deepen_pedigrees(self, test_guid: str, guids: list):
         """Lädt für gezielte Matches TIEFE Ahnentafeln (Re-Fokussierung)."""
@@ -230,7 +230,7 @@ class Scraper:
         self._on_done(result)
 
     def _run_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0,
-                             max_generations: int = 5):
+                             max_generations: int = 5, force: bool = False):
         """Holt pro Match (mit Baum) die Ahnentafel.
         max_generations > 5 aktiviert Re-Fokussierung (mehr API-Calls pro Match).
         Parallelisiert über mehrere Worker."""
@@ -238,7 +238,7 @@ class Scraper:
         import threading
 
         result = DownloadResult()
-        todo = self._db.get_matches_needing_pedigree(test_guid, min_cm)
+        todo = self._db.get_matches_needing_pedigree(test_guid, min_cm, force=force)
         total = len(todo)
         workers = max(1, int(getattr(cfg, "PEDIGREE_WORKERS", 4)))
         delay   = float(getattr(cfg, "PEDIGREE_REQUEST_DELAY", 1.0))
@@ -249,8 +249,11 @@ class Scraper:
                  total, max_generations, max_extra, workers)
 
         if not todo:
-            result.message = ("Keine offenen Matches mit Baum. "
-                              "Erst 'Namen & Stammbaum laden' ausführen.")
+            result.message = (
+                "Keine Matches mit Baum gefunden." if force
+                else "Keine offenen Matches mit Baum. "
+                     "Erst 'Namen & Stammbaum laden' ausführen "
+                     "oder '🔄 Alle neu laden' aktivieren.")
             result.success = True
             self._on_status(result.message)
             self._on_done(result)
