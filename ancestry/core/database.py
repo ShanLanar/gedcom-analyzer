@@ -1206,4 +1206,29 @@ class Database:
             """, params)
             row = cur.fetchone()
             r["ped_avg_depth"] = round(row[0], 1) if row and row[0] else 0.0
+
+            # GEDCOM-Bridge-Statistiken (Tabellen evtl. noch nicht vorhanden)
+            try:
+                cur.execute("SELECT COUNT(*) FROM gedcom_persons")
+                r["gedcom_persons"] = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT COUNT(DISTINCT match_guid) FROM gedcom_links {where}
+                """, params)
+                r["gedcom_linked"] = cur.fetchone()[0]
+            except Exception:
+                r["gedcom_persons"] = 0
+                r["gedcom_linked"] = 0
         return r
+
+    def get_bridge_hit_counts(self, test_guid: str) -> dict:
+        """Gibt {match_guid: link_count} für alle Matches mit Bridge-Treffern zurück."""
+        try:
+            with self._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT match_guid, COUNT(*) FROM gedcom_links "
+                    "WHERE test_guid=? GROUP BY match_guid",
+                    (test_guid,),
+                ).fetchall()
+            return {r[0]: r[1] for r in rows}
+        except Exception:
+            return {}

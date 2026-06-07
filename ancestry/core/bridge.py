@@ -444,3 +444,44 @@ def run_match_all(db, test_guid: str, progress_cb=None) -> int:
         if progress_cb:
             progress_cb(i + 1, len(match_guids))
     return total_links
+
+
+# ── Phase 2: Sosa + Seiten-Ableitung ─────────────────────────────────────────
+
+def path_to_sosa(path: str) -> int:
+    """Sosa-Stradonitz-Nummer aus Vorfahren-Pfad.
+    '' → 1 (Proband), 'F' → 2, 'M' → 3, 'FF' → 4, 'FM' → 5, …"""
+    sosa = 1
+    for ch in path:
+        sosa = sosa * 2 if ch == "F" else sosa * 2 + 1
+    return sosa
+
+
+def infer_side_from_links(db, test_guid: str, match_guid: str, amap: dict) -> str:
+    """Leitet die väterliche/mütterliche Seite aus Bridge-Links + Ahnen-Map ab.
+    amap = {ged_id: path_string} aus build_ancestor_map().
+    Rückgabe: 'paternal', 'maternal', 'both' oder '' (unbekannt)."""
+    try:
+        with db._cursor() as cur:
+            ged_ids = [r[0] for r in cur.execute(
+                "SELECT ged_id FROM gedcom_links WHERE test_guid=? AND match_guid=?",
+                (test_guid, match_guid),
+            ).fetchall()]
+    except Exception:
+        return ""
+    if not ged_ids:
+        return ""
+    sides: set = set()
+    for gid in ged_ids:
+        path = amap.get(gid, "")
+        if path.startswith("F"):
+            sides.add("paternal")
+        elif path.startswith("M"):
+            sides.add("maternal")
+    if sides == {"paternal"}:
+        return "paternal"
+    if sides == {"maternal"}:
+        return "maternal"
+    if sides:
+        return "both"
+    return ""
