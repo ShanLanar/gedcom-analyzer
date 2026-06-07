@@ -41,6 +41,18 @@ COLORS = {
     "cluster" : ["#FFD6D6","#D6F5E3","#D6E4FF","#FFF3CD","#F0D6FF","#D6F0FF"],
 }
 
+COLORS_DARK = {
+    "primary" : "#2E75B6",
+    "accent"  : "#4A9FD4",
+    "light"   : "#2A3A4A",
+    "bg"      : "#1A2130",
+    "text"    : "#E8EDF2",
+    "success" : "#4CAF50",
+    "warning" : "#FF9800",
+    "white"   : "#FFFFFF",
+    "cluster" : ["#4A2020","#1E4A2A","#1A2E4A","#3A3010","#2E1A4A","#0A2A3A"],
+}
+
 TRANSLATIONS: dict[str, dict[str, str]] = {
     # Tabs
     "tab_login":    {"de": "  🔑 Login  ",        "en": "  🔑 Login  "},
@@ -57,6 +69,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "m.rel":     {"de": "Beziehung",   "en": "Relationship"},
     "m.tree":    {"de": "Stammbaum",   "en": "Tree"},
     "m.ca":      {"de": "Vorfahre",    "en": "Ancestor"},
+    "m.ged":     {"de": "🌳",           "en": "🌳"},
     "m.starred": {"de": "⭐",           "en": "⭐"},
     # Cluster list
     "cl.cid":   {"de": "Cluster",   "en": "Cluster"},
@@ -189,6 +202,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "st.ped_loaded":{"de": "Ahnentafeln geladen:",                 "en": "Pedigrees loaded:"},
     "st.ped_depth": {"de": "Ø Generationstiefe:",                  "en": "Avg. generation depth:"},
     "st.ped_surn":  {"de": "Unterschiedliche Nachnamen:",          "en": "Distinct surnames:"},
+    "st.ged_kz":    {"de": "GEDCOM-Brücke",                        "en": "GEDCOM Bridge"},
+    "st.ged_pers":  {"de": "GEDCOM-Personen:",                     "en": "GEDCOM persons:"},
+    "st.ged_linked":{"de": "Matches mit Treffer:",                  "en": "Matches with hits:"},
     # Menu bar — cascade labels
     "mn.file":      {"de": "Datei",                                "en": "File"},
     "mn.view":      {"de": "Ansicht",                              "en": "View"},
@@ -226,6 +242,55 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mn.places":    {"de": "Geburtsort-Analyse …",                 "en": "Birth place analysis …"},
     "mn.mrca":      {"de": "MRCA-Wahrscheinlichkeit …",            "en": "MRCA probability …"},
     "mn.net_graph": {"de": "Cluster-Netzwerkgraph …",              "en": "Cluster network graph …"},
+    # Dark mode
+    "mn.darkmode":  {"de": "🌙 Dunkelmodus",                       "en": "🌙 Dark mode"},
+    # New export/analysis menu items
+    "mn.exp_ged":   {"de": "Vorfahren als GEDCOM exportieren …",   "en": "Export ancestors as GEDCOM …"},
+    "mn.imp_mta":   {"de": "MyTrueAncestry CSV importieren …",     "en": "Import MyTrueAncestry CSV …"},
+    "mn.ped_gaps":  {"de": "Ahnentafel-Lücken analysieren …",      "en": "Pedigree gap analysis …"},
+    "mn.auto_sides":{"de": "Seiten automatisch zuweisen (Mutter-Kit)…",
+                     "en": "Auto-assign sides (mother kit)…"},
+    "mn.endo_score":{"de": "Endogamie-Score-Analyse …",            "en": "Endogamy score analysis …"},
+    "mn.cl_timeline":{"de": "Cluster-Zeitachse …",                 "en": "Cluster timeline …"},
+    # Quick-filter chips
+    "mf.chip_star": {"de": "★ Markierte",    "en": "★ Starred"},
+    "mf.chip_tree": {"de": "🌳 Mit Baum",    "en": "🌳 With tree"},
+    "mf.chip_200":  {"de": ">200 cM",        "en": ">200 cM"},
+    "mf.chip_pat":  {"de": "🔵 Väterlich",   "en": "🔵 Paternal"},
+    "mf.chip_mat":  {"de": "🔴 Mütterlich",  "en": "🔴 Maternal"},
+    # Empty state
+    "mf.empty":     {"de": "📭  Noch keine Matches geladen",       "en": "📭  No matches loaded yet"},
+    "mf.empty_hint":{"de": "→ Tab »Herunterladen« öffnen",         "en": "→ Open »Download« tab"},
+    # Download dashboard
+    "dl.pause":     {"de": "⏸ Pause",        "en": "⏸ Pause"},
+    "dl.resume":    {"de": "▶ Fortsetzen",   "en": "▶ Resume"},
+    "dl.eta":       {"de": "Verbleibend:",   "en": "Remaining:"},
+    "dl.dash_mat":  {"de": "🧬 Matches",     "en": "🧬 Matches"},
+    "dl.dash_tree": {"de": "🌳 Mit Baum",    "en": "🌳 With tree"},
+    "dl.dash_sh":   {"de": "👥 Shared",      "en": "👥 Shared"},
+    "dl.dash_err":  {"de": "❌ Fehler",      "en": "❌ Errors"},
+    # Detail panel
+    "md.rel_prob":  {"de": "Beziehungswahrscheinlichkeit",         "en": "Relationship probability"},
+    "md.checklist": {"de": "Forschungs-Checkliste",                "en": "Research checklist"},
+    "md.chk0":      {"de": "Baum angeschaut",                      "en": "Tree reviewed"},
+    "md.chk1":      {"de": "Nachricht gesendet",                   "en": "Message sent"},
+    "md.chk2":      {"de": "Gemeinsame Vorfahren geprüft",         "en": "Common ancestors checked"},
+    "md.chk3":      {"de": "In Cluster eingeordnet",               "en": "Assigned to cluster"},
+    "md.chk4":      {"de": "Seite zugewiesen (v/m)",               "en": "Side assigned (p/m)"},
+    "md.fs_link":   {"de": "🔍 FamilySearch …",                    "en": "🔍 FamilySearch …"},
+    "md.tab_gedcom":{"de": "🌳 GEDCOM-Treffer",                   "en": "🌳 GEDCOM Hits"},
+    "md.ged_none":  {"de": "Kein GEDCOM geladen – Analyse → Eigenen Baum abgleichen", "en": "No GEDCOM loaded – Analysis → Match own tree"},
+    "md.ged_no_ped":{"de": "Keine Ahnentafel-Daten für diesen Match.", "en": "No pedigree data for this match."},
+    "md.ged_searching": {"de": "Suche …", "en": "Searching …"},
+    "md.ged_run_all":   {"de": "🔄 Alle Matches abgleichen", "en": "🔄 Match all"},
+    # Cluster tab
+    "cl.quality":   {"de": "Güte",           "en": "Quality"},
+    "cl.desc":      {"de": "Cluster-Beschreibung:",                "en": "Cluster description:"},
+    "cl.timeline":  {"de": "📅 Zeitachse",   "en": "📅 Timeline"},
+    # Statistics tab
+    "st.with_tree_pct": {"de": "Mit Baum %:", "en": "With tree %:"},
+    "st.side_pct":      {"de": "Seite bekannt %:", "en": "Side known %:"},
+    "st.endo_pct":      {"de": "Cluster bekannt %:", "en": "Cluster known %:"},
 }
 
 
@@ -236,7 +301,7 @@ class AncestryDnaApp(tk.Tk):
         self.title("Ancestry DNA Tool")
         self.geometry("1200x760")
         self.minsize(960, 620)
-        self.configure(bg=COLORS["bg"])
+        self.configure(bg=self._active_colors()["bg"])
 
         self._auth    : Optional[AncestryAuth]      = None
         self._client  : Optional[AncestryApiClient] = None
@@ -252,6 +317,12 @@ class AncestryDnaApp(tk.Tk):
         self._lang_widgets:        list = []   # (widget_or_sv, key[, suffix]) tuples
         self._lang_menus:          list = []   # (menu, index, key) tuples
         self._lang_inner_nb_tabs:  list = []   # (notebook, frame, key) tuples
+        self._dark_mode:           bool = False
+        self._pause_event:         threading.Event = threading.Event()
+        self._pause_event.set()  # not paused initially
+        self._dl_counters = {"matches": 0, "trees": 0, "shared": 0, "errors": 0}
+        self._dl_t0: float = 0.0
+        self._dl_total: int = 1
 
         self._build_style()
         self._build_menu()
@@ -267,30 +338,41 @@ class AncestryDnaApp(tk.Tk):
     def _build_style(self):
         s = ttk.Style(self)
         s.theme_use("clam")
-        s.configure("TNotebook",         background=COLORS["bg"])
+        C = self._active_colors()
+        s.configure("TNotebook",         background=C["bg"])
         s.configure("TNotebook.Tab",     padding=[14, 6],
-                    background=COLORS["light"], foreground=COLORS["text"],
+                    background=C["light"], foreground=C["text"],
                     font=("Segoe UI", 10))
         s.map("TNotebook.Tab",
-              background=[("selected", COLORS["primary"])],
-              foreground=[("selected", COLORS["white"])])
-        s.configure("TFrame",            background=COLORS["bg"])
-        s.configure("TLabel",            background=COLORS["bg"],
-                    foreground=COLORS["text"], font=("Segoe UI", 10))
-        s.configure("Header.TLabel",     background=COLORS["primary"],
-                    foreground=COLORS["white"], font=("Segoe UI", 13, "bold"), padding=10)
-        s.configure("Bold.TLabel",       background=COLORS["bg"],
+              background=[("selected", C["primary"])],
+              foreground=[("selected", C["white"])])
+        s.configure("TFrame",            background=C["bg"])
+        s.configure("TLabel",            background=C["bg"],
+                    foreground=C["text"], font=("Segoe UI", 10))
+        s.configure("Header.TLabel",     background=C["primary"],
+                    foreground=C["white"], font=("Segoe UI", 13, "bold"), padding=10)
+        s.configure("Bold.TLabel",       background=C["bg"],
                     font=("Segoe UI", 10, "bold"))
-        s.configure("Success.TLabel",    background=COLORS["bg"],
-                    foreground=COLORS["success"], font=("Segoe UI", 10, "bold"))
-        s.configure("Warning.TLabel",    background=COLORS["bg"],
-                    foreground=COLORS["warning"], font=("Segoe UI", 10, "bold"))
+        s.configure("Success.TLabel",    background=C["bg"],
+                    foreground=C["success"], font=("Segoe UI", 10, "bold"))
+        s.configure("Warning.TLabel",    background=C["bg"],
+                    foreground=C["warning"], font=("Segoe UI", 10, "bold"))
         s.configure("TButton",           font=("Segoe UI", 10), padding=6)
-        s.configure("TProgressbar",      troughcolor=COLORS["light"],
-                    background=COLORS["accent"])
+        s.configure("TProgressbar",      troughcolor=C["light"],
+                    background=C["accent"])
         s.configure("Treeview",          rowheight=24, font=("Segoe UI", 9))
         s.configure("Treeview.Heading",  font=("Segoe UI", 9, "bold"),
-                    background=COLORS["primary"], foreground=COLORS["white"])
+                    background=C["primary"], foreground=C["white"])
+
+    # ── Theme / Dark mode ─────────────────────────────────────────────────────
+
+    def _toggle_theme(self):
+        self._dark_mode = not self._dark_mode
+        self._build_style()
+        self._save_ui_settings(dark_mode=self._dark_mode)
+
+    def _active_colors(self):
+        return COLORS_DARK if self._dark_mode else COLORS
 
     # ── Menü ──────────────────────────────────────────────────────────────────
 
@@ -318,8 +400,10 @@ class AncestryDnaApp(tk.Tk):
         vm.add_command(label=self._t("mn.recalc_cl"), command=self._refresh_cluster)
         vm.add_separator()
         vm.add_command(label=self._t("mn.language"),  command=self._toggle_lang)
+        vm.add_command(label=self._t("mn.darkmode"),  command=self._toggle_theme)
         mb.add_cascade(label=self._t("mn.view"), menu=vm)
-        for idx, key in [(0,"mn.refresh_t"),(1,"mn.recalc_cl"),(3,"mn.language")]:
+        for idx, key in [(0,"mn.refresh_t"),(1,"mn.recalc_cl"),(3,"mn.language"),
+                         (4,"mn.darkmode")]:
             self._lang_menus.append((vm, idx, key))
         self._lang_menus.append((mb, 1, "mn.view"))
 
@@ -343,12 +427,21 @@ class AncestryDnaApp(tk.Tk):
         am.add_command(label=self._t("mn.places"),      command=self._show_place_analysis)
         am.add_command(label=self._t("mn.mrca"),        command=self._show_mrca_analysis)
         am.add_command(label=self._t("mn.net_graph"),   command=self._show_network_graph)
+        am.add_separator()
+        am.add_command(label=self._t("mn.exp_ged"),     command=self._export_gedcom)
+        am.add_command(label=self._t("mn.imp_mta"),     command=self._import_mta)
+        am.add_separator()
+        am.add_command(label=self._t("mn.ped_gaps"),    command=self._show_pedigree_gaps)
+        am.add_command(label=self._t("mn.auto_sides"),  command=self._auto_assign_sides)
+        am.add_command(label=self._t("mn.endo_score"),  command=self._show_endogamy_analysis)
         mb.add_cascade(label=self._t("mn.analysis"), menu=am)
         for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
                          (9,"mn.reset_sh"),(10,"mn.reset_nm"),(12,"mn.refresh_lk"),
                          (13,"mn.chg_ged"),(15,"mn.surnames"),(16,"mn.places"),
-                         (17,"mn.mrca"),(18,"mn.net_graph")]:
+                         (17,"mn.mrca"),(18,"mn.net_graph"),
+                         (20,"mn.exp_ged"),(21,"mn.imp_mta"),
+                         (23,"mn.ped_gaps"),(24,"mn.auto_sides"),(25,"mn.endo_score")]:
             self._lang_menus.append((am, idx, key))
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
@@ -719,6 +812,34 @@ class AncestryDnaApp(tk.Tk):
         self._progress_lbl = tk.StringVar(value="—")
         ttk.Label(f, textvariable=self._progress_lbl).grid(row=17, column=2, sticky="w", **p)
 
+        # Pause-Button
+        self._pause_sv = tk.StringVar(value=self._t("dl.pause"))
+        self._pause_btn = ttk.Button(f, textvariable=self._pause_sv,
+                                      command=self._toggle_pause, state="disabled")
+        self._pause_btn.grid(row=17, column=3, sticky="w", **p)
+        self._lang_widgets.append((self._pause_sv, "dl.pause"))
+
+        # ETA-Label
+        self._eta_var = tk.StringVar(value="")
+        ttk.Label(f, textvariable=self._eta_var, foreground="#777777").grid(
+            row=17, column=4, sticky="w", **p)
+
+        # Dashboard: 4 Live-Zähler
+        dash = ttk.Frame(f); dash.grid(row=17, column=5, sticky="w", padx=8)
+        self._dash_vars: dict[str, tk.StringVar] = {}
+        for i, (key, icon) in enumerate([("dl.dash_mat","🧬"),("dl.dash_tree","🌳"),
+                                          ("dl.dash_sh","👥"),("dl.dash_err","❌")]):
+            col_frame = ttk.Frame(dash); col_frame.grid(row=0, column=i, padx=6)
+            _sv_d = tk.StringVar(value=self._t(key))
+            ttk.Label(col_frame, textvariable=_sv_d, foreground="#777777",
+                      font=("Segoe UI", 8)).pack()
+            self._lang_widgets.append((_sv_d, key))
+            val_sv = tk.StringVar(value="0")
+            ttk.Label(col_frame, textvariable=val_sv, font=("Segoe UI", 11, "bold"),
+                      foreground=COLORS["primary"]).pack()
+            dk = key.replace("dl.dash_","")
+            self._dash_vars[dk] = val_sv
+
         # ── Log ───────────────────────────────────────────────────────────────
         _sv = tk.StringVar(value=self._t("dl.log"))
         ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
@@ -783,6 +904,9 @@ class AncestryDnaApp(tk.Tk):
         self._current_test_guid = guid
         self._start_btn.configure(state="disabled")
         self._stop_btn.configure(state="normal")
+        self._pause_btn.configure(state="normal")
+        self._dl_t0 = 0.0
+        self._pause_event.set()
         self._progress_var.set(0)
         self._scraper = Scraper(self._client, self._db,
                                  on_progress=self._on_progress,
@@ -2731,17 +2855,63 @@ class AncestryDnaApp(tk.Tk):
         self._shared_stop_btn.configure(state="disabled")
         self._names_stop_btn.configure(state="disabled")
 
+    def _toggle_pause(self):
+        if self._pause_event.is_set():
+            self._pause_event.clear()
+            self._pause_sv.set(self._t("dl.resume"))
+            self._set_status("⏸ Download pausiert.")
+        else:
+            self._pause_event.set()
+            self._pause_sv.set(self._t("dl.pause"))
+            self._set_status("▶ Download fortgesetzt.")
+
     def _on_progress(self, fetched, total, label):
+        import time
         pct = min(100.0, (fetched / max(total, 1)) * 100)
+        if self._dl_t0 == 0.0:
+            self._dl_t0 = time.monotonic()
+        elapsed = time.monotonic() - self._dl_t0
+        remaining = fetched and elapsed and (elapsed / fetched * max(total - fetched, 0))
+        if remaining and remaining < 3600 * 5:
+            mins, secs = divmod(int(remaining), 60)
+            eta_txt = f"~{mins}m {secs:02d}s"
+        else:
+            eta_txt = ""
+        # Update tree counter from DB
+        try:
+            tg = self._current_test_guid or self._get_kit_guid()
+            if tg:
+                self._dl_counters["matches"] = self._db.get_match_count(tg)
+                with self._db._cursor() as cur:
+                    cur.execute("SELECT COUNT(*) FROM matches WHERE test_guid=? AND has_tree=1", (tg,))
+                    self._dl_counters["trees"] = cur.fetchone()[0]
+                    cur.execute("SELECT COUNT(*) FROM shared_matches WHERE test_guid=?", (tg,))
+                    self._dl_counters["shared"] = cur.fetchone()[0]
+        except Exception:
+            pass
         def _u():
             self._progress_var.set(pct)
             self._progress_lbl.set(f"{fetched} / ~{total}  –  {label[:45]}")
+            self._eta_var.set(eta_txt)
+            if hasattr(self, "_dash_vars"):
+                self._dash_vars.get("mat_") or None
+                for k, sv in [
+                    ("mat",  str(self._dl_counters["matches"])),
+                    ("tree", str(self._dl_counters["trees"])),
+                    ("sh",   str(self._dl_counters["shared"])),
+                    ("err",  str(self._dl_counters["errors"])),
+                ]:
+                    if k in self._dash_vars:
+                        self._dash_vars[k].set(sv)
         self.after(0, _u)
 
     def _on_done(self, result: DownloadResult):
         def _u():
             self._start_btn.configure(state="normal")
             self._stop_btn.configure(state="disabled")
+            self._pause_btn.configure(state="disabled")
+            self._pause_sv.set(self._t("dl.pause"))
+            self._eta_var.set("")
             self._set_status(("✅ " if result.success else "⚠️ ") + result.message)
             self._refresh_match_table()
             self._refresh_stats()
@@ -2811,6 +2981,31 @@ class AncestryDnaApp(tk.Tk):
                   foreground=COLORS["primary"]).pack(side="right", padx=8)
         ttk.Button(fl, text="↻", command=self._refresh_match_table).pack(side="right", padx=4)
 
+        # Schnellfilter-Chips
+        cf = ttk.Frame(f); cf.pack(fill="x", padx=10, pady=(0, 4))
+        self._chip_vars: dict[str, tk.BooleanVar] = {}
+        chip_defs = [
+            ("star",  "mf.chip_star",  self._chip_starred),
+            ("tree",  "mf.chip_tree",  self._chip_tree),
+            ("cm200", "mf.chip_200",   self._chip_cm200),
+            ("pat",   "mf.chip_pat",   self._chip_pat),
+            ("mat",   "mf.chip_mat",   self._chip_mat),
+        ]
+        self._chip_btns: dict[str, tk.Button] = {}
+        for key, t_key, cmd in chip_defs:
+            var = tk.BooleanVar(value=False)
+            self._chip_vars[key] = var
+            btn = tk.Button(
+                cf, text=self._t(t_key),
+                font=("Segoe UI", 9), relief="flat", bd=1,
+                bg=COLORS["light"], fg=COLORS["text"],
+                activebackground=COLORS["primary"], activeforeground=COLORS["white"],
+                cursor="hand2", padx=10, pady=3,
+                command=lambda k=key, c=cmd: self._toggle_chip(k, c),
+            )
+            btn.pack(side="left", padx=3)
+            self._chip_btns[key] = btn
+
         # Haupt-Pane
         pane = ttk.PanedWindow(f, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10, pady=4)
@@ -2821,8 +3016,42 @@ class AncestryDnaApp(tk.Tk):
         self._build_match_tree(left)
         self._build_detail_panel(right)
 
+    def _chip_starred(self):
+        self._starred_var.set(self._chip_vars["star"].get())
+        self._refresh_match_table()
+
+    def _chip_tree(self):
+        self._tree_var.set(self._chip_vars["tree"].get())
+        self._refresh_match_table()
+
+    def _chip_cm200(self):
+        self._min_cm_var.set("200" if self._chip_vars["cm200"].get() else "0")
+        self._refresh_match_table()
+
+    def _chip_pat(self):
+        if self._chip_vars["pat"].get():
+            self._chip_vars["mat"].set(False)
+            self._chip_btns["mat"].configure(bg=COLORS["light"], fg=COLORS["text"])
+        self._refresh_match_table()
+
+    def _chip_mat(self):
+        if self._chip_vars["mat"].get():
+            self._chip_vars["pat"].set(False)
+            self._chip_btns["pat"].configure(bg=COLORS["light"], fg=COLORS["text"])
+        self._refresh_match_table()
+
+    def _toggle_chip(self, key: str, cmd):
+        new_val = not self._chip_vars[key].get()
+        self._chip_vars[key].set(new_val)
+        btn = self._chip_btns[key]
+        if new_val:
+            btn.configure(bg=COLORS["primary"], fg=COLORS["white"])
+        else:
+            btn.configure(bg=COLORS["light"], fg=COLORS["text"])
+        cmd()
+
     def _build_match_tree(self, parent):
-        cols = ("name","guid","note","cm","seg","rel","tree","ca","starred")
+        cols = ("name","guid","note","cm","seg","rel","tree","ged","ca","starred")
         self._tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
         for col, (key, width, anchor) in {
             "name"   : ("m.name",    190, "w"),
@@ -2832,6 +3061,7 @@ class AncestryDnaApp(tk.Tk):
             "seg"    : ("m.seg",      45, "e"),
             "rel"    : ("m.rel",     150, "w"),
             "tree"   : ("m.tree",    140, "w"),
+            "ged"    : ("m.ged",      40, "center"),
             "ca"     : ("m.ca",       70, "center"),
             "starred": ("m.starred",  40, "center"),
         }.items():
@@ -2854,6 +3084,24 @@ class AncestryDnaApp(tk.Tk):
         self._tree.bind("<<TreeviewSelect>>", self._on_match_select)
         self._tree.bind("<Button-3>", self._on_match_rightclick)
         self._sort_col = "cm"; self._sort_asc = False
+
+        # Keyboard navigation
+        self._tree.bind("<Return>", lambda _: self._on_match_select(None))
+        self._tree.bind("<Escape>", lambda _: self._search_var.set("") or self._refresh_match_table())
+        self.bind_all("<F5>", lambda _: self._refresh_match_table())
+
+        # Empty state overlay
+        self._empty_frame = ttk.Frame(parent)
+        _ev = tk.StringVar(value=self._t("mf.empty"))
+        ttk.Label(self._empty_frame, textvariable=_ev,
+                  font=("Segoe UI", 14), foreground="#888888").pack(pady=(60, 8))
+        self._lang_widgets.append((_ev, "mf.empty"))
+        _eh = tk.StringVar(value=self._t("mf.empty_hint"))
+        ttk.Label(self._empty_frame, textvariable=_eh,
+                  font=("Segoe UI", 10), foreground="#AAAAAA").pack()
+        self._lang_widgets.append((_eh, "mf.empty_hint"))
+        ttk.Button(self._empty_frame, text="→ Download",
+                   command=lambda: self._nb.select(1)).pack(pady=12)
 
     def _build_detail_panel(self, parent):
         # Oberer Teil: Matchdetails
@@ -2885,27 +3133,62 @@ class AncestryDnaApp(tk.Tk):
             ttk.Label(row, textvariable=var, anchor="w").pack(side="left", padx=4)
             self._detail_fields[de_lbl] = var
 
-        ttk.Separator(info_frame, orient="horizontal").pack(fill="x", padx=8, pady=6)
+        # Relationship probability bars
+        ttk.Separator(info_frame, orient="horizontal").pack(fill="x", padx=8, pady=4)
+        _sv_rp = tk.StringVar(value=self._t("md.rel_prob"))
+        ttk.Label(info_frame, textvariable=_sv_rp,
+                  style="Bold.TLabel").pack(anchor="w", padx=8)
+        self._lang_widgets.append((_sv_rp, "md.rel_prob"))
+        self._rel_prob_canvas = tk.Canvas(info_frame, height=52, bg=COLORS["bg"],
+                                          highlightthickness=0)
+        self._rel_prob_canvas.pack(fill="x", padx=8, pady=(2, 4))
+
+        # Research checklist
+        ttk.Separator(info_frame, orient="horizontal").pack(fill="x", padx=8, pady=2)
+        _sv_cl = tk.StringVar(value=self._t("md.checklist"))
+        ttk.Label(info_frame, textvariable=_sv_cl,
+                  style="Bold.TLabel").pack(anchor="w", padx=8)
+        self._lang_widgets.append((_sv_cl, "md.checklist"))
+        self._checklist_vars: list[tk.BooleanVar] = []
+        chk_frame = ttk.Frame(info_frame); chk_frame.pack(fill="x", padx=8)
+        for i, key in enumerate(["md.chk0","md.chk1","md.chk2","md.chk3","md.chk4"]):
+            var = tk.BooleanVar()
+            self._checklist_vars.append(var)
+            _sv_c = tk.StringVar(value=self._t(key))
+            cb = ttk.Checkbutton(chk_frame, textvariable=_sv_c, variable=var,
+                                  command=lambda i=i: self._save_checklist(i))
+            cb.pack(anchor="w")
+            self._lang_widgets.append((_sv_c, key))
+
+        ttk.Separator(info_frame, orient="horizontal").pack(fill="x", padx=8, pady=4)
         _sv = tk.StringVar(value=self._t("md.note"))
         ttk.Label(info_frame, textvariable=_sv, style="Bold.TLabel").pack(anchor="w", padx=8)
         self._lang_widgets.append((_sv, "md.note"))
-        self._note_text = tk.Text(info_frame, height=5, font=("Segoe UI", 9),
+        self._note_text = tk.Text(info_frame, height=4, font=("Segoe UI", 9),
                                    wrap="word", relief="solid", borderwidth=1)
         self._note_text.pack(fill="x", padx=8, pady=4)
+        btn_row = ttk.Frame(info_frame); btn_row.pack(fill="x", padx=8, pady=2)
         _sv = tk.StringVar(value=self._t("md.save_note"))
-        ttk.Button(info_frame, textvariable=_sv,
-                   command=self._save_note).pack(anchor="w", padx=8, pady=2)
+        ttk.Button(btn_row, textvariable=_sv, command=self._save_note).pack(side="left", padx=(0,4))
         self._lang_widgets.append((_sv, "md.save_note"))
         _sv = tk.StringVar(value=self._t("md.open_anc"))
-        ttk.Button(info_frame, textvariable=_sv,
-                   command=self._open_in_ancestry).pack(anchor="w", padx=8, pady=2)
+        ttk.Button(btn_row, textvariable=_sv, command=self._open_in_ancestry).pack(side="left", padx=4)
         self._lang_widgets.append((_sv, "md.open_anc"))
+        _sv_fs = tk.StringVar(value=self._t("md.fs_link"))
+        ttk.Button(btn_row, textvariable=_sv_fs, command=self._open_familysearch).pack(side="left", padx=4)
+        self._lang_widgets.append((_sv_fs, "md.fs_link"))
 
         # Sub-Tab 2: Shared Matches
         sm_frame = ttk.Frame(self._detail_nb)
         self._detail_nb.add(sm_frame, text=self._t("md.tab_shared"))
         self._lang_inner_nb_tabs.append((self._detail_nb, sm_frame, "md.tab_shared"))
         self._build_shared_panel(sm_frame)
+
+        # Sub-Tab 3: GEDCOM-Bridge
+        ged_frame = ttk.Frame(self._detail_nb)
+        self._detail_nb.add(ged_frame, text=self._t("md.tab_gedcom"))
+        self._lang_inner_nb_tabs.append((self._detail_nb, ged_frame, "md.tab_gedcom"))
+        self._build_gedcom_link_panel(ged_frame)
 
         self._selected_match: Optional[DnaMatch] = None
 
@@ -2935,6 +3218,154 @@ class AncestryDnaApp(tk.Tk):
         self._sm_tree.pack(side="left", fill="both", expand=True, padx=(6,0), pady=4)
         sy.pack(side="right", fill="y", pady=4)
 
+    def _build_gedcom_link_panel(self, parent):
+        """Sub-Tab 3: GEDCOM-Treffer — zeigt Verbindungen zwischen Match-Vorfahren
+        und Personen im eigenen GEDCOM-Baum."""
+        tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=4)
+        self._ged_link_status = tk.StringVar(value=self._t("md.ged_none"))
+        ttk.Label(tb, textvariable=self._ged_link_status,
+                  foreground=COLORS["primary"]).pack(side="left")
+        _sv_all = tk.StringVar(value=self._t("md.ged_run_all"))
+        ttk.Button(tb, textvariable=_sv_all,
+                   command=self._run_gedcom_match_all).pack(side="right")
+        self._lang_widgets.append((_sv_all, "md.ged_run_all"))
+
+        cols = ("gen", "sosa", "path", "ped_name", "ped_year", "icon",
+                "ged_name", "ged_year", "score", "method")
+        self._ged_link_tree = ttk.Treeview(parent, columns=cols,
+                                            show="headings", selectmode="browse")
+        widths = {"gen": 30, "sosa": 45, "path": 50, "ped_name": 150, "ped_year": 48,
+                  "icon": 28, "ged_name": 150, "ged_year": 48,
+                  "score": 48, "method": 68}
+        labels = {"gen": "Gen", "sosa": "Sosa", "path": "Pfad",
+                  "ped_name": "Vorfahre (Match)", "ped_year": "Jahr",
+                  "icon": "", "ged_name": "GEDCOM-Person",
+                  "ged_year": "Jahr", "score": "Score", "method": "Methode"}
+        for col in cols:
+            self._ged_link_tree.heading(col, text=labels[col])
+            self._ged_link_tree.column(col, width=widths[col],
+                                        anchor="center" if col in ("gen","sosa","icon","score","ped_year","ged_year") else "w",
+                                        stretch=(col in ("ped_name","ged_name")))
+        self._ged_link_tree.tag_configure("strong", foreground=COLORS["success"])
+        self._ged_link_tree.tag_configure("weak",   foreground="#888888")
+        sy = ttk.Scrollbar(parent, orient="vertical", command=self._ged_link_tree.yview)
+        self._ged_link_tree.configure(yscrollcommand=sy.set)
+        self._ged_link_tree.pack(side="left", fill="both", expand=True, padx=(6,0), pady=2)
+        sy.pack(side="right", fill="y", pady=2)
+
+        # Doppelklick → GEDCOM-Person im Browser öffnen (FamilySearch-Suche)
+        self._ged_link_tree.bind("<Double-1>", self._on_ged_link_dblclick)
+
+    def _load_gedcom_link_panel(self, match: "DnaMatch"):
+        """Füllt den GEDCOM-Treffer-Tab für den ausgewählten Match."""
+        self._ged_link_tree.delete(*self._ged_link_tree.get_children())
+        ged = getattr(self, "_gedcom", None)
+        if not ged:
+            self._ged_link_status.set(self._t("md.ged_none"))
+            return
+
+        test_guid = self._current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set(self._t("md.ged_searching"))
+
+        def _worker():
+            try:
+                from core import bridge
+                bridge.ensure_tables(self._db)
+                # GEDCOM-Personen importieren, falls leer
+                if bridge.get_gedcom_person_count(self._db) == 0:
+                    n = bridge.import_gedcom_persons(
+                        self._db, ged["individuals"], ged.get("path", ""))
+                    log.info("bridge: %d Personen importiert", n)
+                rows = bridge.run_match_for_match(self._db, test_guid, match.match_guid)
+                self.after(0, lambda: self._fill_ged_link_tree(rows, match))
+            except Exception as exc:
+                log.warning("bridge: %s", exc)
+                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="bridge").start()
+
+    def _fill_ged_link_tree(self, rows: list, match: "DnaMatch"):
+        self._ged_link_tree.delete(*self._ged_link_tree.get_children())
+        if not rows:
+            self._ged_link_status.set(self._t("md.ged_no_ped"))
+            return
+        hits = sum(1 for r in rows if r["icon"])
+        self._ged_link_status.set(
+            f"{hits} Treffer von {len(rows)} Vorfahren  ·  {match.display_name}")
+        try:
+            from core.bridge import path_to_sosa
+        except Exception:
+            path_to_sosa = lambda p: ""  # noqa: E731
+        for r in rows:
+            tag = "strong" if r["icon"] == "✓" else ("weak" if not r["icon"] else "")
+            ap = r["ahnen_path"] or ""
+            sosa = path_to_sosa(ap) if ap else ""
+            self._ged_link_tree.insert("", "end", values=(
+                r["generation"], sosa, ap,
+                r["ped_name"],   r["ped_year"],
+                r["icon"],
+                r["ged_name"],   r["ged_year"],
+                r["score"],      r["method"],
+            ), tags=(tag,) if tag else ())
+
+    def _on_ged_link_dblclick(self, _event):
+        """Doppelklick auf eine GEDCOM-Treffer-Zeile → FamilySearch-Suche nach Name."""
+        sel = self._ged_link_tree.selection()
+        if not sel:
+            return
+        vals = self._ged_link_tree.item(sel[0], "values")
+        # cols: gen(0) sosa(1) path(2) ped_name(3) ped_year(4) icon(5) ged_name(6) ged_year(7)
+        if not vals or len(vals) < 8 or vals[6] == "—" or not vals[6]:
+            return
+        ged_name = vals[6]
+        ged_year = vals[7] or ""
+        from urllib.parse import quote
+        parts = ged_name.split()
+        if parts:
+            q = quote(parts[-1])
+            url = (f"https://www.familysearch.org/search/record/results"
+                   f"?q.surname={q}" + (f"&q.birthLikeDate.from={ged_year}&q.birthLikeDate.to={ged_year}"
+                                        if ged_year else ""))
+            import webbrowser
+            webbrowser.open(url)
+
+    def _run_gedcom_match_all(self):
+        """Bulk-Abgleich aller Matches gegen den GEDCOM-Baum."""
+        ged = getattr(self, "_gedcom", None)
+        if not ged:
+            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            return
+        test_guid = self._current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set("Bulk-Abgleich läuft …")
+
+        def _worker():
+            try:
+                from core import bridge
+                bridge.ensure_tables(self._db)
+                if bridge.get_gedcom_person_count(self._db) == 0:
+                    bridge.import_gedcom_persons(
+                        self._db, ged["individuals"], ged.get("path", ""))
+                total = bridge.run_match_all(self._db, test_guid)
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"Bulk-Abgleich fertig: {total} Treffer gesamt"))
+                # Match-Tabelle aktualisieren (🌳N-Spalte) + aktuelle Detail-Ansicht
+                self.after(0, self._refresh_match_table)
+                if self._selected_match:
+                    self.after(0, lambda: self._load_gedcom_link_panel(self._selected_match))
+            except Exception as exc:
+                log.warning("bridge bulk: %s", exc)
+                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="bridge-bulk").start()
+
     def _refresh_match_table(self, *_):
         try:
             min_cm = float(self._min_cm_var.get() or 0)
@@ -2947,7 +3378,7 @@ class AncestryDnaApp(tk.Tk):
         col_map = {"name":"display_name","guid":"match_guid","note":"tag_surname",
                    "cm":"shared_cm","seg":"shared_segments",
                    "rel":"predicted_relationship","tree":"tree_size",
-                   "ca":"has_common_ancestor","starred":"starred"}
+                   "ged":"match_guid","ca":"has_common_ancestor","starred":"starred"}
         sort_col = col_map.get(self._sort_col, "shared_cm")
 
         self._matches = self._db.get_matches(
@@ -2962,6 +3393,23 @@ class AncestryDnaApp(tk.Tk):
         )
         self._match_count_var.set(f"{len(self._matches)} Match(es)")
         self._tree.delete(*self._tree.get_children())
+        # Apply pat/mat chip filter
+        if hasattr(self, "_chip_vars"):
+            if self._chip_vars.get("pat", tk.BooleanVar()).get():
+                self._matches = [m for m in self._matches
+                                 if getattr(m, "paternal_maternal", "") == "paternal"]
+            elif self._chip_vars.get("mat", tk.BooleanVar()).get():
+                self._matches = [m for m in self._matches
+                                 if getattr(m, "paternal_maternal", "") == "maternal"]
+        # Bridge-Treffer-Zähler laden (leer wenn kein GEDCOM / keine Tabelle)
+        bridge_hits: dict = {}
+        if getattr(self, "_gedcom", None):
+            try:
+                tg = self._current_test_guid or self._get_kit_guid()
+                if tg:
+                    bridge_hits = self._db.get_bridge_hit_counts(tg)
+            except Exception:
+                pass
         for m in self._matches:
             endo = getattr(m, "endogamy_cluster", "") or ""
             tags = []
@@ -2990,6 +3438,8 @@ class AncestryDnaApp(tk.Tk):
             # Bemerkungsspalte: Endogamie-Cluster hat Vorrang vor tag_surname
             note_txt = (f"🔇 {endo}" if endo else m.tag_surname or "")
 
+            n_hits = bridge_hits.get(m.match_guid, 0)
+            ged_txt = f"🌳{n_hits}" if n_hits else ""
             self._tree.insert("", "end", iid=m.match_guid, tags=tags, values=(
                 m.display_name,
                 m.match_guid[:8],
@@ -2998,9 +3448,16 @@ class AncestryDnaApp(tk.Tk):
                 m.shared_segments or "—",
                 m.predicted_relationship or "—",
                 tree_txt,
+                ged_txt,
                 "👪" if getattr(m, "has_common_ancestor", False) else "—",
                 "⭐" if m.starred else "",
             ))
+        # Show/hide empty state
+        if hasattr(self, "_empty_frame"):
+            if self._matches:
+                self._empty_frame.place_forget()
+            else:
+                self._empty_frame.place(relx=0.5, rely=0.5, anchor="center")
 
     def _on_match_rightclick(self, event):
         """Kontextmenü bei Rechtsklick auf einen Match."""
@@ -3108,12 +3565,34 @@ class AncestryDnaApp(tk.Tk):
             self._set_status(f"Name gespeichert: {name.strip()}")
             self._refresh_match_table()
 
+    def _save_cluster_desc(self):
+        """Save cluster description to ui_settings."""
+        sel = self._cluster_list.selection()
+        if not sel:
+            return
+        cid = int(sel[0])
+        desc = self._cluster_desc_var.get().strip()
+        descs = self._load_ui_settings().get("cluster_descs", {})
+        descs[str(cid)] = desc
+        self._save_ui_settings(cluster_descs=descs)
+        self._set_status(f"Cluster #{cid} Beschreibung gespeichert.")
+
     def _sort_by(self, col):
         if self._sort_col == col:
             self._sort_asc = not self._sort_asc
         else:
             self._sort_col = col
             self._sort_asc = col in ("name","rel")
+        # Update column header to show sort direction
+        for c in ("name","guid","note","cm","seg","rel","tree","ca","starred"):
+            base = self._t({
+                "name":"m.name","guid":"m.guid","note":"m.note","cm":"m.cm",
+                "seg":"m.seg","rel":"m.rel","tree":"m.tree","ca":"m.ca","starred":"m.starred",
+            }[c])
+            if c == self._sort_col:
+                self._tree.heading(c, text=base + (" ▲" if self._sort_asc else " ▼"))
+            else:
+                self._tree.heading(c, text=base)
         self._refresh_match_table()
 
     @staticmethod
@@ -3162,8 +3641,17 @@ class AncestryDnaApp(tk.Tk):
                 break
         self._set_status(f"{match.display_name}  ·  {cm:.0f} cM{mrca_hint}")
 
-        # Shared Matches laden
+        # Update relationship probability bars
+        self.after(10, lambda: self._update_rel_prob(cm))
+
+        # Load research checklist
+        flags = getattr(match, "research_flags", 0) or 0
+        for i, var in enumerate(self._checklist_vars):
+            var.set(bool(flags & (1 << i)))
+
+        # Shared Matches + GEDCOM-Bridge laden
         self._load_shared_panel(match)
+        self._load_gedcom_link_panel(match)
 
     def _load_shared_panel(self, match: DnaMatch):
         """Lädt Shared Matches für den ausgewählten primären Match."""
@@ -3213,6 +3701,57 @@ class AncestryDnaApp(tk.Tk):
         self._selected_match.note = note
         self._set_status(f"Notiz gespeichert: {self._selected_match.display_name}")
 
+    def _save_checklist(self, changed_index: int):
+        """Save research checklist state as bitmask to DB."""
+        if not self._selected_match:
+            return
+        flags = sum(1 << i for i, v in enumerate(self._checklist_vars) if v.get())
+        try:
+            self._db.update_research_flags(self._selected_match.match_guid, flags)
+        except Exception as e:
+            log.debug("Checklist speichern: %s", e)
+
+    def _open_familysearch(self):
+        """Search FamilySearch for the selected match's name."""
+        if not self._selected_match:
+            return
+        name = self._selected_match.display_name or ""
+        if not name or name in ("Anonym", "?"):
+            messagebox.showinfo("Kein Name", "Für diesen Match ist kein Name bekannt.")
+            return
+        url = f"https://www.familysearch.org/search/record/results?q.surname={quote(name.split()[-1])}"
+        webbrowser.open(url)
+
+    def _update_rel_prob(self, cm: float):
+        """Draw top-3 relationship probability bars on the canvas."""
+        c = self._rel_prob_canvas
+        c.delete("all")
+        if cm <= 0:
+            return
+        w = c.winfo_width() or 260
+        h = c.winfo_height() or 52
+        # compute top 3 matches from CM_RANGES
+        scored = []
+        for lo, hi, label, gen in self._CM_RANGES:
+            mid_val = (lo + hi) / 2.0
+            dist = abs(cm - mid_val) / (hi - lo + 1)
+            score = max(0.0, 1.0 - dist)
+            scored.append((score, label))
+        scored.sort(reverse=True)
+        total = sum(s for s, _ in scored[:3]) or 1.0
+        colors = [COLORS["primary"], COLORS["accent"], COLORS["light"]]
+        bar_h = (h - 6) // 3
+        for i, (score, label) in enumerate(scored[:3]):
+            pct = score / total
+            y0 = 3 + i * (bar_h + 2)
+            bar_w = max(4, int((w - 130) * pct))
+            c.create_rectangle(2, y0, bar_w + 2, y0 + bar_h,
+                                fill=colors[i], outline="")
+            c.create_text(bar_w + 6, y0 + bar_h // 2,
+                          text=f"{label}  {pct*100:.0f}%",
+                          anchor="w", font=("Segoe UI", 8),
+                          fill=COLORS["text"])
+
     # ─────────────────────────────────────────────────────────────────────────
     # TAB 4: CLUSTER
     # ─────────────────────────────────────────────────────────────────────────
@@ -3246,6 +3785,18 @@ class AncestryDnaApp(tk.Tk):
         _sv_tree_btn = tk.StringVar(value=self._t("cl.tree_btn"))
         ttk.Button(cf, textvariable=_sv_tree_btn, command=self._show_cluster_tree).pack(side="left", padx=14)
         self._lang_widgets.append((_sv_tree_btn, "cl.tree_btn"))
+        _sv_tl = tk.StringVar(value=self._t("cl.timeline"))
+        ttk.Button(cf, textvariable=_sv_tl, command=self._show_cluster_timeline).pack(side="left", padx=4)
+        self._lang_widgets.append((_sv_tl, "cl.timeline"))
+
+        # Cluster description field
+        df = ttk.Frame(f); df.pack(fill="x", padx=14, pady=(0,4))
+        _sv_desc = tk.StringVar(value=self._t("cl.desc"))
+        ttk.Label(df, textvariable=_sv_desc).pack(side="left")
+        self._lang_widgets.append((_sv_desc, "cl.desc"))
+        self._cluster_desc_var = tk.StringVar()
+        ttk.Entry(df, textvariable=self._cluster_desc_var, width=50).pack(side="left", padx=6)
+        ttk.Button(df, text="💾", command=self._save_cluster_desc, width=3).pack(side="left")
 
         # Interpretation
         self._cluster_text_var = tk.StringVar(value="")
@@ -3261,16 +3812,18 @@ class AncestryDnaApp(tk.Tk):
         left = ttk.LabelFrame(pane, text=self._t("cl.frm_left"), padding=6)
         self._lang_widgets.append((left, "cl.frm_left"))
         pane.add(left, weight=1)
-        self._cluster_list = ttk.Treeview(left, columns=("cid","count","max_cm","top"),
+        self._cluster_list = ttk.Treeview(left, columns=("cid","count","max_cm","top","quality"),
                                            show="headings", selectmode="browse")
         for col, (key, w) in {
-            "cid"    : ("cl.cid",    55),
-            "count"  : ("cl.count",  60),
-            "max_cm" : ("cl.maxcm",  70),
-            "top"    : ("cl.top",   200),
+            "cid"     : ("cl.cid",     50),
+            "count"   : ("cl.count",   55),
+            "max_cm"  : ("cl.maxcm",   65),
+            "top"     : ("cl.top",    175),
+            "quality" : ("cl.quality", 50),
         }.items():
             self._cluster_list.heading(col, text=self._t(key))
-            self._cluster_list.column(col, width=w, stretch=(col=="top"))
+            self._cluster_list.column(col, width=w, stretch=(col=="top"),
+                                       anchor="center" if col in ("quality","count") else "w")
             self._lang_headings.append((self._cluster_list, col, key))
         sy1 = ttk.Scrollbar(left, orient="vertical", command=self._cluster_list.yview)
         self._cluster_list.configure(yscrollcommand=sy1.set)
@@ -3355,11 +3908,18 @@ class AncestryDnaApp(tk.Tk):
         for cid, members in self._clusters.items():
             cms   = [m["cm"] for m in members]
             color = cluster_colors[(cid - 1) % len(cluster_colors)]
+            try:
+                from core.treematch import cluster_confidence
+                conf_result = cluster_confidence(members)
+                quality_icon = "🟢" if conf_result.get("realistic") else ("🟡" if len(members) >= 3 else "🔴")
+            except Exception:
+                quality_icon = "—"
             self._cluster_list.insert("", "end", iid=str(cid),
                                        tags=(f"c{cid}",),
                                        values=(f"#{cid}", len(members),
                                                f"{max(cms):.0f}",
-                                               members[0]["name"] if members else ""))
+                                               members[0]["name"] if members else "",
+                                               quality_icon))
             self._cluster_list.tag_configure(f"c{cid}", background=color)
 
         self._member_tree.delete(*self._member_tree.get_children())
@@ -3369,6 +3929,10 @@ class AncestryDnaApp(tk.Tk):
         if not sel: return
         cid = int(sel[0])
         members = self._clusters.get(cid, [])
+        # Load saved description
+        descs = self._load_ui_settings().get("cluster_descs", {})
+        if hasattr(self, "_cluster_desc_var"):
+            self._cluster_desc_var.set(descs.get(str(cid), ""))
         color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
 
         # Build guid → match lookup for tree-link indicators
@@ -3636,6 +4200,31 @@ class AncestryDnaApp(tk.Tk):
                       foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
             self._stat_vars[stat_key] = var
 
+        # GEDCOM bridge section
+        gz = ttk.LabelFrame(f, text=self._t("st.ged_kz"), padding=10)
+        gz.pack(fill="x", padx=14, pady=4)
+        self._lang_widgets.append((gz, "st.ged_kz"))
+        ged_label_keys = [
+            ("gedcom_persons", "st.ged_pers"),
+            ("gedcom_linked",  "st.ged_linked"),
+        ]
+        for i, (stat_key, t_key) in enumerate(ged_label_keys):
+            sv_lbl = tk.StringVar(value=self._t(t_key))
+            ttk.Label(gz, textvariable=sv_lbl, foreground="#555555").grid(
+                row=0, column=i*2, sticky="e", padx=(14,4), pady=3)
+            self._lang_widgets.append((sv_lbl, t_key))
+            var = tk.StringVar(value="—")
+            ttk.Label(gz, textvariable=var, font=("Segoe UI", 10, "bold"),
+                      foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
+            self._stat_vars[stat_key] = var
+
+        # Progress ring section
+        ring_frame = ttk.Frame(f); ring_frame.pack(fill="x", padx=14, pady=4)
+        self._ring_canvas = tk.Canvas(ring_frame, height=90, bg=COLORS["bg"],
+                                       highlightthickness=0)
+        self._ring_canvas.pack(fill="x")
+        self._stat_ring_data: dict = {}
+
         rf = ttk.LabelFrame(f, text=self._t("st.rel_dist"), padding=10)
         rf.pack(fill="both", expand=True, padx=14, pady=4)
         self._lang_widgets.append((rf, "st.rel_dist"))
@@ -3657,6 +4246,62 @@ class AncestryDnaApp(tk.Tk):
         self._rel_tree.delete(*self._rel_tree.get_children())
         for rel, cnt in stats.get("relationship_breakdown", []):
             self._rel_tree.insert("", "end", values=(rel, cnt))
+        self._draw_stat_rings(stats)
+
+    def _draw_stat_rings(self, stats: dict):
+        """Draw three progress-ring indicators on the statistics canvas."""
+        c = self._ring_canvas
+        c.delete("all")
+        total = stats.get("total") or 0
+        if total == 0:
+            c.create_text(20, 45, text="—", anchor="w", fill="#888888",
+                          font=("Segoe UI", 10))
+            return
+        with_tree   = stats.get("with_tree", 0) or 0
+        ped_loaded  = stats.get("ped_loaded", 0) or 0
+        # Attempt to get side-known count from DB
+        try:
+            tg = self._current_test_guid or self._get_kit_guid()
+            if tg:
+                with self._db._cursor() as cur:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
+                        "AND paternal_maternal != '' AND paternal_maternal IS NOT NULL", (tg,))
+                    side_known = cur.fetchone()[0]
+                    cur.execute(
+                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
+                        "AND endogamy_cluster != '' AND endogamy_cluster IS NOT NULL", (tg,))
+                    endo_known = cur.fetchone()[0]
+            else:
+                side_known = endo_known = 0
+        except Exception:
+            side_known = endo_known = 0
+
+        gedcom_linked = stats.get("gedcom_linked", 0) or 0
+        rings = [
+            (with_tree / total,    f"{with_tree}/{total}",      "Mit Baum",      COLORS["accent"]),
+            (ped_loaded / max(with_tree, 1), f"{ped_loaded}/{with_tree}", "Ahnentafel", COLORS["success"]),
+            (side_known / total,   f"{side_known}/{total}",     "Seite bekannt", "#8B4513"),
+            (gedcom_linked / total, f"{gedcom_linked}/{total}", "GEDCOM-Treffer", COLORS["primary"]),
+        ]
+        R = 35; cx_start = 55
+        for i, (pct, label_cnt, title, color) in enumerate(rings):
+            cx = cx_start + i * 160
+            cy = 45
+            # Background arc
+            c.create_arc(cx-R, cy-R, cx+R, cy+R, start=90, extent=360,
+                          style="arc", outline=COLORS["light"], width=8)
+            # Progress arc
+            extent = max(1, min(360, int(pct * 360)))
+            c.create_arc(cx-R, cy-R, cx+R, cy+R, start=90, extent=-extent,
+                          style="arc", outline=color, width=8)
+            # Center text
+            c.create_text(cx, cy - 6, text=f"{pct*100:.0f}%",
+                          font=("Segoe UI", 10, "bold"), fill=COLORS["text"])
+            c.create_text(cx, cy + 8, text=label_cnt,
+                          font=("Segoe UI", 7), fill="#777777")
+            c.create_text(cx, cy + R + 12, text=title,
+                          font=("Segoe UI", 8), fill=COLORS["text"])
 
     # ─────────────────────────────────────────────────────────────────────────
     # Export
@@ -3865,12 +4510,453 @@ class AncestryDnaApp(tk.Tk):
         messagebox.showinfo("Import abgeschlossen", msg)
         self._set_status("Namen: " + str(updated) + " importiert")
 
-
     def _set_status(self, msg: str):
         self._status_var.set(msg)
 
     def _get_kit_guid(self) -> Optional[str]:
         return self._kit_map.get(self._kit_var.get()) if hasattr(self,"_kit_var") else None
+
+    # ── Neue Analyse-Methoden ─────────────────────────────────────────────────
+
+    def _show_pedigree_gaps(self):
+        """Zeigt welche Generationen in Match-Ahnentafeln noch fehlen."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Ahnentafel-Lücken-Analyse")
+        win.geometry("900x600")
+
+        ttk.Label(win, text="Matches mit unvollständigen Ahnentafeln (nach Generation):",
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
+
+        cols = ("name","cm","gen2","gen3","gen4","gen5","gen6")
+        tv = ttk.Treeview(win, columns=cols, show="headings")
+        for col, (lbl, w) in {
+            "name": ("Match",     200),
+            "cm":   ("cM",         65),
+            "gen2": ("Gen 2",      60),
+            "gen3": ("Gen 3",      60),
+            "gen4": ("Gen 4",      60),
+            "gen5": ("Gen 5",      60),
+            "gen6": ("Gen 6+",     60),
+        }.items():
+            tv.heading(col, text=lbl)
+            tv.column(col, width=w, anchor=("e" if col=="cm" else "center" if col!="name" else "w"))
+
+        tv.tag_configure("gap3", background="#FFF3CD")
+        tv.tag_configure("gap2", background="#FFD6D6")
+
+        sy = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sy.set)
+        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=4)
+        sy.pack(side="right", fill="y", pady=4)
+
+        try:
+            data = self._db.get_pedigree_completeness_per_match(test_guid)
+        except Exception as e:
+            messagebox.showerror("Fehler", str(e))
+            return
+
+        max_gen = {2: 4, 3: 8, 4: 16, 5: 32, 6: 64}
+        for entry in data[:200]:
+            gens = entry.get("generations", {})
+            def fmt(g):
+                got = gens.get(g, 0)
+                exp = max_gen.get(g, 0)
+                return f"{got}/{exp}" if exp else f"{got}"
+            g3 = gens.get(3, 0); g4 = gens.get(4, 0)
+            tags = ("gap2",) if g3 < 4 else (("gap3",) if g4 < 8 else ())
+            tv.insert("", "end", tags=tags, values=(
+                entry.get("display_name","?")[:30],
+                f"{entry.get('shared_cm',0):.0f}",
+                fmt(2), fmt(3), fmt(4), fmt(5), fmt(6),
+            ))
+        if not data:
+            tv.insert("", "end", values=("—",) * 7)
+
+    def _show_endogamy_analysis(self):
+        """Listet Matches mit erhöhtem Endogamie-Score."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Endogamie-Score-Analyse")
+        win.geometry("800x500")
+
+        top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
+        ttk.Label(top, text="Min. Score:", style="Bold.TLabel").pack(side="left")
+        thr_var = tk.StringVar(value="0.15")
+        ttk.Entry(top, textvariable=thr_var, width=6).pack(side="left", padx=4)
+        ttk.Label(top, text="  (Score = Segmente / (cM+1)  –  Verdacht > 0.15)",
+                  foreground="#777777").pack(side="left")
+
+        info_lbl = ttk.Label(win, text="", style="Bold.TLabel")
+        info_lbl.pack(anchor="w", padx=10)
+
+        cols = ("name","cm","seg","score")
+        tv = ttk.Treeview(win, columns=cols, show="headings")
+        for col, (lbl, w, a) in {
+            "name":  ("Match",  280, "w"),
+            "cm":    ("cM",      80, "e"),
+            "seg":   ("Seg.",    60, "e"),
+            "score": ("Score",   80, "e"),
+        }.items():
+            tv.heading(col, text=lbl); tv.column(col, width=w, anchor=a)
+        sy = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sy.set)
+        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=4)
+        sy.pack(side="right", fill="y", pady=4)
+
+        def reload(*_):
+            try:
+                thr = float(thr_var.get() or 0.15)
+            except ValueError:
+                thr = 0.15
+            tv.delete(*tv.get_children())
+            try:
+                rows = self._db.get_endogamy_candidates(test_guid, thr)
+            except Exception as e:
+                messagebox.showerror("Fehler", str(e)); return
+            for r in rows:
+                tv.insert("", "end", values=(
+                    r.get("display_name","?")[:40],
+                    f"{r.get('shared_cm',0):.0f}",
+                    r.get("shared_segments","?"),
+                    f"{r.get('endo_score',0):.3f}",
+                ))
+            info_lbl.configure(text=f"{len(rows)} Matches mit Endogamie-Verdacht (Score > {thr:.2f})")
+
+        thr_var.trace_add("write", reload)
+        reload()
+
+    def _auto_assign_sides(self):
+        """Weist Seiten (väterlich/mütterlich) zu — via Mutter-Kit oder GEDCOM-Baum."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit wählen.")
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title("Seiten automatisch zuweisen")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        ttk.Label(dlg, text="Methode:", font=("Segoe UI", 10, "bold")).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=14, pady=(12,4))
+
+        method_var = tk.StringVar(value="kit")
+
+        # ── Methode A: via Mutter-Kit ─────────────────────────────────────────
+        kits = self._db.get_kits()
+        other_kits = [k for k in kits if k.guid != test_guid]
+        rb_kit = ttk.Radiobutton(dlg, text="Via zweites Ancestry-Kit (Mutter/Vater):",
+                                 variable=method_var, value="kit")
+        rb_kit.grid(row=1, column=0, columnspan=2, sticky="w", padx=14, pady=(4,2))
+        kit_names = [f"{k.name or k.guid[:16]}…" for k in other_kits]
+        kit_combo = ttk.Combobox(dlg, values=kit_names, state="readonly", width=34)
+        if kit_names:
+            kit_combo.current(0)
+        else:
+            kit_combo.set("(kein zweites Kit vorhanden)")
+            kit_combo.configure(state="disabled")
+        kit_combo.grid(row=2, column=0, columnspan=2, padx=28, pady=(0,8), sticky="w")
+        kit_combo.bind("<Button-1>", lambda _: method_var.set("kit"))
+
+        # ── Methode B: via GEDCOM-Baum ────────────────────────────────────────
+        has_gedcom = bool(getattr(self, "_gedcom", None))
+        amap = (self._gedcom.get("amap") or {}) if has_gedcom else {}
+        has_amap = bool(amap)
+        ged_state = "normal" if (has_gedcom and has_amap) else "disabled"
+        rb_ged = ttk.Radiobutton(dlg, text="Via GEDCOM-Baum (Ahnen-Map):",
+                                 variable=method_var, value="ged", state=ged_state)
+        rb_ged.grid(row=3, column=0, columnspan=2, sticky="w", padx=14, pady=(4,2))
+        # Show which person is at path 'M' (= the mother) from the amap
+        if has_amap:
+            mother_gid = next((gid for gid, p in amap.items() if p == "M"), None)
+            if mother_gid:
+                inds = self._gedcom.get("individuals", {})
+                mo_ind = inds.get(mother_gid, {})
+                mo_name = (mo_ind.get("NAME") or mother_gid).replace("/","").strip()
+                ged_hint = f"Mutter im Baum: {mo_name}"
+            else:
+                ged_hint = "Keine Mutter im Ahnen-Map gefunden (Wurzelperson prüfen)"
+        else:
+            ged_hint = "GEDCOM laden + Wurzelperson setzen, um Ahnen-Map zu erstellen"
+        ttk.Label(dlg, text=ged_hint, foreground="#555555",
+                  font=("Segoe UI", 8)).grid(
+            row=4, column=0, columnspan=2, padx=28, pady=(0,12), sticky="w")
+
+        # ── Buttons ────────────────────────────────────────────────────────────
+        btn_frame = ttk.Frame(dlg); btn_frame.grid(row=5, column=0, columnspan=2,
+                                                    padx=14, pady=(4,12))
+        result = {"ok": False}
+
+        def _ok():
+            result["ok"] = True
+            dlg.destroy()
+
+        ttk.Button(btn_frame, text="Abbrechen", command=dlg.destroy).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text="✓ Zuweisen", command=_ok).pack(side="left", padx=4)
+        self.wait_window(dlg)
+        if not result["ok"]:
+            return
+
+        if method_var.get() == "kit":
+            # Via Mutter-Kit
+            if not other_kits or kit_combo.current() < 0:
+                messagebox.showinfo("Kein Kit", "Kein zweites Kit verfügbar.")
+                return
+            parent_kit = other_kits[kit_combo.current()]
+            overlap = self._db.get_paternal_maternal_overlap(test_guid, parent_kit.guid)
+            mat = overlap["shared"]
+            pat = overlap["only_a"]
+            n_mat = self._db.bulk_set_side(list(mat), "maternal")
+            n_pat = self._db.bulk_set_side(list(pat), "paternal")
+            self._refresh_match_table()
+            messagebox.showinfo("Ergebnis",
+                                f"✅ {n_mat} Matches als mütterlich markiert\n"
+                                f"✅ {n_pat} Matches als väterlich markiert\n\n"
+                                f"Mutter-Kit: {parent_kit.name or parent_kit.guid[:16]}")
+        else:
+            # Via GEDCOM-Baum
+            if not has_amap:
+                messagebox.showwarning("Kein Ahnen-Map",
+                                       "Bitte GEDCOM laden und Wurzelperson angeben.")
+                return
+            try:
+                from core.bridge import infer_side_from_links
+            except ImportError:
+                messagebox.showerror("Fehler", "bridge.py nicht ladbar.")
+                return
+
+            with self._db._cursor() as cur:
+                match_guids = [r[0] for r in cur.execute(
+                    "SELECT DISTINCT match_guid FROM gedcom_links WHERE test_guid=?",
+                    (test_guid,)
+                ).fetchall()]
+
+            pat_guids, mat_guids, both_guids = [], [], []
+            for mguid in match_guids:
+                side = infer_side_from_links(self._db, test_guid, mguid, amap)
+                if side == "paternal":
+                    pat_guids.append(mguid)
+                elif side == "maternal":
+                    mat_guids.append(mguid)
+                elif side == "both":
+                    both_guids.append(mguid)
+
+            n_pat = self._db.bulk_set_side(pat_guids, "paternal")
+            n_mat = self._db.bulk_set_side(mat_guids, "maternal")
+            self._refresh_match_table()
+            messagebox.showinfo("GEDCOM-Seitenableitung",
+                                f"✅ {n_pat} Matches als väterlich markiert\n"
+                                f"✅ {n_mat} Matches als mütterlich markiert\n"
+                                f"   {len(both_guids)} Matches beidseitig (unverändert)\n\n"
+                                f"Basis: {len(amap)} Vorfahren im Ahnen-Map")
+
+    def _show_cluster_timeline(self):
+        """Zeigt Geburtsjahre der Cluster-Vorfahren als Zeitachse."""
+        sel = self._cluster_list.selection()
+        if not sel:
+            messagebox.showinfo("Kein Cluster", "Bitte Cluster auswählen.")
+            return
+        cid = int(sel[0])
+        members = self._clusters.get(cid, [])
+        if not members:
+            return
+        test_guid = self._current_guid()
+        if not test_guid:
+            return
+
+        try:
+            guids = [m["guid"] for m in members]
+            rows = self._db.get_cluster_ancestor_years(test_guid, guids)
+        except Exception as e:
+            messagebox.showerror("Fehler", str(e))
+            return
+
+        if not rows:
+            messagebox.showinfo("Keine Daten",
+                                "Keine Ahnentafel-Daten für diesen Cluster vorhanden.\n"
+                                "→ Erst 'Ahnentafeln laden' ausführen.")
+            return
+
+        win = tk.Toplevel(self)
+        color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
+        win.title(f"Cluster #{cid} – Zeitachse der Vorfahren")
+        win.geometry("900x400")
+
+        years = [int(r.get("birth_year", 0)) for r in rows if r.get("birth_year")]
+        if not years:
+            return
+        y_min, y_max = min(years), max(years)
+        y_range = max(y_max - y_min, 50)
+
+        c = tk.Canvas(win, bg="#FAFAFA", highlightthickness=0)
+        c.pack(fill="both", expand=True, padx=10, pady=10)
+
+        def draw(_event=None):
+            c.delete("all")
+            W = c.winfo_width() or 860
+            H = c.winfo_height() or 340
+            pad_x = 60; pad_y = 40
+
+            # Draw axis
+            c.create_line(pad_x, H - pad_y, W - 20, H - pad_y, fill="#AAAAAA", width=1)
+            # Draw decade ticks
+            decade_start = (y_min // 10) * 10
+            decade_end   = ((y_max // 10) + 1) * 10
+            for yr in range(decade_start, decade_end + 1, 10):
+                x = pad_x + (yr - y_min) / y_range * (W - pad_x - 20)
+                c.create_line(x, H - pad_y - 4, x, H - pad_y + 4, fill="#888888")
+                c.create_text(x, H - pad_y + 16, text=str(yr),
+                              font=("Segoe UI", 7), fill="#888888")
+
+            # Draw people as colored dots
+            import random
+            random.seed(cid)
+            for r in rows:
+                yr = int(r.get("birth_year", 0))
+                if not yr: continue
+                x = pad_x + (yr - y_min) / y_range * (W - pad_x - 20)
+                gen = r.get("generation", 3)
+                y = pad_y + (gen - 1) * 18
+                y = min(y, H - pad_y - 20)
+                tag = f"d{id(r)}"
+                c.create_oval(x-5, y-5, x+5, y+5, fill=color, outline="white",
+                              width=1, tags=tag)
+                name = f"{r.get('given_name','')} {r.get('surname','')}"
+                c.tag_bind(tag, "<Enter>",
+                           lambda e, n=name, yr=yr, gen=gen:
+                               c.create_text(e.x+10, e.y-10, text=f"{n} ({yr}) Gen{gen}",
+                                             font=("Segoe UI", 8), tags="tooltip",
+                                             fill=COLORS["text"]))
+                c.tag_bind(tag, "<Leave>", lambda _: c.delete("tooltip"))
+
+        c.bind("<Configure>", draw)
+        win.after(100, draw)
+
+    def _export_gedcom(self):
+        """Exportiert Vorfahren-Gruppen als GEDCOM 5.5.1."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit wählen.")
+            return
+        try:
+            groups = self._db.get_pedigree_groups(test_guid, min_matches=2, mode="person")
+        except Exception as e:
+            messagebox.showerror("Datenbankfehler", str(e))
+            return
+        if not groups:
+            messagebox.showinfo("Keine Daten",
+                                "Keine Vorfahren-Gruppen vorhanden.\n"
+                                "→ Erst 'Ahnentafeln laden' ausführen.")
+            return
+        p = filedialog.asksaveasfilename(
+            title="GEDCOM exportieren",
+            defaultextension=".ged",
+            filetypes=[("GEDCOM", "*.ged"), ("Alle", "*.*")],
+            initialfile="ancestry_dna_ancestors.ged")
+        if not p:
+            return
+        try:
+            from core.gedcom_export import export_gedcom
+            # Enrich groups with ancestor data
+            enriched = []
+            for g in groups:
+                ancestors = []
+                for guid, name, path, gen, cm in g.get("matches", []):
+                    rows = self._db.get_pedigree_for_match(test_guid, guid)
+                    for r in rows:
+                        ancestors.append(r)
+                enriched.append({**g, "ancestors": ancestors})
+            n = export_gedcom(enriched, p)
+            messagebox.showinfo("Fertig", f"{n} Personen als GEDCOM exportiert → {p}")
+        except ImportError:
+            messagebox.showerror("Fehler", "gedcom_export-Modul nicht gefunden.")
+        except Exception as e:
+            messagebox.showerror("Fehler", str(e))
+
+    def _import_mta(self):
+        """Importiert MyTrueAncestry CSV-Export."""
+        p = filedialog.askopenfilename(
+            title="MyTrueAncestry CSV importieren",
+            filetypes=[("CSV", "*.csv"), ("Alle", "*.*")])
+        if not p:
+            return
+        try:
+            from core.mta_import import parse_mta_csv
+            rows = parse_mta_csv(p)
+        except Exception as e:
+            messagebox.showerror("Import-Fehler", str(e))
+            return
+        if not rows:
+            messagebox.showwarning("Keine Daten", "Keine Zeilen im CSV gefunden.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("MyTrueAncestry – Populationsverteilung")
+        win.geometry("820x560")
+        ttk.Label(win, text=f"MyTrueAncestry: {len(rows)} Populationen importiert",
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,2))
+
+        # Group by era and draw bar chart
+        from collections import defaultdict
+        era_scores: dict = defaultdict(float)
+        for r in rows:
+            era_scores[r["era"]] += r["score"]
+
+        era_colors = {
+            "Neolithic": "#4CAF50", "Bronze Age": "#FF9800",
+            "Iron Age / Historical": "#9C27B0", "Medieval": "#2196F3",
+            "Modern": "#F44336", "Ancient / Other": "#795548",
+        }
+
+        c = tk.Canvas(win, height=160, bg=COLORS["bg"], highlightthickness=0)
+        c.pack(fill="x", padx=10, pady=6)
+
+        def draw_era_bars(_=None):
+            c.delete("all")
+            W = c.winfo_width() or 780; H = 140
+            total = sum(era_scores.values()) or 1
+            sorted_eras = sorted(era_scores.items(), key=lambda x: -x[1])
+            x = 10
+            for era, score in sorted_eras:
+                bw = max(5, int((W - 20) * score / total))
+                col = era_colors.get(era, "#999999")
+                c.create_rectangle(x, 20, x + bw, 80, fill=col, outline="white", width=1)
+                if bw > 40:
+                    c.create_text(x + bw // 2, 50, text=f"{score:.1f}%",
+                                  font=("Segoe UI", 8, "bold"), fill="white")
+                c.create_text(x + bw // 2, 95, text=era[:15],
+                              font=("Segoe UI", 7), fill=COLORS["text"], angle=45 if bw < 60 else 0)
+                x += bw + 2
+
+        c.bind("<Configure>", draw_era_bars)
+        win.after(100, draw_era_bars)
+
+        # Detail table
+        cols = ("pop","score","dist","era")
+        tv = ttk.Treeview(win, columns=cols, show="headings", height=12)
+        for col, (lbl, w, a) in {
+            "pop":   ("Population", 300, "w"),
+            "score": ("Score %",     80, "e"),
+            "dist":  ("Distance",    80, "e"),
+            "era":   ("Ära",        200, "w"),
+        }.items():
+            tv.heading(col, text=lbl); tv.column(col, width=w, anchor=a)
+        sy = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sy.set)
+        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=4)
+        sy.pack(side="right", fill="y", pady=4)
+        for r in sorted(rows, key=lambda x: -x["score"])[:50]:
+            tv.insert("", "end", values=(
+                r["population"][:45], f"{r['score']:.2f}",
+                f"{r['distance']:.4f}", r["era"]))
 
     def _show_about(self):
         messagebox.showinfo("Über",

@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 11
+    SCHEMA_VERSION = 12
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -87,6 +87,8 @@ class Database:
                 self._migrate_v9_v10(cur)
             if current < 11:
                 self._migrate_v10_v11(cur)
+            if current < 12:
+                self._migrate_v11_v12(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -1037,10 +1039,119 @@ class Database:
             """, params)
             return [dict(r) for r in cur.fetchall()]
 
+    def _migrate_v11_v12(self, cur):
+        """Schema v12: research_flags bitmask + paternal_maternal side column."""
+        # Add research_flags column if missing
+        cur.execute("PRAGMA table_info(matches)")
+        cols = {r[1] for r in cur.fetchall()}
+        if "research_flags" not in cols:
+            cur.execute("ALTER TABLE matches ADD COLUMN research_flags INTEGER NOT NULL DEFAULT 0")
+        if "paternal_maternal" not in cols:
+            cur.execute("ALTER TABLE matches ADD COLUMN paternal_maternal TEXT DEFAULT ''")
+
+    # ── New methods (v12) ─────────────────────────────────────────────────────
+
+    def update_research_flags(self, match_guid: str, flags: int) -> None:
+        """Store a bitmask of research checklist flags for a match."""
+        with self._cursor() as cur:
+            cur.execute(
+                "UPDATE matches SET research_flags=? WHERE match_guid=?",
+                (flags, match_guid)
+            )
+
+    def get_endogamy_candidates(self, test_guid: str, threshold: float = 0.15) -> list:
+        """Return matches whose segment/cM ratio suggests endogamy."""
+        with self._cursor() as cur:
+            rows = cur.execute(
+                """SELECT match_guid, display_name, shared_cm, shared_segments,
+                          CAST(shared_segments AS REAL) / (shared_cm + 1.0) AS endo_score
+                   FROM matches
+                   WHERE test_guid=?
+                     AND shared_cm > 0
+                     AND CAST(shared_segments AS REAL) / (shared_cm + 1.0) > ?
+                   ORDER BY endo_score DESC""",
+                (test_guid, threshold)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
+    def get_pedigree_completeness_per_match(self, test_guid: str) -> list:
+        """Return generation coverage per match (for pedigree-gap analysis)."""
+        with self._cursor() as cur:
+            rows = cur.execute(
+                """SELECT a.match_guid, m.display_name, m.shared_cm,
+                          a.generation, COUNT(*) AS count
+                   FROM match_pedigree a
+                   JOIN matches m ON m.match_guid = a.match_guid
+                   WHERE m.test_guid = ?
+                   GROUP BY a.match_guid, a.generation
+                   ORDER BY m.shared_cm DESC, a.generation""",
+                (test_guid,)
+            ).fetchall()
+        result = {}
+        for r in rows:
+            guid = r["match_guid"]
+            if guid not in result:
+                result[guid] = {
+                    "match_guid": guid,
+                    "display_name": r["display_name"],
+                    "shared_cm": r["shared_cm"],
+                    "generations": {}
+                }
+            result[guid]["generations"][r["generation"]] = r["count"]
+        return list(result.values())
+
+    def get_paternal_maternal_overlap(self, kit_a: str, kit_b: str) -> dict:
+        """Compare two kits' match lists to classify shared vs unique matches.
+
+        Returns dict with keys 'shared' (both kits), 'only_a' (paternal if kit_b is maternal kit).
+        """
+        with self._cursor() as cur:
+            guids_a = {r[0] for r in cur.execute(
+                "SELECT match_guid FROM matches WHERE test_guid=?", (kit_a,)).fetchall()}
+            guids_b = {r[0] for r in cur.execute(
+                "SELECT match_guid FROM matches WHERE test_guid=?", (kit_b,)).fetchall()}
+        return {
+            "shared": guids_a & guids_b,
+            "only_a": guids_a - guids_b,
+            "only_b": guids_b - guids_a,
+        }
+
+    def bulk_set_side(self, guids: list, side: str) -> int:
+        """Set paternal/maternal/both side for a list of match GUIDs."""
+        if not guids:
+            return 0
+        with self._cursor() as cur:
+            cur.executemany(
+                "UPDATE matches SET paternal_maternal=? WHERE match_guid=?",
+                [(side, g) for g in guids]
+            )
+        return len(guids)
+
+    def get_cluster_ancestor_years(self, test_guid: str, match_guids: list) -> list:
+        """Return ancestor birth years for cluster timeline visualization."""
+        if not match_guids:
+            return []
+        placeholders = ",".join("?" * len(match_guids))
+        with self._cursor() as cur:
+            rows = cur.execute(
+                f"""SELECT a.given_name, a.surname, a.birth_year, a.birth_place, a.generation
+                    FROM match_pedigree a
+                    JOIN matches m ON m.match_guid = a.match_guid
+                    WHERE m.test_guid = ?
+                      AND a.match_guid IN ({placeholders})
+                      AND a.birth_year != ''
+                      AND CAST(a.birth_year AS INTEGER) BETWEEN 1600 AND 1960
+                    ORDER BY CAST(a.birth_year AS INTEGER)""",
+                [test_guid] + list(match_guids)
+            ).fetchall()
+        return [dict(r) for r in rows]
+
     # ── Statistiken ───────────────────────────────────────────────────────────
 
     def get_statistics(self, test_guid: Optional[str] = None) -> dict:
-        cond = f"WHERE test_guid='{test_guid}'" if test_guid else ""
+        where = "WHERE test_guid=?" if test_guid else ""
+        params = (test_guid,) if test_guid else ()
+        and_tg = "AND test_guid=?" if test_guid else ""
         with self._cursor() as cur:
             cur.execute(f"""
                 SELECT
@@ -1050,41 +1161,40 @@ class Database:
                     SUM(CASE WHEN starred=1 THEN 1 ELSE 0 END)      AS starred_count,
                     SUM(CASE WHEN has_tree=1 THEN 1 ELSE 0 END)     AS with_tree,
                     SUM(CASE WHEN note != '' AND note IS NOT NULL THEN 1 ELSE 0 END) AS with_note
-                FROM matches {cond}
-            """)
+                FROM matches {where}
+            """, params)
             r = dict(cur.fetchone())
 
             cur.execute(f"""
                 SELECT predicted_relationship, COUNT(*) AS cnt
-                FROM matches {cond}
-                WHERE predicted_relationship != ''
+                FROM matches
+                WHERE predicted_relationship != '' {and_tg}
                 GROUP BY predicted_relationship
                 ORDER BY cnt DESC LIMIT 10
-            """)
+            """, params)
             r["relationship_breakdown"] = [(row[0], row[1]) for row in cur.fetchall()]
 
             # Shared-Match-Statistik
-            sm_cond = f"WHERE test_guid='{test_guid}'" if test_guid else ""
-            cur.execute(f"SELECT COUNT(*) FROM shared_matches {sm_cond}")
+            cur.execute(f"SELECT COUNT(*) FROM shared_matches {where}", params)
             r["shared_total"] = cur.fetchone()[0]
 
             cur.execute(f"""
-                SELECT COUNT(DISTINCT match_guid_a) FROM shared_matches {sm_cond}
-            """)
+                SELECT COUNT(DISTINCT match_guid_a) FROM shared_matches {where}
+            """, params)
             r["shared_primary_count"] = cur.fetchone()[0]
 
             # Pedigree-Vollständigkeit
-            ped_cond = f"AND test_guid='{test_guid}'" if test_guid else ""
+            ped_cond = "AND test_guid=?" if test_guid else ""
             cur.execute(f"""
                 SELECT COUNT(DISTINCT match_guid) FROM match_pedigree
                 WHERE generation >= 2 {ped_cond}
-            """)
+            """, params)
             r["ped_loaded"] = cur.fetchone()[0]
 
             cur.execute(f"""
                 SELECT COUNT(DISTINCT surname) FROM match_pedigree
                 WHERE surname != '' AND surname IS NOT NULL {ped_cond}
-            """)
+            """, params)
             r["ped_surnames"] = cur.fetchone()[0]
 
             cur.execute(f"""
@@ -1093,7 +1203,32 @@ class Database:
                     FROM match_pedigree WHERE 1=1 {ped_cond}
                     GROUP BY match_guid
                 )
-            """)
+            """, params)
             row = cur.fetchone()
             r["ped_avg_depth"] = round(row[0], 1) if row and row[0] else 0.0
+
+            # GEDCOM-Bridge-Statistiken (Tabellen evtl. noch nicht vorhanden)
+            try:
+                cur.execute("SELECT COUNT(*) FROM gedcom_persons")
+                r["gedcom_persons"] = cur.fetchone()[0]
+                cur.execute(f"""
+                    SELECT COUNT(DISTINCT match_guid) FROM gedcom_links {where}
+                """, params)
+                r["gedcom_linked"] = cur.fetchone()[0]
+            except Exception:
+                r["gedcom_persons"] = 0
+                r["gedcom_linked"] = 0
         return r
+
+    def get_bridge_hit_counts(self, test_guid: str) -> dict:
+        """Gibt {match_guid: link_count} für alle Matches mit Bridge-Treffern zurück."""
+        try:
+            with self._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT match_guid, COUNT(*) FROM gedcom_links "
+                    "WHERE test_guid=? GROUP BY match_guid",
+                    (test_guid,),
+                ).fetchall()
+            return {r[0]: r[1] for r in rows}
+        except Exception:
+            return {}
