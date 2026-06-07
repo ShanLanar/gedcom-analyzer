@@ -1978,44 +1978,43 @@ class AncestryDnaApp(tk.Tk):
 
         # Filter-Leiste
         fl = ttk.Frame(f); fl.pack(fill="x", padx=10, pady=6)
-        _lbl_s = ttk.Label(fl, text=self._t("mf.search"))
-        _lbl_s.pack(side="left", padx=(0,4))
-        self._lang_widgets.append((_lbl_s, "mf.search"))
+        _sv_s = tk.StringVar(value=self._t("mf.search"))
+        ttk.Label(fl, textvariable=_sv_s).pack(side="left", padx=(0,4))
+        self._lang_widgets.append((_sv_s, "mf.search"))
         self._search_var = tk.StringVar()
         self._search_var.trace_add("write", lambda *_: self._refresh_match_table())
         ttk.Entry(fl, textvariable=self._search_var, width=20).pack(side="left")
 
-        _lbl_r = ttk.Label(fl, text=self._t("mf.rel"))
-        _lbl_r.pack(side="left", padx=(10,4))
-        self._lang_widgets.append((_lbl_r, "mf.rel"))
+        _sv_r = tk.StringVar(value=self._t("mf.rel"))
+        ttk.Label(fl, textvariable=_sv_r).pack(side="left", padx=(10,4))
+        self._lang_widgets.append((_sv_r, "mf.rel"))
         self._rel_var = tk.StringVar(value="(alle)")
         self._rel_combo = ttk.Combobox(fl, textvariable=self._rel_var, width=22, state="readonly")
         self._rel_combo.pack(side="left")
         self._rel_combo.bind("<<ComboboxSelected>>", lambda _: self._refresh_match_table())
 
-        _lbl_c = ttk.Label(fl, text=self._t("mf.mincm"))
-        _lbl_c.pack(side="left", padx=(10,4))
-        self._lang_widgets.append((_lbl_c, "mf.mincm"))
+        _sv_c = tk.StringVar(value=self._t("mf.mincm"))
+        ttk.Label(fl, textvariable=_sv_c).pack(side="left", padx=(10,4))
+        self._lang_widgets.append((_sv_c, "mf.mincm"))
         self._min_cm_var = tk.StringVar(value="0")
         ttk.Entry(fl, textvariable=self._min_cm_var, width=6).pack(side="left")
         ttk.Button(fl, text="↩", width=3, command=self._refresh_match_table).pack(side="left", padx=2)
 
         self._starred_var = tk.BooleanVar()
-        _cb_starred = ttk.Checkbutton(fl, text=self._t("mf.starred"), variable=self._starred_var,
-                                       command=self._refresh_match_table)
-        _cb_starred.pack(side="left", padx=(10,0))
-        self._lang_widgets.append((_cb_starred, "mf.starred"))
+        _sv_starred = tk.StringVar(value=self._t("mf.starred"))
+        ttk.Checkbutton(fl, textvariable=_sv_starred, variable=self._starred_var,
+                        command=self._refresh_match_table).pack(side="left", padx=(10,0))
+        self._lang_widgets.append((_sv_starred, "mf.starred"))
         self._tree_var = tk.BooleanVar()
-        _cb_tree = ttk.Checkbutton(fl, text=self._t("mf.tree"), variable=self._tree_var,
-                                    command=self._refresh_match_table)
-        _cb_tree.pack(side="left", padx=6)
-        self._lang_widgets.append((_cb_tree, "mf.tree"))
+        _sv_tree = tk.StringVar(value=self._t("mf.tree"))
+        ttk.Checkbutton(fl, textvariable=_sv_tree, variable=self._tree_var,
+                        command=self._refresh_match_table).pack(side="left", padx=6)
+        self._lang_widgets.append((_sv_tree, "mf.tree"))
         self._hide_endo_var = tk.BooleanVar()
-        _cb_endo = ttk.Checkbutton(fl, text=self._t("mf.endo"),
-                                    variable=self._hide_endo_var,
-                                    command=self._refresh_match_table)
-        _cb_endo.pack(side="left", padx=6)
-        self._lang_widgets.append((_cb_endo, "mf.endo"))
+        _sv_endo = tk.StringVar(value=self._t("mf.endo"))
+        ttk.Checkbutton(fl, textvariable=_sv_endo, variable=self._hide_endo_var,
+                        command=self._refresh_match_table).pack(side="left", padx=6)
+        self._lang_widgets.append((_sv_endo, "mf.endo"))
 
         self._match_count_var = tk.StringVar(value="")
         ttk.Label(fl, textvariable=self._match_count_var,
@@ -2412,27 +2411,30 @@ class AncestryDnaApp(tk.Tk):
 
         # Einstellungen
         cf = ttk.Frame(f); cf.pack(fill="x", padx=14, pady=8)
-        _lbl_pf = ttk.Label(cf, text=self._t("cl.prim_from")); _lbl_pf.pack(side="left")
-        self._lang_widgets.append((_lbl_pf, "cl.prim_from"))
+        _sv_pf = tk.StringVar(value=self._t("cl.prim_from"))
+        ttk.Label(cf, textvariable=_sv_pf).pack(side="left")
+        self._lang_widgets.append((_sv_pf, "cl.prim_from"))
         self._cluster_min_cm_var = tk.StringVar(value="20")
         ttk.Entry(cf, textvariable=self._cluster_min_cm_var, width=6).pack(side="left", padx=6)
-        _lbl_pt = ttk.Label(cf, text=self._t("cl.prim_to")); _lbl_pt.pack(side="left", padx=(4,4))
-        self._lang_widgets.append((_lbl_pt, "cl.prim_to"))
+        _sv_pt = tk.StringVar(value=self._t("cl.prim_to"))
+        ttk.Label(cf, textvariable=_sv_pt).pack(side="left", padx=(4,4))
+        self._lang_widgets.append((_sv_pt, "cl.prim_to"))
         self._cluster_max_cm_var = tk.StringVar(value="400")
         ttk.Entry(cf, textvariable=self._cluster_max_cm_var, width=6).pack(side="left")
-        _lbl_sm = ttk.Label(cf, text=self._t("cl.shared_min")); _lbl_sm.pack(side="left", padx=(14,4))
-        self._lang_widgets.append((_lbl_sm, "cl.shared_min"))
+        _sv_sm = tk.StringVar(value=self._t("cl.shared_min"))
+        ttk.Label(cf, textvariable=_sv_sm).pack(side="left", padx=(14,4))
+        self._lang_widgets.append((_sv_sm, "cl.shared_min"))
         self._cluster_shared_cm_var = tk.StringVar(value="20")
         ttk.Entry(cf, textvariable=self._cluster_shared_cm_var, width=6).pack(side="left")
-        _cl_calc = ttk.Button(cf, text=self._t("cl.calc_btn"), command=self._refresh_cluster)
-        _cl_calc.pack(side="left", padx=14)
-        self._lang_widgets.append((_cl_calc, "cl.calc_btn"))
+        _sv_calc = tk.StringVar(value=self._t("cl.calc_btn"))
+        ttk.Button(cf, textvariable=_sv_calc, command=self._refresh_cluster).pack(side="left", padx=14)
+        self._lang_widgets.append((_sv_calc, "cl.calc_btn"))
         self._cluster_count_var = tk.StringVar(value="")
         ttk.Label(cf, textvariable=self._cluster_count_var,
                   foreground=COLORS["primary"]).pack(side="left")
-        _cl_tree = ttk.Button(cf, text=self._t("cl.tree_btn"), command=self._show_cluster_tree)
-        _cl_tree.pack(side="left", padx=14)
-        self._lang_widgets.append((_cl_tree, "cl.tree_btn"))
+        _sv_tree_btn = tk.StringVar(value=self._t("cl.tree_btn"))
+        ttk.Button(cf, textvariable=_sv_tree_btn, command=self._show_cluster_tree).pack(side="left", padx=14)
+        self._lang_widgets.append((_sv_tree_btn, "cl.tree_btn"))
 
         # Interpretation
         self._cluster_text_var = tk.StringVar(value="")
