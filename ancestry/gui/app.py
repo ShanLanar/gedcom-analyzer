@@ -301,7 +301,6 @@ class AncestryDnaApp(tk.Tk):
         self.title("Ancestry DNA Tool")
         self.geometry("1200x760")
         self.minsize(960, 620)
-        self.configure(bg=self._active_colors()["bg"])
 
         self._auth    : Optional[AncestryAuth]      = None
         self._client  : Optional[AncestryApiClient] = None
@@ -318,6 +317,7 @@ class AncestryDnaApp(tk.Tk):
         self._lang_menus:          list = []   # (menu, index, key) tuples
         self._lang_inner_nb_tabs:  list = []   # (notebook, frame, key) tuples
         self._dark_mode:           bool = False
+        self.configure(bg=self._active_colors()["bg"])
         self._pause_event:         threading.Event = threading.Event()
         self._pause_event.set()  # not paused initially
         self._dl_counters = {"matches": 0, "trees": 0, "shared": 0, "errors": 0}
