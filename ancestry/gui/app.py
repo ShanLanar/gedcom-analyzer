@@ -413,7 +413,7 @@ class AncestryDnaApp(tk.Frame):
 
     def _build_menu(self):
         mb = tk.Menu(self)
-        self.configure(menu=mb)
+        self.winfo_toplevel().configure(menu=mb)
 
         fm = tk.Menu(mb, tearoff=False)
         fm.add_command(label=self._t("mn.exp_csv"),    command=self._export_csv)
