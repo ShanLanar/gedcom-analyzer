@@ -3974,23 +3974,57 @@ class AncestryDnaApp(tk.Tk):
         self._cluster_count_var.set(f"{len(self._clusters)} Cluster")
         self._cluster_text_var.set(suggest_grandparent_lines(self._clusters))
 
+        # Seiten-Map für alle Cluster-Mitglieder vorladen
+        all_guids = [m["guid"] for mlist in self._clusters.values() for m in mlist]
+        side_map: dict[str, str] = {}
+        if all_guids:
+            try:
+                with self._db._cursor() as _cur:
+                    _rows = _cur.execute(
+                        "SELECT match_guid, paternal_maternal FROM matches "
+                        "WHERE match_guid IN ({})".format(",".join("?" * len(all_guids))),
+                        all_guids,
+                    ).fetchall()
+                side_map = {r["match_guid"]: (r["paternal_maternal"] or "") for r in _rows}
+            except Exception:
+                pass
+        self._cluster_side_colors: dict[int, str] = {}
+
         # Cluster-Liste füllen
         self._cluster_list.delete(*self._cluster_list.get_children())
         cluster_colors = COLORS["cluster"]
         for cid, members in self._clusters.items():
             cms   = [m["cm"] for m in members]
-            color = cluster_colors[(cid - 1) % len(cluster_colors)]
+            sides = [side_map.get(m["guid"], "") for m in members]
+            n_pat = sides.count("paternal")
+            n_mat = sides.count("maternal")
+            n_known = n_pat + n_mat
+            if n_known >= max(3, len(members) // 2):
+                if n_pat / n_known >= 0.7:
+                    color = "#DDF0FF"
+                    side_icon = "🔵 "
+                elif n_mat / n_known >= 0.7:
+                    color = "#FFE0E0"
+                    side_icon = "🔴 "
+                else:
+                    color = cluster_colors[(cid - 1) % len(cluster_colors)]
+                    side_icon = ""
+            else:
+                color = cluster_colors[(cid - 1) % len(cluster_colors)]
+                side_icon = ""
+            self._cluster_side_colors[cid] = color
             try:
                 from core.treematch import cluster_confidence
                 conf_result = cluster_confidence(members)
                 quality_icon = "🟢" if conf_result.get("realistic") else ("🟡" if len(members) >= 3 else "🔴")
             except Exception:
                 quality_icon = "—"
+            top_name = side_icon + (members[0]["name"] if members else "")
             self._cluster_list.insert("", "end", iid=str(cid),
                                        tags=(f"c{cid}",),
                                        values=(f"#{cid}", len(members),
                                                f"{max(cms):.0f}",
-                                               members[0]["name"] if members else "",
+                                               top_name,
                                                quality_icon))
             self._cluster_list.tag_configure(f"c{cid}", background=color)
 
@@ -4005,7 +4039,8 @@ class AncestryDnaApp(tk.Tk):
         descs = self._load_ui_settings().get("cluster_descs", {})
         if hasattr(self, "_cluster_desc_var"):
             self._cluster_desc_var.set(descs.get(str(cid), ""))
-        color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
+        color = getattr(self, "_cluster_side_colors", {}).get(
+            cid, COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])])
 
         # Build guid → match lookup for tree-link indicators
         test_guid = self._current_guid()
