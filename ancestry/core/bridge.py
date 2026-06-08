@@ -367,6 +367,21 @@ def _name_sim(a: str, b: str) -> float:
     return max(seq, lev_sim)
 
 
+def _place_sim(a: str, b: str) -> float:
+    """0..1 Ortsähnlichkeit: spezifischster Teil (vor erstem Komma) plus Region.
+    Robust gegen unterschiedliche Tiefe ('Schwagstorf' vs 'Schwagstorf, …')."""
+    a, b = (a or "").lower().strip(), (b or "").lower().strip()
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    a0 = a.split(",")[0].strip()
+    b0 = b.split(",")[0].strip()
+    spec = _name_sim(a0, b0)                 # Ort-Kern (z.B. Schwagstorf)
+    reg  = 1.0 if _extract_region(a) and _extract_region(a) == _extract_region(b) else 0.0
+    return max(spec, 0.6 * spec + 0.4 * reg)
+
+
 def link_duplicates(db, source: str, primary_source: str = "gedcom",
                     year_tol: int = 3, min_score: float = 0.72,
                     progress_cb=None) -> int:
@@ -377,9 +392,12 @@ def link_duplicates(db, source: str, primary_source: str = "gedcom",
       * Blocking: Kandidaten teilen den Kölner-Code ODER die ersten 4 Zeichen
         des normalisierten Nachnamens (fängt Schreibvarianten wie
         Kovermann/Covermann, Röwekamp/Rowekamp).
-      * Scoring: Nachnamen-Ähnlichkeit (Kölner + Levenshtein/SequenceMatcher),
-        Vornamen-Ähnlichkeit (Levenshtein), Geburtsjahr-Nähe (±year_tol),
-        kleiner Orts-Bonus. Verknüpft nur, wenn Gesamtscore >= min_score.
+      * Scoring (vornamen-arme Region!): Lebensdaten (Geburts- UND Sterbejahr)
+        sowie Geburts-/Sterbeort sind TRAGEND; der Nachname ist Pflicht, der
+        Vorname nur schwach positiv – ein Vornamen-WIDERSPRUCH schließt aus.
+      * Pflicht-Beleg: Ohne mindestens eine Daten-/Ortsübereinstimmung wird
+        NICHT verknüpft (sonst würden gleichnamige Personen verschmelzen).
+    Verknüpft nur, wenn Gesamtscore >= min_score.
     Gibt Anzahl neuer Verknüpfungen zurück.
     """
     ensure_tables(db)
@@ -396,63 +414,82 @@ def link_duplicates(db, source: str, primary_source: str = "gedcom",
     def _region(place):
         return _extract_region(place or "")
 
+    cols = ("ged_id, given_name, surname_norm, koelner_code, "
+            "birth_year, death_year, birth_place, death_place")
+
+    def _yr(dy_a, dy_b):
+        """Jahr-Ähnlichkeit 0..1 innerhalb year_tol, sonst -1 (= Widerspruch)."""
+        if not dy_a or not dy_b:
+            return None
+        dy = abs(int(dy_a) - int(dy_b))
+        if dy > year_tol:
+            return -1.0
+        return 1.0 - dy / (year_tol + 1)
+
     with db._cursor() as cur:
         prim = cur.execute(
-            "SELECT ged_id, given_name, surname_norm, koelner_code, birth_year, "
-            "birth_place FROM gedcom_persons WHERE source=?",
+            f"SELECT {cols} FROM gedcom_persons WHERE source=?",
             (primary_source,)).fetchall()
 
-        # zwei Blocking-Indizes: nach Kölner-Code und nach Nachname-Präfix
         idx_koel = defaultdict(list)
         idx_pref = defaultdict(list)
         for r in prim:
-            entry = (r["ged_id"], _first(r["given_name"]), r["surname_norm"],
-                     r["birth_year"], _region(r["birth_place"]))
+            entry = dict(r)
             if r["koelner_code"]:
                 idx_koel[r["koelner_code"]].append(entry)
             if r["surname_norm"]:
                 idx_pref[r["surname_norm"][:4]].append(entry)
 
         others = cur.execute(
-            "SELECT ged_id, given_name, surname_norm, koelner_code, birth_year, "
-            "birth_place FROM gedcom_persons WHERE source=?", (source,)).fetchall()
+            f"SELECT {cols} FROM gedcom_persons WHERE source=?", (source,)).fetchall()
 
         linked = 0
         for r in others:
-            o_first  = _first(r["given_name"])
-            o_sn     = r["surname_norm"] or ""
-            o_year   = r["birth_year"]
-            o_region = _region(r["birth_place"])
+            o_first = _first(r["given_name"]); o_sn = r["surname_norm"] or ""
 
-            # Kandidaten aus beiden Blocking-Buckets sammeln (dedupliziert)
             cands = {}
             for e in idx_koel.get(r["koelner_code"], []):
-                cands[e[0]] = e
+                cands[e["ged_id"]] = e
             if o_sn:
                 for e in idx_pref.get(o_sn[:4], []):
-                    cands[e[0]] = e
+                    cands[e["ged_id"]] = e
             if not cands:
                 continue
 
             best, best_score = None, 0.0
-            for pid, p_first, p_sn, p_year, p_region in cands.values():
-                sn_sim = _name_sim(o_sn, p_sn)
+            for e in cands.values():
+                sn_sim = _name_sim(o_sn, e["surname_norm"] or "")
                 if sn_sim < 0.6:
                     continue
-                score = 0.45 * sn_sim
-                gn_sim = _name_sim(o_first, p_first) if (o_first and p_first) else 0.0
-                score += 0.30 * gn_sim
-                if o_year and p_year:
-                    dy = abs(int(o_year) - int(p_year))
-                    if dy > year_tol:
-                        continue
-                    score += 0.20 * (1 - dy / (year_tol + 1))
-                elif not o_year and not p_year:
-                    score += 0.05
-                if o_region and p_region and o_region == p_region:
-                    score += 0.05
+
+                # Vorname: schwach positiv, aber Widerspruch schließt aus
+                p_first = _first(e["given_name"])
+                gn_sim = _name_sim(o_first, p_first) if (o_first and p_first) else None
+                if gn_sim is not None and gn_sim < 0.4:
+                    continue   # anderer Vorname -> andere Person
+
+                # Lebensdaten (tragend) – Widerspruch (-1) schließt aus
+                by = _yr(r["birth_year"], e["birth_year"])
+                dyr = _yr(r["death_year"], e["death_year"])
+                if by == -1 or dyr == -1:
+                    continue
+                bp = _place_sim(r["birth_place"], e["birth_place"])
+                dp = _place_sim(r["death_place"], e["death_place"])
+
+                # Pflicht-Beleg: mind. eine Daten-/Ortsübereinstimmung
+                corro = [v for v in (by, dyr) if v and v > 0] + \
+                        [v for v in (bp, dp) if v >= 0.6]
+                if not corro:
+                    continue
+
+                score = (0.28 * sn_sim
+                         + 0.12 * (gn_sim or 0.0)
+                         + 0.22 * (by if by and by > 0 else 0.0)
+                         + 0.16 * (dyr if dyr and dyr > 0 else 0.0)
+                         + 0.14 * bp
+                         + 0.08 * dp)
                 if score > best_score:
-                    best, best_score = pid, score
+                    best, best_score = e["ged_id"], score
 
             if best and best_score >= min_score:
                 cur.execute(
@@ -462,7 +499,7 @@ def link_duplicates(db, source: str, primary_source: str = "gedcom",
                     (best, primary_source, r["ged_id"], source, round(best_score, 3)))
                 linked += 1
         p(f"{linked} Querbezüge {source}↔{primary_source} angelegt "
-          f"(Fuzzy, Schwelle {min_score}).")
+          f"(Lebensdaten+Orte gewichtet, Schwelle {min_score}).")
     return linked
 
 
