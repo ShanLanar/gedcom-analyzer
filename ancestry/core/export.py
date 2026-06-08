@@ -14,7 +14,7 @@ MATCH_COLUMNS = [
     "display_name", "gender", "shared_cm", "shared_segments", "longest_segment",
     "predicted_relationship", "confidence", "relationship_range",
     "has_tree", "tree_status", "tree_size", "has_common_ancestor",
-    "starred", "note", "custom_relationship",
+    "starred", "note", "custom_relationship", "paternal_maternal",
     "ethnicity_regions", "last_login", "fetched_at", "match_guid",
 ]
 
@@ -40,6 +40,7 @@ MATCH_LABELS = {
     "starred"                : "Markiert",
     "note"                   : "Notiz",
     "custom_relationship"    : "Eigene Beziehung",
+    "paternal_maternal"      : "Seite (v/m)",
     "ethnicity_regions"      : "Herkunftsregionen",
     "last_login"             : "Letzter Login",
     "fetched_at"             : "Abgerufen am",
@@ -154,7 +155,7 @@ def export_xlsx(matches: list[DnaMatch], filepath: str,
     ws1 = wb.active
     ws1.title = "DNA-Matches"
     headers1 = [MATCH_LABELS.get(c, c) for c in MATCH_COLUMNS]
-    widths1  = [30, 14, 10, 18, 25, 12, 20, 12, 12, 10, 40, 20, 30, 20, 20, 36]
+    widths1  = [30, 14, 10, 18, 25, 12, 20, 12, 12, 10, 40, 20, 30, 20, 12, 20, 20, 36]
     rows1 = []
     for m in matches:
         d = m.to_dict()

@@ -279,6 +279,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.chk4":      {"de": "Seite zugewiesen (v/m)",               "en": "Side assigned (p/m)"},
     "md.fs_link":   {"de": "🔍 FamilySearch …",                    "en": "🔍 FamilySearch …"},
     "md.tab_gedcom":{"de": "🌳 GEDCOM-Treffer",                   "en": "🌳 GEDCOM Hits"},
+    "md.tab_ancestors":{"de": "👨‍👩‍👧 Gemeinsame Vorfahren",           "en": "👨‍👩‍👧 Common Ancestors"},
+    "md.anc_none":  {"de": "Keine gemeinsamen Vorfahren von Ancestry heruntergeladen.",
+                     "en": "No common ancestors downloaded from Ancestry."},
     "md.ged_none":  {"de": "Kein GEDCOM geladen – Analyse → Eigenen Baum abgleichen", "en": "No GEDCOM loaded – Analysis → Match own tree"},
     "md.ged_no_ped":{"de": "Keine Ahnentafel-Daten für diesen Match.", "en": "No pedigree data for this match."},
     "md.ged_searching": {"de": "Suche …", "en": "Searching …"},
@@ -287,6 +290,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "cl.quality":   {"de": "Güte",           "en": "Quality"},
     "cl.desc":      {"de": "Cluster-Beschreibung:",                "en": "Cluster description:"},
     "cl.timeline":  {"de": "📅 Zeitachse",   "en": "📅 Timeline"},
+    "cl.assign_side": {"de": "⚡ Seite zuweisen", "en": "⚡ Assign side"},
     # Statistics tab
     "st.with_tree_pct": {"de": "Mit Baum %:", "en": "With tree %:"},
     "st.side_pct":      {"de": "Seite bekannt %:", "en": "Side known %:"},
@@ -3227,6 +3231,12 @@ class AncestryDnaApp(tk.Tk):
         self._lang_inner_nb_tabs.append((self._detail_nb, ged_frame, "md.tab_gedcom"))
         self._build_gedcom_link_panel(ged_frame)
 
+        # Sub-Tab 4: Gemeinsame Vorfahren (Ancestry match_ancestors)
+        anc_frame = ttk.Frame(self._detail_nb)
+        self._detail_nb.add(anc_frame, text=self._t("md.tab_ancestors"))
+        self._lang_inner_nb_tabs.append((self._detail_nb, anc_frame, "md.tab_ancestors"))
+        self._build_ancestors_panel(anc_frame)
+
         self._selected_match: Optional[DnaMatch] = None
 
     def _build_shared_panel(self, parent):
@@ -3369,6 +3379,55 @@ class AncestryDnaApp(tk.Tk):
                                         if ged_year else ""))
             import webbrowser
             webbrowser.open(url)
+
+    def _build_ancestors_panel(self, parent):
+        """Sub-Tab 4: Gemeinsame Vorfahren (aus Ancestry match_ancestors-Tabelle)."""
+        tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=4)
+        self._anc_status_var = tk.StringVar(value="")
+        ttk.Label(tb, textvariable=self._anc_status_var,
+                  foreground=COLORS["primary"]).pack(side="left")
+
+        cols = ("name", "birth", "death", "rel_sample", "rel_match", "path_sample")
+        self._anc_tree = ttk.Treeview(parent, columns=cols,
+                                       show="headings", selectmode="browse")
+        widths   = {"name": 200, "birth": 45, "death": 45,
+                    "rel_sample": 140, "rel_match": 140, "path_sample": 90}
+        labels   = {"name": "Vorfahre", "birth": "Geb.", "death": "Gest.",
+                    "rel_sample": "Verwandtschaft (Proband)",
+                    "rel_match":  "Verwandtschaft (Match)",
+                    "path_sample": "Ahnen-Pfad"}
+        anchors  = {"birth": "center", "death": "center", "path_sample": "center"}
+        for col in cols:
+            self._anc_tree.heading(col, text=labels[col])
+            self._anc_tree.column(col, width=widths[col],
+                                   anchor=anchors.get(col, "w"),
+                                   stretch=(col in ("name", "rel_sample", "rel_match")))
+        sy = ttk.Scrollbar(parent, orient="vertical", command=self._anc_tree.yview)
+        self._anc_tree.configure(yscrollcommand=sy.set)
+        self._anc_tree.pack(side="left", fill="both", expand=True, padx=(6, 0), pady=2)
+        sy.pack(side="right", fill="y", pady=2)
+
+    def _load_ancestors_panel(self, match: "DnaMatch"):
+        """Füllt den Gemeinsame-Vorfahren-Tab für den ausgewählten Match."""
+        self._anc_tree.delete(*self._anc_tree.get_children())
+        try:
+            rows = self._db.get_ancestors_for_match(match.match_guid)
+        except Exception:
+            rows = []
+        if not rows:
+            self._anc_status_var.set(self._t("md.anc_none"))
+            return
+        self._anc_status_var.set(
+            f"{len(rows)} gemeinsame Vorfahren  ·  {match.display_name}")
+        for r in rows:
+            self._anc_tree.insert("", "end", values=(
+                r.get("ancestor_name", ""),
+                r.get("birth_year") or "—",
+                r.get("death_year") or "—",
+                r.get("relationship_to_sample", ""),
+                r.get("relationship_to_match", ""),
+                r.get("kinship_path_sample", ""),
+            ))
 
     def _run_gedcom_match_all(self):
         """Bulk-Abgleich aller Matches gegen den GEDCOM-Baum."""
@@ -3721,9 +3780,10 @@ class AncestryDnaApp(tk.Tk):
         for i, var in enumerate(self._checklist_vars):
             var.set(bool(flags & (1 << i)))
 
-        # Shared Matches + GEDCOM-Bridge laden
+        # Shared Matches + GEDCOM-Bridge + Gemeinsame Vorfahren laden
         self._load_shared_panel(match)
         self._load_gedcom_link_panel(match)
+        self._load_ancestors_panel(match)
 
     def _load_shared_panel(self, match: DnaMatch):
         """Lädt Shared Matches für den ausgewählten primären Match."""
@@ -3860,6 +3920,9 @@ class AncestryDnaApp(tk.Tk):
         _sv_tl = tk.StringVar(value=self._t("cl.timeline"))
         ttk.Button(cf, textvariable=_sv_tl, command=self._show_cluster_timeline).pack(side="left", padx=4)
         self._lang_widgets.append((_sv_tl, "cl.timeline"))
+        _sv_as = tk.StringVar(value=self._t("cl.assign_side"))
+        ttk.Button(cf, textvariable=_sv_as, command=self._assign_cluster_side).pack(side="left", padx=4)
+        self._lang_widgets.append((_sv_as, "cl.assign_side"))
 
         # Cluster description field
         df = ttk.Frame(f); df.pack(fill="x", padx=14, pady=(0,4))
@@ -4914,6 +4977,67 @@ class AncestryDnaApp(tk.Tk):
                                 f"✅ {n_mat} Matches als mütterlich markiert\n"
                                 f"✅ {n_pat} Matches als väterlich markiert\n\n"
                                 f"Quelle: Ancestry Tag 8 / Cluster-Code")
+
+    def _assign_cluster_side(self):
+        """Weist allen Mitgliedern des gewählten Clusters eine Seite zu."""
+        sel = self._cluster_list.selection()
+        if not sel:
+            messagebox.showinfo("Kein Cluster", "Bitte Cluster auswählen.")
+            return
+        cid = int(sel[0])
+        members = self._clusters.get(cid, [])
+        if not members:
+            return
+        test_guid = self._current_guid()
+        if not test_guid:
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Cluster #{cid} – Seite zuweisen")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        ttk.Label(dlg, text=f"Seite für alle {len(members)} Mitglieder von Cluster #{cid}:",
+                  font=("Segoe UI", 10, "bold")).grid(
+            row=0, column=0, columnspan=2, padx=16, pady=(14, 8), sticky="w")
+
+        side_var = tk.StringVar(value="paternal")
+        ttk.Radiobutton(dlg, text="🔵 Väterlich (paternal)",
+                        variable=side_var, value="paternal").grid(
+            row=1, column=0, columnspan=2, padx=24, pady=2, sticky="w")
+        ttk.Radiobutton(dlg, text="🔴 Mütterlich (maternal)",
+                        variable=side_var, value="maternal").grid(
+            row=2, column=0, columnspan=2, padx=24, pady=2, sticky="w")
+        ttk.Radiobutton(dlg, text="✖ Zuweisung entfernen",
+                        variable=side_var, value="").grid(
+            row=3, column=0, columnspan=2, padx=24, pady=(2, 10), sticky="w")
+
+        result = {"ok": False}
+        def _ok():
+            result["ok"] = True
+            dlg.destroy()
+
+        bf = ttk.Frame(dlg); bf.grid(row=4, column=0, columnspan=2, padx=14, pady=(0, 12))
+        ttk.Button(bf, text="OK", command=_ok, width=10).pack(side="left", padx=4)
+        ttk.Button(bf, text="Abbrechen", command=dlg.destroy, width=10).pack(side="left", padx=4)
+        dlg.wait_window()
+
+        if not result["ok"]:
+            return
+
+        guids = [m["guid"] for m in members]
+        side = side_var.get()
+        n = self._db.bulk_set_side(guids, side)
+        self._refresh_match_table()
+
+        if side:
+            side_label = "väterlich" if side == "paternal" else "mütterlich"
+            messagebox.showinfo("Seite zugewiesen",
+                                f"✅ {n} Matches als {side_label} markiert\n"
+                                f"Cluster #{cid} ({len(members)} Mitglieder)")
+        else:
+            messagebox.showinfo("Zuweisung entfernt",
+                                f"✅ Seitenzuweisung für {n} Matches entfernt\n"
+                                f"Cluster #{cid} ({len(members)} Mitglieder)")
 
     def _show_cluster_timeline(self):
         """Zeigt Geburtsjahre der Cluster-Vorfahren als Zeitachse."""
