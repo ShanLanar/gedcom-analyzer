@@ -81,9 +81,15 @@ def _featurize(surname: str, birth_year=None) -> str:
 
 # ── Training ──────────────────────────────────────────────────────────────────
 
-def train(db, min_region: int = 20, progress_cb=None) -> dict:
+def train(db, min_region: int = 20, sources=None, dedupe: bool = True,
+          progress_cb=None) -> dict:
     """Trainiert das Modell auf gedcom_persons. min_region verwirft seltene
-    Regionen (Rauschen). Gibt Metriken zurück und speichert das Modell."""
+    Regionen (Rauschen). Gibt Metriken zurück und speichert das Modell.
+
+    sources: zugelassene Quellen (None = alle: gedcom + anverwandte + wikitree).
+    dedupe:  verknüpfte Duplikate nur einmal zählen (über gedcom_person_xref),
+             damit dieselbe Person das Training nicht verzerrt.
+    """
     TfidfVectorizer, LogisticRegression, Pipeline = _sklearn()
 
     def p(m):
@@ -91,11 +97,24 @@ def train(db, min_region: int = 20, progress_cb=None) -> dict:
             try: progress_cb(m)
             except Exception: pass
 
-    p("Lese GEDCOM-Personen …")
-    with db._cursor() as cur:
-        rows = cur.execute(
-            "SELECT surname, birth_year, birth_place FROM gedcom_persons "
-            "WHERE TRIM(surname)<>'' AND TRIM(birth_place)<>''").fetchall()
+    p("Lese Personen (quellenbewusst, dedupliziert) …")
+    if dedupe:
+        try:
+            from core.bridge import iter_unique_persons
+        except Exception:
+            from bridge import iter_unique_persons
+        rows = [r for r in iter_unique_persons(db, sources=sources)
+                if (r.get("surname") or "").strip() and (r.get("birth_place") or "").strip()]
+    else:
+        with db._cursor() as cur:
+            q = ("SELECT surname, birth_year, birth_place FROM gedcom_persons "
+                 "WHERE TRIM(surname)<>'' AND TRIM(birth_place)<>''")
+            if sources:
+                ph = ",".join("?" * len(sources))
+                q += f" AND source IN ({ph})"
+                rows = [dict(r) for r in cur.execute(q, list(sources)).fetchall()]
+            else:
+                rows = [dict(r) for r in cur.execute(q).fetchall()]
 
     X_txt, y = [], []
     for r in rows:

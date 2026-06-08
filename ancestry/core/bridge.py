@@ -158,6 +158,7 @@ CREATE TABLE IF NOT EXISTS gedcom_person_xref (
     ged_id_other     TEXT NOT NULL,
     source_other     TEXT NOT NULL,
     score            REAL NOT NULL DEFAULT 0.0,
+    status           TEXT NOT NULL DEFAULT 'auto',   -- auto | confirmed | rejected
     created_at       TEXT NOT NULL DEFAULT (datetime('now')),
     PRIMARY KEY (ged_id_primary, ged_id_other)
 );
@@ -197,6 +198,11 @@ def ensure_tables(db) -> None:
         # Migration: source-Spalte für bestehende DBs
         try:
             cur.execute("ALTER TABLE gedcom_persons ADD COLUMN source TEXT NOT NULL DEFAULT 'gedcom'")
+        except Exception:
+            pass
+        # Migration: status-Spalte der Xref-Tabelle
+        try:
+            cur.execute("ALTER TABLE gedcom_person_xref ADD COLUMN status TEXT NOT NULL DEFAULT 'auto'")
         except Exception:
             pass
 
@@ -492,15 +498,81 @@ def link_duplicates(db, source: str, primary_source: str = "gedcom",
                     best, best_score = e["ged_id"], score
 
             if best and best_score >= min_score:
+                # Score aktualisieren, aber manuell gesetzten status erhalten
                 cur.execute(
-                    """INSERT OR REPLACE INTO gedcom_person_xref
+                    """INSERT INTO gedcom_person_xref
                        (ged_id_primary, source_primary, ged_id_other, source_other, score)
-                       VALUES (?,?,?,?,?)""",
+                       VALUES (?,?,?,?,?)
+                       ON CONFLICT(ged_id_primary, ged_id_other)
+                       DO UPDATE SET score=excluded.score""",
                     (best, primary_source, r["ged_id"], source, round(best_score, 3)))
                 linked += 1
         p(f"{linked} Querbezüge {source}↔{primary_source} angelegt "
           f"(Lebensdaten+Orte gewichtet, Schwelle {min_score}).")
     return linked
+
+
+def get_xref_pairs(db, status: str = "", lo: float = 0.0, hi: float = 1.0,
+                   source: str = "") -> list[dict]:
+    """Querbezüge mit beiden Personendetails – für Review/Anzeige.
+    Filter: status, Score-Bereich [lo,hi], source_other."""
+    ensure_tables(db)
+    sql = """
+        SELECT x.ged_id_primary, x.ged_id_other, x.source_other, x.score, x.status,
+               a.given_name AS a_given, a.surname AS a_surname,
+               a.birth_year AS a_by, a.death_year AS a_dy,
+               a.birth_place AS a_bp, a.death_place AS a_dp,
+               b.given_name AS b_given, b.surname AS b_surname,
+               b.birth_year AS b_by, b.death_year AS b_dy,
+               b.birth_place AS b_bp, b.death_place AS b_dp
+        FROM gedcom_person_xref x
+        JOIN gedcom_persons a ON a.ged_id = x.ged_id_primary
+        JOIN gedcom_persons b ON b.ged_id = x.ged_id_other
+        WHERE x.score BETWEEN ? AND ?
+    """
+    args = [lo, hi]
+    if status:
+        sql += " AND x.status=?"; args.append(status)
+    if source:
+        sql += " AND x.source_other=?"; args.append(source)
+    sql += " ORDER BY x.score ASC"
+    with db._cursor() as cur:
+        return [dict(r) for r in cur.execute(sql, args).fetchall()]
+
+
+def set_xref_status(db, ged_id_primary: str, ged_id_other: str, status: str) -> None:
+    """Querbezug bestätigen/ablehnen (status: confirmed|rejected|auto)."""
+    with db._cursor() as cur:
+        cur.execute("UPDATE gedcom_person_xref SET status=? "
+                    "WHERE ged_id_primary=? AND ged_id_other=?",
+                    (status, ged_id_primary, ged_id_other))
+
+
+def iter_unique_persons(db, sources=None) -> list[dict]:
+    """Personen quellenübergreifend dedupliziert: jede reale Person genau
+    einmal. Verknüpfte Duplikate (status != 'rejected') werden durch ihren
+    Primär-Eintrag (i.d.R. eigener GEDCOM) repräsentiert; die anderen
+    Instanzen entfallen. So zählt dieselbe Person nicht mehrfach (z.B. fürs
+    ML-Training oder die Orts-Statistik).
+
+    sources: optionale Liste zugelassener Quellen (None = alle).
+    """
+    ensure_tables(db)
+    with db._cursor() as cur:
+        absorbed = {r["ged_id_other"] for r in cur.execute(
+            "SELECT ged_id_other FROM gedcom_person_xref WHERE status!='rejected'")}
+        rows = cur.execute(
+            "SELECT ged_id, given_name, surname, surname_norm, koelner_code, "
+            "sex, birth_year, birth_place, death_year, death_place, source "
+            "FROM gedcom_persons").fetchall()
+    out = []
+    for r in rows:
+        if r["ged_id"] in absorbed:
+            continue                      # Duplikat -> durch Primär vertreten
+        if sources and r["source"] not in sources:
+            continue
+        out.append(dict(r))
+    return out
 
 
 def get_gedcom_person_count(db) -> int:
