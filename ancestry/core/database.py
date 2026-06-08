@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 14
+    SCHEMA_VERSION = 15
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -93,6 +93,8 @@ class Database:
                 self._migrate_v12_v13(cur)
             if current < 14:
                 self._migrate_v13_v14(cur)
+            if current < 15:
+                self._migrate_v14_v15(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -1211,6 +1213,57 @@ class Database:
             );
             CREATE INDEX IF NOT EXISTS idx_mhr_match
                 ON mh_match_relationships(match_guid);
+        """)
+
+    def _migrate_v14_v15(self, cur):
+        """Schema v15: GEDmatch als Cross-Platform-Aggregator.
+
+        GEDmatch verknüpft Kits aus Ancestry, MyHeritage, FTDNA, 23andMe etc.
+        Über Kit-IDs können wir identische Personen plattformübergreifend matchen.
+        """
+        try:
+            cur.execute("ALTER TABLE persons ADD COLUMN gedmatch_kit_id TEXT DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_persons_gedmatch ON persons(gedmatch_kit_id)"
+            )
+        except Exception:
+            pass
+
+        cur.executescript("""
+            -- ── GEDmatch One-to-Many Matches ─────────────────────────────────────
+            -- Kit CM8449775 = Andreas Kovermann auf GEDmatch
+            -- source_platform: 23andMe | Ancestry | MyHeritage | FTDNA | LivingDNA | ...
+            CREATE TABLE IF NOT EXISTS gedmatch_matches (
+                kit_id          TEXT NOT NULL,          -- GEDmatch Kit-Nummer des Matches
+                our_kit         TEXT NOT NULL,          -- unser Kit (CM8449775)
+                name            TEXT DEFAULT '',
+                email           TEXT DEFAULT '',        -- maskiert (xxx***@domain.com)
+                tags            TEXT DEFAULT '',        -- GED | Wiki | leer
+                sex             TEXT DEFAULT '',        -- M | F | U
+                shared_cm       REAL DEFAULT 0,
+                largest_segment REAL DEFAULT 0,
+                gen_distance    REAL DEFAULT 0,         -- Generationsabstand
+                x_cm            REAL DEFAULT 0,
+                x_segments      INTEGER DEFAULT 0,
+                source_platform TEXT DEFAULT '',        -- Herkunfts-Plattform
+                snps            INTEGER DEFAULT 0,
+                overlap         INTEGER DEFAULT 0,
+                mt_haplogroup   TEXT DEFAULT '',
+                y_haplogroup    TEXT DEFAULT '',
+                fetched_at      TEXT DEFAULT '',
+                PRIMARY KEY (kit_id, our_kit)
+            );
+            CREATE INDEX IF NOT EXISTS idx_gm_our_kit
+                ON gedmatch_matches(our_kit);
+            CREATE INDEX IF NOT EXISTS idx_gm_platform
+                ON gedmatch_matches(source_platform);
+            CREATE INDEX IF NOT EXISTS idx_gm_shared_cm
+                ON gedmatch_matches(shared_cm DESC);
+            CREATE INDEX IF NOT EXISTS idx_gm_name
+                ON gedmatch_matches(name);
         """)
 
     # ── New methods (v12) ─────────────────────────────────────────────────────
