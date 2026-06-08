@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 18
+    SCHEMA_VERSION = 19
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -99,6 +99,8 @@ class Database:
                 self._migrate_v15_v16(cur)
                 self._migrate_v16_v17(cur)
                 self._migrate_v17_v18(cur)
+            if current < 19:
+                self._migrate_v18_v19(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -670,6 +672,8 @@ class Database:
         sort_asc: bool              = False,
         limit: int                  = 0,
         offset: int                 = 0,
+        source: Optional[str]       = None,   # "ancestry"|"myheritage"|"gedmatch"|None=alle
+        all_sources: bool           = False,  # True → kein Kit-Filter, alle Plattformen
     ) -> list[DnaMatch]:
         valid_cols = {"display_name", "shared_cm", "shared_segments",
                       "predicted_relationship", "fetched_at", "starred",
@@ -678,9 +682,11 @@ class Database:
         direction = "ASC" if sort_asc else "DESC"
 
         conditions, params = [], []
-        use_kit_join = bool(test_guid)
+        use_kit_join = bool(test_guid) and not all_sources
         if use_kit_join:
             conditions.append("mkm.test_guid = ?"); params.append(test_guid)
+        if source:
+            conditions.append("m.source = ?"); params.append(source)
         if search:
             conditions.append("m.display_name LIKE ?"); params.append(f"%{search}%")
         if relationship and relationship != "(alle)":
@@ -696,17 +702,99 @@ class Database:
 
         where        = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         limit_clause = f"LIMIT {limit} OFFSET {offset}" if limit else ""
+        # Join with gedmatch_bridge to enrich each match with its GEDmatch kit (if any)
+        bridge_join = (
+            "LEFT JOIN gedmatch_bridge gb ON gb.match_guid = m.match_guid"
+        )
         if use_kit_join:
-            sql = (f"SELECT m.* FROM matches m "
+            sql = (f"SELECT m.*, COALESCE(gb.gedmatch_kit_id,'') AS gedmatch_kit_id "
+                   f"FROM matches m "
                    f"JOIN match_kit_membership mkm ON mkm.match_guid = m.match_guid "
+                   f"{bridge_join} "
                    f"{where} ORDER BY m.{sort_col} {direction} {limit_clause}")
         else:
-            sql = (f"SELECT * FROM matches m {where} "
-                   f"ORDER BY {sort_col} {direction} {limit_clause}")
+            sql = (f"SELECT m.*, COALESCE(gb.gedmatch_kit_id,'') AS gedmatch_kit_id "
+                   f"FROM matches m {bridge_join} {where} "
+                   f"ORDER BY m.{sort_col} {direction} {limit_clause}")
 
         with self._cursor() as cur:
-            cur.execute(sql, params)
-            return [DnaMatch.from_db_row(dict(r)) for r in cur.fetchall()]
+            # gedmatch_bridge may not exist yet (pre-v19) – handle gracefully
+            try:
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+            except Exception:
+                # Fall back without bridge join
+                if use_kit_join:
+                    fb = (f"SELECT m.* FROM matches m "
+                          f"JOIN match_kit_membership mkm ON mkm.match_guid = m.match_guid "
+                          f"{where} ORDER BY m.{sort_col} {direction} {limit_clause}")
+                else:
+                    fb = (f"SELECT * FROM matches m {where} "
+                          f"ORDER BY {sort_col} {direction} {limit_clause}")
+                cur.execute(fb, params)
+                rows = cur.fetchall()
+            return [DnaMatch.from_db_row(dict(r)) for r in rows]
+
+    def link_gedmatch_bridges(self, our_kit: str = "CM8449775",
+                              cm_tolerance: float = 0.12) -> int:
+        """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches per Name+cM-Ähnlichkeit.
+
+        Für jeden GEDmatch-Match wird der ähnlichste Ancestry/MH-Match gesucht:
+          - cM innerhalb ±cm_tolerance (12 %)
+          - Namensähnlichkeit ≥ 0.55 (SequenceMatcher)
+        Trifft zu → Eintrag in `gedmatch_bridge`.
+        """
+        from difflib import SequenceMatcher
+        with self._cursor() as cur:
+            gm_rows = cur.execute(
+                "SELECT kit_id, name, shared_cm, source_platform "
+                "FROM gedmatch_matches WHERE our_kit=? AND shared_cm > 7",
+                (our_kit,)
+            ).fetchall()
+            match_rows = cur.execute(
+                "SELECT match_guid, display_name, shared_cm, source "
+                "FROM matches WHERE shared_cm > 7"
+            ).fetchall()
+
+        def _sim(a: str, b: str) -> float:
+            a, b = (a or "").lower().strip(), (b or "").lower().strip()
+            if not a or not b:
+                return 0.0
+            return SequenceMatcher(None, a, b).ratio()
+
+        linked = 0
+        rows_to_insert = []
+        for gm in gm_rows:
+            gm_kit, gm_name, gm_cm, gm_plat = gm
+            if not gm_cm:
+                continue
+            lo, hi = gm_cm * (1 - cm_tolerance), gm_cm * (1 + cm_tolerance)
+            best_guid, best_score = None, 0.54
+            for mg in match_rows:
+                m_guid, m_name, m_cm, m_src = mg
+                if not m_cm or not (lo <= m_cm <= hi):
+                    continue
+                # Platform hint: only try to match to correct source
+                plat_lower = (gm_plat or "").lower()
+                if "ancestry" in plat_lower and m_src != "ancestry":
+                    continue
+                if "myheritage" in plat_lower and m_src not in ("myheritage", "ancestry"):
+                    continue
+                s = _sim(gm_name, m_name)
+                if s > best_score:
+                    best_score, best_guid = s, m_guid
+            if best_guid:
+                rows_to_insert.append((gm_kit, best_guid, round(best_score, 3)))
+                linked += 1
+
+        with self._cursor() as cur:
+            cur.executemany(
+                "INSERT OR REPLACE INTO gedmatch_bridge "
+                "(gedmatch_kit_id, match_guid, confidence, linked_at) "
+                "VALUES (?, ?, ?, datetime('now'))",
+                rows_to_insert,
+            )
+        return linked
 
     def set_probable_origin(self, match_guid: str, origin_json: str):
         """Stores the JSON-serialized origin inference result for a match."""
@@ -1304,6 +1392,20 @@ class Database:
             cur.execute("ALTER TABLE matches ADD COLUMN ml_origin TEXT DEFAULT ''")
         except Exception:
             pass
+
+    def _migrate_v18_v19(self, cur):
+        """Schema v19: gedmatch_bridge — verknüpft GEDmatch-Kit-IDs mit match_guids."""
+        cur.executescript("""
+            CREATE TABLE IF NOT EXISTS gedmatch_bridge (
+                gedmatch_kit_id TEXT NOT NULL,
+                match_guid      TEXT NOT NULL,
+                confidence      REAL DEFAULT 0.0,
+                linked_at       TEXT DEFAULT '',
+                PRIMARY KEY (gedmatch_kit_id, match_guid)
+            );
+            CREATE INDEX IF NOT EXISTS idx_gb_match
+                ON gedmatch_bridge(match_guid);
+        """)
 
     def set_ml_origin(self, match_guid: str, origin_json: str):
         """Store the ML origin prediction (JSON) for a match."""

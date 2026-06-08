@@ -115,6 +115,14 @@ class DnaMatch:
     # Seitenableitung: "paternal", "maternal", "both", "" = unbekannt
     paternal_maternal: str = ""
 
+    # Plattformquelle: "ancestry" | "myheritage" | "gedmatch"
+    source: str = "ancestry"
+    # Regelbasierte + ML-Herkunftsinferenz (JSON-Strings)
+    probable_origin: str = ""
+    ml_origin: str = ""
+    # GEDmatch-Brücke: verknüpftes GEDmatch-Kit (leer = unbekannt)
+    gedmatch_kit_id: str = ""
+
     ethnicity_regions: list = field(default_factory=list)
     last_login: str = ""
     fetched_at: str = ""

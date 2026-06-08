@@ -63,6 +63,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     # Main match table
     "m.name":    {"de": "Name / ID",   "en": "Name / ID"},
     "m.guid":    {"de": "GUID",        "en": "GUID"},
+    "m.src":     {"de": "Quelle",      "en": "Source"},
     "m.note":    {"de": "Bemerkung",   "en": "Note"},
     "m.cm":      {"de": "cM",          "en": "cM"},
     "m.seg":     {"de": "Seg.",        "en": "Seg."},
@@ -926,6 +927,8 @@ class AncestryDnaApp(tk.Frame):
             self._kit_combo.current(0)
         self._update_matches_kit_combo()
 
+    _ALL_SOURCES_LABEL = "— Alle Plattformen —"
+
     def _update_matches_kit_combo(self):
         """Befüllt den Kit-Selektor im Matches-Tab aus DB + _kit_map."""
         if not hasattr(self, "_matches_kit_combo"):
@@ -935,6 +938,8 @@ class AncestryDnaApp(tk.Frame):
         except Exception:
             db_kits = []
         combined: dict[str, str] = {}
+        # Sentinel für plattformübergreifende Ansicht
+        combined[self._ALL_SOURCES_LABEL] = ""
         for k in db_kits:
             name = k.name or f"Kit {k.guid[:8]}"
             combined[name] = k.guid
@@ -3007,6 +3012,8 @@ class AncestryDnaApp(tk.Frame):
         ttk.Button(kl, textvariable=_sv_sides,
                    command=self._auto_assign_sides).pack(side="left", padx=(12, 0))
         self._lang_widgets.append((_sv_sides, "mf.sides"))
+        ttk.Button(kl, text="⚡ GEDmatch-Brücke",
+                   command=self._run_gedmatch_bridge).pack(side="left", padx=(8, 0))
 
         # Filter-Leiste
         fl = ttk.Frame(f); fl.pack(fill="x", padx=10, pady=6)
@@ -3130,7 +3137,7 @@ class AncestryDnaApp(tk.Frame):
         self._tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
         for col, (key, width, anchor) in {
             "name"   : ("m.name",    190, "w"),
-            "guid"   : ("m.guid",     95, "w"),
+            "guid"   : ("m.src",      68, "center"),  # Quell-Badge (🧬/🔵/⚪)
             "note"   : ("m.note",    150, "w"),
             "cm"     : ("m.cm",       65, "e"),
             "seg"    : ("m.seg",      45, "e"),
@@ -3797,13 +3804,17 @@ class AncestryDnaApp(tk.Frame):
 
         # Kit-GUID aus Matches-Tab-Selektor
         active_kit: Optional[str] = None
+        selected_kit_name = ""
         if hasattr(self, "_matches_kit_var") and self._matches_kit_var.get():
-            active_kit = self._matches_kit_guid_map.get(self._matches_kit_var.get())
-        if not active_kit:
+            selected_kit_name = self._matches_kit_var.get()
+            active_kit = self._matches_kit_guid_map.get(selected_kit_name)
+        all_sources_mode = (selected_kit_name == self._ALL_SOURCES_LABEL)
+        if not all_sources_mode and not active_kit:
             active_kit = self._current_test_guid or self._get_kit_guid()
 
         self._matches = self._db.get_matches(
             test_guid      = active_kit,
+            all_sources    = all_sources_mode,
             search         = self._search_var.get().strip() or None,
             relationship   = self._rel_var.get() if hasattr(self,"_rel_var") else None,
             starred_only   = self._starred_var.get() if hasattr(self,"_starred_var") else False,
@@ -3878,6 +3889,18 @@ class AncestryDnaApp(tk.Frame):
             else:
                 tree_txt = "—"
 
+            # Quell-Badge (Plattform)
+            src = getattr(m, "source", "ancestry") or "ancestry"
+            gm_kit = getattr(m, "gedmatch_kit_id", "") or ""
+            if src == "myheritage":
+                src_badge = "🔵MH"
+            elif src == "gedmatch":
+                src_badge = "⚪GED"
+            else:
+                src_badge = "🧬ANC"
+            if gm_kit:
+                src_badge += "⚡"   # GEDmatch-Brücke bekannt
+
             # Bemerkungsspalte: Overlap → Endogamie → tag_surname
             in_other_kit = m.match_guid in overlap_guids
             if endo:
@@ -3891,7 +3914,7 @@ class AncestryDnaApp(tk.Frame):
             ged_txt = f"🌳{n_hits}" if n_hits else ""
             self._tree.insert("", "end", iid=m.match_guid, tags=tags, values=(
                 m.display_name,
-                m.match_guid[:8],
+                src_badge,
                 note_txt,
                 f"{m.shared_cm:.1f}" if m.shared_cm else "—",
                 m.shared_segments or "—",
@@ -5292,6 +5315,24 @@ class AncestryDnaApp(tk.Frame):
 
         thr_var.trace_add("write", reload)
         reload()
+
+    def _run_gedmatch_bridge(self):
+        """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches (Name+cM-Ähnlichkeit)."""
+        import threading
+        def _do():
+            try:
+                n = self._db.link_gedmatch_bridges()
+                self.after(0, lambda: (
+                    messagebox.showinfo(
+                        "GEDmatch-Brücke",
+                        f"{n} GEDmatch-Match/es mit Ancestry/MH-Matches verknüpft.\n"
+                        "⚡-Badge erscheint in der Match-Liste wenn Brücke bekannt."
+                    ),
+                    self._refresh_match_table(),
+                ))
+            except Exception as e:
+                self.after(0, lambda: messagebox.showerror("Fehler", str(e)))
+        threading.Thread(target=_do, daemon=True).start()
 
     def _auto_assign_sides(self):
         """Weist Seiten (väterlich/mütterlich) zu — via Mutter-Kit oder GEDCOM-Baum."""
