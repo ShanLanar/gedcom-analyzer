@@ -21,7 +21,8 @@
   console.log("[MH-Query] Hole FamilyGraph-Token …");
   let token;
   try {
-    const svc = new (globalThis.api || {}).FamilyGraphTokenService?.();
+    const FGTokenSvc = (globalThis.api || {}).FamilyGraphTokenService;
+    const svc = FGTokenSvc ? new FGTokenSvc() : null;
     if (svc) {
       token = await svc.getToken(true);  // true = fresh token
       console.log("[MH-Query] Token via FamilyGraphTokenService:", token?.slice(0, 40) + "…");
