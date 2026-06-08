@@ -4690,8 +4690,32 @@ class AncestryDnaApp(tk.Tk):
                   font=("Segoe UI", 8)).grid(
             row=4, column=0, columnspan=2, padx=28, pady=(0,12), sticky="w")
 
+        # ── Methode C: Ancestry-Schätzung (Tag 8 / matchClusterCode) ─────────────
+        # Vorhandene Daten: tags_json Tag "8" = "M"/"P" und match_cluster_code
+        try:
+            with self._db._cursor() as _cur:
+                _cur.execute(
+                    "SELECT COUNT(*) FROM matches WHERE test_guid=? "
+                    "AND (tags_json LIKE '%\"8\": \"M\"%' OR tags_json LIKE '%\"8\":\"M\"%' "
+                    "OR tags_json LIKE '%\"8\": \"P\"%' OR tags_json LIKE '%\"8\":\"P\"%' "
+                    "OR match_cluster_code IN ('maternal','paternal'))",
+                    (test_guid,))
+                n_ancestry = _cur.fetchone()[0]
+        except Exception:
+            n_ancestry = 0
+
+        rb_anc = ttk.Radiobutton(dlg,
+            text=f"Ancestry-Schätzung importieren (Tag 8 / Cluster-Code):",
+            variable=method_var, value="ancestry")
+        rb_anc.grid(row=5, column=0, columnspan=2, sticky="w", padx=14, pady=(4,2))
+        ttk.Label(dlg, text=f"{n_ancestry} Matches mit Ancestry-Seitenzuweisung gefunden",
+                  foreground="#555555", font=("Segoe UI", 8)).grid(
+            row=6, column=0, columnspan=2, padx=28, pady=(0,12), sticky="w")
+        if n_ancestry == 0:
+            rb_anc.configure(state="disabled")
+
         # ── Buttons ────────────────────────────────────────────────────────────
-        btn_frame = ttk.Frame(dlg); btn_frame.grid(row=5, column=0, columnspan=2,
+        btn_frame = ttk.Frame(dlg); btn_frame.grid(row=7, column=0, columnspan=2,
                                                     padx=14, pady=(4,12))
         result = {"ok": False}
 
@@ -4721,7 +4745,7 @@ class AncestryDnaApp(tk.Tk):
                                 f"✅ {n_mat} Matches als mütterlich markiert\n"
                                 f"✅ {n_pat} Matches als väterlich markiert\n\n"
                                 f"Mutter-Kit: {parent_kit.name or parent_kit.guid[:16]}")
-        else:
+        elif method_var.get() == "ged":
             # Via GEDCOM-Baum
             if not has_amap:
                 messagebox.showwarning("Kein Ahnen-Map",
@@ -4757,6 +4781,32 @@ class AncestryDnaApp(tk.Tk):
                                 f"✅ {n_mat} Matches als mütterlich markiert\n"
                                 f"   {len(both_guids)} Matches beidseitig (unverändert)\n\n"
                                 f"Basis: {len(amap)} Vorfahren im Ahnen-Map")
+
+        elif method_var.get() == "ancestry":
+            # Via Ancestry-Schätzung (Tag 8 / matchClusterCode)
+            try:
+                with self._db._cursor() as cur:
+                    mat_guids = [r[0] for r in cur.execute(
+                        "SELECT match_guid FROM matches WHERE test_guid=? "
+                        "AND (tags_json LIKE '%\"8\": \"M\"%' OR tags_json LIKE '%\"8\":\"M\"%' "
+                        "OR match_cluster_code = 'maternal')",
+                        (test_guid,)).fetchall()]
+                    pat_guids = [r[0] for r in cur.execute(
+                        "SELECT match_guid FROM matches WHERE test_guid=? "
+                        "AND (tags_json LIKE '%\"8\": \"P\"%' OR tags_json LIKE '%\"8\":\"P\"%' "
+                        "OR tags_json LIKE '%\"8\": \"F\"%' OR tags_json LIKE '%\"8\":\"F\"%' "
+                        "OR match_cluster_code = 'paternal')",
+                        (test_guid,)).fetchall()]
+            except Exception as e:
+                messagebox.showerror("Fehler", str(e))
+                return
+            n_mat = self._db.bulk_set_side(mat_guids, "maternal")
+            n_pat = self._db.bulk_set_side(pat_guids, "paternal")
+            self._refresh_match_table()
+            messagebox.showinfo("Ancestry-Schätzung",
+                                f"✅ {n_mat} Matches als mütterlich markiert\n"
+                                f"✅ {n_pat} Matches als väterlich markiert\n\n"
+                                f"Quelle: Ancestry Tag 8 / Cluster-Code")
 
     def _show_cluster_timeline(self):
         """Zeigt Geburtsjahre der Cluster-Vorfahren als Zeitachse."""

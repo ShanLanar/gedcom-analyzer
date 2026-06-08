@@ -580,7 +580,8 @@ class Database:
                     starred, note, custom_relationship,
                     ethnicity_regions, last_login, fetched_at, raw_json,
                     match_cluster_code, created_date,
-                    tag_surname, tag_gender, tag_path, tags_json, meiosis, ignored
+                    tag_surname, tag_gender, tag_path, tags_json, meiosis, ignored,
+                    paternal_maternal
                 ) VALUES (
                     :match_guid, :test_guid, :display_name,
                     :shared_cm, :shared_segments, :longest_segment,
@@ -589,7 +590,8 @@ class Database:
                     :starred, :note, :custom_relationship,
                     :ethnicity_regions, :last_login, :fetched_at, :raw_json,
                     :match_cluster_code, :created_date,
-                    :tag_surname, :tag_gender, :tag_path, :tags_json, :meiosis, :ignored
+                    :tag_surname, :tag_gender, :tag_path, :tags_json, :meiosis, :ignored,
+                    :paternal_maternal
                 )
                 ON CONFLICT(match_guid) DO UPDATE SET
                     display_name = CASE
@@ -620,7 +622,13 @@ class Database:
                     tag_path=excluded.tag_path,
                     tags_json=excluded.tags_json,
                     meiosis=excluded.meiosis,
-                    ignored=excluded.ignored
+                    ignored=excluded.ignored,
+                    -- Ancestry-Schätzung nur setzen wenn noch kein Wert (manuell oder per Kit-Overlap) gesetzt
+                    paternal_maternal = CASE
+                        WHEN paternal_maternal IS NULL OR paternal_maternal = ''
+                        THEN excluded.paternal_maternal
+                        ELSE paternal_maternal
+                    END
             """, d)
 
     def bulk_upsert(self, matches: list[DnaMatch]) -> int:
