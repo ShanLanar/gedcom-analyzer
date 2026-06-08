@@ -151,7 +151,7 @@ def get_top_ancestors_with_info(individuals, families, location_data,
         if fam.get("WIFE"): root_parents[fam["WIFE"]] = "mütterlich"
 
     rows = []
-    for aid in sorted(top_ancestors):
+    for aid in top_ancestors:
         pdata = individuals.get(aid, {})
         if not pdata: continue
         name = pdata.get("NAME", "") or ""
@@ -186,6 +186,7 @@ def get_top_ancestors_with_info(individuals, families, location_data,
         rows.append([aid, name, str(by) if by else "", place, lineage,
                      rel, mil, fallen, migrated])
 
+    rows.sort(key=lambda r: (int(r[2]) if r[2].isdigit() else 9999, r[1].lower()))
     p(f"Top-Ahnen: {len(rows)} identifiziert", tag="ok")
     return rows
 
