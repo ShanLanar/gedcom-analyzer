@@ -141,12 +141,27 @@ CREATE TABLE IF NOT EXISTS gedcom_persons (
     death_place  TEXT DEFAULT '',
     ged_file     TEXT NOT NULL DEFAULT '',
     sosa_number  INTEGER NOT NULL DEFAULT 0,
+    source       TEXT NOT NULL DEFAULT 'gedcom',   -- gedcom | anverwandte | wikitree
     loaded_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_gp_koelner_year
     ON gedcom_persons(koelner_code, birth_year);
 CREATE INDEX IF NOT EXISTS idx_gp_surname_norm
     ON gedcom_persons(surname_norm);
+CREATE INDEX IF NOT EXISTS idx_gp_source ON gedcom_persons(source);
+
+-- Verknüpft dieselbe reale Person über Quellen hinweg (Dedup/Überlagerung),
+-- ohne Daten zu überschreiben. ged_id_primary = bevorzugt 'gedcom'-Eintrag.
+CREATE TABLE IF NOT EXISTS gedcom_person_xref (
+    ged_id_primary   TEXT NOT NULL,
+    source_primary   TEXT NOT NULL DEFAULT 'gedcom',
+    ged_id_other     TEXT NOT NULL,
+    source_other     TEXT NOT NULL,
+    score            REAL NOT NULL DEFAULT 0.0,
+    created_at       TEXT NOT NULL DEFAULT (datetime('now')),
+    PRIMARY KEY (ged_id_primary, ged_id_other)
+);
+CREATE INDEX IF NOT EXISTS idx_gx_other ON gedcom_person_xref(ged_id_other);
 
 CREATE TABLE IF NOT EXISTS gedcom_links (
     link_id      INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -179,6 +194,11 @@ def ensure_tables(db) -> None:
             cur.execute("ALTER TABLE gedcom_persons ADD COLUMN sosa_number INTEGER NOT NULL DEFAULT 0")
         except Exception:
             pass  # Spalte existiert bereits
+        # Migration: source-Spalte für bestehende DBs
+        try:
+            cur.execute("ALTER TABLE gedcom_persons ADD COLUMN source TEXT NOT NULL DEFAULT 'gedcom'")
+        except Exception:
+            pass
 
 
 # ── Import ─────────────────────────────────────────────────────────────────────
@@ -234,7 +254,8 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
             "sosa_number":  sosa_map.get(ged_id, 0),
         })
     with db._cursor() as cur:
-        cur.execute("DELETE FROM gedcom_persons")
+        # Nur die EIGENEN GEDCOM-Personen ersetzen – Anverwandte/WikiTree bleiben
+        cur.execute("DELETE FROM gedcom_persons WHERE source='gedcom'")
         cur.executemany(
             """INSERT OR REPLACE INTO gedcom_persons
                (ged_id, given_name, surname, surname_norm, koelner_code,
@@ -248,6 +269,130 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
     log.info("bridge: %d GEDCOM-Personen importiert (Sosa: %d)",
              len(rows), sum(1 for r in rows if r["sosa_number"]))
     return len(rows)
+
+
+def import_external_persons(db, persons: list[dict], source: str) -> int:
+    """Importiert Personen aus einer EXTERNEN Quelle (z.B. 'anverwandte',
+    'wikitree') in gedcom_persons – ohne die eigenen GEDCOM-Daten zu berühren.
+
+    Jede person braucht: ext_id und mindestens given_name/surname; optional
+    sex, birth_year, birth_place, death_year, death_place.
+    ged_id wird als '<source>:<ext_id>' gespeichert, damit es nicht mit den
+    eigenen GEDCOM-IDs kollidiert. Vorhandene Einträge derselben Quelle werden
+    ersetzt (idempotenter Re-Import); andere Quellen bleiben unberührt.
+    """
+    ensure_tables(db)
+
+    def _int(v):
+        try:
+            return int(str(v)[:4])
+        except (TypeError, ValueError):
+            return None
+
+    rows = []
+    for p in persons:
+        ext = str(p.get("ext_id") or "").strip()
+        if not ext:
+            continue
+        surname = (p.get("surname") or "").strip()
+        given   = (p.get("given_name") or "").strip()
+        if not given and not surname:
+            continue
+        sn_norm = _norm(surname)
+        rows.append({
+            "ged_id":       f"{source}:{ext}",
+            "given_name":   given,
+            "surname":      surname,
+            "surname_norm": sn_norm,
+            "koelner_code": _koelner(sn_norm) if sn_norm else "",
+            "sex":          (p.get("sex") or "").strip(),
+            "birth_year":   _int(p.get("birth_year")),
+            "birth_qual":   "",
+            "birth_place":  (p.get("birth_place") or "").strip(),
+            "death_year":   _int(p.get("death_year")),
+            "death_place":  (p.get("death_place") or "").strip(),
+            "ged_file":     source,
+            "sosa_number":  0,
+            "source":       source,
+        })
+    with db._cursor() as cur:
+        cur.execute("DELETE FROM gedcom_persons WHERE source=?", (source,))
+        cur.executemany(
+            """INSERT OR REPLACE INTO gedcom_persons
+               (ged_id, given_name, surname, surname_norm, koelner_code,
+                sex, birth_year, birth_qual, birth_place,
+                death_year, death_place, ged_file, sosa_number, source)
+               VALUES (:ged_id, :given_name, :surname, :surname_norm, :koelner_code,
+                       :sex, :birth_year, :birth_qual, :birth_place,
+                       :death_year, :death_place, :ged_file, :sosa_number, :source)""",
+            rows,
+        )
+    log.info("bridge: %d Personen aus '%s' importiert", len(rows), source)
+    return len(rows)
+
+
+def link_duplicates(db, source: str, primary_source: str = "gedcom",
+                    year_tol: int = 3, progress_cb=None) -> int:
+    """Verknüpft Personen aus `source` mit derselben realen Person in
+    `primary_source` (Standard: eigener GEDCOM) in gedcom_person_xref.
+
+    Match: gleicher Kölner-Code + Geburtsjahr ±year_tol + erster Vorname
+    stimmt (oder einer ohne Jahr). Überschreibt KEINE Daten – legt nur den
+    Querbezug an. Gibt Anzahl neuer Verknüpfungen zurück.
+    """
+    ensure_tables(db)
+
+    def p(msg):
+        if progress_cb:
+            try: progress_cb(msg)
+            except Exception: pass
+
+    def _first(g):
+        toks = (g or "").lower().split()
+        return toks[0] if toks else ""
+
+    with db._cursor() as cur:
+        prim = cur.execute(
+            "SELECT ged_id, given_name, koelner_code, birth_year FROM gedcom_persons "
+            "WHERE source=? AND koelner_code<>''", (primary_source,)).fetchall()
+        # Index: koelner_code -> Liste (ged_id, first_given, year)
+        idx = defaultdict(list)
+        for r in prim:
+            idx[r["koelner_code"]].append(
+                (r["ged_id"], _first(r["given_name"]), r["birth_year"]))
+
+        others = cur.execute(
+            "SELECT ged_id, given_name, koelner_code, birth_year FROM gedcom_persons "
+            "WHERE source=? AND koelner_code<>''", (source,)).fetchall()
+
+        linked = 0
+        for r in others:
+            cands = idx.get(r["koelner_code"])
+            if not cands:
+                continue
+            ofirst, oyear = _first(r["given_name"]), r["birth_year"]
+            best, best_score = None, 0.0
+            for pid, pfirst, pyear in cands:
+                score = 0.5
+                if ofirst and pfirst:
+                    if ofirst == pfirst: score += 0.3
+                    elif ofirst[:3] == pfirst[:3]: score += 0.15
+                    else: continue          # Vorname passt gar nicht
+                if oyear and pyear:
+                    dy = abs(int(oyear) - int(pyear))
+                    if dy > year_tol: continue
+                    score += max(0.0, 0.2 * (1 - dy / (year_tol + 1)))
+                if score > best_score:
+                    best, best_score = pid, score
+            if best:
+                cur.execute(
+                    """INSERT OR REPLACE INTO gedcom_person_xref
+                       (ged_id_primary, source_primary, ged_id_other, source_other, score)
+                       VALUES (?,?,?,?,?)""",
+                    (best, primary_source, r["ged_id"], source, round(best_score, 3)))
+                linked += 1
+        p(f"{linked} Querbezüge {source}↔{primary_source} angelegt.")
+    return linked
 
 
 def get_gedcom_person_count(db) -> int:
