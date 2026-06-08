@@ -3292,6 +3292,8 @@ class AncestryDnaApp(tk.Tk):
                    ).pack(side="left")
         ttk.Button(hdr, text="🗺 Herkunft ableiten",
                    command=self._run_origin_inference).pack(side="right", padx=4)
+        ttk.Button(hdr, text="🔗 WikiTree",
+                   command=self._run_wikitree_extend).pack(side="right", padx=4)
         ttk.Button(hdr, text="🧬 Endogamie übertragen",
                    command=self._run_endogamy_transfer).pack(side="right", padx=4)
 
@@ -3547,6 +3549,72 @@ class AncestryDnaApp(tk.Tk):
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="endo-transfer").start()
+
+    def _run_wikitree_extend(self):
+        """Verlängert die Ahnenlinie des gewählten Matches über die WikiTree-API."""
+        match = getattr(self, "_selected_match", None)
+        if not match:
+            messagebox.showinfo("WikiTree", "Bitte zuerst einen Match in der Tabelle auswählen.")
+            return
+        test_guid = self._current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set("WikiTree-Abgleich läuft …")
+
+        def _worker(mguid=match.match_guid, mname=match.display_name):
+            try:
+                from core import bridge as _bridge
+                results = _bridge.wikitree_extend_match(
+                    self._db, test_guid, mguid,
+                    progress_cb=lambda m: self.after(
+                        0, lambda mm=m: self._ged_link_status.set(mm)),
+                )
+                found = sum(1 for r in results if r.get("best"))
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"WikiTree: {found} Linie(n) gefunden"))
+                self.after(0, lambda: self._show_wikitree_results(mname, results))
+            except Exception as exc:
+                log.warning("wikitree-extend: %s", exc)
+                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="wikitree").start()
+
+    def _show_wikitree_results(self, match_name: str, results: list):
+        """Zeigt die WikiTree-Treffer und gefundenen Ahnenlinien in einem Fenster."""
+        win = tk.Toplevel(self)
+        win.title(f"WikiTree-Linien: {match_name}")
+        win.geometry("640x520")
+        txt = tk.Text(win, wrap="word", font=("Segoe UI", 9))
+        sb = ttk.Scrollbar(win, orient="vertical", command=txt.yview)
+        txt.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y"); txt.pack(fill="both", expand=True)
+
+        if not results:
+            txt.insert("end", "Keine Ahnen mit Nachnamen in der Ahnentafel dieses Matches.\n")
+        for r in results:
+            q = r.get("query", {})
+            txt.insert("end", f"▶ {q.get('first_name','')} {q.get('surname','')}"
+                              f"  ({q.get('birth_place','')} {q.get('birth_year','')})\n")
+            if r.get("error"):
+                txt.insert("end", f"   Fehler: {r['error']}\n\n"); continue
+            best = r.get("best")
+            if not best:
+                txt.insert("end", f"   kein WikiTree-Treffer ({len(r.get('candidates',[]))} Kandidaten)\n\n")
+                continue
+            txt.insert("end", f"   ✓ {best.get('Name','?')}: {best.get('FirstName','')} "
+                              f"{best.get('LastNameAtBirth','')}  "
+                              f"* {best.get('BirthDate','?')} {best.get('BirthLocation','')}\n")
+            lin = r.get("lineage", [])
+            if lin:
+                txt.insert("end", f"   Ahnenlinie ({len(lin)}):\n")
+                for a in lin[:12]:
+                    txt.insert("end", f"      • {a.get('FirstName','')} "
+                                      f"{a.get('LastNameAtBirth','')}  "
+                                      f"* {a.get('BirthDate','?')} {a.get('BirthLocation','')}\n")
+            txt.insert("end", "\n")
+        txt.configure(state="disabled")
 
     def _run_origin_inference(self):
         """Leitet wahrscheinliche Herkunftsregionen aus Pedigree-Nachnamen × GEDCOM-Orten ab."""
