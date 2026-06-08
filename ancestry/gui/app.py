@@ -181,6 +181,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.anc":       {"de": "Gem. Vorfahre:",                       "en": "Com. Ancestor:"},
     "md.sex":       {"de": "Geschlecht:",                          "en": "Gender:"},
     "md.last":      {"de": "Letzter Login:",                       "en": "Last Login:"},
+    "md.pedigree":  {"de": "Ahnentafel:",                          "en": "Pedigree:"},
     "md.note":      {"de": "Notiz:",                               "en": "Note:"},
     "md.save_note": {"de": "💾 Notiz speichern",                   "en": "💾 Save note"},
     "md.open_anc":  {"de": "🔗 In Ancestry öffnen",                "en": "🔗 Open in Ancestry"},
@@ -3169,7 +3170,8 @@ class AncestryDnaApp(tk.Tk):
                              ("Längstes Seg.","md.longseg"),("Beziehung","md.rel"),
                              ("Konfidenz","md.conf"),("Stammbaum","md.tree_lbl"),
                              ("Gem. Vorfahre","md.anc"),("Geschlecht","md.sex"),
-                             ("Letzter Login","md.last")]:
+                             ("Letzter Login","md.last"),
+                             ("Ahnentafel","md.pedigree")]:
             row = ttk.Frame(inf); row.pack(fill="x", pady=1)
             sv_lbl = tk.StringVar(value=self._t(key))
             ttk.Label(row, textvariable=sv_lbl, width=15, anchor="e",
@@ -3765,6 +3767,19 @@ class AncestryDnaApp(tk.Tk):
         ]:
             self._detail_fields[lbl].set(val)
 
+        # Ahnentafel-Vollständigkeit asynchron nachladen
+        test_guid_af = self._current_test_guid or self._get_kit_guid()
+        self._detail_fields["Ahnentafel"].set("…")
+        def _load_ped(guid=match.match_guid, tg=test_guid_af):
+            try:
+                summary = self._db.get_pedigree_summary_for_match(tg, guid)
+                self.after(0, lambda s=summary: self._detail_fields["Ahnentafel"].set(
+                    s if s else "—"))
+            except Exception:
+                self.after(0, lambda: self._detail_fields["Ahnentafel"].set("—"))
+        import threading as _thr
+        _thr.Thread(target=_load_ped, daemon=True, name="ped-summary").start()
+
         self._note_text.delete("1.0","end")
         self._note_text.insert("1.0", match.note or "")
 
@@ -3959,7 +3974,7 @@ class AncestryDnaApp(tk.Tk):
             "count"   : ("cl.count",   55),
             "max_cm"  : ("cl.maxcm",   65),
             "top"     : ("cl.top",    175),
-            "quality" : ("cl.quality", 50),
+            "quality" : ("cl.quality", 80),
         }.items():
             self._cluster_list.heading(col, text=self._t(key))
             self._cluster_list.column(col, width=w, stretch=(col=="top"),
@@ -4058,6 +4073,26 @@ class AncestryDnaApp(tk.Tk):
                 pass
         self._cluster_side_colors: dict[int, str] = {}
 
+        # Dichte pro Cluster aus shared_data berechnen (undirected unique pairs)
+        _cluster_member_sets: dict[int, set] = {
+            cid: {m["guid"] for m in mlist}
+            for cid, mlist in self._clusters.items()
+        }
+        _guid_to_cid: dict[str, int] = {}
+        for cid, guids in _cluster_member_sets.items():
+            for g in guids:
+                _guid_to_cid[g] = cid
+        _edge_counts: dict[int, int] = {}
+        _seen_pairs: set = set()
+        for row in shared_data:
+            ga, gb = row["match_guid_a"], row["match_guid_b"]
+            ca, cb = _guid_to_cid.get(ga), _guid_to_cid.get(gb)
+            if ca is not None and ca == cb:
+                pair = (ga, gb) if ga < gb else (gb, ga)
+                if pair not in _seen_pairs:
+                    _seen_pairs.add(pair)
+                    _edge_counts[ca] = _edge_counts.get(ca, 0) + 1
+
         # Cluster-Liste füllen
         self._cluster_list.delete(*self._cluster_list.get_children())
         cluster_colors = COLORS["cluster"]
@@ -4081,12 +4116,16 @@ class AncestryDnaApp(tk.Tk):
                 color = cluster_colors[(cid - 1) % len(cluster_colors)]
                 side_icon = ""
             self._cluster_side_colors[cid] = color
+            n = len(members)
+            possible = n * (n - 1) / 2
+            density = (_edge_counts.get(cid, 0) / possible) if possible > 0 else 0.0
             try:
                 from core.treematch import cluster_confidence
                 conf_result = cluster_confidence(members)
                 quality_icon = "🟢" if conf_result.get("realistic") else ("🟡" if len(members) >= 3 else "🔴")
             except Exception:
                 quality_icon = "—"
+            quality_icon = f"{quality_icon} {density:.0%}"
             top_name = side_icon + (members[0]["name"] if members else "")
             self._cluster_list.insert("", "end", iid=str(cid),
                                        tags=(f"c{cid}",),

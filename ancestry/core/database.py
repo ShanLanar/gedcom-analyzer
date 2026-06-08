@@ -1307,6 +1307,26 @@ class Database:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def get_pedigree_summary_for_match(self, test_guid: str, match_guid: str) -> str:
+        """Kompakter Ahnentafel-Status für ein einzelnes Match.
+        Gibt z.B. '5 Gen. · 47 Personen (62%)' zurück, oder '' wenn kein Pedigree."""
+        with self._cursor() as cur:
+            rows = cur.execute(
+                """SELECT generation, COUNT(*) AS cnt FROM match_pedigree
+                   WHERE test_guid=? AND match_guid=?
+                   GROUP BY generation ORDER BY generation""",
+                (test_guid, match_guid)
+            ).fetchall()
+        if not rows:
+            return ""
+        gen_counts = {r["generation"]: r["cnt"] for r in rows}
+        max_gen = max(gen_counts)
+        total = sum(gen_counts.values())
+        # Mögliche Vorfahren in max. Generation = 2^(max_gen-1) (Ahnen in Gen max_gen)
+        possible = sum(2 ** (g - 1) for g in range(1, max_gen + 1))
+        pct = round(total / possible * 100) if possible else 0
+        return f"{max_gen} Gen. · {total} Personen ({pct}%)"
+
     def get_pedigree_completeness_per_match(self, test_guid: str) -> list:
         """Return generation coverage per match (for pedigree-gap analysis)."""
         with self._cursor() as cur:
