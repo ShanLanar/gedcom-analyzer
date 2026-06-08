@@ -65,8 +65,22 @@ _SURN_RE   = re.compile(r'<span class="SURN">(.*?)</span>', re.I | re.S)
 _GEDNAME   = re.compile(r'<bdi>([^<]*?/[^<]*?/[^<]*?)</bdi>')
 # title="Ort ⁨Datum⁩"  (⁨ = U+2068, ⁩ = U+2069 — bidi-Isolate)
 _LIFE_RE   = re.compile(r'title="([^"⁨⁩]*?)\s*⁨([^⁩]*?)⁩"')
-# Matricula-Kirchenbuch-Quellen (für die nicht-indizierte Matricula-Suche Gold wert)
-_MATRIC_RE = re.compile(r'(https?://data\.matricula-online\.eu/[^\s"\'<>]+)')
+# Matricula-Kirchenbuch-Quellen (für die nicht-indizierte Matricula-Suche Gold wert).
+# ACHTUNG: Die im Stammbaum hinterlegten Matricula-URLs sind die ALTE Struktur
+# (z.B. .../hagen-st-martinus/0035/?pg=4). Matricula hat Pfarrei-Slugs, Register-
+# IDs und Seitenzählung neu vergeben – die Deep-Links sind tot und NICHT
+# deterministisch umrechenbar. Wir bewahren daher zusätzlich den lesbaren
+# Quellenbeleg (Seite/Nummer) UND die Pfarrei (aus dem Ortskontext der Tatsache),
+# damit die Quelle auf dem aktuellen Matricula auffindbar bleibt.
+_MATRIC_RE   = re.compile(r'(https?://data\.matricula-online\.eu/[^\s"\'<>]+)')
+# Anker + nachfolgender Belegtext, z.B. >Quelle: Matricula</a> S. 49, Nr. 25 weibl.
+_MATRIC_CITE = re.compile(
+    r'<a href="(https?://data\.matricula-online\.eu/[^"]+)"[^>]*>'
+    r'[^<]*</a>\s*([^<]*)')
+# Diözese + Pfarrei-Pfad aus einer (alten) Matricula-URL ziehen:
+# /de/deutschland/<diözese>/<pfarrei>/<register>/...
+_MATRIC_PATH = re.compile(
+    r'data\.matricula-online\.eu/\w+/\w+/([^/]+)/([^/]+)/')
 
 
 def _clean(html_fragment: str) -> str:
@@ -202,7 +216,32 @@ def parse_individual(html: str, url: str) -> dict:
             child_names = [c.strip() for c in ki.group(1).split(",") if c.strip()]
 
     # ── Matricula-Kirchenbuch-Quellen (nicht-indizierte Fundstellen!)
-    matricula = sorted(set(_MATRIC_RE.findall(html)))
+    # Liste von {url_old, ref, diocese, parish_old} – url_old ist die alte,
+    # tote Deep-Link-Struktur; ref ("S. 49, Nr. 25") + parish bleiben nutzbar.
+    matricula = []
+    seen_m = set()
+    for m_url, m_ref in _MATRIC_CITE.findall(html):
+        if m_url in seen_m:
+            continue
+        seen_m.add(m_url)
+        pth = _MATRIC_PATH.search(m_url)
+        diocese = pth.group(1) if pth else ""
+        matricula.append({
+            "url_old":     m_url,
+            "ref":         re.sub(r"\s+", " ", (m_ref or "")).strip(),
+            "diocese":     diocese,
+            "parish_old":  pth.group(2) if pth else "",
+            "diocese_url": (f"https://data.matricula-online.eu/de/deutschland/{diocese}/"
+                            if diocese else ""),
+        })
+    # Falls ein Link ohne erkennbaren Beleg-Text auftaucht, trotzdem erfassen:
+    for m_url in _MATRIC_RE.findall(html):
+        if m_url not in seen_m:
+            seen_m.add(m_url)
+            pth = _MATRIC_PATH.search(m_url)
+            matricula.append({"url_old": m_url, "ref": "",
+                              "diocese": pth.group(1) if pth else "",
+                              "parish_old": pth.group(2) if pth else ""})
 
     # ── verlinkte Personen/Familien (für BFS-Traversierung)
     related = sorted(set(_IND_RE.findall(html)) - ({ind_id} if ind_id else set()))
