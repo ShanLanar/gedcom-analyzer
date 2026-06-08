@@ -140,10 +140,15 @@ def _write_xlsx_sheet(ws, headers: list[str], rows: list[list], col_widths: list
 def export_xlsx(matches: list[DnaMatch], filepath: str,
                 shared: Optional[list[SharedMatch]] = None,
                 match_name_map: Optional[dict] = None,
-                gedcom_summary: Optional[list[dict]] = None) -> int:
+                gedcom_summary: Optional[list[dict]] = None,
+                stats: Optional[dict] = None,
+                analysis: Optional[list[dict]] = None) -> int:
     """
-    Exportiert Matches (und optional Shared Matches + GEDCOM-Vergleich) in eine XLSX-Datei.
+    Exportiert Matches (und optional Shared Matches + GEDCOM-Vergleich + Statistik
+    + Herkunft/Seiten) in eine XLSX-Datei.
     gedcom_summary: Ausgabe von bridge.get_gedcom_relationship_summary() – optional.
+    stats:          Ausgabe von database.get_statistics() – optional (eigenes Blatt).
+    analysis:       Liste {name,cm,side,origin_rule,origin_ml} – optional (Blatt).
     """
     try:
         import openpyxl
@@ -152,9 +157,55 @@ def export_xlsx(matches: list[DnaMatch], filepath: str,
 
     wb = openpyxl.Workbook()
 
+    # ── Blatt 0: Statistik (optional, zuerst) ─────────────────────────────────
+    if stats:
+        ws0 = wb.active
+        ws0.title = "Statistik"
+        kz = [
+            ("Matches gesamt",            stats.get("total")),
+            ("Höchste gem. cM",           stats.get("max_cm")),
+            ("Durchschn. cM",             round(stats["avg_cm"], 1) if stats.get("avg_cm") else None),
+            ("Markiert (Stern)",          stats.get("starred_count")),
+            ("Mit Stammbaum",             stats.get("with_tree")),
+            ("Mit Notiz",                 stats.get("with_note")),
+            ("Shared-Match-Einträge",     stats.get("shared_total")),
+            ("Matches mit Shared-Daten",  stats.get("shared_primary_count")),
+            ("Ahnentafeln geladen",       stats.get("ped_loaded")),
+            ("Verschiedene Pedigree-Nachnamen", stats.get("ped_surnames")),
+            ("Ø Ahnentafel-Tiefe (Generationen)", stats.get("ped_avg_depth")),
+            ("GEDCOM-Personen",           stats.get("gedcom_persons")),
+            ("GEDCOM-verknüpfte Matches", stats.get("gedcom_linked")),
+        ]
+        rows0 = [[k, _fmt(v if v is not None else "")] for k, v in kz]
+        _write_xlsx_sheet(ws0, ["Kennzahl", "Wert"], rows0, [34, 16])
+        # Beziehungs-Aufschlüsselung
+        rb = stats.get("relationship_breakdown") or []
+        if rb:
+            start = len(rows0) + 3
+            ws0.cell(row=start, column=1, value="Beziehung").font = \
+                __import__("openpyxl").styles.Font(bold=True)
+            ws0.cell(row=start, column=2, value="Anzahl").font = \
+                __import__("openpyxl").styles.Font(bold=True)
+            for i, (rel, cnt) in enumerate(rb, start=start + 1):
+                ws0.cell(row=i, column=1, value=rel)
+                ws0.cell(row=i, column=2, value=cnt)
+        # Kit-Aufschlüsselung
+        kb = stats.get("kit_breakdown") or []
+        if kb:
+            col = 4
+            ws0.cell(row=1, column=col, value="Kit").font = \
+                __import__("openpyxl").styles.Font(bold=True)
+            ws0.cell(row=1, column=col + 1, value="Matches").font = \
+                __import__("openpyxl").styles.Font(bold=True)
+            for i, (kit, cnt) in enumerate(kb, start=2):
+                ws0.cell(row=i, column=col, value=kit)
+                ws0.cell(row=i, column=col + 1, value=cnt)
+        ws1 = wb.create_sheet("DNA-Matches")
+    else:
+        ws1 = wb.active
+        ws1.title = "DNA-Matches"
+
     # ── Blatt 1: Matches ──────────────────────────────────────────────────────
-    ws1 = wb.active
-    ws1.title = "DNA-Matches"
     headers1 = [MATCH_LABELS.get(c, c) for c in MATCH_COLUMNS]
     widths1  = [30, 14, 10, 18, 25, 12, 20, 12, 12, 10, 40, 20, 30, 20, 12, 20, 20, 36]
     rows1 = []
@@ -204,8 +255,21 @@ def export_xlsx(matches: list[DnaMatch], filepath: str,
         ]
         _write_xlsx_sheet(ws3, headers3, rows3, widths3)
 
+    # ── Blatt 4: Herkunft & Seiten (optional) ────────────────────────────────
+    if analysis:
+        ws4 = wb.create_sheet("Herkunft & Seiten")
+        headers4 = ["Name", "Gem. cM", "Seite",
+                    "Herkunft (Regel)", "Herkunft (ML)"]
+        widths4 = [30, 12, 14, 28, 28]
+        rows4 = [[a.get("name", ""), _fmt(a.get("cm", "")), a.get("side", ""),
+                  a.get("origin_rule", ""), a.get("origin_ml", "")]
+                 for a in analysis]
+        _write_xlsx_sheet(ws4, headers4, rows4, widths4)
+
     wb.save(filepath)
-    log.info("XLSX-Export: %d Matches, %d Shared, %d GEDCOM-Links → %s",
+    log.info("XLSX-Export: %d Matches, %d Shared, %d GEDCOM-Links, "
+             "Statistik=%s, Analyse=%d → %s",
              len(matches), len(shared) if shared else 0,
-             len(gedcom_summary) if gedcom_summary else 0, filepath)
+             len(gedcom_summary) if gedcom_summary else 0,
+             "ja" if stats else "nein", len(analysis) if analysis else 0, filepath)
     return len(matches)

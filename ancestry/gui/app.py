@@ -4978,13 +4978,50 @@ class AncestryDnaApp(tk.Tk):
                 shared = [SharedMatch.from_db_row(dict(r)) for r in cur.fetchall()]
             name_map = {m.match_guid: m.display_name for m in matches}
 
+        # Statistik-Kennzahlen
+        try:
+            stats = self._db.get_statistics(test_guid)
+        except Exception:
+            stats = None
+
+        # Analyse-Blatt: Herkunft (Regel + ML) und Seite je Match
+        import json as _json
+        analysis = []
+        try:
+            with self._db._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT display_name, shared_cm, paternal_maternal, "
+                    "probable_origin, ml_origin FROM matches WHERE test_guid=? "
+                    "ORDER BY shared_cm DESC", (test_guid,)).fetchall()
+            def _reg(j):
+                try:
+                    d = _json.loads(j) if j else {}
+                    r = d.get("region", "")
+                    pr = d.get("score", d.get("prob"))
+                    return f"{r} ({pr})" if r and pr is not None else r
+                except Exception:
+                    return ""
+            for r in rows:
+                analysis.append({
+                    "name":   r["display_name"],
+                    "cm":     r["shared_cm"],
+                    "side":   {"paternal":"väterlich","maternal":"mütterlich",
+                               "both":"beidseitig"}.get(r["paternal_maternal"] or "", ""),
+                    "origin_rule": _reg(r["probable_origin"]),
+                    "origin_ml":   _reg(r["ml_origin"]),
+                })
+        except Exception:
+            analysis = []
+
         p = filedialog.asksaveasfilename(title="Alles als XLSX exportieren",
             defaultextension=".xlsx", filetypes=[("XLSX","*.xlsx"),("Alle","*.*")],
             initialfile="ancestry_dna_komplett.xlsx")
         if p:
-            export_xlsx(matches, p, shared if shared else None, name_map)
+            export_xlsx(matches, p, shared if shared else None, name_map,
+                        stats=stats, analysis=analysis)
             messagebox.showinfo("Fertig",
-                                f"{len(matches)} Matches + {len(shared)} Shared Matches → {p}")
+                                f"{len(matches)} Matches + {len(shared)} Shared Matches\n"
+                                f"+ Statistik + Herkunft/Seiten → {p}")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Hilfsmethoden
