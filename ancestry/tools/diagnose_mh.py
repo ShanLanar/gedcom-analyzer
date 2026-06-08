@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """
-Diagnose-Script Phase 9:
-  Endpunkt www.myheritage.com/web-family-graphql (Proxy-Endpunkt, den
-  MyHeritage's window.fetch-Patch benutzt statt familygraphql.myheritage.com).
+Diagnose-Script Phase 10:
+  A) Liest MainFullInitializeBundled.js und sucht Ze / web-family-graphql Kontext
+  B) Liest das Relationships-Bundle und sucht nach Match-Lade-Logik
+  C) Sucht nach alternativen PHP-Endpunkten
 """
-import json, re, time, sys
+import json, re, sys
 from pathlib import Path
 import requests
 
@@ -15,8 +16,6 @@ cookies = ({x["name"]: x["value"] for x in raw if "name" in x}
 
 KIT  = "OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ"
 BASE = "https://www.myheritage.com"
-# Echter Endpunkt (MyHeritage leitet intern familygraphql.myheritage.com dorthin)
-GQLEP = f"{BASE}/web-family-graphql"
 UA   = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
@@ -24,111 +23,113 @@ s = requests.Session()
 s.cookies.update(cookies)
 s.headers["User-Agent"] = UA
 
-# ── Tokens holen ──────────────────────────────────────────────────────────────
 print("Lade Hauptseite …")
 r0 = s.get(f"{BASE}/dna/matches/{KIT}", timeout=20)
 html = r0.text
 
-def find(pat):
-    m = re.search(pat, html)
-    return m.group(1) if m else ""
+# Bundle-URLs aus HTML
+bundle_map = {}
+for m in re.finditer(r'src="((?:https?://[^"]+|/[^"]+/bundles/JS/[^"]+)\.js[^"]*)"', html):
+    url = m.group(1)
+    name = url.split("/")[-1].split("?")[0]
+    if not url.startswith("http"):
+        url = BASE + url
+    bundle_map[name] = url
 
-xsrf    = find(r'mhXsrfToken\s*=\s*["\']([^"\']+)["\']')
-fg_web  = find(r'"fg_token_web"\s*:\s*"([^"]+)"')   # Typ 4 (Web-Token)
+def show_context(js, keyword, chars=300, max_hits=5):
+    """Gibt Kontext um alle Vorkommen eines Keywords aus."""
+    hits = [m.start() for m in re.finditer(re.escape(keyword), js)]
+    if not hits:
+        print(f"  '{keyword}' nicht gefunden.")
+        return
+    print(f"  '{keyword}' – {len(hits)} Vorkommen, erste {min(max_hits, len(hits))} gezeigt:")
+    for i, pos in enumerate(hits[:max_hits]):
+        start = max(0, pos - chars)
+        end   = min(len(js), pos + chars)
+        snippet = js[start:end].replace('\n', ' ')
+        print(f"  [{i+1}] …{snippet}…")
+        print()
 
-print("Hole PHP-Token (Typ 1) …")
-tok_url = f"{BASE}/FP/API/FamilyGraph/get-familygraph-token.php?_={int(time.time()*1000)}&csrf_token={xsrf}"
-r_tok   = s.get(tok_url, headers={"Accept": "application/json",
-                                   "Referer": f"{BASE}/dna/matches/{KIT}"}, timeout=15)
-php_tok = (r_tok.json().get("data") or {}).get("token", "")
+# ══════════════════════════════════════════════════════════════════════════════
+# A) MainFullInitializeBundled.js
+# ══════════════════════════════════════════════════════════════════════════════
+print("=" * 60)
+print("A) MainFullInitializeBundled.js")
+print("=" * 60)
 
-print(f"xsrf     : {xsrf[:40] if xsrf else '❌'}")
-print(f"fg_web   : {fg_web[:40] if fg_web else '❌'}  (Typ 4)")
-print(f"php_tok  : {php_tok[:40] if php_tok else '❌'}  (Typ 1)")
+main_url = next((v for k, v in bundle_map.items() if "MainFullInitialize" in k), None)
+if main_url:
+    print(f"Lade {main_url[-60:]} …")
+    r = s.get(main_url, timeout=30)
+    js_main = r.text
+    print(f"Größe: {len(js_main)//1024}KB\n")
+
+    show_context(js_main, "web-family-graphql", 400)
+    show_context(js_main, "web-family-graph\"", 300)
+    show_context(js_main, "graphql_token", 300)
+    show_context(js_main, "app_id", 200, 3)
+
+    # PHP-Endpunkte in diesem Bundle
+    print("  PHP-Endpunkte in MainFullInitialize:")
+    for m in re.finditer(r'["\`](/FP/[A-Za-z0-9/_\-]+\.php)["\`]', js_main):
+        ep = m.group(1)
+        if any(k in ep.lower() for k in ["dna","match","kit","relative","test"]):
+            print(f"    {ep}")
+else:
+    print("  MainFullInitializeBundled nicht in Bundle-Map gefunden")
+    print("  Verfügbare Bundles:", list(bundle_map.keys())[:8])
 print()
 
-QUERY_MIN = f'{{ dna_kit (id: "{KIT}", lang: "EN") {{ dna_matches (limit: 3) {{ total_count data {{ id display_name shared_dna relationship }} }} }} }}'
+# ══════════════════════════════════════════════════════════════════════════════
+# B) Relationships-Bundle (onships/AncientDNA, 1231KB)
+# ══════════════════════════════════════════════════════════════════════════════
+print("=" * 60)
+print("B) Relationships-Bundle (1231KB)")
+print("=" * 60)
 
-BASE_HDR = {
-    "Content-Type":      "application/json",
-    "Accept":            "application/json",
-    "Referer":           f"{BASE}/dna/matches/{KIT}",
-    "Origin":            BASE,
-    "X-Requested-With":  "XMLHttpRequest",
-}
+rel_url = next((v for k, v in bundle_map.items()
+                if "onships" in k or "Relationship" in k or ("Ancient" in k and len(k) > 50)), None)
+if rel_url:
+    print(f"Lade {rel_url[-60:]} …")
+    r2 = s.get(rel_url, timeout=60)
+    js_rel = r2.text
+    print(f"Größe: {len(js_rel)//1024}KB\n")
 
-def probe(label, url, tok, extra_hdrs=None):
-    hdrs = {**BASE_HDR, "x-xsrf-token": xsrf}
-    if extra_hdrs:
-        hdrs.update(extra_hdrs)
-    try:
-        resp = s.post(url, json={"query": QUERY_MIN}, headers=hdrs, timeout=15)
-        ct   = resp.headers.get("content-type","")
-        tag  = "✅" if resp.status_code == 200 else "⚠️"
-        print(f"  {tag} [{resp.status_code}] {label}")
-        body = resp.text
-        if body.strip() and "json" in ct:
-            try:
-                d = resp.json()
-                txt = json.dumps(d)
-                if "data" in d and d["data"]:
-                    print(f"       🎯 MATCH-DATEN! {txt[:600]}")
-                elif "errors" in d:
-                    print(f"       GQL-Fehler: {json.dumps(d['errors'])[:300]}")
-                else:
-                    print(f"       {txt[:300]}")
-            except:
-                print(f"       {body[:200]!r}")
-        elif body.strip():
-            print(f"       {body[:200].replace(chr(10),' ')!r}")
-        else:
-            print(f"       (leerer Body)")
-    except Exception as e:
-        print(f"  ❌ {label}: {e}")
-    print()
+    show_context(js_rel, "web-family-graphql", 400)
+    show_context(js_rel, "dna_matches", 300, 3)
 
-print("=" * 60)
-print("1) /web-family-graphql mit PHP-Token (Typ 1)")
-print("=" * 60)
-probe("?access_token=php_tok",
-      f"{GQLEP}?access_token={php_tok}", php_tok)
-
-print("=" * 60)
-print("2) /web-family-graphql mit fg_token_web (Typ 4)")
-print("=" * 60)
-probe("?access_token=fg_web",
-      f"{GQLEP}?access_token={fg_web}", fg_web)
-
-print("=" * 60)
-print("3) /web-family-graphql – nur Cookies + xsrf, kein access_token")
-print("=" * 60)
-probe("nur Cookies", GQLEP, "")
-
-print("=" * 60)
-print("4) /web-family-graphql – PHP-Token im Body")
-print("=" * 60)
-try:
-    hdrs = {**BASE_HDR, "x-xsrf-token": xsrf}
-    resp = s.post(GQLEP, json={"query": QUERY_MIN, "access_token": php_tok}, headers=hdrs, timeout=15)
-    ct   = resp.headers.get("content-type","")
-    print(f"  {'✅' if resp.status_code==200 else '⚠️'} [{resp.status_code}] Token im Body")
-    if resp.text.strip(): print(f"       {resp.text[:300]}")
-    else: print(f"       (leerer Body)")
-except Exception as e:
-    print(f"  ❌ {e}")
+    print("  PHP-Endpunkte im Relationships-Bundle:")
+    rel_php = set()
+    for m in re.finditer(r'["\`](/(?:FP|api)[A-Za-z0-9/_\-]+\.php)["\`]', js_rel):
+        ep = m.group(1)
+        if any(k in ep.lower() for k in ["dna","match","kit","relative","test","segment"]):
+            rel_php.add(ep)
+    for ep in sorted(rel_php):
+        print(f"    {ep}")
+else:
+    print("  Relationships-Bundle nicht gefunden")
+    print("  Verfügbare Bundles:", list(bundle_map.keys())[:8])
 print()
 
+# ══════════════════════════════════════════════════════════════════════════════
+# C) DnaResultsBundled – Kontext für Ze / fetch Calls
+# ══════════════════════════════════════════════════════════════════════════════
 print("=" * 60)
-print("5) Alle Response-Header bei Typ-4-Token zeigen")
+print("C) DnaResultsBundled – fetch/axios Calls")
 print("=" * 60)
-try:
-    resp5 = s.post(f"{GQLEP}?access_token={fg_web}",
-                   json={"query": QUERY_MIN},
-                   headers={**BASE_HDR, "x-xsrf-token": xsrf},
-                   timeout=15)
-    print(f"  Status: {resp5.status_code}")
-    for k, v in resp5.headers.items():
-        print(f"  {k}: {v}")
-    print(f"  Body: {resp5.text[:400]!r}")
-except Exception as e:
-    print(f"  ❌ {e}")
+
+dna_url = next((v for k, v in bundle_map.items() if "DnaResults" in k), None)
+if dna_url:
+    r3 = s.get(dna_url, timeout=30)
+    js_dna = r3.text
+    print(f"Größe: {len(js_dna)//1024}KB\n")
+    show_context(js_dna, "web-family-graphql", 400)
+    show_context(js_dna, "access_token", 200, 3)
+    show_context(js_dna, "authorization", 200, 3)
+
+    print("  Alle PHP-Endpunkte in DnaResults:")
+    dna_php = set()
+    for m in re.finditer(r'["\`](/(?:FP|api)[A-Za-z0-9/_\-]+\.php)["\`]', js_dna):
+        dna_php.add(m.group(1))
+    for ep in sorted(dna_php):
+        print(f"    {ep}")
