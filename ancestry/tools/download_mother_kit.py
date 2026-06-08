@@ -57,6 +57,25 @@ def _status(msg):
     print(f"\n[Status] {msg}")
 
 
+def _check_jwt(session) -> int:
+    """Gibt verbleibende Sekunden des SecureATT JWT zurück (negativ = abgelaufen)."""
+    import base64, json as _json, time as _time
+    try:
+        jwt = session.cookies.get("SecureATT", domain="www.ancestry.com") or ""
+        if not jwt:
+            jwt = session.cookies.get("SecureATT") or ""
+        if not jwt:
+            return 0
+        parts = jwt.split(".")
+        if len(parts) < 2:
+            return 0
+        pad = parts[1] + "=" * (4 - len(parts[1]) % 4)
+        payload = _json.loads(base64.urlsafe_b64decode(pad))
+        return int(payload.get("exp", 0)) - int(_time.time())
+    except Exception:
+        return 0
+
+
 def _find_kit_from_pages(session) -> str:
     """Versucht die Kit-GUID aus den DNA-Seiten zu extrahieren."""
     import re
@@ -109,6 +128,25 @@ def main():
 
     uid = auth.uid or ""
     log.info("Authentifiziert. UID: %s", uid[:20] if uid else "(unbekannt)")
+
+    # ── JWT-Gültigkeit prüfen ──────────────────────────────────────────────────
+    remaining = _check_jwt(auth.get_session())
+    if remaining < 0:
+        log.error(
+            "SecureATT JWT abgelaufen (vor %d Sekunden = %.1f Minuten).\n"
+            "  Das ist der Grund für 303-Fehler beim Match-Download.\n\n"
+            "  Lösung (sofort):\n"
+            "  1. ancestry.com im Browser öffnen → als Mutter eingeloggt bleiben\n"
+            "  2. DNA-Matches-Seite aufrufen (damit JWT erneuert wird)\n"
+            "  3. Cookie-Editor → Export All → data/mother_cookies.json überschreiben\n"
+            "  4. Script SOFORT ausführen (JWT nur 30 Minuten gültig!)\n",
+            -remaining, -remaining / 60,
+        )
+        sys.exit(1)
+    elif remaining > 0:
+        log.info("JWT noch %d Sekunden gültig (%.1f Minuten)", remaining, remaining / 60)
+    else:
+        log.warning("JWT-Status unbekannt (kein SecureATT-Cookie gefunden).")
 
     # ── Kit ermitteln ──────────────────────────────────────────────────────────
     client = AncestryApiClient(auth.get_session())
