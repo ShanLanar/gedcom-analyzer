@@ -164,6 +164,14 @@ def main():
             _r = _session.get(_warm_url, timeout=15)
             log.info("  %s → %s", _warm_url[:60], _r.status_code)
             if _r.status_code == 200:
+                # Log CSRF cookies present after warmup
+                for _cname in ("_dnamatches-matchlistui-x-csrf-token", "_csrf"):
+                    try:
+                        _cv = _session.cookies.get(_cname, domain="www.ancestry.com")
+                        if _cv:
+                            log.info("  CSRF %s: %s…", _cname[:40], str(_cv)[:20])
+                    except Exception:
+                        pass
                 break
         except Exception as _e:
             log.warning("  Warmup-Fehler: %s", _e)
