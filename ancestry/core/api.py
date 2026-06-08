@@ -81,7 +81,8 @@ def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
 
     for attempt in range(MAX_RETRIES):
         try:
-            r = session.get(url, headers=headers, timeout=cfg.REQUEST_TIMEOUT)
+            r = session.get(url, headers=headers, timeout=cfg.REQUEST_TIMEOUT,
+                            allow_redirects=False)
 
             if r.status_code == 429:
                 retry_after = int(r.headers.get("Retry-After", 0))
@@ -667,9 +668,10 @@ class AncestryApiClient:
                 log.error("HTTP %s – Cookies abgelaufen.", r.status_code)
                 break
             if r.status_code in (301, 302, 303, 307, 308):
-                log.error("HTTP %s (Redirect) auf Seite %d – Session nicht bereit.\n"
+                loc = r.headers.get("Location", "(kein Location-Header)")
+                log.error("HTTP %s (Redirect) auf Seite %d → %s\n"
                           "  → DNA-Matches-Seite im Browser öffnen, dann Cookies neu exportieren.",
-                          r.status_code, page)
+                          r.status_code, page, loc)
                 break
             if r.status_code == 404:
                 log.error("HTTP 404 – Endpunkt nicht gefunden.")
