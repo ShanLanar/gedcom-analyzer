@@ -139,6 +139,7 @@ CREATE TABLE IF NOT EXISTS gedcom_persons (
     death_year   INTEGER,
     death_place  TEXT DEFAULT '',
     ged_file     TEXT NOT NULL DEFAULT '',
+    sosa_number  INTEGER NOT NULL DEFAULT 0,
     loaded_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_gp_koelner_year
@@ -172,13 +173,42 @@ def ensure_tables(db) -> None:
     """Idempotent: legt gedcom_persons + gedcom_links an, falls fehlend."""
     with db._cursor() as cur:
         cur.executescript(BRIDGE_SCHEMA)
+        # Migration: sosa_number für bestehende DBs ohne die Spalte
+        try:
+            cur.execute("ALTER TABLE gedcom_persons ADD COLUMN sosa_number INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass  # Spalte existiert bereits
 
 
 # ── Import ─────────────────────────────────────────────────────────────────────
 
-def import_gedcom_persons(db, individuals: dict, ged_file: str = "") -> int:
+def _build_sosa_map(root_id: str, individuals: dict, families: dict) -> dict:
+    """Sosa-Stradonitz-Nummern aller Vorfahren: {ged_id: sosa_number}.
+    root_id erhält 1, Vater=2, Mutter=3, Vaters Vater=4, …"""
+    result = {root_id: 1}
+    queue = [(root_id, 1)]
+    while queue:
+        pid, sosa = queue.pop(0)
+        for fam_id in (individuals.get(pid) or {}).get("FAMC", []):
+            fam = families.get(fam_id) or {}
+            for key, child_sosa in (("HUSB", sosa * 2), ("WIFE", sosa * 2 + 1)):
+                pid2 = fam.get(key)
+                if pid2 and pid2 not in result:
+                    result[pid2] = child_sosa
+                    queue.append((pid2, child_sosa))
+    return result
+
+
+def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
+                          root_id: str = "", families: dict | None = None) -> int:
     """Löscht und füllt gedcom_persons aus einem GEDCOM-Individuals-Dict.
+    Falls root_id + families angegeben werden, enthält sosa_number die
+    Sosa-Stradonitz-Nummer jeder Person (für spätere Verwandtschaftsberechnung).
     Gibt Anzahl importierter Personen zurück."""
+    sosa_map: dict = {}
+    if root_id and families:
+        sosa_map = _build_sosa_map(root_id, individuals, families)
+
     rows = []
     for ged_id, ind in individuals.items():
         given, surname = _parse_name_from_indi(ind)
@@ -200,6 +230,7 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "") -> int:
             "death_year":   deat.get("YEAR") or None,
             "death_place":  (deat.get("PLAC") or "").strip(),
             "ged_file":     ged_file,
+            "sosa_number":  sosa_map.get(ged_id, 0),
         })
     with db._cursor() as cur:
         cur.execute("DELETE FROM gedcom_persons")
@@ -207,13 +238,14 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "") -> int:
             """INSERT OR REPLACE INTO gedcom_persons
                (ged_id, given_name, surname, surname_norm, koelner_code,
                 sex, birth_year, birth_qual, birth_place,
-                death_year, death_place, ged_file)
+                death_year, death_place, ged_file, sosa_number)
                VALUES (:ged_id, :given_name, :surname, :surname_norm, :koelner_code,
                        :sex, :birth_year, :birth_qual, :birth_place,
-                       :death_year, :death_place, :ged_file)""",
+                       :death_year, :death_place, :ged_file, :sosa_number)""",
             rows,
         )
-    log.info("bridge: %d GEDCOM-Personen importiert", len(rows))
+    log.info("bridge: %d GEDCOM-Personen importiert (Sosa: %d)",
+             len(rows), sum(1 for r in rows if r["sosa_number"]))
     return len(rows)
 
 
@@ -520,3 +552,97 @@ def infer_side_from_links(db, test_guid: str, match_guid: str, amap: dict) -> st
     if sides:
         return "both"
     return ""
+
+
+# ── GEDCOM-Verwandtschafts-Vergleich ─────────────────────────────────────────
+
+def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
+    """Berechnet GEDCOM-basierte Verwandtschafts-Labels für alle verknüpften
+    DNA-Matches und vergleicht sie mit der Ancestry/MyHeritage-Vorhersage.
+
+    Voraussetzung: import_gedcom_persons() muss mit root_id + families
+    aufgerufen worden sein, damit sosa_number befüllt ist.
+
+    Rückgabe: Liste von Dicts, eine Zeile pro Match (beste Verknüpfung):
+      display_name, shared_cm, ancestry_rel, ged_relationship, multiplier,
+      link_count, best_score, ged_common_ancestor, ged_ancestor_year,
+      root_gen_depth, match_gen_depth
+    """
+    import math
+
+    try:
+        from lib.helpers import relationship_label
+    except ImportError:
+        def relationship_label(rd, td, anc=False):
+            return f"Grad {rd}+{td}" if rd and td else ""
+
+    MULT_MAP = {2: "double", 3: "triple", 4: "quadruple",
+                5: "quintuple", 6: "sextuple", 7: "septuple"}
+
+    sql = """
+        SELECT
+            gl.match_guid,
+            m.display_name,
+            m.shared_cm,
+            m.predicted_relationship,
+            gl.ged_id,
+            (gl.ged_given || ' ' || gl.ged_surname) AS ged_anc_name,
+            gl.ged_year,
+            gp.sosa_number,
+            mp.generation  AS match_gen,
+            gl.total_score,
+            gl.ahnen_path
+        FROM gedcom_links gl
+        JOIN matches m ON m.match_guid = gl.match_guid
+        JOIN gedcom_persons gp ON gp.ged_id = gl.ged_id
+        LEFT JOIN match_pedigree mp
+            ON  mp.match_guid  = gl.match_guid
+            AND mp.ahnen_path  = gl.ahnen_path
+            AND mp.test_guid   = gl.test_guid
+        WHERE gl.test_guid = ?
+        ORDER BY m.shared_cm DESC, gl.total_score DESC
+    """
+    try:
+        with db._cursor() as cur:
+            rows = [dict(r) for r in cur.execute(sql, (test_guid,)).fetchall()]
+    except Exception as e:
+        log.warning("get_gedcom_relationship_summary: %s", e)
+        return []
+
+    # Gruppieren nach match_guid (bestes Link = höchster Score)
+    by_match: dict[str, list] = {}
+    for r in rows:
+        by_match.setdefault(r["match_guid"], []).append(r)
+
+    result = []
+    for match_guid, links in by_match.items():
+        best = max(links, key=lambda x: x["total_score"])
+
+        sosa = best["sosa_number"] or 0
+        root_depth  = math.floor(math.log2(sosa)) if sosa >= 1 else 0
+        match_depth = best["match_gen"] or len(best["ahnen_path"] or "")
+
+        if root_depth > 0 and match_depth > 0:
+            ged_rel = relationship_label(root_depth, match_depth)
+        else:
+            ged_rel = ""
+
+        link_count = len(links)
+        multiplier = MULT_MAP.get(link_count, "")
+
+        result.append({
+            "match_guid":           match_guid,
+            "display_name":         best["display_name"],
+            "shared_cm":            best["shared_cm"],
+            "ancestry_rel":         best["predicted_relationship"] or "",
+            "ged_relationship":     ged_rel,
+            "multiplier":           multiplier,
+            "link_count":           link_count,
+            "best_score":           round(best["total_score"], 2),
+            "ged_common_ancestor":  (best["ged_anc_name"] or "").strip(),
+            "ged_ancestor_year":    best["ged_year"] or "",
+            "root_gen_depth":       root_depth,
+            "match_gen_depth":      match_depth,
+        })
+
+    return result
