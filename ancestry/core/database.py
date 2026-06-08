@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 12
+    SCHEMA_VERSION = 13
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -89,6 +89,8 @@ class Database:
                 self._migrate_v10_v11(cur)
             if current < 12:
                 self._migrate_v11_v12(cur)
+            if current < 13:
+                self._migrate_v12_v13(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -622,6 +624,10 @@ class Database:
                     meiosis=excluded.meiosis,
                     ignored=excluded.ignored
             """, d)
+            cur.execute(
+                "INSERT OR IGNORE INTO match_kit_membership (match_guid, test_guid) VALUES (?,?)",
+                (m.match_guid, m.test_guid),
+            )
 
     def bulk_upsert(self, matches: list[DnaMatch]) -> int:
         saved = 0
@@ -656,24 +662,31 @@ class Database:
         direction = "ASC" if sort_asc else "DESC"
 
         conditions, params = [], []
-        if test_guid:
-            conditions.append("test_guid = ?"); params.append(test_guid)
+        use_kit_join = bool(test_guid)
+        if use_kit_join:
+            conditions.append("mkm.test_guid = ?"); params.append(test_guid)
         if search:
-            conditions.append("display_name LIKE ?"); params.append(f"%{search}%")
+            conditions.append("m.display_name LIKE ?"); params.append(f"%{search}%")
         if relationship and relationship != "(alle)":
-            conditions.append("predicted_relationship = ?"); params.append(relationship)
+            conditions.append("m.predicted_relationship = ?"); params.append(relationship)
         if starred_only:
-            conditions.append("starred = 1")
+            conditions.append("m.starred = 1")
         if has_tree_only:
-            conditions.append("has_tree = 1")
+            conditions.append("m.has_tree = 1")
         if min_cm > 0:
-            conditions.append("shared_cm >= ?"); params.append(min_cm)
+            conditions.append("m.shared_cm >= ?"); params.append(min_cm)
         if hide_endogamy:
-            conditions.append("(endogamy_cluster IS NULL OR endogamy_cluster = '')")
+            conditions.append("(m.endogamy_cluster IS NULL OR m.endogamy_cluster = '')")
 
-        where       = ("WHERE " + " AND ".join(conditions)) if conditions else ""
+        where        = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         limit_clause = f"LIMIT {limit} OFFSET {offset}" if limit else ""
-        sql = f"SELECT * FROM matches {where} ORDER BY {sort_col} {direction} {limit_clause}"
+        if use_kit_join:
+            sql = (f"SELECT m.* FROM matches m "
+                   f"JOIN match_kit_membership mkm ON mkm.match_guid = m.match_guid "
+                   f"{where} ORDER BY m.{sort_col} {direction} {limit_clause}")
+        else:
+            sql = (f"SELECT * FROM matches m {where} "
+                   f"ORDER BY {sort_col} {direction} {limit_clause}")
 
         with self._cursor() as cur:
             cur.execute(sql, params)
@@ -686,15 +699,26 @@ class Database:
                         (cluster.strip(), match_guid))
 
     def match_exists(self, match_guid: str) -> bool:
-        """Prüft ob ein Match bereits in der DB vorhanden ist."""
+        """Prüft ob ein Match bereits in der DB vorhanden ist (kit-unabhängig)."""
         with self._cursor() as cur:
             cur.execute("SELECT 1 FROM matches WHERE match_guid=? LIMIT 1", (match_guid,))
+            return cur.fetchone() is not None
+
+    def match_exists_for_kit(self, match_guid: str, test_guid: str) -> bool:
+        """Prüft ob ein Match für ein bestimmtes Kit bereits geladen wurde."""
+        with self._cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM match_kit_membership WHERE match_guid=? AND test_guid=? LIMIT 1",
+                (match_guid, test_guid),
+            )
             return cur.fetchone() is not None
 
     def get_match_count(self, test_guid: Optional[str] = None) -> int:
         with self._cursor() as cur:
             if test_guid:
-                cur.execute("SELECT COUNT(*) FROM matches WHERE test_guid=?", (test_guid,))
+                cur.execute(
+                    "SELECT COUNT(*) FROM match_kit_membership WHERE test_guid=?", (test_guid,)
+                )
             else:
                 cur.execute("SELECT COUNT(*) FROM matches")
             return cur.fetchone()[0]
@@ -1041,13 +1065,29 @@ class Database:
 
     def _migrate_v11_v12(self, cur):
         """Schema v12: research_flags bitmask + paternal_maternal side column."""
-        # Add research_flags column if missing
         cur.execute("PRAGMA table_info(matches)")
         cols = {r[1] for r in cur.fetchall()}
         if "research_flags" not in cols:
             cur.execute("ALTER TABLE matches ADD COLUMN research_flags INTEGER NOT NULL DEFAULT 0")
         if "paternal_maternal" not in cols:
             cur.execute("ALTER TABLE matches ADD COLUMN paternal_maternal TEXT DEFAULT ''")
+
+    def _migrate_v12_v13(self, cur):
+        """Schema v13: match_kit_membership — ermöglicht einen Match in mehreren Kits."""
+        cur.executescript("""
+            CREATE TABLE IF NOT EXISTS match_kit_membership (
+                match_guid TEXT NOT NULL,
+                test_guid  TEXT NOT NULL,
+                PRIMARY KEY (match_guid, test_guid)
+            );
+            CREATE INDEX IF NOT EXISTS idx_mkm_test
+                ON match_kit_membership(test_guid);
+        """)
+        # Bestehende Matches als Startpunkt übernehmen
+        cur.execute("""
+            INSERT OR IGNORE INTO match_kit_membership (match_guid, test_guid)
+            SELECT match_guid, test_guid FROM matches
+        """)
 
     # ── New methods (v12) ─────────────────────────────────────────────────────
 
@@ -1101,15 +1141,17 @@ class Database:
         return list(result.values())
 
     def get_paternal_maternal_overlap(self, kit_a: str, kit_b: str) -> dict:
-        """Compare two kits' match lists to classify shared vs unique matches.
+        """Vergleicht zwei Kits anhand der match_kit_membership-Tabelle.
 
-        Returns dict with keys 'shared' (both kits), 'only_a' (paternal if kit_b is maternal kit).
+        Returns dict mit 'shared' (in beiden Kits), 'only_a', 'only_b'.
         """
         with self._cursor() as cur:
             guids_a = {r[0] for r in cur.execute(
-                "SELECT match_guid FROM matches WHERE test_guid=?", (kit_a,)).fetchall()}
+                "SELECT match_guid FROM match_kit_membership WHERE test_guid=?",
+                (kit_a,)).fetchall()}
             guids_b = {r[0] for r in cur.execute(
-                "SELECT match_guid FROM matches WHERE test_guid=?", (kit_b,)).fetchall()}
+                "SELECT match_guid FROM match_kit_membership WHERE test_guid=?",
+                (kit_b,)).fetchall()}
         return {
             "shared": guids_a & guids_b,
             "only_a": guids_a - guids_b,

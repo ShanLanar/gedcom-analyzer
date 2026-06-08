@@ -307,6 +307,7 @@ class AncestryDnaApp(tk.Tk):
         self._scraper : Optional[Scraper]           = None
         self._db      : Database                    = Database(cfg.DB_FILE)
         self._kit_map : dict[str, str]              = {}
+        self._matches_kit_guid_map: dict[str, str]  = {}
         self._matches : list[DnaMatch]              = []
         self._current_test_guid : Optional[str]     = None
 
@@ -331,6 +332,7 @@ class AncestryDnaApp(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(200, self._load_settings)
+        self.after(300, self._update_matches_kit_combo)
         self.after(400, self._load_lang_setting)
 
     # ── Styling ───────────────────────────────────────────────────────────────
@@ -889,6 +891,27 @@ class AncestryDnaApp(tk.Tk):
         self._kit_combo["values"] = names
         if names and not self._kit_var.get():
             self._kit_combo.current(0)
+        self._update_matches_kit_combo()
+
+    def _update_matches_kit_combo(self):
+        """Befüllt den Kit-Selektor im Matches-Tab aus DB + _kit_map."""
+        if not hasattr(self, "_matches_kit_combo"):
+            return
+        try:
+            db_kits = self._db.get_kits()
+        except Exception:
+            db_kits = []
+        combined: dict[str, str] = {}
+        for k in db_kits:
+            name = k.name or f"Kit {k.guid[:8]}"
+            combined[name] = k.guid
+        for name, guid in self._kit_map.items():
+            combined.setdefault(name, guid)
+        self._matches_kit_guid_map = combined
+        names = list(combined.keys())
+        self._matches_kit_combo["values"] = names
+        if names and self._matches_kit_var.get() not in names:
+            self._matches_kit_combo.current(0)
 
     def _get_kit_guid(self) -> Optional[str]:
         return self._kit_map.get(self._kit_var.get())
@@ -2936,6 +2959,18 @@ class AncestryDnaApp(tk.Tk):
     def _build_tab_matches(self):
         f = self._tab_matches
 
+        # Kit-Leiste
+        kl = ttk.Frame(f); kl.pack(fill="x", padx=10, pady=(6, 0))
+        ttk.Label(kl, text="Kit:", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 4))
+        self._matches_kit_var = tk.StringVar()
+        self._matches_kit_combo = ttk.Combobox(
+            kl, textvariable=self._matches_kit_var, width=38, state="readonly")
+        self._matches_kit_combo.pack(side="left")
+        self._matches_kit_combo.bind(
+            "<<ComboboxSelected>>", lambda _: self._refresh_match_table())
+        ttk.Button(kl, text="⚡ Seiten ableiten",
+                   command=self._auto_assign_sides).pack(side="left", padx=(12, 0))
+
         # Filter-Leiste
         fl = ttk.Frame(f); fl.pack(fill="x", padx=10, pady=6)
         _sv_s = tk.StringVar(value=self._t("mf.search"))
@@ -3383,7 +3418,15 @@ class AncestryDnaApp(tk.Tk):
                    "ged":"match_guid","ca":"has_common_ancestor","starred":"starred"}
         sort_col = col_map.get(self._sort_col, "shared_cm")
 
+        # Kit-GUID aus Matches-Tab-Selektor
+        active_kit: Optional[str] = None
+        if hasattr(self, "_matches_kit_var") and self._matches_kit_var.get():
+            active_kit = self._matches_kit_guid_map.get(self._matches_kit_var.get())
+        if not active_kit:
+            active_kit = self._current_test_guid or self._get_kit_guid()
+
         self._matches = self._db.get_matches(
+            test_guid      = active_kit,
             search         = self._search_var.get().strip() or None,
             relationship   = self._rel_var.get() if hasattr(self,"_rel_var") else None,
             starred_only   = self._starred_var.get() if hasattr(self,"_starred_var") else False,
@@ -3393,6 +3436,22 @@ class AncestryDnaApp(tk.Tk):
             sort_col       = sort_col,
             sort_asc       = self._sort_asc,
         )
+
+        # Overlap-Set: welche GUIDs kommen noch in anderen Kits vor?
+        overlap_guids: set = set()
+        if active_kit:
+            try:
+                all_kits = [k.guid for k in self._db.get_kits() if k.guid != active_kit]
+                if all_kits:
+                    with self._db._cursor() as _cur:
+                        rows = _cur.execute(
+                            "SELECT match_guid FROM match_kit_membership WHERE test_guid IN ({})".format(
+                                ",".join("?" * len(all_kits))),
+                            all_kits,
+                        ).fetchall()
+                    overlap_guids = {r[0] for r in rows}
+            except Exception:
+                pass
         self._match_count_var.set(f"{len(self._matches)} Match(es)")
         self._tree.delete(*self._tree.get_children())
         # Apply pat/mat chip filter
@@ -3442,8 +3501,14 @@ class AncestryDnaApp(tk.Tk):
             else:
                 tree_txt = "—"
 
-            # Bemerkungsspalte: Endogamie-Cluster hat Vorrang vor tag_surname
-            note_txt = (f"🔇 {endo}" if endo else m.tag_surname or "")
+            # Bemerkungsspalte: Overlap → Endogamie → tag_surname
+            in_other_kit = m.match_guid in overlap_guids
+            if endo:
+                note_txt = f"🔇 {endo}"
+            elif in_other_kit:
+                note_txt = f"👥 {m.tag_surname or ''}".strip()
+            else:
+                note_txt = m.tag_surname or ""
 
             n_hits = bridge_hits.get(m.match_guid, 0)
             ged_txt = f"🌳{n_hits}" if n_hits else ""
