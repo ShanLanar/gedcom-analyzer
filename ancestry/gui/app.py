@@ -3298,6 +3298,8 @@ class AncestryDnaApp(tk.Tk):
                    command=self._run_wikitree_extend).pack(side="right", padx=4)
         ttk.Button(hdr, text="🤖 ML-Herkunft",
                    command=self._run_ml_origin).pack(side="right", padx=4)
+        ttk.Button(hdr, text="👥 Duplikate prüfen",
+                   command=self._open_xref_review).pack(side="right", padx=4)
         ttk.Button(hdr, text="🧬 Endogamie übertragen",
                    command=self._run_endogamy_transfer).pack(side="right", padx=4)
 
@@ -3553,6 +3555,72 @@ class AncestryDnaApp(tk.Tk):
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="endo-transfer").start()
+
+    def _open_xref_review(self):
+        """Fenster zum Prüfen grenzwertiger Duplikat-Verknüpfungen (gedcom_person_xref)."""
+        try:
+            from core import bridge
+        except Exception as e:
+            messagebox.showerror("Duplikate", f"bridge nicht ladbar: {e}"); return
+
+        win = tk.Toplevel(self)
+        win.title("Duplikate prüfen – Querbezüge")
+        win.geometry("900x460")
+
+        bar = ttk.Frame(win); bar.pack(fill="x", padx=8, pady=6)
+        ttk.Label(bar, text="Score von").pack(side="left")
+        lo_var = tk.StringVar(value="0.72"); hi_var = tk.StringVar(value="0.85")
+        ttk.Entry(bar, textvariable=lo_var, width=5).pack(side="left", padx=2)
+        ttk.Label(bar, text="bis").pack(side="left")
+        ttk.Entry(bar, textvariable=hi_var, width=5).pack(side="left", padx=2)
+        only_auto = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bar, text="nur ungeprüfte", variable=only_auto).pack(side="left", padx=8)
+
+        cols = ("score", "status", "a", "b")
+        tree = ttk.Treeview(win, columns=cols, show="headings", height=15)
+        for c, t, w in [("score","Score",60),("status","Status",80),
+                        ("a","A (dein GEDCOM)",360),("b","B (andere Quelle)",360)]:
+            tree.heading(c, text=t); tree.column(c, width=w, anchor="w")
+        tree.pack(fill="both", expand=True, padx=8)
+        rowmap = {}
+
+        def _fmt(r, pre):
+            return (f"{r[pre+'_given'] or ''} {r[pre+'_surname'] or ''} "
+                    f"*{r[pre+'_by'] or '?'} †{r[pre+'_dy'] or '?'} "
+                    f"[{r[pre+'_bp'] or ''}]").strip()
+
+        def reload():
+            tree.delete(*tree.get_children()); rowmap.clear()
+            try:
+                lo, hi = float(lo_var.get()), float(hi_var.get())
+            except ValueError:
+                lo, hi = 0.0, 1.0
+            pairs = bridge.get_xref_pairs(self._db, lo=lo, hi=hi)
+            for r in pairs:
+                if only_auto.get() and r["status"] != "auto":
+                    continue
+                iid = tree.insert("", "end", values=(
+                    f"{r['score']:.3f}", r["status"], _fmt(r,"a"), _fmt(r,"b")))
+                rowmap[iid] = r
+            win.title(f"Duplikate prüfen – {len(rowmap)} Paare")
+
+        def _decide(status):
+            for iid in tree.selection():
+                r = rowmap.get(iid)
+                if not r: continue
+                bridge.set_xref_status(self._db, r["ged_id_primary"],
+                                       r["ged_id_other"], status)
+                tree.set(iid, "status", status)
+
+        btns = ttk.Frame(win); btns.pack(fill="x", padx=8, pady=6)
+        ttk.Button(btns, text="🔄 Laden", command=reload).pack(side="left")
+        ttk.Button(btns, text="✓ Dieselbe Person (bestätigen)",
+                   command=lambda: _decide("confirmed")).pack(side="left", padx=4)
+        ttk.Button(btns, text="✗ Verschiedene (ablehnen)",
+                   command=lambda: _decide("rejected")).pack(side="left", padx=4)
+        ttk.Label(btns, text="Mehrfachauswahl möglich (Strg/Shift)",
+                  foreground="#777").pack(side="right")
+        reload()
 
     def _run_ml_origin(self):
         """Trainiert (falls nötig) das ML-Herkunftsmodell auf dem GEDCOM und

@@ -1080,13 +1080,12 @@ def infer_match_origins(
     """
     p = progress_cb or (lambda *a: None)
 
-    # ── 1. GEDCOM-Regionen-Index aufbauen ─────────────────────────────────────
+    # ── 1. Regionen-Index aufbauen (quellenübergreifend, dedupliziert) ────────
+    # Nutzt iter_unique_persons: GEDCOM + Anverwandte + WikiTree, jede reale
+    # Person nur einmal (mehr Ortsabdeckung ohne Doppelzählung).
     try:
-        with db._cursor() as cur:
-            ged_rows = cur.execute(
-                "SELECT surname_norm, koelner_code, birth_place FROM gedcom_persons "
-                "WHERE birth_place != '' AND surname_norm != ''"
-            ).fetchall()
+        ged_rows = [r for r in iter_unique_persons(db)
+                    if (r.get("birth_place") or "") and (r.get("surname_norm") or "")]
     except Exception:
         p("GEDCOM-Tabelle nicht gefunden – bitte zuerst GEDCOM laden.")
         return []
