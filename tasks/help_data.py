@@ -127,6 +127,14 @@ HELP_ENTRIES: dict = {
         "output":  "Drei Sheets: 'Daten-Anomalien' (KRITISCH/WARNUNG/HINWEIS), 'Potenzielle Doubletten' (mit Konfidenz-Score), 'Unerreichbare Personen'.",
         "details": "Anomalie-Schwellen: Mutter <12 J. oder >55 J., Vater <12 J. oder >80 J., Geschwisterabstand >25 J., Lebensalter >110, Heirat <14 oder >90 J. Doubletten-Detektor nutzt Levenshtein + 60-Einträge-Vornamen-Synonymtabelle (Hans↔Johannes, Fritz↔Friedrich, …).",
     },
+    "dna_overview": {
+        "title":   "DNA-Überblick (Ancestry-Datenbank)",
+        "group":   "Analysen",
+        "purpose": "Liest die Ancestry-DNA-SQLite-Datenbank und erstellt eine Übersicht über geladene Kits, Match-Zahlen, Top-Matches und Cluster.",
+        "input":   "ancestry/ancestry_dna.db (wird vom Ancestry-DNA-Tool befüllt).",
+        "output":  "Sheet 'DNA-Überblick (Ancestry)' mit Kit-Name, Match-Anzahl, Top-5, Leeds-Cluster, Endogamie-Markierungen.",
+        "tips":    "Nur sinnvoll wenn das Ancestry-DNA-Tool bereits Matches heruntergeladen hat. Datenbankpfad: ancestry/ancestry_dna.db.",
+    },
     "dna_cm": {
         "title":   "DNA-cM-Schätzung",
         "group":   "Analysen",
