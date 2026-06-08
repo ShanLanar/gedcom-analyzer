@@ -418,6 +418,11 @@ def run_export_excel(progress_cb=None, stop_event=None):
         ("DNA-cM-Schätzung", genetics.DNA_CM_HEADERS,
          _state.get("dna_cm_results", [])[:50_000]),
 
+        ("DNA-Überblick (Ancestry)", [
+            "Kit-Name", "Kit-ID", "Matches gesamt",
+            "Top-5-Matches (cM)", "Leeds-Cluster", "Endogamie-markiert"],
+         _state.get("dna_overview_rows", [])),
+
         ("Endogamie Scores", endogamy.ENDOGAMY_HEADERS,
          _state["endogamy_results"][:5000]),
 
@@ -648,6 +653,7 @@ def run_export_excel(progress_cb=None, stop_event=None):
         "Pedigree Collapse Generationen":            "C00000",
         "Pedigree Collapse Mehrfach":                "C00000",
         "DNA-cM-Schätzung":                          "C00000",
+        "DNA-Überblick (Ancestry)":                  "C00000",
         "Endogamie Scores":                          "C00000",
         "Endogamie-Netzwerk (Nachname×Nachname)":    "C00000",
         "Top Ahnen":                                 "C00000",
@@ -1203,3 +1209,73 @@ def load_state_cache(progress_cb=None, stop_event=None):
     fams  = len(_state.get("families", {}))
     p(f"State-Cache geladen: {indiv:,} Personen, {fams:,} Familien (GEDCOM unverändert)",
       tag="ok")
+
+
+# ── DNA-Überblick: liest die Ancestry-DNA-Datenbank ───────────────────────────
+
+def run_dna_overview(progress_cb=None, stop_event=None):
+    """Liest die Ancestry-DNA-SQLite-Datenbank und erstellt eine Übersichts-Tabelle.
+    Nur sinnvoll wenn ancestry/ancestry_dna.db existiert."""
+    _set_stop_event(stop_event)
+    p = progress_cb or (lambda m, **kw: None)
+    import os, sys
+
+    ancestry_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "ancestry")
+    if ancestry_dir not in sys.path:
+        sys.path.insert(0, ancestry_dir)
+
+    db_path = os.path.join(ancestry_dir, "ancestry_dna.db")
+    if not os.path.exists(db_path):
+        p("Ancestry-Datenbank nicht gefunden – DNA-Tool starten und Matches laden.", tag="warn")
+        _state["dna_overview_rows"] = []
+        return
+
+    try:
+        from core.database import Database
+        db = Database(db_path)
+    except Exception as e:
+        p(f"Ancestry-DB konnte nicht geöffnet werden: {e}", tag="err")
+        _state["dna_overview_rows"] = []
+        return
+
+    p("Lese DNA-Matches aus Ancestry-Datenbank …")
+    rows = []
+    try:
+        kits = db.get_kits()
+        for kit in kits:
+            guid  = kit.guid
+            name  = kit.name or guid[:8]
+            count = db.get_match_count(guid)
+            if count == 0:
+                continue
+            # Top-5-Matches nach cM
+            matches = db.get_matches(test_guid=guid, sort_col="shared_cm")
+            top5 = [f"{m.display_name} ({m.shared_cm:.0f} cM)" for m in matches[:5]]
+            # Cluster-Anzahl (Leeds)
+            try:
+                clusters = db.get_shared_clusters(guid, min_cm=20.0, max_cm=400.0)
+                n_clusters = len(clusters)
+            except Exception:
+                n_clusters = "—"
+            # Endogamie-markierte Matches
+            try:
+                with db._cursor() as cur:
+                    n_endo = cur.execute(
+                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
+                        "AND endogamy_cluster != ''", (guid,)
+                    ).fetchone()[0]
+            except Exception:
+                n_endo = 0
+            rows.append([
+                name, guid[:8] + "…",
+                count,
+                "; ".join(top5),
+                n_clusters,
+                n_endo,
+            ])
+    except Exception as e:
+        p(f"DNA-Übersicht Fehler: {e}", tag="err")
+
+    _state["dna_overview_rows"] = rows
+    p(f"DNA-Überblick: {len(rows)} Kit(s) ausgewertet", tag="ok")

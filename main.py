@@ -165,6 +165,14 @@ TASKS = [
         "group":   "Analysen",
     },
     {
+        "id":      "dna_overview",
+        "name":    "DNA-Überblick (Ancestry-Datenbank)",
+        "desc":    "Liest die Ancestry-DNA-SQLite-DB und zeigt Matches, Cluster und Endogamie-Kennzahlen.",
+        "fn":      "tasks._runner:run_dna_overview",
+        "default": False,
+        "group":   "Analysen",
+    },
+    {
         "id":      "sibling_namedrift",
         "name":    "Geschwister-Statistiken & Namensdrift",
         "desc":    "Geburtsabstände in Familien + Vor-/Namenstrends über Zeit.",
@@ -668,17 +676,24 @@ class AhnenApp(tk.Tk):
     # ── DNA-Tool ───────────────────────────────────────────────────────────────
 
     def _open_dna_tool(self):
-        """Öffnet das Ancestry-DNA-Tool als eigenes Prozess-Fenster."""
+        """Öffnet das Ancestry-DNA-Tool als eigenes Prozess-Fenster.
+        Übergibt die aktuell gewählte GEDCOM-Datei als --gedcom-Argument,
+        damit die Bridge im DNA-Tool sofort vorbelegt ist."""
         import subprocess
         ancestry_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ancestry")
         python_exe = sys.executable
+        cmd = [python_exe, "main.py"]
+        gedcom_path = self._path_var.get().strip()
+        if gedcom_path and os.path.exists(gedcom_path):
+            cmd += ["--gedcom", gedcom_path]
         try:
             subprocess.Popen(
-                [python_exe, "main.py"],
+                cmd,
                 cwd=ancestry_dir,
                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
-            self._append_log("DNA-Tool gestartet.", tag="ok")
+            hint = f" (GEDCOM: {os.path.basename(gedcom_path)})" if gedcom_path else ""
+            self._append_log(f"DNA-Tool gestartet{hint}.", tag="ok")
         except Exception as e:
             self._append_log(f"DNA-Tool konnte nicht gestartet werden: {e}", tag="err")
 

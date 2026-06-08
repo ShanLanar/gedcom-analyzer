@@ -306,7 +306,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 
 class AncestryDnaApp(tk.Tk):
 
-    def __init__(self):
+    def __init__(self, gedcom_path: str = ""):
         super().__init__()
         self.title("Ancestry DNA Tool")
         self.geometry("1200x760")
@@ -320,6 +320,7 @@ class AncestryDnaApp(tk.Tk):
         self._matches_kit_guid_map: dict[str, str]  = {}
         self._matches : list[DnaMatch]              = []
         self._current_test_guid : Optional[str]     = None
+        self._startup_gedcom_path: str              = gedcom_path
 
         self._lang: str = "de"
         self._lang_headings:       list = []   # (tv, col, key) tuples
@@ -3275,7 +3276,21 @@ class AncestryDnaApp(tk.Tk):
     def _build_gedcom_link_panel(self, parent):
         """Sub-Tab 3: GEDCOM-Treffer — zeigt Verbindungen zwischen Match-Vorfahren
         und Personen im eigenen GEDCOM-Baum."""
-        tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=4)
+        # Zeile 1: GEDCOM-Datei-Info + Wählen-Button
+        hdr = ttk.Frame(parent); hdr.pack(fill="x", padx=6, pady=(4, 0))
+        self._ged_file_var = tk.StringVar(value="—")
+        ttk.Label(hdr, text="🌳", font=("Segoe UI", 10)).pack(side="left")
+        ttk.Label(hdr, textvariable=self._ged_file_var,
+                  foreground="#555555", font=("Segoe UI", 8)).pack(side="left", padx=4)
+        ttk.Button(hdr, text="📂", width=3,
+                   command=lambda: self._ensure_gedcom_loaded(
+                       self._on_gedcom_loaded_update_header, force_ask=True)
+                   ).pack(side="left")
+        ttk.Button(hdr, text="🧬 Endogamie übertragen",
+                   command=self._run_endogamy_transfer).pack(side="right", padx=4)
+
+        # Zeile 2: Status + Bulk-Abgleich-Button
+        tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=(2, 4))
         self._ged_link_status = tk.StringVar(value=self._t("md.ged_none"))
         ttk.Label(tb, textvariable=self._ged_link_status,
                   foreground=COLORS["primary"]).pack(side="left")
@@ -3323,6 +3338,8 @@ class AncestryDnaApp(tk.Tk):
             return
 
         self._ged_link_status.set(self._t("md.ged_searching"))
+
+        self.after(0, lambda: self._on_gedcom_loaded_update_header(ged))
 
         def _worker():
             try:
@@ -3468,6 +3485,57 @@ class AncestryDnaApp(tk.Tk):
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="bridge-bulk").start()
+
+    def _on_gedcom_loaded_update_header(self, ged: dict):
+        """Callback nach _ensure_gedcom_loaded: GEDCOM-Dateiname in Header zeigen."""
+        import os
+        path = ged.get("path", "")
+        name = os.path.basename(path) if path else "—"
+        n = len(ged.get("people", {}))
+        if hasattr(self, "_ged_file_var"):
+            self._ged_file_var.set(f"{name}  ({n} Personen)")
+
+    def _run_endogamy_transfer(self):
+        """Überträgt GEDCOM-Endogamie-Scores via Geburtsort-Abgleich auf Matches."""
+        ged = getattr(self, "_gedcom", None)
+        if not ged:
+            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            return
+        test_guid = self._current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set("Endogamie-Transfer läuft …")
+
+        def _worker():
+            try:
+                from core import bridge as _bridge
+                import sys as _sys, os as _os
+                # GEDCOM-Endogamie aus dem Haupt-Analyzer laden (tasks/endogamy.py)
+                _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+                if _root not in _sys.path:
+                    _sys.path.insert(0, _root)
+                from tasks.endogamy import compute_endogamy_with_detailed_places
+                from lib.places import load_location_data
+                import config as _cfg_root
+                loc = load_location_data(
+                    _cfg_root.DEFAULT_CONFIG.get("location_data_json", ""))
+                endo_results = compute_endogamy_with_detailed_places(
+                    ged["individuals"], ged["families"],
+                    root_id="", location_data=loc)
+                n = _bridge.apply_gedcom_endogamy_to_matches(
+                    self._db, test_guid, endo_results,
+                    progress_cb=lambda m, **kw: self.after(
+                        0, lambda mm=m: self._ged_link_status.set(mm)))
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"Endogamie-Transfer fertig: {n} Matches markiert"))
+                self.after(0, self._refresh_match_table)
+            except Exception as exc:
+                log.warning("endogamy-transfer: %s", exc)
+                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="endo-transfer").start()
 
     def _refresh_match_table(self, *_):
         try:
@@ -5350,6 +5418,16 @@ class AncestryDnaApp(tk.Tk):
             self._set_status('Einstellungen geladen.')
         except (FileNotFoundError, Exception):
             pass
+
+        # GEDCOM-Pfad aus Kommandozeile vorbelegen (überschreibt ui_settings nur wenn nötig)
+        if self._startup_gedcom_path:
+            import os as _os
+            if _os.path.exists(self._startup_gedcom_path):
+                st = self._load_ui_settings()
+                if not st.get("gedcom_path"):
+                    self._save_ui_settings(gedcom_path=self._startup_gedcom_path)
+                    self._set_status(
+                        f"GEDCOM vorbelegt: {_os.path.basename(self._startup_gedcom_path)}")
 
     def _save_settings(self):
         """Speichert aktuelle Einstellungen."""
