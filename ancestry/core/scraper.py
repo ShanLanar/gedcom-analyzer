@@ -184,12 +184,18 @@ class Scraper:
 
     def _run_fetch_ancestors(self, test_guid: str, min_cm: float = 0.0):
         """Holt pro Match MIT BAUM die Geburtsorte (+ Ancestrys gemeinsame Vorfahren,
-        falls vorhanden)."""
+        falls vorhanden). Parallelisiert über mehrere Worker."""
+        from concurrent.futures import ThreadPoolExecutor
+        import threading
+
         result = DownloadResult()
         todo = self._db.get_matches_needing_ancestors(test_guid, min_cm)
         total = len(todo)
-        self._on_status(f"Vorfahren & Orte laden: {total} Matches mit Baum (ab {min_cm:.0f} cM) …")
-        log.info("Vorfahren-Download: %d Matches mit Baum", total)
+        workers = max(1, int(getattr(cfg, "ANCESTOR_WORKERS", 2)))
+        delay   = float(getattr(cfg, "ANCESTOR_REQUEST_DELAY", NAME_REQUEST_DELAY))
+        self._on_status(f"Vorfahren & Orte laden: {total} Matches mit Baum "
+                        f"(ab {min_cm:.0f} cM, {workers} parallel) …")
+        log.info("Vorfahren-Download: %d Matches mit Baum, %d Worker", total, workers)
 
         if not todo:
             result.message = ("Keine offenen Matches mit Baum. "
@@ -199,37 +205,48 @@ class Scraper:
             self._on_done(result)
             return
 
-        for idx, (guid, name) in enumerate(todo, 1):
-            if self._stop.is_set():
-                result.message = f"Abgebrochen nach {idx-1}/{total}."
-                result.success = False
-                break
+        lock = threading.Lock()
+        counter = {"done": 0}
 
+        def _work(item):
+            guid, name = item
+            if self._stop.is_set():
+                return
             try:
                 ancestors   = self._client.get_compare_common_ancestors(test_guid, guid)
                 birthplaces = self._client.get_compare_tree_data(test_guid, guid)
                 self._db.save_match_ancestors(test_guid, guid, ancestors, birthplaces)
-                if ancestors:
-                    result.new += 1
-                result.fetched += 1
+                with lock:
+                    if ancestors:
+                        result.new += 1
+                    result.fetched += 1
             except Exception as e:
                 log.error("Vorfahren-Fehler %s: %s", guid[:8], e)
-                result.errors += 1
-
+                with lock:
+                    result.errors += 1
+            with lock:
+                counter["done"] += 1
+                idx = counter["done"]
             self._on_progress(idx, total, name or guid[:8])
             if idx % 10 == 0 or idx == total:
                 self._on_status(f"Vorfahren: {idx}/{total} – "
                                 f"{result.new} mit Vorfahren-Daten …")
-            for remaining in range(int(NAME_REQUEST_DELAY), 0, -1):
+            _time.sleep(delay * (0.7 + random.random() * 0.6))
+
+        with ThreadPoolExecutor(max_workers=workers) as ex:
+            futures = [ex.submit(_work, it) for it in todo]
+            for f in futures:
                 if self._stop.is_set():
                     break
-                self._on_status(f"Vorfahren: {idx}/{total} – warte {remaining}s …")
-                _time.sleep(1)
+                f.result()
 
-        if not result.message:
+        if self._stop.is_set():
+            result.success = False
+            result.message = f"Abgebrochen nach {counter['done']}/{total}."
+        else:
             result.success = True
             result.message = (f"Vorfahren geladen: {result.new} von {total} Matches "
-                              f"mit Daten ({'abgebrochen' if self._stop.is_set() else 'fertig'}).")
+                              f"mit Daten (fertig).")
         log.info(result.message)
         self._on_status(result.message)
         self._on_done(result)

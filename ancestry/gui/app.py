@@ -4121,8 +4121,10 @@ class AncestryDnaApp(tk.Tk):
             density = (_edge_counts.get(cid, 0) / possible) if possible > 0 else 0.0
             try:
                 from core.treematch import cluster_confidence
-                conf_result = cluster_confidence(members)
-                quality_icon = "🟢" if conf_result.get("realistic") else ("🟡" if len(members) >= 3 else "🔴")
+                med_cm = sum(m["cm"] for m in members) / n if n else 0.0
+                conf_result = cluster_confidence(n, density, median_cm=med_cm)
+                realness = conf_result.get("realness", 0)
+                quality_icon = "🟢" if realness >= 0.85 else ("🟡" if realness >= 0.5 else "🔴")
             except Exception:
                 quality_icon = "—"
             quality_icon = f"{quality_icon} {density:.0%}"

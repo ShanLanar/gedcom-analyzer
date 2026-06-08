@@ -646,3 +646,70 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
         })
 
     return result
+
+
+# ── GEDCOM-Endogamie → Endogamie-Cluster-Labels ──────────────────────────────
+
+def apply_gedcom_endogamy_to_matches(
+    db,
+    test_guid: str,
+    endogamy_results: list,
+    min_score: float = 0.4,
+    progress_cb=None,
+) -> int:
+    """Überträgt GEDCOM-Endogamie-Scores auf DNA-Matches via gemeinsame Geburtsorte.
+
+    endogamy_results: Ausgabe von tasks.endogamy.compute_endogamy_with_detailed_places()
+    Format: [[place, count, sn_div, score, klasse, …], …]
+
+    Ablauf:
+      1. Hochendogame Orte filtern (score >= min_score).
+      2. match_ancestors-Tabelle nach Geburtsorten dieser Orte durchsuchen.
+      3. Gefundene Matches mit set_endogamy_cluster(label) markieren.
+
+    Gibt Anzahl der markierten Matches zurück.
+    """
+    p = progress_cb or (lambda *a: None)
+
+    # Endogame Orte sammeln (Ort-String → Klassen-Label)
+    hot_places: dict[str, str] = {}
+    for row in endogamy_results:
+        if len(row) >= 5 and isinstance(row[3], float) and row[3] >= min_score:
+            place_key = str(row[0]).lower()
+            hot_places[place_key] = str(row[4])  # Klassen-Label
+
+    if not hot_places:
+        p("Keine Orte mit Endogamie-Score ≥ {:.0%} gefunden.".format(min_score))
+        return 0
+
+    p(f"Endogamie-Marker: {len(hot_places)} Orte mit Score ≥ {min_score:.0%} …")
+
+    # Alle Geburtsorte aus match_ancestors laden
+    try:
+        with db._cursor() as cur:
+            rows = cur.execute(
+                """SELECT ma.match_guid, ma.birth_place
+                   FROM match_ancestors ma
+                   JOIN matches m ON m.match_guid = ma.match_guid
+                   WHERE m.test_guid = ? AND ma.birth_place != ''""",
+                (test_guid,),
+            ).fetchall()
+    except Exception:
+        rows = []
+
+    marked: set = set()
+    for r in rows:
+        bp = (r["birth_place"] or "").lower()
+        for place_key, label in hot_places.items():
+            # Teilstring-Match: Ortsdaten in match_ancestors können Komma-getrennt sein
+            if place_key in bp or any(
+                part.strip() in bp for part in place_key.split(",") if len(part.strip()) >= 4
+            ):
+                guid = r["match_guid"]
+                if guid not in marked:
+                    db.set_endogamy_cluster(guid, label)
+                    marked.add(guid)
+                break
+
+    p(f"Endogamie-Marker gesetzt: {len(marked)} Matches")
+    return len(marked)

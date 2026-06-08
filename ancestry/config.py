@@ -113,6 +113,9 @@ SHARED_REQUEST_DELAY = 2.0
 # Pedigree-Abruf (reine GETs): kürzere Pause + kontrollierte Parallelität.
 PEDIGREE_REQUEST_DELAY = 1.0
 PEDIGREE_WORKERS       = 5     # parallele Worker für Ahnentafel-Download
+# Vorfahren-Download (commonAncestors + treeData, zwei GETs pro Match):
+ANCESTOR_REQUEST_DELAY = 3.0   # Pause pro Worker (Sekunden, mit Jitter)
+ANCESTOR_WORKERS       = 2     # 2 Worker × 3s ≈ gleiche Last wie 1 Worker × 4s
 # Gezieltes Tiefer-Laden (Re-Fokussierung) – nur für untersuchte Cluster, teuer:
 PEDIGREE_DEEP_GENERATIONS = 8
 PEDIGREE_DEEP_EXTRA       = 16   # max. zusätzliche Re-Fokus-Calls pro Match
