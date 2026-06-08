@@ -24,11 +24,20 @@ HEURISTISCH. Erst eine echte Seite prüfen:
 
     python crawl_webtrees.py dump "https://stammbaum.anverwandte.info/tree/anverwandte/individual/I114571/..."
 
-Das zeigt, was der Parser extrahiert. Stimmt es, dann crawlen:
+Gerichteter Crawl (Standard 'both'): erst alle Vorfahren des Vaters,
+dann von jedem Vorfahren alle Nachkommen = die ganze Blutsverwandtschaft:
 
-    python crawl_webtrees.py crawl "https://.../individual/I114571/..." --max 500 --delay 1.0
+    python crawl_webtrees.py crawl "https://.../individual/I114571/..." --mode both
 
-Export ins GEDCOM-kompatible Format folgt, sobald der Parser sauber sitzt.
+Nachkommen-Explosion eindämmen (optional, Raum/Zeit):
+
+    python crawl_webtrees.py crawl "https://.../I114571/..." \\
+        --place "Osnabrück,Hagen,Oesede,Ostercappeln,Mettingen" \\
+        --year-min 1650 --year-max 1930
+
+Matricula-Belege samt reparierter (Pfarrei-)URLs ausgeben:
+
+    python crawl_webtrees.py matricula
 """
 from __future__ import annotations
 import re
@@ -143,6 +152,61 @@ class Fetcher:
         return None
 
 
+# ── Familienlotse: Rollen (Eltern vs. Kinder) deterministisch trennen ─────────
+
+_FNAV_ROW = re.compile(
+    r'<tr class="text-center wt-family-navigator-(parent|child)[^"]*">(.*?)</tr>',
+    re.S)
+
+
+def parse_family_nav(html: str) -> dict:
+    """Zerlegt den 'Familienlotse'-Sidebar in gerichtete Kanten.
+
+    Rückgabe: {"parents": [...], "children": [...], "spouses": [...],
+               "siblings": [...]} mit webtrees-IDs.
+
+    Der Sidebar trennt über HTML-Kommentare sauber zwischen Eltern-Familien
+    (oben) und eigenen Familien (unten):
+      <!-- parent families --> … <!-- spouse and children --> … <!-- step children -->
+    In Eltern-Familien sind Kind-Zeilen = Geschwister; in eigenen Familien
+    sind Kind-Zeilen = Nachkommen.
+    """
+    nav = html.split("wt-sidebar-family-navigator", 1)
+    nav = nav[1] if len(nav) > 1 else ""
+    parent_seg, _, own_seg = nav.partition("<!-- spouse and children -->")
+
+    parents, children, spouses, siblings = [], [], [], []
+
+    def _rows(segment, sibling_mode):
+        for kind, body in _FNAV_ROW.findall(segment):
+            th, _, td = body.partition("</th>")
+            role = _clean(th)
+            mm = re.search(r"/individual/([A-Z]+\d+)", td)
+            if not mm:
+                continue
+            pid = mm.group(1)
+            if "selbst" in role:
+                continue
+            if kind == "parent":
+                if any(w in role for w in ("Vater", "Mutter")):
+                    parents.append(pid)
+                elif any(w in role for w in ("Ehefrau", "Ehemann", "Partner",
+                                             "Ehepartner")):
+                    spouses.append(pid)
+            else:  # child-Zeile
+                if sibling_mode:
+                    siblings.append(pid)
+                else:
+                    children.append(pid)
+
+    _rows(parent_seg, sibling_mode=True)    # Eltern-Familien -> Geschwister
+    _rows(own_seg,    sibling_mode=False)   # eigene Familien -> Nachkommen
+
+    dedup = lambda xs: list(dict.fromkeys(xs))
+    return {"parents": dedup(parents), "children": dedup(children),
+            "spouses": dedup(spouses), "siblings": dedup(siblings)}
+
+
 # ── Parser (heuristisch — an einer echten Seite eichen!) ──────────────────────
 
 def parse_individual(html: str, url: str) -> dict:
@@ -243,7 +307,10 @@ def parse_individual(html: str, url: str) -> dict:
                               "diocese": pth.group(1) if pth else "",
                               "parish_old": pth.group(2) if pth else ""})
 
-    # ── verlinkte Personen/Familien (für BFS-Traversierung)
+    # ── gerichtete Verwandtschaft (Eltern/Kinder/Partner/Geschwister)
+    fam = parse_family_nav(html)
+
+    # ── verlinkte Personen/Familien (für ungerichtete Traversierung)
     related = sorted(set(_IND_RE.findall(html)) - ({ind_id} if ind_id else set()))
     families = sorted(set(_FAM_RE.findall(html)))
 
@@ -265,6 +332,10 @@ def parse_individual(html: str, url: str) -> dict:
         "spouse_names": spouse_names,
         "child_names":  child_names,
         "matricula":   matricula,
+        "parents":     fam["parents"],
+        "children":    fam["children"],
+        "spouses_ids": fam["spouses"],
+        "siblings":    fam["siblings"],
         "related":     related,
         "families":    families,
     }
@@ -281,78 +352,158 @@ def _db(path: Path) -> sqlite3.Connection:
             birth_year TEXT, death_date TEXT, death_place TEXT, death_year TEXT,
             father_name TEXT, mother_name TEXT, spouse_names_json TEXT,
             child_names_json TEXT, matricula_json TEXT,
+            parents_json TEXT, children_json TEXT, spouses_json TEXT,
+            siblings_json TEXT,
             related_json TEXT, families_json TEXT, fetched_at TEXT
         );
+        -- direction: 'up' = Eltern verfolgen, 'down' = Kinder verfolgen
         CREATE TABLE IF NOT EXISTS wt_frontier (
-            id TEXT PRIMARY KEY, depth INTEGER DEFAULT 0, done INTEGER DEFAULT 0
+            id TEXT NOT NULL, direction TEXT NOT NULL DEFAULT 'both',
+            depth INTEGER DEFAULT 0, done INTEGER DEFAULT 0,
+            PRIMARY KEY (id, direction)
         );
     """)
     c.commit()
     return c
 
 
-# ── Crawl (BFS, resumierbar) ──────────────────────────────────────────────────
+def _save_person(c, p, ind_id, url):
+    c.execute("""INSERT OR REPLACE INTO wt_persons
+        (id,url,name,given_name,surname,sex,birth_date,birth_place,
+         birth_year,death_date,death_place,death_year,father_name,
+         mother_name,spouse_names_json,child_names_json,matricula_json,
+         parents_json,children_json,spouses_json,siblings_json,
+         related_json,families_json,fetched_at)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+        (p["id"] or ind_id, url, p["name"], p["given_name"], p["surname"],
+         p["sex"], p["birth_date"], p["birth_place"], p["birth_year"],
+         p["death_date"], p["death_place"], p["death_year"],
+         p["father_name"], p["mother_name"],
+         json.dumps(p["spouse_names"]), json.dumps(p["child_names"]),
+         json.dumps(p["matricula"]),
+         json.dumps(p["parents"]), json.dumps(p["children"]),
+         json.dumps(p["spouses_ids"]), json.dumps(p["siblings"]),
+         json.dumps(p["related"]), json.dumps(p["families"])))
+
+
+def _in_scope(p, place_filter, year_min, year_max) -> bool:
+    """Liegt die Person im gewünschten Raum/Zeitfenster? Bestimmt, ob ihre
+    Nachkommen WEITER verfolgt werden (Pruning gegen Explosion)."""
+    if place_filter:
+        hay = f"{p.get('birth_place','')} {p.get('death_place','')}".lower()
+        if not any(tok in hay for tok in place_filter):
+            # Ort passt nicht – nur durchlassen, wenn (noch) kein Ort bekannt
+            if p.get("birth_place") or p.get("death_place"):
+                return False
+    if year_min or year_max:
+        ys = [int(y) for y in (p.get("birth_year"), p.get("death_year")) if y]
+        if ys:
+            y = min(ys)
+            if year_min and y < year_min:
+                return False
+            if year_max and y > year_max:
+                return False
+    return True
+
+
+# ── Crawl (gerichtet, zweiphasig, resumierbar) ────────────────────────────────
 
 def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
+          mode: str = "both", place_filter=None, year_min=0, year_max=0,
           db_path: Path = DB_PATH):
+    """mode:
+        'up'   – nur Vorfahren (Eltern rückwärts)
+        'down' – nur Nachkommen (Kinder vorwärts)
+        'both' – erst alle Vorfahren, dann von ihnen alle Nachkommen
+    place_filter: Liste von Ortsteilstrings (lowercase); year_min/max: Pruning
+    der Nachkommen, damit der Crawl im gewünschten Raum/Zeitfenster bleibt.
+    """
     base = (_BASE_RE.match(seed_url) or [None, ""])[1]
     if not base:
         print("Ungültige Start-URL."); return
     tree_m = re.search(r"/tree/([^/]+)/individual/", seed_url)
     tree = tree_m.group(1) if tree_m else "anverwandte"
+    place_filter = [s.lower() for s in (place_filter or [])]
 
     f = Fetcher(base, delay=delay)
     c = _db(db_path)
-
     seed_id = (_IND_RE.search(seed_url) or [None, ""])[1]
-    if seed_id:
-        c.execute("INSERT OR IGNORE INTO wt_frontier (id, depth, done) VALUES (?,0,0)",
-                  (seed_id,))
+
+    def enqueue(pid, direction, depth):
+        c.execute("INSERT OR IGNORE INTO wt_frontier (id,direction,depth,done) "
+                  "VALUES (?,?,?,0)", (pid, direction, depth))
+
+    def neighbors(pid, direction):
+        """IDs in der gewünschten Richtung. Lädt die Seite (einmalig) falls nötig."""
+        row = c.execute("SELECT parents_json, children_json, birth_place, "
+                        "death_place, birth_year, death_year FROM wt_persons "
+                        "WHERE id=?", (pid,)).fetchone()
+        if row is None:
+            url = f"{base}/tree/{tree}/individual/{pid}"
+            html = f.get(url)
+            if not html:
+                return [], None
+            p = parse_individual(html, url)
+            _save_person(c, p, pid, url)
+            pdata = p
+            par, chi = p["parents"], p["children"]
+        else:
+            par = json.loads(row[0] or "[]"); chi = json.loads(row[1] or "[]")
+            pdata = {"birth_place": row[2], "death_place": row[3],
+                     "birth_year": row[4], "death_year": row[5]}
+        return (par if direction == "up" else chi), pdata
+
+    # ── Phase steuern ────────────────────────────────────────────────────────
+    phases = {"up": ["up"], "down": ["down"], "both": ["up", "down"]}[mode]
+
+    for ph_idx, direction in enumerate(phases):
+        if direction == "up" and seed_id:
+            enqueue(seed_id, "up", 0)
+        if direction == "down":
+            # Startpunkte abwärts: alle bisher (in Phase 'up') gefundenen Personen
+            if mode == "both":
+                for (pid,) in c.execute("SELECT id FROM wt_persons").fetchall():
+                    enqueue(pid, "down", 0)
+            elif seed_id:
+                enqueue(seed_id, "down", 0)
         c.commit()
 
-    done_count = c.execute("SELECT COUNT(*) FROM wt_frontier WHERE done=1").fetchone()[0]
-    print(f"Start. Bereits erledigt: {done_count}. Ziel: +{max_pages} Seiten. "
-          f"Delay: {delay}s")
+        label = {"up": "Vorfahren ⬆", "down": "Nachkommen ⬇"}[direction]
+        print(f"\n=== Phase {ph_idx+1}/{len(phases)}: {label} ===")
+        processed = 0
+        while processed < max_pages:
+            row = c.execute("SELECT id, depth FROM wt_frontier WHERE done=0 AND "
+                            "direction=? ORDER BY depth LIMIT 1", (direction,)
+                            ).fetchone()
+            if not row:
+                print(f"Frontier ({direction}) leer — Phase vollständig."); break
+            pid, depth = row
+            ids, pdata = neighbors(pid, direction)
+            c.execute("UPDATE wt_frontier SET done=1 WHERE id=? AND direction=?",
+                      (pid, direction))
 
-    processed = 0
-    while processed < max_pages:
-        row = c.execute(
-            "SELECT id, depth FROM wt_frontier WHERE done=0 ORDER BY depth LIMIT 1"
-        ).fetchone()
-        if not row:
-            print("Frontier leer — Crawl vollständig."); break
-        ind_id, depth = row
-        url = f"{base}/tree/{tree}/individual/{ind_id}"
-        html = f.get(url)
-        c.execute("UPDATE wt_frontier SET done=1 WHERE id=?", (ind_id,))
-        if html:
-            p = parse_individual(html, url)
-            c.execute("""INSERT OR REPLACE INTO wt_persons
-                (id,url,name,given_name,surname,sex,birth_date,birth_place,
-                 birth_year,death_date,death_place,death_year,father_name,
-                 mother_name,spouse_names_json,child_names_json,
-                 matricula_json,related_json,families_json,fetched_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
-                (p["id"] or ind_id, url, p["name"], p["given_name"], p["surname"],
-                 p["sex"], p["birth_date"], p["birth_place"], p["birth_year"],
-                 p["death_date"], p["death_place"], p["death_year"],
-                 p["father_name"], p["mother_name"],
-                 json.dumps(p["spouse_names"]), json.dumps(p["child_names"]),
-                 json.dumps(p["matricula"]),
-                 json.dumps(p["related"]), json.dumps(p["families"])))
-            for rid in p["related"]:
-                c.execute("INSERT OR IGNORE INTO wt_frontier (id,depth,done) "
-                          "VALUES (?,?,0)", (rid, depth + 1))
-        processed += 1
-        if processed % 25 == 0:
-            c.commit()
-            total = c.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
-            front = c.execute("SELECT COUNT(*) FROM wt_frontier WHERE done=0").fetchone()[0]
-            print(f"  +{processed}  | Personen: {total} | offen: {front}")
-    c.commit()
+            # Pruning: abwärts nur expandieren, wenn Person im Raum/Zeitfenster
+            expand = True
+            if direction == "down" and pdata is not None:
+                expand = _in_scope(pdata, place_filter, year_min, year_max)
+            if expand:
+                for nid in ids:
+                    enqueue(nid, direction, depth + 1)
+
+            processed += 1
+            if processed % 25 == 0:
+                c.commit()
+                total = c.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
+                openf = c.execute("SELECT COUNT(*) FROM wt_frontier WHERE done=0 "
+                                  "AND direction=?", (direction,)).fetchone()[0]
+                print(f"  +{processed}  | Personen: {total} | offen({direction}): {openf}")
+        c.commit()
+        if processed >= max_pages:
+            print(f"Seiten-Limit ({max_pages}) erreicht – erneut starten zum Fortsetzen.")
+            break
+
     total = c.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
-    front = c.execute("SELECT COUNT(*) FROM wt_frontier WHERE done=0").fetchone()[0]
-    print(f"\nFertig. Personen gesamt: {total}. Noch offen: {front}.")
+    print(f"\nFertig. Personen gesamt: {total}.")
     print(f"DB: {db_path}  (erneut starten = fortsetzen)")
     c.close()
 
@@ -372,6 +523,71 @@ def dump(url: str):
     print(f"\nVerlinkte Personen gesamt: {len(p['related'])}")
 
 
+# ── Matricula-Link-Reparatur (Pfarrei-Slug alt -> neu) ────────────────────────
+# Matricula hat die Pfarrei-Slugs UND Register-IDs neu vergeben. Die Register-ID
+# (z.B. 0035 -> D1_001) ist ohne Matricula-Katalog NICHT herleitbar; den
+# Pfarrei-Slug können wir aber für den überschaubaren Raum (südl. Kreis
+# Osnabrück) pflegen, sodass wir auf die aktuelle PFARREI-Übersicht verlinken.
+# Erweiterbar über tools/matricula_parish_map.json  {"<alt-slug>": "<neu-slug>"}.
+MATRICULA_PARISH_MAP = {
+    # bestätigt:
+    "hagen-st-martinus": "hagen-a-t-w-st-martinus",
+}
+
+
+def _load_parish_map() -> dict:
+    m = dict(MATRICULA_PARISH_MAP)
+    f = SCRIPT_DIR / "matricula_parish_map.json" if "SCRIPT_DIR" in globals() else None
+    try:
+        p = Path(__file__).resolve().parent / "matricula_parish_map.json"
+        if p.exists():
+            m.update(json.loads(p.read_text(encoding="utf-8")))
+    except Exception:
+        pass
+    return m
+
+
+def matricula_current_url(entry: dict, parish_map: dict | None = None) -> str:
+    """Bestmögliche AKTUELLE Matricula-URL für einen Beleg.
+    Bekannte Pfarrei -> aktuelle Pfarrei-Übersicht; sonst Diözesen-Seite.
+    Die genaue Register-/Seitenangabe steckt im 'ref' (z.B. 'S. 352')."""
+    pm = parish_map if parish_map is not None else _load_parish_map()
+    dio = entry.get("diocese", "")
+    parish_old = entry.get("parish_old", "")
+    new_parish = pm.get(parish_old)
+    if dio and new_parish:
+        return f"https://data.matricula-online.eu/de/deutschland/{dio}/{new_parish}/"
+    return entry.get("diocese_url", "")
+
+
+def matricula_report(db_path: Path = DB_PATH):
+    """Listet alle gesammelten Matricula-Belege mit reparierter (Pfarrei-)URL."""
+    if not db_path.exists():
+        print(f"DB nicht gefunden: {db_path}"); return
+    pm = _load_parish_map()
+    c = sqlite3.connect(str(db_path)); c.row_factory = sqlite3.Row
+    n = unmapped = 0
+    seen_parishes = {}
+    for r in c.execute("SELECT name, birth_place, matricula_json FROM wt_persons "
+                       "WHERE COALESCE(matricula_json,'') NOT IN ('','[]')"):
+        for e in json.loads(r["matricula_json"]):
+            n += 1
+            cur = matricula_current_url(e, pm)
+            mapped = e.get("parish_old") in pm
+            if not mapped and e.get("parish_old"):
+                unmapped += 1
+                seen_parishes[e["parish_old"]] = e.get("diocese", "")
+            print(f"- {r['name']}  [{e.get('ref','')}]")
+            print(f"    alt:    {e.get('url_old','')}")
+            print(f"    aktuell:{' (Pfarrei)' if mapped else ' (Diözese)'} {cur}")
+    print(f"\n{n} Belege. {unmapped} mit noch nicht gemappter Pfarrei.")
+    if seen_parishes:
+        print("Noch zu mappen (in matricula_parish_map.json eintragen):")
+        for slug, dio in sorted(seen_parishes.items()):
+            print(f'    "{slug}": "",   // {dio}')
+    c.close()
+
+
 def main(argv):
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser()
@@ -379,15 +595,28 @@ def main(argv):
     d = sub.add_parser("dump");  d.add_argument("url")
     cr = sub.add_parser("crawl")
     cr.add_argument("url")
+    cr.add_argument("--mode", choices=["up", "down", "both"], default="both",
+                    help="up=Vorfahren, down=Nachkommen, both=erst auf- dann abwärts")
     cr.add_argument("--max", type=int, default=300,
                     help="Max. Seiten pro Lauf (Default 300, schonend)")
     cr.add_argument("--delay", type=float, default=4.0,
                     help="Mindestpause zw. Anfragen in s (Default 4.0 + Jitter)")
+    cr.add_argument("--place", default="",
+                    help="Nachkommen nur im Ort weiterverfolgen (Komma-Liste, "
+                         "z.B. 'Osnabrück,Hagen,Oesede,Ostercappeln')")
+    cr.add_argument("--year-min", type=int, default=0)
+    cr.add_argument("--year-max", type=int, default=0)
+    mr = sub.add_parser("matricula", help="Matricula-Belege + reparierte URLs ausgeben")
     args = ap.parse_args(argv[1:])
+
     if args.cmd == "dump":
         dump(args.url)
     elif args.cmd == "crawl":
-        crawl(args.url, max_pages=args.max, delay=args.delay)
+        places = [s.strip() for s in args.place.split(",") if s.strip()]
+        crawl(args.url, max_pages=args.max, delay=args.delay, mode=args.mode,
+              place_filter=places, year_min=args.year_min, year_max=args.year_max)
+    elif args.cmd == "matricula":
+        matricula_report()
     else:
         print(__doc__)
 
