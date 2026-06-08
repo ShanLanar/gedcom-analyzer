@@ -15,7 +15,9 @@
   "use strict";
 
   const KIT  = location.pathname.match(/\/([A-Z0-9]{20,})/)?.[1] || "OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ";
-  const GQLEP = "https://familygraphql.myheritage.com";
+  // MyHeritage patcht window.fetch: familygraphql.myheritage.com → /web-family-graphql
+  // Wir rufen den Proxy-Endpunkt direkt auf (same-origin, keine CORS-Probleme)
+  const GQLEP = "/web-family-graphql";
 
   // ── Token holen ─────────────────────────────────────────────────────────────
   console.log("[MH-Query] Hole FamilyGraph-Token …");
@@ -45,11 +47,18 @@
 
   if (!token) { console.error("[MH-Query] Kein Token!"); return; }
 
+  const xsrf = globalThis.mhXsrfToken || "";
+
   async function gql(query, label) {
     const resp = await fetch(`${GQLEP}?access_token=${encodeURIComponent(token)}`, {
       method: "POST",
-      credentials: "omit",
-      headers: { "Content-Type": "application/json", "Accept": "application/json" },
+      credentials: "same-origin",
+      headers: {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "x-xsrf-token": xsrf,
+        "X-Requested-With": "XMLHttpRequest",
+      },
       body: JSON.stringify({ query }),
     });
     if (!resp.ok) { console.error(`[MH-Query] ${label}: HTTP ${resp.status}`); return null; }
