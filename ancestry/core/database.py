@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 15
+    SCHEMA_VERSION = 16
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -95,6 +95,8 @@ class Database:
                 self._migrate_v13_v14(cur)
             if current < 15:
                 self._migrate_v14_v15(cur)
+            if current < 16:
+                self._migrate_v15_v16(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -1265,6 +1267,20 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_gm_name
                 ON gedmatch_matches(name);
         """)
+
+    def _migrate_v15_v16(self, cur):
+        """Schema v16: Composite-Indizes für pedigree_fetched / ancestors_fetched.
+        Beschleunigt die get_matches_needing_* Queries erheblich bei großen Datenbanken."""
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS idx_matches_pedigree "
+            "ON matches(test_guid, pedigree_fetched, shared_cm DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_matches_ancestors "
+            "ON matches(test_guid, ancestors_fetched, shared_cm DESC)",
+        ):
+            try:
+                cur.execute(stmt)
+            except Exception:
+                pass
 
     # ── New methods (v12) ─────────────────────────────────────────────────────
 

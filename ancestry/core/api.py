@@ -692,9 +692,11 @@ class AncestryApiClient:
             if filter_by and filter_by != "ALL":
                 url += f"&filterBy={filter_by}"
 
+            _page_jwt_refreshed = False
             if time.time() - self._last_jwt_refresh >= JWT_REFRESH_INTERVAL:
                 log.info("JWT-Erneuerung (alle %.0f min) …", JWT_REFRESH_INTERVAL / 60)
                 self._refresh_jwt(test_guid)
+                _page_jwt_refreshed = True  # bereits erneuert, kein Doppelversuch
 
             log.debug("GET Seite %d  %s", page, url)
             r = _api_get(self._s, url)
@@ -703,7 +705,12 @@ class AncestryApiClient:
                 log.error("Seite %d: kein Response.", page)
                 break
             if r.status_code in (401, 403):
-                log.error("HTTP %s – Cookies abgelaufen.", r.status_code)
+                if not _page_jwt_refreshed:
+                    log.warning("HTTP %s – versuche JWT-Erneuerung …", r.status_code)
+                    self._refresh_jwt(test_guid)
+                    _page_jwt_refreshed = True
+                    continue  # selbe Seite nochmal
+                log.error("HTTP %s – Cookies auch nach JWT-Erneuerung abgelaufen.", r.status_code)
                 break
             if r.status_code in (301, 302, 303, 307, 308):
                 loc = r.headers.get("Location", "(kein Location-Header)")

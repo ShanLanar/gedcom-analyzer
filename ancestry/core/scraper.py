@@ -21,6 +21,7 @@ log = logging.getLogger(__name__)
 # Bei 10.000 Matches = ca. 11h overnight-Lauf.
 NAME_REQUEST_DELAY = 4.0
 MAX_NAME_ATTEMPTS  = 3   # nach so vielen erfolglosen Versuchen Profil überspringen (privat/anonym)
+MATCH_BATCH_SIZE   = 500  # Matches pro DB-Commit (Ancestry liefert PAGE_SIZE=50, aber wir puffern)
 
 
 class DownloadResult:
@@ -145,7 +146,7 @@ class Scraper:
 
                 batch.append(m)
                 result.fetched += 1
-                if len(batch) >= cfg.PAGE_SIZE:
+                if len(batch) >= MATCH_BATCH_SIZE:
                     try:
                         saved = self._db.bulk_upsert(batch)
                         result.new += saved
@@ -219,7 +220,11 @@ class Scraper:
             if idx % 10 == 0 or idx == total:
                 self._on_status(f"Vorfahren: {idx}/{total} – "
                                 f"{result.new} mit Vorfahren-Daten …")
-            _time.sleep(NAME_REQUEST_DELAY)
+            for remaining in range(int(NAME_REQUEST_DELAY), 0, -1):
+                if self._stop.is_set():
+                    break
+                self._on_status(f"Vorfahren: {idx}/{total} – warte {remaining}s …")
+                _time.sleep(1)
 
         if not result.message:
             result.success = True
