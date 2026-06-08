@@ -1104,11 +1104,23 @@ def _cli_main(argv: list[str] | None = None) -> int | None:
 # ── Entry-Point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    import traceback
     rc = _cli_main()
     if rc is not None:
         sys.exit(rc)
-    # Sicherstellen, dass Verzeichnisse existieren
     for d in cfg.DIRS.values():
         os.makedirs(d, exist_ok=True)
-    app = AhnenApp()
-    app.mainloop()
+    try:
+        app = AhnenApp()
+        app.mainloop()
+    except Exception:
+        tb = traceback.format_exc()
+        try:
+            import tkinter as _tk
+            r = _tk.Tk(); r.withdraw()
+            from tkinter import messagebox as _mb
+            _mb.showerror("Kritischer Fehler", tb)
+            r.destroy()
+        except Exception:
+            print(tb, file=sys.stderr)
+        sys.exit(1)

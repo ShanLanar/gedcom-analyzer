@@ -67,8 +67,10 @@ def build_clusters(
     parent = {g: g for g in primaries}
 
     def find(x):
+        if x not in parent:
+            parent[x] = x
         while parent[x] != x:
-            parent[x] = parent[parent[x]]
+            parent[x] = parent.get(parent[x], parent[x])
             x = parent[x]
         return x
 
@@ -110,7 +112,7 @@ def build_clusters(
     # durchschnittlicher cM absteigend. So stehen die Großelternlinien oben.
     groups = list(clusters.values())
     def avg_cm(members):
-        return sum(m["cm"] for m in members) / len(members)
+        return sum(m["cm"] for m in members) / len(members) if members else 0.0
     multi  = sorted((g for g in groups if len(g) >= 2), key=avg_cm, reverse=True)
     single = sorted((g for g in groups if len(g) == 1), key=avg_cm, reverse=True)
 

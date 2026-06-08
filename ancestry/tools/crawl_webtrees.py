@@ -396,7 +396,13 @@ def _in_scope(p, place_filter, year_min, year_max) -> bool:
             if p.get("birth_place") or p.get("death_place"):
                 return False
     if year_min or year_max:
-        ys = [int(y) for y in (p.get("birth_year"), p.get("death_year")) if y]
+        ys = []
+        for y in (p.get("birth_year"), p.get("death_year")):
+            try:
+                if y:
+                    ys.append(int(y))
+            except (ValueError, TypeError):
+                pass
         if ys:
             y = min(ys)
             if year_min and y < year_min:
@@ -434,7 +440,12 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                   "VALUES (?,?,?,0)", (pid, direction, depth))
 
     def neighbors(pid, direction):
-        """IDs in der gewünschten Richtung. Lädt die Seite (einmalig) falls nötig."""
+        """IDs in der gewünschten Richtung. Lädt die Seite (einmalig) falls nötig.
+
+        Rückgabe: (id_list, pdata) — ODER (None, None) bei Netzwerkfehler.
+        None signalisiert dem Caller: nicht als done markieren, nächste Runde
+        nochmal versuchen.
+        """
         row = c.execute("SELECT parents_json, children_json, birth_place, "
                         "death_place, birth_year, death_year FROM wt_persons "
                         "WHERE id=?", (pid,)).fetchone()
@@ -442,13 +453,24 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
             url = f"{base}/tree/{tree}/individual/{pid}"
             html = f.get(url)
             if not html:
-                return [], None
-            p = parse_individual(html, url)
-            _save_person(c, p, pid, url)
+                return None, None   # Netzwerkfehler → nicht als erledigt markieren
+            try:
+                p = parse_individual(html, url)
+                _save_person(c, p, pid, url)
+            except Exception as e:
+                log.warning("Parse/Speicher-Fehler %s: %s", pid, e)
+                return [], {}   # Seite war da, aber Parser versagt → als done markieren
             pdata = p
             par, chi = p["parents"], p["children"]
         else:
-            par = json.loads(row[0] or "[]"); chi = json.loads(row[1] or "[]")
+            try:
+                par = json.loads(row[0] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                par = []
+            try:
+                chi = json.loads(row[1] or "[]")
+            except (json.JSONDecodeError, TypeError):
+                chi = []
             pdata = {"birth_place": row[2], "death_place": row[3],
                      "birth_year": row[4], "death_year": row[5]}
         return (par if direction == "up" else chi), pdata
@@ -479,6 +501,10 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 print(f"Frontier ({direction}) leer — Phase vollständig."); break
             pid, depth = row
             ids, pdata = neighbors(pid, direction)
+            if ids is None:
+                # Netzwerkfehler — in Frontier lassen für nächsten Lauf
+                processed += 1
+                continue
             c.execute("UPDATE wt_frontier SET done=1 WHERE id=? AND direction=?",
                       (pid, direction))
 

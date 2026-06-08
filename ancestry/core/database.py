@@ -51,6 +51,18 @@ class Database:
                 conn.rollback()
                 raise
 
+    def _table_exists(self, name: str) -> bool:
+        """Prüft ob eine Tabelle existiert (Schema-Versionscheck ohne Migration)."""
+        try:
+            with self._cursor() as cur:
+                cur.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+                    (name,)
+                )
+                return cur.fetchone() is not None
+        except Exception:
+            return False
+
     def close(self):
         if self._conn:
             self._conn.close()
@@ -717,22 +729,21 @@ class Database:
                    f"FROM matches m {bridge_join} {where} "
                    f"ORDER BY m.{sort_col} {direction} {limit_clause}")
 
+        # Probe whether gedmatch_bridge table exists (pre-v19 DBs may not have it)
+        _bridge_ok = self._table_exists("gedmatch_bridge")
+        if not _bridge_ok:
+            bridge_join = ""
+            if use_kit_join:
+                sql = (f"SELECT m.* FROM matches m "
+                       f"JOIN match_kit_membership mkm ON mkm.match_guid = m.match_guid "
+                       f"{where} ORDER BY m.{sort_col} {direction} {limit_clause}")
+            else:
+                sql = (f"SELECT * FROM matches m {where} "
+                       f"ORDER BY {sort_col} {direction} {limit_clause}")
+
         with self._cursor() as cur:
-            # gedmatch_bridge may not exist yet (pre-v19) – handle gracefully
-            try:
-                cur.execute(sql, params)
-                rows = cur.fetchall()
-            except Exception:
-                # Fall back without bridge join
-                if use_kit_join:
-                    fb = (f"SELECT m.* FROM matches m "
-                          f"JOIN match_kit_membership mkm ON mkm.match_guid = m.match_guid "
-                          f"{where} ORDER BY m.{sort_col} {direction} {limit_clause}")
-                else:
-                    fb = (f"SELECT * FROM matches m {where} "
-                          f"ORDER BY {sort_col} {direction} {limit_clause}")
-                cur.execute(fb, params)
-                rows = cur.fetchall()
+            cur.execute(sql, params)
+            rows = cur.fetchall()
             return [DnaMatch.from_db_row(dict(r)) for r in rows]
 
     def link_gedmatch_bridges(self, our_kit: str = "CM8449775",
@@ -746,15 +757,16 @@ class Database:
         """
         from difflib import SequenceMatcher
         with self._cursor() as cur:
-            gm_rows = cur.execute(
+            # Convert sqlite3.Row → plain tuples so they survive cursor close
+            gm_rows = [tuple(r) for r in cur.execute(
                 "SELECT kit_id, name, shared_cm, source_platform "
                 "FROM gedmatch_matches WHERE our_kit=? AND shared_cm > 7",
                 (our_kit,)
-            ).fetchall()
-            match_rows = cur.execute(
+            ).fetchall()]
+            match_rows = [tuple(r) for r in cur.execute(
                 "SELECT match_guid, display_name, shared_cm, source "
                 "FROM matches WHERE shared_cm > 7"
-            ).fetchall()
+            ).fetchall()]
 
         def _sim(a: str, b: str) -> float:
             a, b = (a or "").lower().strip(), (b or "").lower().strip()

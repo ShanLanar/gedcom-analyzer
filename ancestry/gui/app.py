@@ -3789,12 +3789,28 @@ class AncestryDnaApp(tk.Frame):
 
     def _refresh_match_table(self, *_):
         try:
+            self._refresh_match_table_inner()
+        except Exception as exc:
+            import logging
+            logging.getLogger(__name__).exception("_refresh_match_table fehlgeschlagen")
+            try:
+                if hasattr(self, "_match_count_var"):
+                    self._match_count_var.set(f"⚠ Fehler: {exc}")
+            except Exception:
+                pass
+
+    def _refresh_match_table_inner(self, *_):
+        try:
             min_cm = float(self._min_cm_var.get() or 0)
-        except ValueError:
+        except (ValueError, AttributeError):
             min_cm = 0.0
 
-        rels = self._db.get_distinct_relationships()
-        self._rel_combo["values"] = ["(alle)"] + rels
+        try:
+            rels = self._db.get_distinct_relationships()
+        except Exception:
+            rels = []
+        if hasattr(self, "_rel_combo"):
+            self._rel_combo["values"] = ["(alle)"] + rels
 
         col_map = {"name":"display_name","guid":"match_guid","note":"tag_surname",
                    "cm":"shared_cm","seg":"shared_segments",
