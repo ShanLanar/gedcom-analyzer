@@ -297,23 +297,22 @@ def run_export_excel(progress_cb=None, stop_event=None):
     scn   = _state.get("survival_cohort_names", [])
 
     all_sheets = [
+        # ── A: Übersicht & Navigation ─────────────────────────────────────────
+        ("Sosa-Stradonitz-Ahnentafel", sosa.SOSA_HEADERS,
+         _state.get("sosa_rows", [])[:50_000]),
+
         ("Cousin Beziehungen", cousins.HEADERS,
          _state["output_rows"][:200_000]),
 
-        ("Endogamie Scores", endogamy.ENDOGAMY_HEADERS,
-         _state["endogamy_results"][:5000]),
+        ("Umfassende Statistiken", demographics.STATS_HEADERS,
+         _state["comprehensive_stats"]),
 
-        ("Top Ahnen", endogamy.TOP_ANCESTOR_HEADERS,
-         _state["top_ancestors"]),
-
+        # ── B: Migration & Räumlich ───────────────────────────────────────────
         ("Migrationsrouten Detail", migration.DETAIL_HEADERS,
          _state["migration_results"][:10_000]),
 
         ("Migrationsrouten Compressed", migration.COMPRESSED_HEADERS,
          _state["compressed_migration"][:10_000]),
-
-        ("Generationen Längen", history.GENERATION_HEADERS,
-         _state["generation_lengths"][:200]),
 
         ("Migrationswellen", migration.WAVES_HEADERS,
          _state["migration_waves"][:100]),
@@ -321,15 +320,28 @@ def run_export_excel(progress_cb=None, stop_event=None):
         ("Korrelation Migration-Demografie", migration.CORRELATION_HEADERS,
          _state["correlation_results"][:10_000]),
 
-        ("Familiennetzwerkanalyse", network.NETWORK_HEADERS_FAST,
-         _state["network_results"][:10_000]),
+        ("Heirats-Migration", spatial.MARRIAGE_MIGRATION_HEADERS,
+         _state.get("marriage_migration", [])[:50_000]),
 
-        ("Historische Trends (Jahrhunderte)", history.CENTURY_HEADERS,
-         ht.get("century_trends", [])[:100]),
+        ("Lebens-Triangulation", spatial.LIFE_TRIANGULATION_HEADERS,
+         _state.get("life_triangulation", [])[:50_000]),
 
-        ("Historische Trends (Jahrzehnte)", history.DECADE_HEADERS,
-         ht.get("decade_trends", [])[:200]),
+        ("Sesshaftigkeit pro Familie", spatial.SEDENTARINESS_HEADERS,
+         _state.get("sedentariness", [])[:30_000]),
 
+        ("Nachname × Region", spatial.SURNAME_REGION_HEADERS,
+         _state.get("surname_region_matrix", [])[:10_000]),
+
+        ("Auswanderer vs. Stayer", book_statistics.EMIGRANT_STAYER_HEADERS,
+         _state.get("bookstat_emigrant_stayer", [])),
+
+        ("DE-USA Kreuzungspunkt", book_statistics.CROSSOVER_HEADERS,
+         _state.get("bookstat_crossover", [])),
+
+        ("Demographischer Schwerpunkt", book_statistics.GRAVITY_HEADERS,
+         _state.get("bookstat_gravity", [])),
+
+        # ── C: Demografie & Familienstruktur ──────────────────────────────────
         ("Demografische Statistik", demographics.DEMOGRAPHIC_HEADERS,
          _state["demographic_results"][:200]),
 
@@ -339,9 +351,61 @@ def run_export_excel(progress_cb=None, stop_event=None):
         ("Geburtsland Verteilung", demographics.COUNTRY_HEADERS,
          _state["country_dist_results"][:200]),
 
-        ("Umfassende Statistiken", demographics.STATS_HEADERS,
-         _state["comprehensive_stats"]),
+        ("Geschwister-Statistiken", demographics.SIBLING_HEADERS,
+         _state.get("sibling_results", [])[:20_000]),
 
+        ("Namensdrift (Vornamen)", demographics.NAMEDRIFT_HEADERS,
+         _state.get("namedrift_results", [])[:500]),
+
+        ("Mehrfach-Ehen", family_structure.MULTIPLE_MARRIAGES_HEADERS,
+         _state.get("multiple_marriages", [])[:10_000]),
+
+        ("Alters-Differenz Ehepaare", family_structure.SPOUSE_AGE_GAP_HEADERS,
+         _state.get("spouse_age_gap", [])),
+
+        ("Reproduktive Spanne (Mütter)", family_structure.REPRODUCTIVE_SPAN_HEADERS,
+         _state.get("reproductive_span", [])[:30_000]),
+
+        ("Kinderlosigkeits-Rate", family_structure.CHILDLESSNESS_HEADERS,
+         _state.get("childlessness", [])),
+
+        ("Zwillinge / Mehrfachgeburten", family_structure.TWIN_HEADERS,
+         _state.get("twin_results", [])[:10_000]),
+
+        ("Ehedauer nach Jahrhundert", book_statistics.MARRIAGE_DURATION_HEADERS,
+         _state.get("bookstat_marriage_duration", [])),
+
+        ("Scheidungsrate", book_statistics.DIVORCE_HEADERS,
+         _state.get("bookstat_divorce_rate", [])),
+
+        ("Alter letztes Kind", book_statistics.LAST_CHILD_HEADERS,
+         _state.get("bookstat_last_child_age", [])),
+
+        ("Nie-Geheiratet-Rate", book_statistics.NEVER_MARRIED_HEADERS,
+         _state.get("bookstat_never_married", [])),
+
+        ("Voreheliche Konzeption", book_statistics.PREMARITAL_CONCEPTION_HEADERS,
+         _state.get("bookstat_premarital_conception", [])),
+
+        ("Wiederheirat-Geschwindigkeit", book_statistics.REMARRIAGE_HEADERS,
+         _state.get("bookstat_remarriage_speed", [])),
+
+        ("Heiratsdistanz (km)", book_statistics.MARRIAGE_DISTANCE_HEADERS,
+         _state.get("bookstat_marriage_distance", [])),
+
+        ("Pfarrei-Fertilität", book_statistics.PARISH_FERTILITY_HEADERS,
+         _state.get("bookstat_parish_fertility", [])[:500]),
+
+        ("Geburtsrang & Lebenserwartung", book_statistics.BIRTH_ORDER_LIFESPAN_HEADERS,
+         _state.get("bookstat_birth_order_lifespan", [])),
+
+        ("Stadt-Land-Lebenserwartung", book_statistics.RURAL_URBAN_HEADERS,
+         _state.get("bookstat_rural_urban", [])),
+
+        ("Berufsstand & Lebenserwartung", book_statistics.OCCUPATION_LIFESPAN_HEADERS,
+         _state.get("bookstat_occupation_lifespan", [])),
+
+        # ── D: Genetik & Endogamie ────────────────────────────────────────────
         ("Inzuchtkoeffizient", genetics.INBREEDING_HEADERS,
          _state["inbreeding_results"][:50_000]),
 
@@ -351,12 +415,114 @@ def run_export_excel(progress_cb=None, stop_event=None):
         ("Pedigree Collapse Mehrfach", genetics.PEDIGREE_MULTI_HEADERS,
          _state["pedigree_multi_rows"][:10_000]),
 
+        ("DNA-cM-Schätzung", genetics.DNA_CM_HEADERS,
+         _state.get("dna_cm_results", [])[:50_000]),
+
+        ("DNA-Überblick (Ancestry)", [
+            "Kit-Name", "Kit-ID", "Matches gesamt",
+            "Top-5-Matches (cM)", "Leeds-Cluster", "Endogamie-markiert"],
+         _state.get("dna_overview_rows", [])),
+
+        ("Endogamie Scores", endogamy.ENDOGAMY_HEADERS,
+         _state["endogamy_results"][:5000]),
+
+        ("Endogamie-Netzwerk (Nachname×Nachname)",
+         endogamy_network.ENDOGAMY_NETWORK_HEADERS,
+         _state.get("endogamy_network", [])[:500]),
+
+        ("Top Ahnen", endogamy.TOP_ANCESTOR_HEADERS,
+         _state["top_ancestors"]),
+
+        # ── E: Zeit & Geschichte ──────────────────────────────────────────────
+        ("Generationen Längen", history.GENERATION_HEADERS,
+         _state["generation_lengths"][:200]),
+
+        ("Historische Trends (Jahrhunderte)", history.CENTURY_HEADERS,
+         ht.get("century_trends", [])[:100]),
+
+        ("Historische Trends (Jahrzehnte)", history.DECADE_HEADERS,
+         ht.get("decade_trends", [])[:200]),
+
         ("Hist. Kontext Ereignisse", history.HIST_EVENT_HEADERS,
          _state["hist_event_rows"]),
 
         ("Hist. Kontext Personen", history.HIST_PERSON_HEADERS,
          _state["hist_person_rows"][:10_000]),
 
+        ("Krisen-Kohorten Folge", history.CRISIS_COHORT_HEADERS,
+         _state.get("crisis_cohort", [])),
+
+        ("Eltern-Verlust-Alter", history.PARENTAL_LOSS_HEADERS,
+         _state.get("parental_loss", [])),
+
+        # Überlebenskurven mit dynamischem Header – None wenn keine Kohorten
+        (("Überlebenskurven",
+          history.SURVIVAL_CURVE_HEADERS + scn,
+          _state["survival_curve_rows"])
+         if scn else None),
+
+        ("Überleben Kohorten", history.SURVIVAL_SUMMARY_HEADERS,
+         _state["survival_summary_rows"]),
+
+        ("Stichjahr-Snapshot", snapshot.SNAPSHOT_HEADERS,
+         _state.get("snapshot_rows", [])),
+
+        ("Lebende Generationen", snapshot.GEN_OVERLAP_HEADERS,
+         _state.get("gen_overlap_rows", [])),
+
+        ("Geburts-Monate", seasonality.BIRTH_MONTH_HEADERS,
+         _state.get("birth_months", [])),
+
+        ("Heirats-Monate", seasonality.MARRIAGE_MONTH_HEADERS,
+         _state.get("marriage_months", [])),
+
+        ("Sterbe-Monate", seasonality.DEATH_MONTH_HEADERS,
+         _state.get("death_months", [])),
+
+        ("Empfängnis-Monate (geschätzt)", seasonality.CONCEPTION_MONTH_HEADERS,
+         _state.get("conception_months", [])),
+
+        ("Altersverteilung beim Tod", book_statistics.AGE_DIST_HEADERS,
+         _state.get("bookstat_age_distribution", [])),
+
+        ("Sterbespitzen (Jahresreihe)", book_statistics.DEATH_SPIKE_HEADERS,
+         _state.get("bookstat_death_spikes", [])[:1000]),
+
+        ("Müttersterblichkeit", book_statistics.MATERNAL_MORTALITY_HEADERS,
+         _state.get("bookstat_maternal_mortality", [])),
+
+        ("Hundertjährige", book_statistics.CENTENARIAN_HEADERS,
+         _state.get("bookstat_centenarians", [])[:500]),
+
+        # ── F: Namen & Soziologie ─────────────────────────────────────────────
+        ("Namensvarianten (Kölner Phonetik)", names.VARIANT_HEADERS,
+         _state["soundex_variant_rows"][:2000]),
+
+        ("Namensvarianten Personen", names.PERSON_VARIANT_HEADERS,
+         _state["soundex_person_rows"][:50_000]),
+
+        ("Onomastik (Namensmuster)", onomastics.ONOMASTICS_HEADERS,
+         _state.get("onomastics_results", [])[:1_000]),
+
+        ("Patronyme", naming.PATRONYM_HEADERS,
+         _state.get("patronyms", [])[:30_000]),
+
+        ("Junior-Detektor", naming.JUNIOR_HEADERS,
+         _state.get("juniors", [])[:30_000]),
+
+        ("Familien-Vornamen-Pool", naming.FAMILY_NAME_POOL_HEADERS,
+         _state.get("family_name_pool", [])[:200]),
+
+        ("Hofnamen-Analyse", book_statistics.GENANNT_HEADERS,
+         _state.get("bookstat_genannt", [])[:2000]),
+
+        ("Vornamen-Amerikanisierung", book_statistics.AMERICANIZATION_HEADERS,
+         _state.get("bookstat_americanization", [])),
+
+        ("Nachnamen-Gini", book_statistics.SURNAME_GINI_HEADERS,
+         _state.get("bookstat_surname_gini", [])),
+
+        # ── G: Forschung & Qualität ───────────────────────────────────────────
         ("Datenvollständigkeit Personen", data_quality.PERSON_HEADERS,
          _state["completeness_rows"][:50_000]),
 
@@ -366,28 +532,15 @@ def run_export_excel(progress_cb=None, stop_event=None):
         ("Datenvollständigkeit Epochen", data_quality.EPOCH_HEADERS,
          _state["completeness_epoch"]),
 
-        ("Namensvarianten (Kölner Phonetik)", names.VARIANT_HEADERS,
-         _state["soundex_variant_rows"][:2000]),
+        ("Geschätzte fehlende Daten", imputation.IMPUTATION_HEADERS,
+         _state.get("imputation_results", [])[:50_000]),
 
-        ("Namensvarianten Personen", names.PERSON_VARIANT_HEADERS,
-         _state["soundex_person_rows"][:50_000]),
+        ("Brick-Wall-Detektor", brickwalls.BRICKWALL_HEADERS,
+         _state.get("brickwall_results", [])[:10_000]),
 
-        (["Überlebenskurven",
-          history.SURVIVAL_CURVE_HEADERS + scn,
-          _state["survival_curve_rows"]]
-         if scn else None),
+        ("Forschungs-Vorschläge", research_suggestions.RESEARCH_SUGGESTION_HEADERS,
+         _state.get("research_suggestions", [])[:5_000]),
 
-        ("Überleben Kohorten", history.SURVIVAL_SUMMARY_HEADERS,
-         _state["survival_summary_rows"]),
-
-        ("Militärdienst Details", military.MILITARY_HEADERS,
-         _state["military_results"][:10_000]),
-
-        _exp.build_symbol_sheet(indiv),
-        _exp.build_gedcom_events_sheet(indiv),
-        _exp.build_location_info_sheet(ld),
-
-        # Neue Analysen (nur wenn Task gelaufen)
         ("Daten-Anomalien", anomalies.ANOMALY_HEADERS,
          _state.get("anomaly_results", [])[:50_000]),
 
@@ -397,158 +550,48 @@ def run_export_excel(progress_cb=None, stop_event=None):
         ("Unerreichbare Personen", anomalies.ISLAND_HEADERS,
          _state.get("island_results", [])[:50_000]),
 
-        ("DNA-cM-Schätzung", genetics.DNA_CM_HEADERS,
-         _state.get("dna_cm_results", [])[:50_000]),
-
-        ("Geschwister-Statistiken", demographics.SIBLING_HEADERS,
-         _state.get("sibling_results", [])[:20_000]),
-
-        ("Namensdrift (Vornamen)", demographics.NAMEDRIFT_HEADERS,
-         _state.get("namedrift_results", [])[:500]),
-
-        # ── Saisonalität ───────────────────────────────────────────────────────
-        ("Geburts-Monate", seasonality.BIRTH_MONTH_HEADERS,
-         _state.get("birth_months", [])),
-        ("Heirats-Monate", seasonality.MARRIAGE_MONTH_HEADERS,
-         _state.get("marriage_months", [])),
-        ("Sterbe-Monate", seasonality.DEATH_MONTH_HEADERS,
-         _state.get("death_months", [])),
-        ("Empfängnis-Monate (geschätzt)", seasonality.CONCEPTION_MONTH_HEADERS,
-         _state.get("conception_months", [])),
-
-        # ── Stichjahr-Snapshot + Generationen-Overlap ─────────────────────────
-        ("Stichjahr-Snapshot", snapshot.SNAPSHOT_HEADERS,
-         _state.get("snapshot_rows", [])),
-        ("Lebende Generationen", snapshot.GEN_OVERLAP_HEADERS,
-         _state.get("gen_overlap_rows", [])),
-
-        # ── Räumliche Lebensgeschichte ────────────────────────────────────────
-        ("Heirats-Migration", spatial.MARRIAGE_MIGRATION_HEADERS,
-         _state.get("marriage_migration", [])[:50_000]),
-        ("Lebens-Triangulation", spatial.LIFE_TRIANGULATION_HEADERS,
-         _state.get("life_triangulation", [])[:50_000]),
-        ("Sesshaftigkeit pro Familie", spatial.SEDENTARINESS_HEADERS,
-         _state.get("sedentariness", [])[:30_000]),
-        ("Nachname × Region", spatial.SURNAME_REGION_HEADERS,
-         _state.get("surname_region_matrix", [])[:10_000]),
-
-        # ── Familienstruktur ───────────────────────────────────────────────────
-        ("Mehrfach-Ehen", family_structure.MULTIPLE_MARRIAGES_HEADERS,
-         _state.get("multiple_marriages", [])[:10_000]),
-        ("Alters-Differenz Ehepaare", family_structure.SPOUSE_AGE_GAP_HEADERS,
-         _state.get("spouse_age_gap", [])),
-        ("Reproduktive Spanne (Mütter)", family_structure.REPRODUCTIVE_SPAN_HEADERS,
-         _state.get("reproductive_span", [])[:30_000]),
-        ("Kinderlosigkeits-Rate", family_structure.CHILDLESSNESS_HEADERS,
-         _state.get("childlessness", [])),
-        ("Zwillinge / Mehrfachgeburten", family_structure.TWIN_HEADERS,
-         _state.get("twin_results", [])[:10_000]),
-
-        # ── Linien (Y, Mt, Quartile, Aussterben, Verzweigung) ─────────────────
-        ("Y-Linie (paternal)", lineage.Y_LINE_HEADERS,
-         _state.get("y_line", [])),
-        ("Mt-Linie (maternal)", lineage.MT_LINE_HEADERS,
-         _state.get("mt_line", [])),
-        ("Großeltern-Quartile", lineage.QUARTILE_HEADERS,
-         _state.get("quartile_results", [])),
-        ("Linien-Aussterben", lineage.EXTINCTION_HEADERS,
-         _state.get("extinction_results", [])[:10_000]),
-        ("Verzweigungs-Faktor", lineage.BRANCHING_HEADERS,
-         _state.get("branching_factor", [])),
-
-        # ── Namens-Soziologie ─────────────────────────────────────────────────
-        ("Patronyme", naming.PATRONYM_HEADERS,
-         _state.get("patronyms", [])[:30_000]),
-        ("Junior-Detektor", naming.JUNIOR_HEADERS,
-         _state.get("juniors", [])[:30_000]),
-        ("Familien-Vornamen-Pool", naming.FAMILY_NAME_POOL_HEADERS,
-         _state.get("family_name_pool", [])[:200]),
-
-        # ── Daten-Imputation ──────────────────────────────────────────────────
-        ("Geschätzte fehlende Daten", imputation.IMPUTATION_HEADERS,
-         _state.get("imputation_results", [])[:50_000]),
-
-        # ── Krisen-Kohorten + Eltern-Verlust ──────────────────────────────────
-        ("Krisen-Kohorten Folge", history.CRISIS_COHORT_HEADERS,
-         _state.get("crisis_cohort", [])),
-        ("Eltern-Verlust-Alter", history.PARENTAL_LOSS_HEADERS,
-         _state.get("parental_loss", [])),
-
-        # ── Forschungs-Helfer (Brickwalls, Vorschläge, Quellen) ──────────────
-        ("Brick-Wall-Detektor", brickwalls.BRICKWALL_HEADERS,
-         _state.get("brickwall_results", [])[:10_000]),
-        ("Forschungs-Vorschläge", research_suggestions.RESEARCH_SUGGESTION_HEADERS,
-         _state.get("research_suggestions", [])[:5_000]),
-        ("Quellen-Inventar", sources.SOURCE_INVENTORY_HEADERS,
-         _state.get("source_inventory", [])[:10_000]),
-        ("Quellen-Qualität pro Person", sources.SOURCE_QUALITY_HEADERS,
-         _state.get("source_quality", [])[:50_000]),
-
-        # ── Onomastik + Endogamie-Bigraph ─────────────────────────────────────
-        ("Onomastik (Namensmuster)", onomastics.ONOMASTICS_HEADERS,
-         _state.get("onomastics_results", [])[:1_000]),
-        ("Endogamie-Netzwerk (Nachname×Nachname)",
-         endogamy_network.ENDOGAMY_NETWORK_HEADERS,
-         _state.get("endogamy_network", [])[:500]),
-
-        # ── Sosa-Stradonitz-Ahnentafel ────────────────────────────────────────
-        ("Sosa-Stradonitz-Ahnentafel", sosa.SOSA_HEADERS,
-         _state.get("sosa_rows", [])[:50_000]),
-
-        # ── FamilySearch-Vergleich (Suchlinks pro Ahn) ────────────────────────
         ("FamilySearch-Vergleich", familysearch.FAMILYSEARCH_HEADERS,
          _state.get("familysearch_rows", [])[:2_000]),
 
-        # ── Online-Sterbedaten-Recherche (Wikidata + GND) ─────────────────────
         ("Online Sterbedaten-Vorschläge", online_research.ONLINE_RESEARCH_HEADERS,
          _state.get("online_research_rows", [])[:5_000]),
 
-        # ── Buch-Statistiken (21 Analysen) ────────────────────────────────────
-        ("Sterbespitzen (Jahresreihe)", book_statistics.DEATH_SPIKE_HEADERS,
-         _state.get("bookstat_death_spikes", [])[:1000]),
-        ("Altersverteilung beim Tod", book_statistics.AGE_DIST_HEADERS,
-         _state.get("bookstat_age_distribution", [])),
-        ("Müttersterblichkeit", book_statistics.MATERNAL_MORTALITY_HEADERS,
-         _state.get("bookstat_maternal_mortality", [])),
-        ("Hundertjährige", book_statistics.CENTENARIAN_HEADERS,
-         _state.get("bookstat_centenarians", [])[:500]),
-        ("Geburtsrang & Lebenserwartung", book_statistics.BIRTH_ORDER_LIFESPAN_HEADERS,
-         _state.get("bookstat_birth_order_lifespan", [])),
-        ("Stadt-Land-Lebenserwartung", book_statistics.RURAL_URBAN_HEADERS,
-         _state.get("bookstat_rural_urban", [])),
-        ("Ehedauer nach Jahrhundert", book_statistics.MARRIAGE_DURATION_HEADERS,
-         _state.get("bookstat_marriage_duration", [])),
-        ("Scheidungsrate", book_statistics.DIVORCE_HEADERS,
-         _state.get("bookstat_divorce_rate", [])),
-        ("Alter letztes Kind", book_statistics.LAST_CHILD_HEADERS,
-         _state.get("bookstat_last_child_age", [])),
-        ("Nie-Geheiratet-Rate", book_statistics.NEVER_MARRIED_HEADERS,
-         _state.get("bookstat_never_married", [])),
-        ("Voreheliche Konzeption", book_statistics.PREMARITAL_CONCEPTION_HEADERS,
-         _state.get("bookstat_premarital_conception", [])),
-        ("Wiederheirat-Geschwindigkeit", book_statistics.REMARRIAGE_HEADERS,
-         _state.get("bookstat_remarriage_speed", [])),
-        ("Heiratsdistanz (km)", book_statistics.MARRIAGE_DISTANCE_HEADERS,
-         _state.get("bookstat_marriage_distance", [])),
-        ("Pfarrei-Fertilität", book_statistics.PARISH_FERTILITY_HEADERS,
-         _state.get("bookstat_parish_fertility", [])[:500]),
-        ("Auswanderer vs. Stayer", book_statistics.EMIGRANT_STAYER_HEADERS,
-         _state.get("bookstat_emigrant_stayer", [])),
-        ("DE-USA Kreuzungspunkt", book_statistics.CROSSOVER_HEADERS,
-         _state.get("bookstat_crossover", [])),
-        ("Demographischer Schwerpunkt", book_statistics.GRAVITY_HEADERS,
-         _state.get("bookstat_gravity", [])),
-        ("Hofnamen-Analyse", book_statistics.GENANNT_HEADERS,
-         _state.get("bookstat_genannt", [])[:2000]),
-        ("Berufsstand & Lebenserwartung", book_statistics.OCCUPATION_LIFESPAN_HEADERS,
-         _state.get("bookstat_occupation_lifespan", [])),
-        ("Nachnamen-Gini", book_statistics.SURNAME_GINI_HEADERS,
-         _state.get("bookstat_surname_gini", [])),
-        ("Vornamen-Amerikanisierung", book_statistics.AMERICANIZATION_HEADERS,
-         _state.get("bookstat_americanization", [])),
+        ("Quellen-Inventar", sources.SOURCE_INVENTORY_HEADERS,
+         _state.get("source_inventory", [])[:10_000]),
+
+        ("Quellen-Qualität pro Person", sources.SOURCE_QUALITY_HEADERS,
+         _state.get("source_quality", [])[:50_000]),
+
+        # ── H: Militär & Linien ───────────────────────────────────────────────
+        ("Militärdienst Details", military.MILITARY_HEADERS,
+         _state["military_results"][:10_000]),
+
+        _exp.build_symbol_sheet(indiv),
+
+        ("Y-Linie (paternal)", lineage.Y_LINE_HEADERS,
+         _state.get("y_line", [])),
+
+        ("Mt-Linie (maternal)", lineage.MT_LINE_HEADERS,
+         _state.get("mt_line", [])),
+
+        ("Großeltern-Quartile", lineage.QUARTILE_HEADERS,
+         _state.get("quartile_results", [])),
+
+        ("Linien-Aussterben", lineage.EXTINCTION_HEADERS,
+         _state.get("extinction_results", [])[:10_000]),
+
+        ("Verzweigungs-Faktor", lineage.BRANCHING_HEADERS,
+         _state.get("branching_factor", [])),
+
+        ("Familiennetzwerkanalyse", network.NETWORK_HEADERS_FAST,
+         _state["network_results"][:10_000]),
+
+        # ── I: Technisch ──────────────────────────────────────────────────────
+        _exp.build_gedcom_events_sheet(indiv),
+        _exp.build_location_info_sheet(ld),
     ]
 
-    # Osnabrück-Sheets
+    # Osnabrück-Sheets (am Ende, da regional spezifisch)
     os_res = _state.get("osnabrueck_results", {})
     os_sum = _state.get("osnabrueck_summaries", {})
     if os_sum:
@@ -562,19 +605,118 @@ def run_export_excel(progress_cb=None, stop_event=None):
             mname = MUNICIPALITIES[mkey]["name"][:25]
             all_sheets.append((mname, DETAIL_HEADERS, build_detail_rows(persons)))
 
-    # Überlebenskurven-Sonderbehandlung (dynamischer Header)
-    if scn:
-        all_sheets = [s for s in all_sheets if s is not None
-                      and not (isinstance(s, list))]
-        all_sheets.append(("Überlebenskurven",
-                            history.SURVIVAL_CURVE_HEADERS + scn,
-                            _state["survival_curve_rows"]))
-
-    # None-Einträge filtern
+    # None-Einträge filtern (z. B. Überlebenskurven ohne Kohorten-Daten)
     all_sheets = [s for s in all_sheets if s is not None]
 
+    # Tab-Farben nach Themengruppe (A–I + Osnabrück)
+    _GRP = {
+        # A: Übersicht – Blau
+        "Sosa-Stradonitz-Ahnentafel": "4472C4",
+        "Cousin Beziehungen":          "4472C4",
+        "Umfassende Statistiken":      "4472C4",
+        # B: Migration – Grün
+        "Migrationsrouten Detail":          "70AD47",
+        "Migrationsrouten Compressed":      "70AD47",
+        "Migrationswellen":                 "70AD47",
+        "Korrelation Migration-Demografie": "70AD47",
+        "Heirats-Migration":                "70AD47",
+        "Lebens-Triangulation":             "70AD47",
+        "Sesshaftigkeit pro Familie":       "70AD47",
+        "Nachname × Region":                "70AD47",
+        "Auswanderer vs. Stayer":           "70AD47",
+        "DE-USA Kreuzungspunkt":            "70AD47",
+        "Demographischer Schwerpunkt":      "70AD47",
+        # C: Demografie – Orange
+        "Demografische Statistik":           "ED7D31",
+        "Familiennamen Häufigkeit":          "ED7D31",
+        "Geburtsland Verteilung":            "ED7D31",
+        "Geschwister-Statistiken":           "ED7D31",
+        "Namensdrift (Vornamen)":            "ED7D31",
+        "Mehrfach-Ehen":                     "ED7D31",
+        "Alters-Differenz Ehepaare":         "ED7D31",
+        "Reproduktive Spanne (Mütter)":      "ED7D31",
+        "Kinderlosigkeits-Rate":             "ED7D31",
+        "Zwillinge / Mehrfachgeburten":      "ED7D31",
+        "Ehedauer nach Jahrhundert":         "ED7D31",
+        "Scheidungsrate":                    "ED7D31",
+        "Alter letztes Kind":                "ED7D31",
+        "Nie-Geheiratet-Rate":               "ED7D31",
+        "Voreheliche Konzeption":            "ED7D31",
+        "Wiederheirat-Geschwindigkeit":      "ED7D31",
+        "Heiratsdistanz (km)":               "ED7D31",
+        "Pfarrei-Fertilität":                "ED7D31",
+        "Geburtsrang & Lebenserwartung":     "ED7D31",
+        "Stadt-Land-Lebenserwartung":        "ED7D31",
+        "Berufsstand & Lebenserwartung":     "ED7D31",
+        # D: Genetik – Rot
+        "Inzuchtkoeffizient":                        "C00000",
+        "Pedigree Collapse Generationen":            "C00000",
+        "Pedigree Collapse Mehrfach":                "C00000",
+        "DNA-cM-Schätzung":                          "C00000",
+        "DNA-Überblick (Ancestry)":                  "C00000",
+        "Endogamie Scores":                          "C00000",
+        "Endogamie-Netzwerk (Nachname×Nachname)":    "C00000",
+        "Top Ahnen":                                 "C00000",
+        # E: Geschichte – Lila
+        "Generationen Längen":           "7030A0",
+        "Historische Trends (Jahrhunderte)": "7030A0",
+        "Historische Trends (Jahrzehnte)":   "7030A0",
+        "Hist. Kontext Ereignisse":       "7030A0",
+        "Hist. Kontext Personen":         "7030A0",
+        "Krisen-Kohorten Folge":          "7030A0",
+        "Eltern-Verlust-Alter":           "7030A0",
+        "Überlebenskurven":               "7030A0",
+        "Überleben Kohorten":             "7030A0",
+        "Stichjahr-Snapshot":             "7030A0",
+        "Lebende Generationen":           "7030A0",
+        "Geburts-Monate":                 "7030A0",
+        "Heirats-Monate":                 "7030A0",
+        "Sterbe-Monate":                  "7030A0",
+        "Empfängnis-Monate (geschätzt)":  "7030A0",
+        "Altersverteilung beim Tod":      "7030A0",
+        "Sterbespitzen (Jahresreihe)":    "7030A0",
+        "Müttersterblichkeit":            "7030A0",
+        "Hundertjährige":                 "7030A0",
+        # F: Namen – Türkis
+        "Namensvarianten (Kölner Phonetik)": "00B0F0",
+        "Namensvarianten Personen":          "00B0F0",
+        "Onomastik (Namensmuster)":          "00B0F0",
+        "Patronyme":                         "00B0F0",
+        "Junior-Detektor":                   "00B0F0",
+        "Familien-Vornamen-Pool":            "00B0F0",
+        "Hofnamen-Analyse":                  "00B0F0",
+        "Vornamen-Amerikanisierung":         "00B0F0",
+        "Nachnamen-Gini":                    "00B0F0",
+        # G: Forschung – Gelb
+        "Datenvollständigkeit Personen":    "FFC000",
+        "Datenvollständigkeit Nachnamen":   "FFC000",
+        "Datenvollständigkeit Epochen":     "FFC000",
+        "Geschätzte fehlende Daten":        "FFC000",
+        "Brick-Wall-Detektor":              "FFC000",
+        "Forschungs-Vorschläge":            "FFC000",
+        "Daten-Anomalien":                  "FFC000",
+        "Potenzielle Doubletten":           "FFC000",
+        "Unerreichbare Personen":           "FFC000",
+        "FamilySearch-Vergleich":           "FFC000",
+        "Online Sterbedaten-Vorschläge":    "FFC000",
+        "Quellen-Inventar":                 "FFC000",
+        "Quellen-Qualität pro Person":      "FFC000",
+        # H: Militär & Linien – Braun
+        "Militärdienst Details":  "843C0C",
+        "Symbol-Statistik":       "843C0C",
+        "Y-Linie (paternal)":     "843C0C",
+        "Mt-Linie (maternal)":    "843C0C",
+        "Großeltern-Quartile":    "843C0C",
+        "Linien-Aussterben":      "843C0C",
+        "Verzweigungs-Faktor":    "843C0C",
+        "Familiennetzwerkanalyse": "843C0C",
+        # I: Technisch – Grau
+        "GEDCOM-Events":   "808080",
+        "Ortsdaten-Info":  "808080",
+    }
+
     _exp.export_to_excel(all_sheets, cfg.DEFAULT_CONFIG["output_xlsx"],
-                          progress_cb=progress_cb)
+                          progress_cb=progress_cb, tab_colors=_GRP)
 
 
 # ── Schritt 15: JSON-Export ───────────────────────────────────────────────────
@@ -1067,3 +1209,73 @@ def load_state_cache(progress_cb=None, stop_event=None):
     fams  = len(_state.get("families", {}))
     p(f"State-Cache geladen: {indiv:,} Personen, {fams:,} Familien (GEDCOM unverändert)",
       tag="ok")
+
+
+# ── DNA-Überblick: liest die Ancestry-DNA-Datenbank ───────────────────────────
+
+def run_dna_overview(progress_cb=None, stop_event=None):
+    """Liest die Ancestry-DNA-SQLite-Datenbank und erstellt eine Übersichts-Tabelle.
+    Nur sinnvoll wenn ancestry/ancestry_dna.db existiert."""
+    _set_stop_event(stop_event)
+    p = progress_cb or (lambda m, **kw: None)
+    import os, sys
+
+    ancestry_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                "ancestry")
+    if ancestry_dir not in sys.path:
+        sys.path.insert(0, ancestry_dir)
+
+    db_path = os.path.join(ancestry_dir, "ancestry_dna.db")
+    if not os.path.exists(db_path):
+        p("Ancestry-Datenbank nicht gefunden – DNA-Tool starten und Matches laden.", tag="warn")
+        _state["dna_overview_rows"] = []
+        return
+
+    try:
+        from core.database import Database
+        db = Database(db_path)
+    except Exception as e:
+        p(f"Ancestry-DB konnte nicht geöffnet werden: {e}", tag="err")
+        _state["dna_overview_rows"] = []
+        return
+
+    p("Lese DNA-Matches aus Ancestry-Datenbank …")
+    rows = []
+    try:
+        kits = db.get_kits()
+        for kit in kits:
+            guid  = kit.guid
+            name  = kit.name or guid[:8]
+            count = db.get_match_count(guid)
+            if count == 0:
+                continue
+            # Top-5-Matches nach cM
+            matches = db.get_matches(test_guid=guid, sort_col="shared_cm")
+            top5 = [f"{m.display_name} ({m.shared_cm:.0f} cM)" for m in matches[:5]]
+            # Cluster-Anzahl (Leeds)
+            try:
+                clusters = db.get_shared_clusters(guid, min_cm=20.0, max_cm=400.0)
+                n_clusters = len(clusters)
+            except Exception:
+                n_clusters = "—"
+            # Endogamie-markierte Matches
+            try:
+                with db._cursor() as cur:
+                    n_endo = cur.execute(
+                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
+                        "AND endogamy_cluster != ''", (guid,)
+                    ).fetchone()[0]
+            except Exception:
+                n_endo = 0
+            rows.append([
+                name, guid[:8] + "…",
+                count,
+                "; ".join(top5),
+                n_clusters,
+                n_endo,
+            ])
+    except Exception as e:
+        p(f"DNA-Übersicht Fehler: {e}", tag="err")
+
+    _state["dna_overview_rows"] = rows
+    p(f"DNA-Überblick: {len(rows)} Kit(s) ausgewertet", tag="ok")

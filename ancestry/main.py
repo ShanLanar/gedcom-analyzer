@@ -17,7 +17,7 @@ import config as cfg
 from utils import setup_logging, get_logger
 
 
-def run_gui():
+def run_gui(gedcom_path: str = ""):
     """Startet die Tkinter-GUI."""
     try:
         import tkinter as tk
@@ -27,7 +27,7 @@ def run_gui():
         sys.exit(1)
 
     from gui.app import AncestryDnaApp
-    app = AncestryDnaApp()
+    app = AncestryDnaApp(gedcom_path=gedcom_path)
     app.mainloop()
 
 
@@ -103,6 +103,8 @@ def main():
                         default="RELATIONSHIP")
     parser.add_argument("--log-level",   default=cfg.LOG_LEVEL,
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
+    parser.add_argument("--gedcom",      default="",
+                        help="GEDCOM-Datei, die automatisch als Stammbaum vorbelegt wird")
 
     args = parser.parse_args()
     setup_logging(cfg.LOG_FILE, args.log_level)
@@ -110,7 +112,7 @@ def main():
     if args.cli:
         run_cli(args)
     else:
-        run_gui()
+        run_gui(gedcom_path=args.gedcom or "")
 
 
 if __name__ == "__main__":

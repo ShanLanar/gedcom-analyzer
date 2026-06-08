@@ -22,6 +22,7 @@ def run(individuals, families, location_data, root_id, cache=None,
         if fam.get("WIFE"): root_parent_map[fam["WIFE"]] = "mother"
 
     output_rows = []
+    _sort_keys  = []  # (total_dist, root_depth, name_lower) – für spätere Sortierung
     MULT_MAP = {2: "double", 3: "triple", 4: "quadruple", 5: "quintuple",
                 6: "sextuple", 7: "septuple", 8: "octuple", 9: "nonuple"}
 
@@ -74,6 +75,7 @@ def run(individuals, families, location_data, root_id, cache=None,
                    else "mother" if "mother" in sides else "")
 
         name = tdata.get("NAME", "") or ""
+        _sort_keys.append((min_root + min_target, min_root, name.lower()))
         output_rows.append([
             tid, name,
             extract_military_force_from_name(name),
@@ -92,6 +94,9 @@ def run(individuals, families, location_data, root_id, cache=None,
             format_place_for_display((tdata.get("DEAT") or {}).get("PLAC", "")),
         ])
 
+    if _sort_keys:
+        _paired = sorted(zip(_sort_keys, output_rows), key=lambda x: x[0])
+        output_rows = [r for _, r in _paired]
     p(f"Cousin-Analyse abgeschlossen: {len(output_rows)} Beziehungen", tag="ok")
     return output_rows
 

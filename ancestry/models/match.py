@@ -251,6 +251,17 @@ class DnaMatch:
         tags_json_val = _j.dumps(tags_raw, ensure_ascii=False)
         starred    = bool(tags_raw.get("1"))       # Tag 1 = Markierung?
 
+        # Tag 8: Ancestry-eigene Seitenkennung ("M" = maternal, "P" = paternal)
+        _tag8 = str(tags_raw.get("8") or "").upper()
+        ancestry_side = ("maternal" if _tag8 == "M"
+                         else "paternal" if _tag8 in ("P", "F")
+                         else "")
+        # Fallback: matchClusterCode
+        if not ancestry_side:
+            _cc = safe("matchClusterCode").lower()
+            if _cc in ("maternal", "paternal"):
+                ancestry_side = _cc
+
         # Name aus Tag 3 extrahieren: "Surname, Firstname Lastname" oder "Surname [Name]"
         def _extract_name_from_tag3(s):
             if not s:
@@ -308,6 +319,7 @@ class DnaMatch:
             tag_path              = tag_path,
             tags_json             = tags_json_val,
             match_cluster_code    = safe("matchClusterCode"),
+            paternal_maternal     = ancestry_side,
             created_date          = int(data.get("createdDate") or 0),
             ethnicity_regions     = eth_regions,
             last_login            = safe("lastLoginDate"),

@@ -15,6 +15,7 @@ zwischen Vorfahren aus DNA-Match-Ahnentafeln und dem eigenen Baum.
 Minimaler Link-Score: 0.45
 """
 
+import json
 import os
 import re
 import sys
@@ -139,6 +140,7 @@ CREATE TABLE IF NOT EXISTS gedcom_persons (
     death_year   INTEGER,
     death_place  TEXT DEFAULT '',
     ged_file     TEXT NOT NULL DEFAULT '',
+    sosa_number  INTEGER NOT NULL DEFAULT 0,
     loaded_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_gp_koelner_year
@@ -172,13 +174,42 @@ def ensure_tables(db) -> None:
     """Idempotent: legt gedcom_persons + gedcom_links an, falls fehlend."""
     with db._cursor() as cur:
         cur.executescript(BRIDGE_SCHEMA)
+        # Migration: sosa_number für bestehende DBs ohne die Spalte
+        try:
+            cur.execute("ALTER TABLE gedcom_persons ADD COLUMN sosa_number INTEGER NOT NULL DEFAULT 0")
+        except Exception:
+            pass  # Spalte existiert bereits
 
 
 # ── Import ─────────────────────────────────────────────────────────────────────
 
-def import_gedcom_persons(db, individuals: dict, ged_file: str = "") -> int:
+def _build_sosa_map(root_id: str, individuals: dict, families: dict) -> dict:
+    """Sosa-Stradonitz-Nummern aller Vorfahren: {ged_id: sosa_number}.
+    root_id erhält 1, Vater=2, Mutter=3, Vaters Vater=4, …"""
+    result = {root_id: 1}
+    queue = [(root_id, 1)]
+    while queue:
+        pid, sosa = queue.pop(0)
+        for fam_id in (individuals.get(pid) or {}).get("FAMC", []):
+            fam = families.get(fam_id) or {}
+            for key, child_sosa in (("HUSB", sosa * 2), ("WIFE", sosa * 2 + 1)):
+                pid2 = fam.get(key)
+                if pid2 and pid2 not in result:
+                    result[pid2] = child_sosa
+                    queue.append((pid2, child_sosa))
+    return result
+
+
+def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
+                          root_id: str = "", families: dict | None = None) -> int:
     """Löscht und füllt gedcom_persons aus einem GEDCOM-Individuals-Dict.
+    Falls root_id + families angegeben werden, enthält sosa_number die
+    Sosa-Stradonitz-Nummer jeder Person (für spätere Verwandtschaftsberechnung).
     Gibt Anzahl importierter Personen zurück."""
+    sosa_map: dict = {}
+    if root_id and families:
+        sosa_map = _build_sosa_map(root_id, individuals, families)
+
     rows = []
     for ged_id, ind in individuals.items():
         given, surname = _parse_name_from_indi(ind)
@@ -200,6 +231,7 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "") -> int:
             "death_year":   deat.get("YEAR") or None,
             "death_place":  (deat.get("PLAC") or "").strip(),
             "ged_file":     ged_file,
+            "sosa_number":  sosa_map.get(ged_id, 0),
         })
     with db._cursor() as cur:
         cur.execute("DELETE FROM gedcom_persons")
@@ -207,13 +239,14 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "") -> int:
             """INSERT OR REPLACE INTO gedcom_persons
                (ged_id, given_name, surname, surname_norm, koelner_code,
                 sex, birth_year, birth_qual, birth_place,
-                death_year, death_place, ged_file)
+                death_year, death_place, ged_file, sosa_number)
                VALUES (:ged_id, :given_name, :surname, :surname_norm, :koelner_code,
                        :sex, :birth_year, :birth_qual, :birth_place,
-                       :death_year, :death_place, :ged_file)""",
+                       :death_year, :death_place, :ged_file, :sosa_number)""",
             rows,
         )
-    log.info("bridge: %d GEDCOM-Personen importiert", len(rows))
+    log.info("bridge: %d GEDCOM-Personen importiert (Sosa: %d)",
+             len(rows), sum(1 for r in rows if r["sosa_number"]))
     return len(rows)
 
 
@@ -520,3 +553,329 @@ def infer_side_from_links(db, test_guid: str, match_guid: str, amap: dict) -> st
     if sides:
         return "both"
     return ""
+
+
+# ── GEDCOM-Verwandtschafts-Vergleich ─────────────────────────────────────────
+
+def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
+    """Berechnet GEDCOM-basierte Verwandtschafts-Labels für alle verknüpften
+    DNA-Matches und vergleicht sie mit der Ancestry/MyHeritage-Vorhersage.
+
+    Voraussetzung: import_gedcom_persons() muss mit root_id + families
+    aufgerufen worden sein, damit sosa_number befüllt ist.
+
+    Rückgabe: Liste von Dicts, eine Zeile pro Match (beste Verknüpfung):
+      display_name, shared_cm, ancestry_rel, ged_relationship, multiplier,
+      link_count, best_score, ged_common_ancestor, ged_ancestor_year,
+      root_gen_depth, match_gen_depth
+    """
+    import math
+
+    try:
+        from lib.helpers import relationship_label
+    except ImportError:
+        def relationship_label(rd, td, anc=False):
+            return f"Grad {rd}+{td}" if rd and td else ""
+
+    MULT_MAP = {2: "double", 3: "triple", 4: "quadruple",
+                5: "quintuple", 6: "sextuple", 7: "septuple"}
+
+    sql = """
+        SELECT
+            gl.match_guid,
+            m.display_name,
+            m.shared_cm,
+            m.predicted_relationship,
+            gl.ged_id,
+            (gl.ged_given || ' ' || gl.ged_surname) AS ged_anc_name,
+            gl.ged_year,
+            gp.sosa_number,
+            mp.generation  AS match_gen,
+            gl.total_score,
+            gl.ahnen_path
+        FROM gedcom_links gl
+        JOIN matches m ON m.match_guid = gl.match_guid
+        JOIN gedcom_persons gp ON gp.ged_id = gl.ged_id
+        LEFT JOIN match_pedigree mp
+            ON  mp.match_guid  = gl.match_guid
+            AND mp.ahnen_path  = gl.ahnen_path
+            AND mp.test_guid   = gl.test_guid
+        WHERE gl.test_guid = ?
+        ORDER BY m.shared_cm DESC, gl.total_score DESC
+    """
+    try:
+        with db._cursor() as cur:
+            rows = [dict(r) for r in cur.execute(sql, (test_guid,)).fetchall()]
+    except Exception as e:
+        log.warning("get_gedcom_relationship_summary: %s", e)
+        return []
+
+    # Gruppieren nach match_guid (bestes Link = höchster Score)
+    by_match: dict[str, list] = {}
+    for r in rows:
+        by_match.setdefault(r["match_guid"], []).append(r)
+
+    result = []
+    for match_guid, links in by_match.items():
+        best = max(links, key=lambda x: x["total_score"])
+
+        sosa = best["sosa_number"] or 0
+        root_depth  = math.floor(math.log2(sosa)) if sosa >= 1 else 0
+        match_depth = best["match_gen"] or len(best["ahnen_path"] or "")
+
+        if root_depth > 0 and match_depth > 0:
+            ged_rel = relationship_label(root_depth, match_depth)
+        else:
+            ged_rel = ""
+
+        link_count = len(links)
+        multiplier = MULT_MAP.get(link_count, "")
+
+        result.append({
+            "match_guid":           match_guid,
+            "display_name":         best["display_name"],
+            "shared_cm":            best["shared_cm"],
+            "ancestry_rel":         best["predicted_relationship"] or "",
+            "ged_relationship":     ged_rel,
+            "multiplier":           multiplier,
+            "link_count":           link_count,
+            "best_score":           round(best["total_score"], 2),
+            "ged_common_ancestor":  (best["ged_anc_name"] or "").strip(),
+            "ged_ancestor_year":    best["ged_year"] or "",
+            "root_gen_depth":       root_depth,
+            "match_gen_depth":      match_depth,
+        })
+
+    return result
+
+
+# ── GEDCOM-Endogamie → Endogamie-Cluster-Labels ──────────────────────────────
+
+def apply_gedcom_endogamy_to_matches(
+    db,
+    test_guid: str,
+    endogamy_results: list,
+    min_score: float = 0.4,
+    progress_cb=None,
+) -> int:
+    """Überträgt GEDCOM-Endogamie-Scores auf DNA-Matches via gemeinsame Geburtsorte.
+
+    endogamy_results: Ausgabe von tasks.endogamy.compute_endogamy_with_detailed_places()
+    Format: [[place, count, sn_div, score, klasse, …], …]
+
+    Ablauf:
+      1. Hochendogame Orte filtern (score >= min_score).
+      2. match_ancestors-Tabelle nach Geburtsorten dieser Orte durchsuchen.
+      3. Gefundene Matches mit set_endogamy_cluster(label) markieren.
+
+    Gibt Anzahl der markierten Matches zurück.
+    """
+    p = progress_cb or (lambda *a: None)
+
+    # Endogame Orte sammeln (Ort-String → Klassen-Label)
+    hot_places: dict[str, str] = {}
+    for row in endogamy_results:
+        if len(row) >= 5 and isinstance(row[3], float) and row[3] >= min_score:
+            place_key = str(row[0]).lower()
+            hot_places[place_key] = str(row[4])  # Klassen-Label
+
+    if not hot_places:
+        p("Keine Orte mit Endogamie-Score ≥ {:.0%} gefunden.".format(min_score))
+        return 0
+
+    p(f"Endogamie-Marker: {len(hot_places)} Orte mit Score ≥ {min_score:.0%} …")
+
+    # Alle Geburtsorte aus match_ancestors laden
+    try:
+        with db._cursor() as cur:
+            rows = cur.execute(
+                """SELECT ma.match_guid, ma.birth_place
+                   FROM match_ancestors ma
+                   JOIN matches m ON m.match_guid = ma.match_guid
+                   WHERE m.test_guid = ? AND ma.birth_place != ''""",
+                (test_guid,),
+            ).fetchall()
+    except Exception:
+        rows = []
+
+    marked: set = set()
+    for r in rows:
+        bp = (r["birth_place"] or "").lower()
+        for place_key, label in hot_places.items():
+            # Teilstring-Match: Ortsdaten in match_ancestors können Komma-getrennt sein
+            if place_key in bp or any(
+                part.strip() in bp for part in place_key.split(",") if len(part.strip()) >= 4
+            ):
+                guid = r["match_guid"]
+                if guid not in marked:
+                    db.set_endogamy_cluster(guid, label)
+                    marked.add(guid)
+                break
+
+    p(f"Endogamie-Marker gesetzt: {len(marked)} Matches")
+    return len(marked)
+
+
+# ── Ort-Nachnamen-Korrelation: wahrscheinliche Herkunftsregion ────────────────
+
+def _extract_region(birth_place: str) -> str:
+    """Extrahiert die Region (letzter nicht-leerer Teil nach Komma) aus einem Geburtsort."""
+    if not birth_place:
+        return ""
+    parts = [p.strip() for p in birth_place.split(",") if p.strip()]
+    if not parts:
+        return ""
+    # Last part is typically country, second-to-last is region/state
+    if len(parts) >= 2:
+        return parts[-2].lower()
+    return parts[-1].lower()
+
+
+def infer_match_origins(
+    db,
+    test_guid: str,
+    progress_cb=None,
+    persist: bool = True,
+) -> list[dict]:
+    """Korreliert Nachnamen und Geburtsorte aus Match-Ahnentafeln mit dem GEDCOM-Baum,
+    um die wahrscheinliche Herkunftsregion jedes DNA-Matches abzuleiten.
+
+    Algorithmus:
+      1. Aus gedcom_persons: pro Region (vorletzter Ortsteil) → Menge bekannter
+         Nachnamen (surname_norm) und Kölner-Codes.
+      2. Für jeden Match: Nachnamen aus match_pedigree gegen alle GEDCOM-Regionen
+         gewichten. Frühgenerationen zählen stärker (1/generation).
+      3. Regionsscore = Summe der gewichteten Übereinstimmungen:
+           exact norm match → 1.0,  gleicher Kölner-Code → 0.7
+      4. Bester Score → probable_origin gespeichert (JSON) in matches-Tabelle.
+
+    Gibt Liste von Dicts zurück:
+      {"match_guid", "match_name", "top_region", "score",
+       "evidence_surnames", "evidence_places"}
+    """
+    p = progress_cb or (lambda *a: None)
+
+    # ── 1. GEDCOM-Regionen-Index aufbauen ─────────────────────────────────────
+    try:
+        with db._cursor() as cur:
+            ged_rows = cur.execute(
+                "SELECT surname_norm, koelner_code, birth_place FROM gedcom_persons "
+                "WHERE birth_place != '' AND surname_norm != ''"
+            ).fetchall()
+    except Exception:
+        p("GEDCOM-Tabelle nicht gefunden – bitte zuerst GEDCOM laden.")
+        return []
+
+    # region → {"norms": set, "koelner": set}
+    region_index: dict[str, dict] = defaultdict(lambda: {"norms": set(), "koelner": set()})
+    for row in ged_rows:
+        region = _extract_region(row["birth_place"])
+        if not region:
+            continue
+        if row["surname_norm"]:
+            region_index[region]["norms"].add(row["surname_norm"])
+        if row["koelner_code"]:
+            region_index[region]["koelner"].add(row["koelner_code"])
+
+    if not region_index:
+        p("Keine GEDCOM-Personen mit Geburtsort und Nachnamen gefunden.")
+        return []
+
+    p(f"GEDCOM-Index: {len(region_index)} Regionen aus {len(ged_rows)} Personen …")
+
+    # ── 2. Match-Ahnentafel-Daten laden ──────────────────────────────────────
+    try:
+        with db._cursor() as cur:
+            ped_rows = cur.execute(
+                """SELECT mp.match_guid, m.display_name,
+                          mp.surname, mp.birth_place, mp.generation
+                   FROM match_pedigree mp
+                   JOIN matches m ON m.match_guid = mp.match_guid
+                   WHERE m.test_guid = ? AND mp.surname != ''""",
+                (test_guid,),
+            ).fetchall()
+    except Exception:
+        p("match_pedigree-Tabelle nicht gefunden – bitte Ahnentafeln herunterladen.")
+        return []
+
+    if not ped_rows:
+        p("Keine Pedigree-Daten vorhanden.")
+        return []
+
+    # Gruppieren nach Match
+    match_data: dict[str, dict] = {}
+    for row in ped_rows:
+        guid = row["match_guid"]
+        if guid not in match_data:
+            match_data[guid] = {
+                "name": row["display_name"] or guid,
+                "ancestors": [],
+            }
+        match_data[guid]["ancestors"].append({
+            "surname"   : row["surname"],
+            "birth_place": row["birth_place"] or "",
+            "generation": row["generation"] or 1,
+        })
+
+    p(f"Pedigree-Daten: {len(match_data)} Matches mit Ahnentafel-Nachnamen …")
+
+    # ── 3. Scoring pro Match × Region ────────────────────────────────────────
+    results: list[dict] = []
+
+    for match_guid, mdata in match_data.items():
+        region_scores: dict[str, float] = defaultdict(float)
+        matched_surnames: dict[str, list] = defaultdict(list)
+        matched_places: dict[str, list] = defaultdict(list)
+
+        for anc in mdata["ancestors"]:
+            sn_raw = anc["surname"]
+            gen    = max(1, anc["generation"])
+            weight = 1.0 / gen
+
+            sn_norm   = _norm(sn_raw)
+            sn_koelner = _koelner(sn_raw)
+
+            for region, idx in region_index.items():
+                score = 0.0
+                if sn_norm and sn_norm in idx["norms"]:
+                    score = 1.0
+                elif sn_koelner and sn_koelner in idx["koelner"]:
+                    score = 0.7
+
+                if score > 0:
+                    region_scores[region] += score * weight
+                    matched_surnames[region].append(sn_raw)
+                    if anc["birth_place"]:
+                        matched_places[region].append(anc["birth_place"])
+
+        if not region_scores:
+            continue
+
+        top_region = max(region_scores, key=lambda r: region_scores[r])
+        top_score  = round(region_scores[top_region], 3)
+
+        # Deduplicate evidence
+        ev_sn  = list(dict.fromkeys(matched_surnames[top_region]))[:6]
+        ev_pl  = list(dict.fromkeys(matched_places[top_region]))[:4]
+
+        entry = {
+            "match_guid"       : match_guid,
+            "match_name"       : mdata["name"],
+            "top_region"       : top_region.title(),
+            "score"            : top_score,
+            "evidence_surnames": ev_sn,
+            "evidence_places"  : ev_pl,
+        }
+        results.append(entry)
+
+        if persist:
+            db.set_probable_origin(match_guid, json.dumps({
+                "region"  : entry["top_region"],
+                "score"   : top_score,
+                "surnames": ev_sn,
+                "places"  : ev_pl,
+            }, ensure_ascii=False))
+
+    results.sort(key=lambda r: r["score"], reverse=True)
+    p(f"Herkunfts-Analyse: {len(results)} Matches mit Regionszuordnung abgeschlossen.")
+    return results

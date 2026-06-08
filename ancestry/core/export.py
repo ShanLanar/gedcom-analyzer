@@ -14,7 +14,7 @@ MATCH_COLUMNS = [
     "display_name", "gender", "shared_cm", "shared_segments", "longest_segment",
     "predicted_relationship", "confidence", "relationship_range",
     "has_tree", "tree_status", "tree_size", "has_common_ancestor",
-    "starred", "note", "custom_relationship",
+    "starred", "note", "custom_relationship", "paternal_maternal",
     "ethnicity_regions", "last_login", "fetched_at", "match_guid",
 ]
 
@@ -40,6 +40,7 @@ MATCH_LABELS = {
     "starred"                : "Markiert",
     "note"                   : "Notiz",
     "custom_relationship"    : "Eigene Beziehung",
+    "paternal_maternal"      : "Seite (v/m)",
     "ethnicity_regions"      : "Herkunftsregionen",
     "last_login"             : "Letzter Login",
     "fetched_at"             : "Abgerufen am",
@@ -138,10 +139,11 @@ def _write_xlsx_sheet(ws, headers: list[str], rows: list[list], col_widths: list
 
 def export_xlsx(matches: list[DnaMatch], filepath: str,
                 shared: Optional[list[SharedMatch]] = None,
-                match_name_map: Optional[dict] = None) -> int:
+                match_name_map: Optional[dict] = None,
+                gedcom_summary: Optional[list[dict]] = None) -> int:
     """
-    Exportiert Matches (und optional Shared Matches) in eine XLSX-Datei.
-    Bei shared != None wird ein zweites Tabellenblatt angelegt.
+    Exportiert Matches (und optional Shared Matches + GEDCOM-Vergleich) in eine XLSX-Datei.
+    gedcom_summary: Ausgabe von bridge.get_gedcom_relationship_summary() – optional.
     """
     try:
         import openpyxl
@@ -154,7 +156,7 @@ def export_xlsx(matches: list[DnaMatch], filepath: str,
     ws1 = wb.active
     ws1.title = "DNA-Matches"
     headers1 = [MATCH_LABELS.get(c, c) for c in MATCH_COLUMNS]
-    widths1  = [30, 14, 10, 18, 25, 12, 20, 12, 12, 10, 40, 20, 30, 20, 20, 36]
+    widths1  = [30, 14, 10, 18, 25, 12, 20, 12, 12, 10, 40, 20, 30, 20, 12, 20, 20, 36]
     rows1 = []
     for m in matches:
         d = m.to_dict()
@@ -173,7 +175,37 @@ def export_xlsx(matches: list[DnaMatch], filepath: str,
             rows2.append([name_a] + [_fmt(d.get(c, "")) for c in SHARED_COLUMNS])
         _write_xlsx_sheet(ws2, headers2, rows2, widths2)
 
+    # ── Blatt 3: GEDCOM-Verwandtschafts-Vergleich (optional) ─────────────────
+    if gedcom_summary:
+        ws3 = wb.create_sheet("GEDCOM-Vergleich")
+        headers3 = [
+            "Name", "Gemeinsame cM",
+            "Ancestry-Beziehung", "GEDCOM-Beziehung", "Multiplikator",
+            "Anzahl Verknüpfungen", "Treffer-Score",
+            "Gemeinsamer Ahne (GEDCOM)", "Geburtsjahr Ahne",
+            "Tiefe im eigenen Baum", "Tiefe beim Match",
+        ]
+        widths3 = [30, 14, 22, 22, 12, 20, 14, 35, 14, 20, 20]
+        rows3 = [
+            [
+                r.get("display_name", ""),
+                r.get("shared_cm", ""),
+                r.get("ancestry_rel", ""),
+                r.get("ged_relationship", ""),
+                r.get("multiplier", ""),
+                r.get("link_count", ""),
+                r.get("best_score", ""),
+                r.get("ged_common_ancestor", ""),
+                r.get("ged_ancestor_year", ""),
+                r.get("root_gen_depth", ""),
+                r.get("match_gen_depth", ""),
+            ]
+            for r in gedcom_summary
+        ]
+        _write_xlsx_sheet(ws3, headers3, rows3, widths3)
+
     wb.save(filepath)
-    log.info("XLSX-Export: %d Matches, %d Shared → %s",
-             len(matches), len(shared) if shared else 0, filepath)
+    log.info("XLSX-Export: %d Matches, %d Shared, %d GEDCOM-Links → %s",
+             len(matches), len(shared) if shared else 0,
+             len(gedcom_summary) if gedcom_summary else 0, filepath)
     return len(matches)

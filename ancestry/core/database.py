@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 13
+    SCHEMA_VERSION = 17
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -91,6 +91,13 @@ class Database:
                 self._migrate_v11_v12(cur)
             if current < 13:
                 self._migrate_v12_v13(cur)
+            if current < 14:
+                self._migrate_v13_v14(cur)
+            if current < 15:
+                self._migrate_v14_v15(cur)
+            if current < 16:
+                self._migrate_v15_v16(cur)
+                self._migrate_v16_v17(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -582,7 +589,8 @@ class Database:
                     starred, note, custom_relationship,
                     ethnicity_regions, last_login, fetched_at, raw_json,
                     match_cluster_code, created_date,
-                    tag_surname, tag_gender, tag_path, tags_json, meiosis, ignored
+                    tag_surname, tag_gender, tag_path, tags_json, meiosis, ignored,
+                    paternal_maternal
                 ) VALUES (
                     :match_guid, :test_guid, :display_name,
                     :shared_cm, :shared_segments, :longest_segment,
@@ -591,7 +599,8 @@ class Database:
                     :starred, :note, :custom_relationship,
                     :ethnicity_regions, :last_login, :fetched_at, :raw_json,
                     :match_cluster_code, :created_date,
-                    :tag_surname, :tag_gender, :tag_path, :tags_json, :meiosis, :ignored
+                    :tag_surname, :tag_gender, :tag_path, :tags_json, :meiosis, :ignored,
+                    :paternal_maternal
                 )
                 ON CONFLICT(match_guid) DO UPDATE SET
                     display_name = CASE
@@ -622,7 +631,13 @@ class Database:
                     tag_path=excluded.tag_path,
                     tags_json=excluded.tags_json,
                     meiosis=excluded.meiosis,
-                    ignored=excluded.ignored
+                    ignored=excluded.ignored,
+                    -- Ancestry-Schätzung nur setzen wenn noch kein Wert (manuell oder per Kit-Overlap) gesetzt
+                    paternal_maternal = CASE
+                        WHEN paternal_maternal IS NULL OR paternal_maternal = ''
+                        THEN excluded.paternal_maternal
+                        ELSE paternal_maternal
+                    END
             """, d)
             cur.execute(
                 "INSERT OR IGNORE INTO match_kit_membership (match_guid, test_guid) VALUES (?,?)",
@@ -691,6 +706,12 @@ class Database:
         with self._cursor() as cur:
             cur.execute(sql, params)
             return [DnaMatch.from_db_row(dict(r)) for r in cur.fetchall()]
+
+    def set_probable_origin(self, match_guid: str, origin_json: str):
+        """Stores the JSON-serialized origin inference result for a match."""
+        with self._cursor() as cur:
+            cur.execute("UPDATE matches SET probable_origin=? WHERE match_guid=?",
+                        (origin_json, match_guid))
 
     def set_endogamy_cluster(self, match_guid: str, cluster: str):
         """Setzt oder löscht den Endogamie-Cluster-Label für einen Match."""
@@ -1089,6 +1110,192 @@ class Database:
             SELECT match_guid, test_guid FROM matches
         """)
 
+    def _migrate_v13_v14(self, cur):
+        """Schema v14: Multi-Plattform-Support (MyHeritage) + GEDCOM-Overlay-Modell.
+
+        Kernidee: Dieselbe echte Person kann als Ancestry-Match, MH-Match und
+        GEDCOM-Eintrag auftreten. Die 'persons'-Tabelle bildet diese plattform-
+        übergreifende Identität ab.
+
+        Struktur:
+            persons          — kanonische Personenidentität (plattformunabhängig)
+            match_person_links — verknüpft match_guids mit persons
+            mh_match_relationships — MH-Verwandtschaftswahrscheinlichkeiten
+        """
+        # Quellenkennung für Kits und Matches (ancestry | myheritage | ...)
+        for col, typedef in [
+            ("source", "TEXT DEFAULT 'ancestry'"),
+        ]:
+            try:
+                cur.execute(f"ALTER TABLE dna_kits ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass
+        for col, typedef in [
+            ("source",             "TEXT DEFAULT 'ancestry'"),
+            ("country_code",       "TEXT DEFAULT ''"),
+            ("mh_confidence_level","TEXT DEFAULT ''"),
+        ]:
+            try:
+                cur.execute(f"ALTER TABLE matches ADD COLUMN {col} {typedef}")
+            except Exception:
+                pass
+
+        cur.executescript("""
+            -- ── Kanonische Personenidentität (plattformübergreifend) ────────────
+            -- Eine person_id repräsentiert dieselbe echte Person unabhängig davon,
+            -- ob sie in Ancestry, MyHeritage oder im GEDCOM-Baum auftaucht.
+            CREATE TABLE IF NOT EXISTS persons (
+                person_id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                canonical_name  TEXT NOT NULL DEFAULT '',
+                given_name      TEXT DEFAULT '',
+                surname         TEXT DEFAULT '',
+                gender          TEXT DEFAULT '',
+                country_code    TEXT DEFAULT '',
+                birth_year_est  INTEGER,
+
+                -- Plattform-spezifische Verknüpfungen
+                gedcom_id       TEXT DEFAULT '',   -- gedcom_persons.ged_id
+                ancestry_uid    TEXT DEFAULT '',   -- Ancestry personId / ucdmid
+                mh_member_id    TEXT DEFAULT '',   -- MyHeritage user-XXXX-... ID
+
+                -- Qualitätsbewertung der Identifikation
+                identity_confidence REAL DEFAULT 1.0,
+                identity_source     TEXT DEFAULT 'manual',
+
+                created_at  TEXT DEFAULT (datetime('now')),
+                updated_at  TEXT DEFAULT (datetime('now'))
+            );
+            CREATE INDEX IF NOT EXISTS idx_persons_name
+                ON persons(canonical_name);
+            CREATE INDEX IF NOT EXISTS idx_persons_gedcom
+                ON persons(gedcom_id);
+            CREATE INDEX IF NOT EXISTS idx_persons_mh
+                ON persons(mh_member_id);
+
+            -- ── Verbindet match_guids aus beliebigen Plattformen mit einer Person ─
+            -- Beispiel: Ancestry-Match A und MH-Match B verweisen auf dieselbe
+            -- persons.person_id, wenn wir sie als identisch identifiziert haben.
+            CREATE TABLE IF NOT EXISTS match_person_links (
+                match_guid      TEXT NOT NULL,
+                person_id       INTEGER NOT NULL,
+                source          TEXT NOT NULL DEFAULT 'ancestry',
+                confidence      REAL DEFAULT 1.0,
+                linked_by       TEXT DEFAULT 'name',
+                created_at      TEXT DEFAULT (datetime('now')),
+                PRIMARY KEY (match_guid, person_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_mpl_person
+                ON match_person_links(person_id);
+            CREATE INDEX IF NOT EXISTS idx_mpl_source
+                ON match_person_links(source);
+
+            -- ── Cross-Platform Shared-Match-Fakten ───────────────────────────────
+            -- Wenn Person A und Person B in BEIDEN Plattformen als Shared Match
+            -- auftauchen, erscheinen hier zwei Zeilen (source='ancestry' und
+            -- source='myheritage'). Das ermöglicht Cross-Platform-Clustering.
+            CREATE TABLE IF NOT EXISTS person_shared_dna (
+                person_id_a     INTEGER NOT NULL,
+                person_id_b     INTEGER NOT NULL,
+                source          TEXT NOT NULL,
+                kit_guid        TEXT NOT NULL,
+                shared_cm       REAL DEFAULT 0,
+                shared_segments INTEGER DEFAULT 0,
+                PRIMARY KEY (person_id_a, person_id_b, source, kit_guid)
+            );
+            CREATE INDEX IF NOT EXISTS idx_psd_a
+                ON person_shared_dna(person_id_a);
+            CREATE INDEX IF NOT EXISTS idx_psd_b
+                ON person_shared_dna(person_id_b);
+
+            -- ── Detaillierte MH-Verwandtschafts-Wahrscheinlichkeiten ─────────────
+            CREATE TABLE IF NOT EXISTS mh_match_relationships (
+                match_guid              TEXT NOT NULL,
+                rel_set                 TEXT NOT NULL DEFAULT 'complete',
+                relationship_type       INTEGER,
+                relationship_class      TEXT DEFAULT '',
+                relationship_degree     TEXT DEFAULT '',
+                path_type               TEXT DEFAULT '',
+                probability             REAL DEFAULT 0.0,
+                mrca_type               INTEGER,
+                mrca_class              TEXT DEFAULT '',
+                PRIMARY KEY (match_guid, rel_set, relationship_type)
+            );
+            CREATE INDEX IF NOT EXISTS idx_mhr_match
+                ON mh_match_relationships(match_guid);
+        """)
+
+    def _migrate_v14_v15(self, cur):
+        """Schema v15: GEDmatch als Cross-Platform-Aggregator.
+
+        GEDmatch verknüpft Kits aus Ancestry, MyHeritage, FTDNA, 23andMe etc.
+        Über Kit-IDs können wir identische Personen plattformübergreifend matchen.
+        """
+        try:
+            cur.execute("ALTER TABLE persons ADD COLUMN gedmatch_kit_id TEXT DEFAULT ''")
+        except Exception:
+            pass
+        try:
+            cur.execute(
+                "CREATE INDEX IF NOT EXISTS idx_persons_gedmatch ON persons(gedmatch_kit_id)"
+            )
+        except Exception:
+            pass
+
+        cur.executescript("""
+            -- ── GEDmatch One-to-Many Matches ─────────────────────────────────────
+            -- Kit CM8449775 = Andreas Kovermann auf GEDmatch
+            -- source_platform: 23andMe | Ancestry | MyHeritage | FTDNA | LivingDNA | ...
+            CREATE TABLE IF NOT EXISTS gedmatch_matches (
+                kit_id          TEXT NOT NULL,          -- GEDmatch Kit-Nummer des Matches
+                our_kit         TEXT NOT NULL,          -- unser Kit (CM8449775)
+                name            TEXT DEFAULT '',
+                email           TEXT DEFAULT '',        -- maskiert (xxx***@domain.com)
+                tags            TEXT DEFAULT '',        -- GED | Wiki | leer
+                sex             TEXT DEFAULT '',        -- M | F | U
+                shared_cm       REAL DEFAULT 0,
+                largest_segment REAL DEFAULT 0,
+                gen_distance    REAL DEFAULT 0,         -- Generationsabstand
+                x_cm            REAL DEFAULT 0,
+                x_segments      INTEGER DEFAULT 0,
+                source_platform TEXT DEFAULT '',        -- Herkunfts-Plattform
+                snps            INTEGER DEFAULT 0,
+                overlap         INTEGER DEFAULT 0,
+                mt_haplogroup   TEXT DEFAULT '',
+                y_haplogroup    TEXT DEFAULT '',
+                fetched_at      TEXT DEFAULT '',
+                PRIMARY KEY (kit_id, our_kit)
+            );
+            CREATE INDEX IF NOT EXISTS idx_gm_our_kit
+                ON gedmatch_matches(our_kit);
+            CREATE INDEX IF NOT EXISTS idx_gm_platform
+                ON gedmatch_matches(source_platform);
+            CREATE INDEX IF NOT EXISTS idx_gm_shared_cm
+                ON gedmatch_matches(shared_cm DESC);
+            CREATE INDEX IF NOT EXISTS idx_gm_name
+                ON gedmatch_matches(name);
+        """)
+
+    def _migrate_v15_v16(self, cur):
+        """Schema v16: Composite-Indizes für pedigree_fetched / ancestors_fetched.
+        Beschleunigt die get_matches_needing_* Queries erheblich bei großen Datenbanken."""
+        for stmt in (
+            "CREATE INDEX IF NOT EXISTS idx_matches_pedigree "
+            "ON matches(test_guid, pedigree_fetched, shared_cm DESC)",
+            "CREATE INDEX IF NOT EXISTS idx_matches_ancestors "
+            "ON matches(test_guid, ancestors_fetched, shared_cm DESC)",
+        ):
+            try:
+                cur.execute(stmt)
+            except Exception:
+                pass
+
+    def _migrate_v16_v17(self, cur):
+        """Schema v17: probable_origin column for place/surname correlation results."""
+        try:
+            cur.execute("ALTER TABLE matches ADD COLUMN probable_origin TEXT DEFAULT ''")
+        except Exception:
+            pass
+
     # ── New methods (v12) ─────────────────────────────────────────────────────
 
     def update_research_flags(self, match_guid: str, flags: int) -> None:
@@ -1113,6 +1320,26 @@ class Database:
                 (test_guid, threshold)
             ).fetchall()
         return [dict(r) for r in rows]
+
+    def get_pedigree_summary_for_match(self, test_guid: str, match_guid: str) -> str:
+        """Kompakter Ahnentafel-Status für ein einzelnes Match.
+        Gibt z.B. '5 Gen. · 47 Personen (62%)' zurück, oder '' wenn kein Pedigree."""
+        with self._cursor() as cur:
+            rows = cur.execute(
+                """SELECT generation, COUNT(*) AS cnt FROM match_pedigree
+                   WHERE test_guid=? AND match_guid=?
+                   GROUP BY generation ORDER BY generation""",
+                (test_guid, match_guid)
+            ).fetchall()
+        if not rows:
+            return ""
+        gen_counts = {r["generation"]: r["cnt"] for r in rows}
+        max_gen = max(gen_counts)
+        total = sum(gen_counts.values())
+        # Mögliche Vorfahren in max. Generation = 2^(max_gen-1) (Ahnen in Gen max_gen)
+        possible = sum(2 ** (g - 1) for g in range(1, max_gen + 1))
+        pct = round(total / possible * 100) if possible else 0
+        return f"{max_gen} Gen. · {total} Personen ({pct}%)"
 
     def get_pedigree_completeness_per_match(self, test_guid: str) -> list:
         """Return generation coverage per match (for pedigree-gap analysis)."""
@@ -1260,6 +1487,31 @@ class Database:
             except Exception:
                 r["gedcom_persons"] = 0
                 r["gedcom_linked"] = 0
+
+            # Seitenzuweisung
+            cur.execute(f"""
+                SELECT paternal_maternal, COUNT(*) FROM matches {where}
+                GROUP BY paternal_maternal
+            """, params)
+            sides = {"paternal": 0, "maternal": 0, "": 0}
+            for row in cur.fetchall():
+                sides[row[0] or ""] = row[1]
+            r["side_paternal"] = sides.get("paternal", 0)
+            r["side_maternal"] = sides.get("maternal", 0)
+            r["side_unset"] = sides.get("", 0)
+
+            # Per-Kit-Übersicht (join mit kits für Namen)
+            try:
+                cur.execute("""
+                    SELECT k.name, k.guid, COUNT(m.match_guid) AS cnt
+                    FROM kits k
+                    LEFT JOIN match_kit_membership m ON m.test_guid = k.guid
+                    GROUP BY k.guid ORDER BY cnt DESC
+                """)
+                r["kit_breakdown"] = [(row[0] or row[1][:16], row[2])
+                                      for row in cur.fetchall()]
+            except Exception:
+                r["kit_breakdown"] = []
         return r
 
     def get_bridge_hit_counts(self, test_guid: str) -> dict:

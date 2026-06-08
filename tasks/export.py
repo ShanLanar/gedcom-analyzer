@@ -10,10 +10,11 @@ from datetime import datetime
 # ── Excel-Export ───────────────────────────────────────────────────────────────
 
 def export_to_excel(all_sheets: list, output_path: str,
-                    progress_cb=None) -> bool:
+                    progress_cb=None, tab_colors: dict | None = None) -> bool:
     """
     Schreibt eine Excel-Datei mit einem Sheet pro Eintrag in all_sheets.
     all_sheets = [(sheet_name, [headers], [rows]), ...]
+    tab_colors = {sheet_name: "RRGGBB"} – optionale Tab-Farben pro Sheet.
 
     Nutzt openpyxl im write_only-Modus: Cells werden gestreamt geschrieben,
     Memory bleibt flach, und der Export ist bei großen Sheets etwa 10×
@@ -32,6 +33,7 @@ def export_to_excel(all_sheets: list, output_path: str,
         return False
 
     wb = Workbook(write_only=True)
+    tc = tab_colors or {}
 
     header_fill  = PatternFill(start_color="366092", end_color="366092",
                                 fill_type="solid")
@@ -59,7 +61,13 @@ def export_to_excel(all_sheets: list, output_path: str,
         if not data:
             continue
         try:
-            ws = wb.create_sheet(title=_unique_title(sheet_name))
+            title = _unique_title(sheet_name)
+            ws = wb.create_sheet(title=title)
+
+            # Tab-Farbe nach Themengruppe
+            color = tc.get(sheet_name) or tc.get(title)
+            if color:
+                ws.sheet_properties.tabColor = color
 
             # Spaltenbreiten anhand der Headers + ersten 50 Datenzeilen
             # bestimmen — muss vor dem ersten append() passieren.
@@ -74,6 +82,9 @@ def export_to_excel(all_sheets: list, output_path: str,
                 ws.column_dimensions[get_column_letter(ci)].width = min(
                     max_len + 2, 50)
             ws.freeze_panes = "A2"
+
+            # Autofilter auf die Header-Zeile
+            ws.auto_filter.ref = f"A1:{get_column_letter(len(headers))}1"
 
             # Header mit Styling
             styled = []
