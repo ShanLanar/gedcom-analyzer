@@ -1,186 +1,200 @@
 /* ===========================================================================
- * MyHeritage DNA – Spy + Auto-Scroll (alle Matches erfassen)
+ * MyHeritage DNA – Spy + Auto-Scroll v2 (korrekter Container)
  * ===========================================================================
- *
- * STRATEGIE: Nicht selbst API-Calls machen (Ze/Imperva blockiert Console-Calls),
- * sondern die React-App's eigene erfolgreiche Calls abfangen und die Matches
- * beim Scrollen einsammeln.
  *
  * ANLEITUNG:
  *   1. https://www.myheritage.com/dna/matches/OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ öffnen
- *   2. Warten bis erste Matches sichtbar sind
- *   3. F12 → Console → diesen Text einfügen → Enter
- *   4. Script scrollt automatisch und erfasst alle Matches (~7-15 Min)
- *   5. Download startet automatisch, oder: window._download() aufrufen
+ *   2. Warten bis erste Matches sichtbar sind (Liste erscheint)
+ *   3. F12 → Console → Text einfügen → Enter
+ *   4. Script scrollt automatisch (~7-15 Min für alle 11.145)
+ *   5. Download startet automatisch; manuell: window._download()
  *
- * Zwischenstand: window._status() → aktuell erfasste Anzahl
- * Manueller Download: window._download()
+ * Befehle:
+ *   window._status()    → aktuell erfasste Anzahl
+ *   window._download()  → sofort herunterladen
+ *   window._stop()      → Scroll stoppen
  * =========================================================================== */
 
 (async () => {
   "use strict";
 
-  const TOTAL_EXPECTED = 11145;
-  const SCROLL_DELAY   = 1500;  // ms zwischen Scroll-Schritten
-  const MAX_STABLE_ROUNDS = 8;  // Runden ohne neue Matches → fertig
+  const TOTAL_EXPECTED  = 11145;
+  const SCROLL_DELAY    = 1800;  // ms zwischen Scroll-Schritten
+  const MAX_STABLE      = 10;    // Runden ohne neue Matches → fertig
 
   // ── 1. Fetch-Spy installieren ────────────────────────────────────────────
-  const captured  = new Map();   // match_id → match-Daten
-  const _realFetch = window.fetch; // Ze's gepatchte Version
+  // Ze hat window.fetch bereits gepatcht. Wir wrappen Ze's Version, damit
+  // wir Reacts eigene erfolgreiche Calls abfangen.
+  const captured   = new Map();
+  const _zeFetch   = window.fetch;
+  let   _running   = true;
 
   window.fetch = async function(...args) {
-    const response = await _realFetch.apply(this, args);
-    const url = (typeof args[0] === "string" ? args[0] : args[0]?.url || "");
-
-    // DNA-Match-Antworten abfangen (Ze leitet zu /web-family-graphql)
-    if (url.includes("web-family-graphql") || url.includes("familygraphql")) {
+    const response = await _zeFetch.apply(this, args);
+    const url = (typeof args[0] === "string") ? args[0]
+              : (args[0]?.url ?? "");
+    // DNA-Match-Calls abfangen (Ze leitet familygraphql → web-family-graphql)
+    if (url.includes("familygraphql") || url.includes("web-family-graphql")) {
       response.clone().json().then(json => {
-        // dna_matches-Antwort
         const arr = json?.data?.dna_kit?.dna_matches?.data;
         if (Array.isArray(arr) && arr.length > 0) {
-          let newCount = 0;
-          arr.forEach(m => { if (m?.id && !captured.has(m.id)) { captured.set(m.id, m); newCount++; } });
-          if (newCount > 0) {
-            console.log(`[SPY] +${newCount} neue Matches (gesamt: ${captured.size}/${TOTAL_EXPECTED})`);
-          }
+          let added = 0;
+          arr.forEach(m => { if (m?.id && !captured.has(m.id)) { captured.set(m.id, m); added++; } });
+          if (added > 0)
+            console.log(`[SPY] +${added} Matches (gesamt: ${captured.size}/${TOTAL_EXPECTED})`);
         }
       }).catch(() => {});
     }
     return response;
   };
 
-  console.log("[SPY] ✓ Fetch-Spy aktiv – starte Auto-Scroll …");
+  console.log("[SPY] ✓ Fetch-Spy aktiv");
 
   // ── Hilfsfunktionen ──────────────────────────────────────────────────────
-  function download(filename, obj) {
-    const blob = new Blob([JSON.stringify(obj, null, 2)], { type: "application/json" });
-    const a = Object.assign(document.createElement("a"), {
-      href: URL.createObjectURL(blob), download: filename,
-    });
-    document.body.appendChild(a); a.click(); document.body.removeChild(a);
-    console.log(`[SPY] ✓ Download: ${filename} (${captured.size} Matches)`);
-  }
-
-  window._status = () => {
-    console.log(`[SPY] Erfasst: ${captured.size}/${TOTAL_EXPECTED}`);
-    return captured.size;
-  };
-
-  window._download = () => {
+  function makeResult() {
     const arr = Array.from(captured.values());
-    download(`mh_spy_${arr.length}.json`, {
+    return {
       meta: {
         kit_id:           "dnakit-9F9E6C0C-5EF0-4A73-9F85-1F1C8219B3A2",
         site_id:          "OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ",
         total_count:      TOTAL_EXPECTED,
         downloaded_count: arr.length,
         downloaded_at:    new Date().toISOString(),
-        method:           "spy_scroll",
+        method:           "spy_scroll_v2",
       },
       matches: arr,
-    });
-    return arr.length;
-  };
-
-  // ── 2. Scroll-Container finden ───────────────────────────────────────────
-  function findScrollContainer() {
-    // Mögliche Selektoren für die MH DNA-Matches-Liste
-    const candidates = [
-      ".dna-matches-list",
-      "[class*='MatchesList']",
-      "[class*='matches-list']",
-      "[class*='matchesList']",
-      "[class*='DNAMatches']",
-      "[class*='dna-matches']",
-      ".infinite-scroll-component",
-      "[data-testid*='match']",
-      // Fallback: größtes scrollbares Element
-    ];
-    for (const sel of candidates) {
-      const el = document.querySelector(sel);
-      if (el && el.scrollHeight > el.clientHeight) {
-        console.log(`[SCROLL] Container gefunden: ${sel}`);
-        return el;
-      }
-    }
-    // Fallback: erstes Element mit Overflow-Auto oder -Scroll
-    const all = document.querySelectorAll("*");
-    for (const el of all) {
-      const style = window.getComputedStyle(el);
-      if ((style.overflow === "auto" || style.overflowY === "auto" ||
-           style.overflow === "scroll" || style.overflowY === "scroll") &&
-          el.scrollHeight > el.clientHeight + 100) {
-        console.log(`[SCROLL] Container (Overflow-Fallback): ${el.tagName}.${el.className.split(" ")[0]}`);
-        return el;
-      }
-    }
-    console.log("[SCROLL] Kein spezifischer Container gefunden – scrolle document");
-    return null;
+    };
   }
 
-  function scrollStep(container) {
-    if (container) {
-      container.scrollTop += 3000;
+  function doDownload(label = "") {
+    const arr = Array.from(captured.values());
+    if (!arr.length) { console.log("[SPY] Nichts zu downloaden"); return 0; }
+    const blob = new Blob([JSON.stringify(makeResult(), null, 2)], { type: "application/json" });
+    const name = `mh_spy_${arr.length}${label}.json`;
+    const a = Object.assign(document.createElement("a"), { href: URL.createObjectURL(blob), download: name });
+    document.body.appendChild(a); a.click(); document.body.removeChild(a);
+    console.log(`[SPY] ✓ Download: ${name}`);
+    return arr.length;
+  }
+
+  window._status   = () => { console.log(`[SPY] ${captured.size}/${TOTAL_EXPECTED}`); return captured.size; };
+  window._download = () => doDownload();
+  window._stop     = () => { _running = false; console.log("[SPY] Scroll gestoppt"); };
+
+  // ── 2. Matches-Container finden ──────────────────────────────────────────
+  const SKIP_KEYWORDS = ["nav", "menu", "dropdown", "header", "footer", "toolbar",
+                         "popup", "modal", "toast", "tooltip", "sidebar"];
+
+  function isNav(el) {
+    const cls = (el.className || "").toLowerCase();
+    const id  = (el.id || "").toLowerCase();
+    return SKIP_KEYWORDS.some(k => cls.includes(k) || id.includes(k)) ||
+           ["HEADER", "FOOTER", "NAV", "ASIDE"].includes(el.tagName);
+  }
+
+  function findMatchesContainer() {
+    // 1. Seite scrollt als Ganzes (viele SPAs)
+    const bodyH = document.documentElement.scrollHeight;
+    if (bodyH > window.innerHeight + 200) {
+      console.log(`[SCROLL] Seite scrollbar (body: ${bodyH}px) – nutze window-Scroll`);
+      return "window";
     }
-    // Immer auch window/document scrollen
-    window.scrollTo({ top: document.documentElement.scrollHeight, behavior: "smooth" });
-    document.documentElement.scrollTop += 5000;
-    document.body.scrollTop += 5000;
+
+    // 2. Suche größtes scrollbares Div/Ul ohne Nav-Kontext
+    let best = null, bestSize = 0;
+    document.querySelectorAll("div,ul,ol,section,main,article").forEach(el => {
+      if (isNav(el)) return;
+      const s = window.getComputedStyle(el);
+      const scrollable = s.overflow === "auto" || s.overflowY === "auto" ||
+                         s.overflow === "scroll" || s.overflowY === "scroll";
+      if (!scrollable) return;
+      const extra = el.scrollHeight - el.clientHeight;
+      if (extra > 200 && extra > bestSize) { bestSize = extra; best = el; }
+    });
+
+    if (best) {
+      console.log(`[SCROLL] Container: ${best.tagName}.${(best.className||"").split(" ")[0]} (scrollbar: ${bestSize}px)`);
+      return best;
+    }
+
+    console.log("[SCROLL] Kein Container → window-Scroll");
+    return "window";
+  }
+
+  // Simuliert menschliches Scrollen + feuert Scroll-Events
+  function scrollStep(container) {
+    const big = 3000;
+    if (container === "window" || !container) {
+      // Sofort ans Ende scrollen
+      const target = Math.min(document.documentElement.scrollTop + big,
+                              document.documentElement.scrollHeight);
+      document.documentElement.scrollTop = target;
+      document.body.scrollTop = target;
+      window.scrollTo(0, target);
+    } else {
+      container.scrollTop = Math.min(container.scrollTop + big, container.scrollHeight);
+    }
+    // Scroll-Events feuern (triggert infinite-scroll-Listener)
+    const targets = container === "window"
+      ? [window, document, document.documentElement, document.body]
+      : [container, window, document];
+    targets.forEach(t => {
+      try { t.dispatchEvent(new Event("scroll", { bubbles: true })); } catch(_) {}
+    });
   }
 
   // ── 3. Auto-Scroll-Schleife ──────────────────────────────────────────────
   const sleep = ms => new Promise(r => setTimeout(r, ms));
+  await sleep(2000);
 
-  // Kurz warten damit erste Matches geladen sind
-  await sleep(1500);
+  let container  = findMatchesContainer();
+  let lastCount  = captured.size;
+  let stable     = 0;
+  let scrolls    = 0;
 
-  let container = findScrollContainer();
-  let lastCount = captured.size;
-  let stableRounds = 0;
-  let totalScrolls = 0;
-
-  while (stableRounds < MAX_STABLE_ROUNDS) {
+  while (_running && stable < MAX_STABLE) {
     scrollStep(container);
     await sleep(SCROLL_DELAY);
-    totalScrolls++;
+    scrolls++;
 
-    // Container neu suchen (falls DOM sich geändert hat)
-    if (totalScrolls % 20 === 0) {
-      container = findScrollContainer();
-    }
+    // Container alle 30 Scrolls neu prüfen (DOM ändert sich)
+    if (scrolls % 30 === 0) container = findMatchesContainer();
 
     if (captured.size > lastCount) {
       lastCount = captured.size;
-      stableRounds = 0;
+      stable = 0;
     } else {
-      stableRounds++;
+      stable++;
     }
 
-    // Fortschritt alle 50 Scrolls loggen
-    if (totalScrolls % 50 === 0) {
+    // Log alle 20 Scrolls
+    if (scrolls % 20 === 0) {
       const pct = (captured.size / TOTAL_EXPECTED * 100).toFixed(1);
-      console.log(`[SCROLL] ${totalScrolls} Scrolls, ${captured.size}/${TOTAL_EXPECTED} (${pct}%), stabil: ${stableRounds}/${MAX_STABLE_ROUNDS}`);
+      console.log(`[SCROLL] ${scrolls} Scrolls | ${captured.size}/${TOTAL_EXPECTED} (${pct}%) | stabil: ${stable}/${MAX_STABLE}`);
     }
 
-    // Zwischendownload alle 500 neue Matches
-    if (captured.size > 0 && captured.size % 500 < 10 && captured.size !== lastCount) {
-      window._download();
+    // Zwischendownload alle ~500 Matches
+    if (captured.size > 0 && captured.size % 500 < 5 && captured.size !== lastCount) {
+      doDownload(`_zwischenstand`);
     }
 
-    // Abbruch wenn alle erfasst
     if (captured.size >= TOTAL_EXPECTED) {
-      console.log(`[SCROLL] ✅ Alle ${TOTAL_EXPECTED} Matches erfasst!`);
+      console.log("[SPY] ✅ Alle Matches erfasst!");
       break;
     }
   }
 
-  // ── 4. Ergebnis herunterladen ────────────────────────────────────────────
+  // ── 4. Abschluss ────────────────────────────────────────────────────────
   if (captured.size === 0) {
-    console.warn("[SPY] ⚠️  Keine Matches erfasst.");
-    console.warn("[SPY] Tipp: Seite neu laden, Matches-Liste sichtbar machen, dann erneut ausführen.");
-    console.warn("[SPY] Oder: manuell durch die Liste scrollen und dann window._download() aufrufen.");
+    console.warn("[SPY] ⚠️ Keine Matches erfasst. Mögliche Ursachen:");
+    console.warn("  • Scroll hat nicht die richtige Liste getroffen");
+    console.warn("  • React macht keine neuen API-Calls beim Scrollen");
+    console.warn("");
+    console.warn("[SPY] Bitte manuell scrollen und window._download() aufrufen.");
+    console.warn("[SPY] Oder: Seite neu laden → Script erneut ausführen →");
+    console.warn("       sofort nach dem Einfügen schnell nach unten scrollen.");
   } else {
-    console.log(`\n[SPY] ✅ Fertig! ${captured.size} Matches erfasst.`);
-    window._download();
+    console.log(`[SPY] Fertig: ${captured.size} Matches | Download startet …`);
+    doDownload("_final");
   }
 })();
