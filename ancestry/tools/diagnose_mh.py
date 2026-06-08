@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """
-Diagnose-Script Phase 10:
-  A) Liest MainFullInitializeBundled.js und sucht Ze / web-family-graphql Kontext
-  B) Liest das Relationships-Bundle und sucht nach Match-Lade-Logik
-  C) Sucht nach alternativen PHP-Endpunkten
+Diagnose-Script Phase 11:
+  Extrahiert aus DnaResultsBundled.js:
+  - Den vollständigen i=["mh_automat…"] Cookie-Array
+  - Den Header-Präfix (L.aG / s=…)
+  - Alle exportierten Konstanten rund um den GraphQL-Aufruf
 """
 import json, re, sys
 from pathlib import Path
@@ -27,7 +28,6 @@ print("Lade Hauptseite …")
 r0 = s.get(f"{BASE}/dna/matches/{KIT}", timeout=20)
 html = r0.text
 
-# Bundle-URLs aus HTML
 bundle_map = {}
 for m in re.finditer(r'src="((?:https?://[^"]+|/[^"]+/bundles/JS/[^"]+)\.js[^"]*)"', html):
     url = m.group(1)
@@ -36,100 +36,102 @@ for m in re.finditer(r'src="((?:https?://[^"]+|/[^"]+/bundles/JS/[^"]+)\.js[^"]*
         url = BASE + url
     bundle_map[name] = url
 
-def show_context(js, keyword, chars=300, max_hits=5):
-    """Gibt Kontext um alle Vorkommen eines Keywords aus."""
-    hits = [m.start() for m in re.finditer(re.escape(keyword), js)]
-    if not hits:
-        print(f"  '{keyword}' nicht gefunden.")
-        return
-    print(f"  '{keyword}' – {len(hits)} Vorkommen, erste {min(max_hits, len(hits))} gezeigt:")
-    for i, pos in enumerate(hits[:max_hits]):
-        start = max(0, pos - chars)
-        end   = min(len(js), pos + chars)
-        snippet = js[start:end].replace('\n', ' ')
-        print(f"  [{i+1}] …{snippet}…")
-        print()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# A) MainFullInitializeBundled.js
-# ══════════════════════════════════════════════════════════════════════════════
-print("=" * 60)
-print("A) MainFullInitializeBundled.js")
-print("=" * 60)
-
-main_url = next((v for k, v in bundle_map.items() if "MainFullInitialize" in k), None)
-if main_url:
-    print(f"Lade {main_url[-60:]} …")
-    r = s.get(main_url, timeout=30)
-    js_main = r.text
-    print(f"Größe: {len(js_main)//1024}KB\n")
-
-    show_context(js_main, "web-family-graphql", 400)
-    show_context(js_main, "web-family-graph\"", 300)
-    show_context(js_main, "graphql_token", 300)
-    show_context(js_main, "app_id", 200, 3)
-
-    # PHP-Endpunkte in diesem Bundle
-    print("  PHP-Endpunkte in MainFullInitialize:")
-    for m in re.finditer(r'["\`](/FP/[A-Za-z0-9/_\-]+\.php)["\`]', js_main):
-        ep = m.group(1)
-        if any(k in ep.lower() for k in ["dna","match","kit","relative","test"]):
-            print(f"    {ep}")
-else:
-    print("  MainFullInitializeBundled nicht in Bundle-Map gefunden")
-    print("  Verfügbare Bundles:", list(bundle_map.keys())[:8])
-print()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# B) Relationships-Bundle (onships/AncientDNA, 1231KB)
-# ══════════════════════════════════════════════════════════════════════════════
-print("=" * 60)
-print("B) Relationships-Bundle (1231KB)")
-print("=" * 60)
-
-rel_url = next((v for k, v in bundle_map.items()
-                if "onships" in k or "Relationship" in k or ("Ancient" in k and len(k) > 50)), None)
-if rel_url:
-    print(f"Lade {rel_url[-60:]} …")
-    r2 = s.get(rel_url, timeout=60)
-    js_rel = r2.text
-    print(f"Größe: {len(js_rel)//1024}KB\n")
-
-    show_context(js_rel, "web-family-graphql", 400)
-    show_context(js_rel, "dna_matches", 300, 3)
-
-    print("  PHP-Endpunkte im Relationships-Bundle:")
-    rel_php = set()
-    for m in re.finditer(r'["\`](/(?:FP|api)[A-Za-z0-9/_\-]+\.php)["\`]', js_rel):
-        ep = m.group(1)
-        if any(k in ep.lower() for k in ["dna","match","kit","relative","test","segment"]):
-            rel_php.add(ep)
-    for ep in sorted(rel_php):
-        print(f"    {ep}")
-else:
-    print("  Relationships-Bundle nicht gefunden")
-    print("  Verfügbare Bundles:", list(bundle_map.keys())[:8])
-print()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# C) DnaResultsBundled – Kontext für Ze / fetch Calls
-# ══════════════════════════════════════════════════════════════════════════════
-print("=" * 60)
-print("C) DnaResultsBundled – fetch/axios Calls")
-print("=" * 60)
-
+# ── DnaResultsBundled laden ───────────────────────────────────────────────────
 dna_url = next((v for k, v in bundle_map.items() if "DnaResults" in k), None)
-if dna_url:
-    r3 = s.get(dna_url, timeout=30)
-    js_dna = r3.text
-    print(f"Größe: {len(js_dna)//1024}KB\n")
-    show_context(js_dna, "web-family-graphql", 400)
-    show_context(js_dna, "access_token", 200, 3)
-    show_context(js_dna, "authorization", 200, 3)
+if not dna_url:
+    print("DnaResultsBundled nicht gefunden!"); sys.exit(1)
 
-    print("  Alle PHP-Endpunkte in DnaResults:")
-    dna_php = set()
-    for m in re.finditer(r'["\`](/(?:FP|api)[A-Za-z0-9/_\-]+\.php)["\`]', js_dna):
-        dna_php.add(m.group(1))
-    for ep in sorted(dna_php):
-        print(f"    {ep}")
+print(f"Lade DnaResultsBundled …")
+js = requests.Session().get(dna_url, headers={"User-Agent": UA}, timeout=30).text
+print(f"Größe: {len(js)//1024}KB\n")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 1) Vollständiger Kontext rund um web-family-graphql (±1200 Zeichen)
+# ══════════════════════════════════════════════════════════════════════════════
+print("=" * 60)
+print("1) web-family-graphql – vollständiger Kontext")
+print("=" * 60)
+pos = js.find("web-family-graphql")
+if pos >= 0:
+    start = max(0, pos - 1200)
+    end   = min(len(js), pos + 1200)
+    print(js[start:end])
+print()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 2) mh_automat Array – vollständiger Inhalt
+# ══════════════════════════════════════════════════════════════════════════════
+print("=" * 60)
+print("2) mh_automat Array")
+print("=" * 60)
+m = re.search(r'(\[["\'](mh_[^"\']+)["\'][^\]]*\])', js)
+if m:
+    print(f"Gefundener Array: {m.group(1)[:500]}")
+else:
+    # Breiteren Match versuchen
+    m2 = re.search(r'mh_automat[a-z_]*', js)
+    if m2:
+        pos2 = m2.start()
+        print(js[max(0,pos2-200):pos2+400])
+    else:
+        print("❌ 'mh_automat' nicht gefunden – suche nach 'mh_':")
+        for m3 in re.finditer(r'"(mh_[a-z_]+)"', js):
+            print(f"  {m3.group(1)}")
+print()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 3) Alle Exports des GraphQL-Moduls
+# ══════════════════════════════════════════════════════════════════════════════
+print("=" * 60)
+print("3) Exports des GraphQL-Moduls (aG, Gz, mZ, nk, Zh, lD, wv)")
+print("=" * 60)
+# Suche den Export-Block
+export_m = re.search(r'(Zh:\(\)=>[^,}]{1,30},aG:\(\)=>[^,}]{1,30},lD:\(\)=>[^,}]{1,30}[^}]{0,200})', js)
+if export_m:
+    print(f"Export-Block: {export_m.group(1)}")
+else:
+    # Alternativ: Kontext um 'aG:' suchen
+    for m in re.finditer(r'.{0,100}aG:\(\)=>.{0,100}', js):
+        print(f"aG-Kontext: {m.group()}")
+        break
+print()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 4) Alle String-Konstanten in Nähe des GraphQL-Aufrufs
+# ══════════════════════════════════════════════════════════════════════════════
+print("=" * 60)
+print("4) String-Konstanten rund um FamilyGraphQL-Service")
+print("=" * 60)
+svc_m = re.search(r'familyGraphQlService', js)
+if svc_m:
+    pos3 = svc_m.start()
+    snippet = js[max(0,pos3-2000):pos3+500]
+    # Alle String-Literale extrahieren
+    strings = re.findall(r'"([^"]{2,60})"', snippet)
+    strings = [x for x in strings if not x.startswith('/') and not x.startswith('http')]
+    print(f"Strings in Nähe von familyGraphQlService: {strings[:30]}")
+    print()
+    print(f"Vollständiger Kontext (-2000..+500):")
+    print(snippet[:1000])
+print()
+
+# ══════════════════════════════════════════════════════════════════════════════
+# 5) Prüfe ob mh_automat* Cookies in unserem Cookie-File vorhanden
+# ══════════════════════════════════════════════════════════════════════════════
+print("=" * 60)
+print("5) Unsere Cookies vs. mh_* Cookies")
+print("=" * 60)
+print("Alle Cookies in myheritage_cookies.json:")
+for name, val in cookies.items():
+    print(f"  {name} = {str(val)[:50]}")
+print()
+mh_auto = {k: v for k, v in cookies.items() if 'automat' in k.lower() or 'mh_' in k.lower()}
+if mh_auto:
+    print(f"mh_automat* gefunden: {mh_auto}")
+else:
+    print("❌ Keine mh_automat* Cookies im Cookie-File!")
+    print()
+    print("=> LÖSUNG: Browser-Konsole auf der DNA-Matches-Seite öffnen und eingeben:")
+    print('   let r={}; document.cookie.split(";").forEach(c=>{const[k,...v]=c.trim().split("="); if(k.startsWith("mh_"))r[k]=v.join("=");}); console.log(JSON.stringify(r));')
+    print()
+    print("=> Das zeigt die mh_* Cookies im Browser. Diese bitte hier einfügen.")
