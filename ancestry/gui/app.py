@@ -5330,6 +5330,12 @@ class AncestryDnaApp(tk.Tk):
 
         def _ok():
             result["ok"] = True
+            # Auswahl JETZT auslesen – nach dlg.destroy() sind die Widgets weg
+            result["method"] = method_var.get()
+            try:
+                result["kit_index"] = kit_combo.current()
+            except Exception:
+                result["kit_index"] = -1
             dlg.destroy()
 
         ttk.Button(btn_frame, text="Abbrechen", command=dlg.destroy).pack(side="left", padx=4)
@@ -5338,12 +5344,14 @@ class AncestryDnaApp(tk.Tk):
         if not result["ok"]:
             return
 
-        if method_var.get() == "kit":
+        method = result.get("method", "")
+        kit_index = result.get("kit_index", -1)
+        if method == "kit":
             # Via Mutter-Kit
-            if not other_kits or kit_combo.current() < 0:
+            if not other_kits or kit_index < 0:
                 messagebox.showinfo("Kein Kit", "Kein zweites Kit verfügbar.")
                 return
-            parent_kit = other_kits[kit_combo.current()]
+            parent_kit = other_kits[kit_index]
             overlap = self._db.get_paternal_maternal_overlap(test_guid, parent_kit.guid)
             mat = overlap["shared"]
             pat = overlap["only_a"]
@@ -5354,7 +5362,7 @@ class AncestryDnaApp(tk.Tk):
                                 f"✅ {n_mat} Matches als mütterlich markiert\n"
                                 f"✅ {n_pat} Matches als väterlich markiert\n\n"
                                 f"Mutter-Kit: {parent_kit.name or parent_kit.guid[:16]}")
-        elif method_var.get() == "ged":
+        elif method == "ged":
             # Via GEDCOM-Baum
             if not has_amap:
                 messagebox.showwarning("Kein Ahnen-Map",
@@ -5391,7 +5399,7 @@ class AncestryDnaApp(tk.Tk):
                                 f"   {len(both_guids)} Matches beidseitig (unverändert)\n\n"
                                 f"Basis: {len(amap)} Vorfahren im Ahnen-Map")
 
-        elif method_var.get() == "ancestry":
+        elif method == "ancestry":
             # Via Ancestry-Schätzung (Tag 8 / matchClusterCode)
             try:
                 with self._db._cursor() as cur:
