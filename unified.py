@@ -76,23 +76,23 @@ def _error_tab(parent: tk.Frame, title: str, exc: Exception) -> None:
 
 
 def main():
+    AhnenApp = None
+    _ahnen_exc: Exception = RuntimeError("not loaded")
     try:
         AhnenApp = _eager_import_analyzer()
+        _ahnen_exc = None
     except Exception as exc:
         log.exception("Analyzer-Import fehlgeschlagen")
-        AhnenApp = None
         _ahnen_exc = exc
-    else:
-        _ahnen_exc = None
 
+    AncestryDnaApp = None
+    _dna_exc: Exception = RuntimeError("not loaded")
     try:
         AncestryDnaApp = _load_dna_app()
+        _dna_exc = None
     except Exception as exc:
         log.exception("DNA-App-Import fehlgeschlagen")
-        AncestryDnaApp = None
         _dna_exc = exc
-    else:
-        _dna_exc = None
 
     root = tk.Tk()
     root.title("Genealogie-Suite – Stammbaum & DNA")

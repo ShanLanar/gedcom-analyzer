@@ -459,7 +459,12 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 _save_person(c, p, pid, url)
             except Exception as e:
                 log.warning("Parse/Speicher-Fehler %s: %s", pid, e)
-                return [], {}   # Seite war da, aber Parser versagt → als done markieren
+                # Mark done so we don't retry an unparseable page endlessly,
+                # but return empty ids so no phantom descendants get enqueued.
+                c.execute("UPDATE wt_frontier SET done=1 WHERE id=? AND direction=?",
+                          (pid, direction))
+                c.commit()
+                return [], None  # pdata=None prevents _in_scope expansion
             pdata = p
             par, chi = p["parents"], p["children"]
         else:

@@ -5338,14 +5338,10 @@ class AncestryDnaApp(tk.Frame):
         def _do():
             try:
                 n = self._db.link_gedmatch_bridges()
-                self.after(0, lambda: (
-                    messagebox.showinfo(
-                        "GEDmatch-Brücke",
-                        f"{n} GEDmatch-Match/es mit Ancestry/MH-Matches verknüpft.\n"
-                        "⚡-Badge erscheint in der Match-Liste wenn Brücke bekannt."
-                    ),
-                    self._refresh_match_table(),
-                ))
+                msg = (f"{n} GEDmatch-Match/es mit Ancestry/MH-Matches verknüpft.\n"
+                       "⚡-Badge erscheint in der Match-Liste wenn Brücke bekannt.")
+                self.after(0, lambda m=msg: messagebox.showinfo("GEDmatch-Brücke", m))
+                self.after(50, self._refresh_match_table)
             except Exception as e:
                 self.after(0, lambda: messagebox.showerror("Fehler", str(e)))
         threading.Thread(target=_do, daemon=True).start()

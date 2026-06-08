@@ -714,32 +714,25 @@ class Database:
 
         where        = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         limit_clause = f"LIMIT {limit} OFFSET {offset}" if limit else ""
-        # Join with gedmatch_bridge to enrich each match with its GEDmatch kit (if any)
-        bridge_join = (
-            "LEFT JOIN gedmatch_bridge gb ON gb.match_guid = m.match_guid"
-        )
+
+        # Probe whether gedmatch_bridge table exists (pre-v19 DBs may not have it)
+        # Must happen BEFORE building SQL so we never reference a missing table.
+        _bridge_ok = self._table_exists("gedmatch_bridge")
+        if _bridge_ok:
+            bridge_join = "LEFT JOIN gedmatch_bridge gb ON gb.match_guid = m.match_guid"
+            extra_col   = "COALESCE(gb.gedmatch_kit_id,'') AS gedmatch_kit_id"
+        else:
+            bridge_join = ""
+            extra_col   = "'' AS gedmatch_kit_id"
+
         if use_kit_join:
-            sql = (f"SELECT m.*, COALESCE(gb.gedmatch_kit_id,'') AS gedmatch_kit_id "
-                   f"FROM matches m "
+            sql = (f"SELECT m.*, {extra_col} FROM matches m "
                    f"JOIN match_kit_membership mkm ON mkm.match_guid = m.match_guid "
                    f"{bridge_join} "
                    f"{where} ORDER BY m.{sort_col} {direction} {limit_clause}")
         else:
-            sql = (f"SELECT m.*, COALESCE(gb.gedmatch_kit_id,'') AS gedmatch_kit_id "
-                   f"FROM matches m {bridge_join} {where} "
+            sql = (f"SELECT m.*, {extra_col} FROM matches m {bridge_join} {where} "
                    f"ORDER BY m.{sort_col} {direction} {limit_clause}")
-
-        # Probe whether gedmatch_bridge table exists (pre-v19 DBs may not have it)
-        _bridge_ok = self._table_exists("gedmatch_bridge")
-        if not _bridge_ok:
-            bridge_join = ""
-            if use_kit_join:
-                sql = (f"SELECT m.* FROM matches m "
-                       f"JOIN match_kit_membership mkm ON mkm.match_guid = m.match_guid "
-                       f"{where} ORDER BY m.{sort_col} {direction} {limit_clause}")
-            else:
-                sql = (f"SELECT * FROM matches m {where} "
-                       f"ORDER BY {sort_col} {direction} {limit_clause}")
 
         with self._cursor() as cur:
             cur.execute(sql, params)
