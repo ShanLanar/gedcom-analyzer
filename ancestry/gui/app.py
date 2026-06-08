@@ -3069,6 +3069,8 @@ class AncestryDnaApp(tk.Tk):
             self._tree.column(col, width=width, anchor=anchor, stretch=(col == "name"))
             self._lang_headings.append((self._tree, col, key))
 
+        self._tree.tag_configure("paternal",  background="#DDF0FF")
+        self._tree.tag_configure("maternal",  background="#FFE0E0")
         self._tree.tag_configure("close",    background="#D6F5E3")
         self._tree.tag_configure("starred",  background="#FFF3CD")
         self._tree.tag_configure("no_tree",  foreground="#999999")
@@ -3413,6 +3415,11 @@ class AncestryDnaApp(tk.Tk):
         for m in self._matches:
             endo = getattr(m, "endogamy_cluster", "") or ""
             tags = []
+            pm = m.paternal_maternal or ""
+            if pm == "paternal":
+                tags.append("paternal")
+            elif pm == "maternal":
+                tags.append("maternal")
             if endo:
                 tags.append("endogamy")
             elif m.starred:
