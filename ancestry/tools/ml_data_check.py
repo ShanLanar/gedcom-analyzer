@@ -44,6 +44,39 @@ def main():
     for r in c.execute("SELECT source, COUNT(*) n FROM matches GROUP BY source ORDER BY n DESC"):
         print(f"  {r['source'] or '(leer)':12} {r['n']}")
 
+    # ── GEDCOM-Trainingskorpus (der eigentliche gelabelte Datensatz) ──────────
+    print("\n── GEDCOM-Trainingskorpus ──")
+    gp_total = count("SELECT COUNT(*) FROM gedcom_persons")
+    gp_named = count("SELECT COUNT(*) FROM gedcom_persons WHERE TRIM(surname)<>''")
+    gp_place = count("SELECT COUNT(*) FROM gedcom_persons "
+                     "WHERE TRIM(surname)<>'' AND TRIM(birth_place)<>''")
+    print(f"  Personen gesamt:                {gp_total}")
+    print(f"  mit Nachname:                   {gp_named}")
+    print(f"  mit Nachname + Geburtsort:      {gp_place}  ← Trainings-Paare")
+
+    # Regionsverteilung im GEDCOM (Ground Truth für das Modell)
+    try:
+        sys.path.insert(0, str(ANCESTRY_DIR / "core"))
+        sys.path.insert(0, str(ANCESTRY_DIR))
+        from core.bridge import _extract_region
+    except Exception:
+        _extract_region = lambda s: (s or "").split(",")[-1].strip()
+
+    ged_regions = Counter()
+    for r in c.execute("SELECT birth_place FROM gedcom_persons "
+                       "WHERE TRIM(surname)<>'' AND TRIM(birth_place)<>''"):
+        reg = _extract_region(r["birth_place"])
+        if reg:
+            ged_regions[reg] += 1
+    big_ged = sum(1 for n in ged_regions.values() if n >= 30)
+    print(f"  unterscheidbare Regionen:       {len(ged_regions)} "
+          f"(davon {big_ged} mit >=30 Personen)")
+    print("  Top-Regionen:")
+    for reg, n in ged_regions.most_common(12):
+        print(f"    {reg:28} {n}")
+    if gp_place and gp_place >= 1000 and big_ged >= 5:
+        print("  → Starker Trainingskorpus. scikit-learn Random Forest klar empfohlen.")
+
     ped = count("SELECT COUNT(DISTINCT match_guid) FROM match_pedigree WHERE TRIM(surname)<>''")
     print(f"\nMatches mit Pedigree-Nachnamen: {ped}")
 
