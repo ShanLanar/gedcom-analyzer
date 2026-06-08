@@ -302,6 +302,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "st.with_tree_pct": {"de": "Mit Baum %:", "en": "With tree %:"},
     "st.side_pct":      {"de": "Seite bekannt %:", "en": "Side known %:"},
     "st.endo_pct":      {"de": "Cluster bekannt %:", "en": "Cluster known %:"},
+    # Matches tab — kit bar
+    "mf.kit":           {"de": "Kit:",              "en": "Kit:"},
+    "mf.sides":         {"de": "⚡ Seiten ableiten","en": "⚡ Assign sides"},
+    # GEDCOM link panel buttons
+    "md.ged_origin":    {"de": "🗺 Herkunft ableiten",        "en": "🗺 Infer origins"},
+    "md.ged_endogamy":  {"de": "🧬 Endogamie übertragen",     "en": "🧬 Transfer endogamy"},
 }
 
 
@@ -2973,15 +2979,19 @@ class AncestryDnaApp(tk.Tk):
 
         # Kit-Leiste
         kl = ttk.Frame(f); kl.pack(fill="x", padx=10, pady=(6, 0))
-        ttk.Label(kl, text="Kit:", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 4))
+        _sv_kit = tk.StringVar(value=self._t("mf.kit"))
+        ttk.Label(kl, textvariable=_sv_kit, font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 4))
+        self._lang_widgets.append((_sv_kit, "mf.kit"))
         self._matches_kit_var = tk.StringVar()
         self._matches_kit_combo = ttk.Combobox(
             kl, textvariable=self._matches_kit_var, width=38, state="readonly")
         self._matches_kit_combo.pack(side="left")
         self._matches_kit_combo.bind(
             "<<ComboboxSelected>>", lambda _: self._refresh_match_table())
-        ttk.Button(kl, text="⚡ Seiten ableiten",
+        _sv_sides = tk.StringVar(value=self._t("mf.sides"))
+        ttk.Button(kl, textvariable=_sv_sides,
                    command=self._auto_assign_sides).pack(side="left", padx=(12, 0))
+        self._lang_widgets.append((_sv_sides, "mf.sides"))
 
         # Filter-Leiste
         fl = ttk.Frame(f); fl.pack(fill="x", padx=10, pady=6)
@@ -3039,6 +3049,7 @@ class AncestryDnaApp(tk.Tk):
             ("mat",   "mf.chip_mat",   self._chip_mat),
         ]
         self._chip_btns: dict[str, tk.Button] = {}
+        self._chip_t_keys: dict[str, str] = {}
         for key, t_key, cmd in chip_defs:
             var = tk.BooleanVar(value=False)
             self._chip_vars[key] = var
@@ -3052,6 +3063,8 @@ class AncestryDnaApp(tk.Tk):
             )
             btn.pack(side="left", padx=3)
             self._chip_btns[key] = btn
+            self._chip_t_keys[key] = t_key
+            self._lang_widgets.append((btn, t_key))
 
         # Haupt-Pane
         pane = ttk.PanedWindow(f, orient="horizontal")
@@ -3288,10 +3301,14 @@ class AncestryDnaApp(tk.Tk):
                    command=lambda: self._ensure_gedcom_loaded(
                        self._on_gedcom_loaded_update_header, force_ask=True)
                    ).pack(side="left")
-        ttk.Button(hdr, text="🗺 Herkunft ableiten",
+        _sv_orig = tk.StringVar(value=self._t("md.ged_origin"))
+        ttk.Button(hdr, textvariable=_sv_orig,
                    command=self._run_origin_inference).pack(side="right", padx=4)
-        ttk.Button(hdr, text="🧬 Endogamie übertragen",
+        self._lang_widgets.append((_sv_orig, "md.ged_origin"))
+        _sv_endo_btn = tk.StringVar(value=self._t("md.ged_endogamy"))
+        ttk.Button(hdr, textvariable=_sv_endo_btn,
                    command=self._run_endogamy_transfer).pack(side="right", padx=4)
+        self._lang_widgets.append((_sv_endo_btn, "md.ged_endogamy"))
 
         # Zeile 2: Status + Bulk-Abgleich-Button
         tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=(2, 4))
