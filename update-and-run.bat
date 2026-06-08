@@ -132,16 +132,26 @@ if %errorlevel% neq 0 (
 
 REM --- Programmauswahl ----------------------------------------------------------
 echo Welches Programm starten?
-echo   [1] GEDCOM-Analyzer  (Stammbaum-Auswertung)
-echo   [2] Ancestry DNA Tool (DNA-Matches ^& Clustering)
-echo   [3] Beenden
+echo   [1] Genealogie-Suite (Stammbaum + DNA in EINEM Fenster)  ^<-- empfohlen
+echo   [2] Nur GEDCOM-Analyzer  (Stammbaum-Auswertung)
+echo   [3] Nur Ancestry DNA Tool (DNA-Matches ^& Clustering)
+echo   [4] Beenden
 echo.
-set /p CHOICE="Auswahl (1/2/3): "
+set /p CHOICE="Auswahl (1/2/3/4): "
 
-if "%CHOICE%"=="1" goto start_gedcom
-if "%CHOICE%"=="2" goto start_dna
-if "%CHOICE%"=="3" goto end
-echo Ungueltige Eingabe – starte GEDCOM-Analyzer.
+if "%CHOICE%"=="1" goto start_unified
+if "%CHOICE%"=="2" goto start_gedcom
+if "%CHOICE%"=="3" goto start_dna
+if "%CHOICE%"=="4" goto end
+echo Ungueltige Eingabe – starte Genealogie-Suite.
+
+:start_unified
+echo Starte Genealogie-Suite (vereint) ...
+pushd "%REPO_DIR%" >nul
+%PYTHON% unified.py
+set "RC=%errorlevel%"
+popd >nul
+goto done
 
 :start_gedcom
 echo Starte GEDCOM-Analyzer ...

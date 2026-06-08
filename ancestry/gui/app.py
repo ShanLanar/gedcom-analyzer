@@ -313,13 +313,21 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 }
 
 
-class AncestryDnaApp(tk.Tk):
+class AncestryDnaApp(tk.Frame):
 
-    def __init__(self, gedcom_path: str = ""):
-        super().__init__()
-        self.title("Ancestry DNA Tool")
-        self.geometry("1200x760")
-        self.minsize(960, 620)
+    def __init__(self, master=None, gedcom_path: str = ""):
+        # Dual-Modus: master=None -> eigenes Fenster (Standalone, abwärtskompatibel),
+        # master=<Frame/Notebook-Tab> -> eingebettet in die vereinte App.
+        self._embedded = master is not None
+        if master is None:
+            master = tk.Tk()
+        super().__init__(master)
+        _root = self.winfo_toplevel()
+        if not self._embedded:
+            _root.title("Ancestry DNA Tool")
+            _root.geometry("1200x760")
+            _root.minsize(960, 620)
+        self.pack(fill="both", expand=True)
 
         self._auth    : Optional[AncestryAuth]      = None
         self._client  : Optional[AncestryApiClient] = None
@@ -350,10 +358,15 @@ class AncestryDnaApp(tk.Tk):
         self._build_main()
         self._refresh_match_table()
 
-        self.protocol("WM_DELETE_WINDOW", self._on_close)
+        if not self._embedded:
+            self.winfo_toplevel().protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(200, self._load_settings)
         self.after(300, self._update_matches_kit_combo)
         self.after(400, self._load_lang_setting)
+
+    def mainloop(self, *a, **k):
+        """Standalone-Kompatibilität: leitet an das Toplevel weiter."""
+        self.winfo_toplevel().mainloop(*a, **k)
 
     # ── Styling ───────────────────────────────────────────────────────────────
 
@@ -5786,6 +5799,12 @@ class AncestryDnaApp(tk.Tk):
             if not messagebox.askyesno("Beenden?", "Download läuft noch. Wirklich beenden?"):
                 return
             self._scraper.stop()
-        self._save_settings()
-        self._db.close()
-        self.destroy()
+        self.shutdown()
+        self.winfo_toplevel().destroy()
+
+    def shutdown(self):
+        """Aufräumen ohne Fenster zu zerstören – für die eingebettete Nutzung."""
+        try: self._save_settings()
+        except Exception: pass
+        try: self._db.close()
+        except Exception: pass

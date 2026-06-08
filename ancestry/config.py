@@ -122,8 +122,12 @@ PEDIGREE_DEEP_EXTRA       = 16   # max. zusätzliche Re-Fokus-Calls pro Match
 REQUEST_TIMEOUT = 30
 
 # ── Datenbank / Logging / Export ──────────────────────────────────────────────
-DB_FILE    = "ancestry_dna.db"
-LOG_FILE   = "ancestry_dna.log"
+# Absolut relativ zum ancestry-Paketordner, damit DB/Log unabhängig vom
+# Arbeitsverzeichnis gefunden werden (wichtig für den vereinten Start aus dem
+# Repo-Root). Die CLI-Importer nutzen denselben Ort (ANCESTRY_DIR/ancestry_dna.db).
+_ANCDIR    = os.path.dirname(os.path.abspath(__file__))
+DB_FILE    = os.path.join(_ANCDIR, "ancestry_dna.db")
+LOG_FILE   = os.path.join(_ANCDIR, "ancestry_dna.log")
 LOG_LEVEL  = "DEBUG"
 EXPORT_DIR = os.path.join(os.path.expanduser("~"), "Documents")
 

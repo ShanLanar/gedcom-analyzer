@@ -420,17 +420,30 @@ import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk
 
 
-class AhnenApp(tk.Tk):
+class AhnenApp(tk.Frame):
 
-    def __init__(self):
-        super().__init__()
-        self.title("Ahnen-Analyse v9.0")
-        self.geometry("1100x720")
+    def __init__(self, master=None):
+        # Dual-Modus: master=None -> eigenes Fenster (Standalone),
+        # master=<Frame> -> eingebettet in die vereinte App.
+        self._embedded = master is not None
+        if master is None:
+            master = tk.Tk()
+        super().__init__(master)
+        _root = self.winfo_toplevel()
+        if not self._embedded:
+            _root.title("Ahnen-Analyse v9.0")
+            _root.geometry("1100x720")
+            _root.configure(bg=cfg.BG)
         self.configure(bg=cfg.BG)
+        self.pack(fill="both", expand=True)
         self._running = False
         self._stop_event = threading.Event()
         self._task_vars: dict[str, tk.BooleanVar] = {}
         self._build_ui()
+
+    def mainloop(self, *a, **k):
+        """Standalone-Kompatibilität: leitet an das Toplevel weiter."""
+        self.winfo_toplevel().mainloop(*a, **k)
 
     # ── UI-Aufbau ──────────────────────────────────────────────────────────────
 
