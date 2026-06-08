@@ -331,14 +331,56 @@ def import_external_persons(db, persons: list[dict], source: str) -> int:
     return len(rows)
 
 
+def _lev(a: str, b: str, cap: int = 4) -> int:
+    """Levenshtein-Distanz mit Früh-Abbruch bei > cap (Performance)."""
+    if a == b:
+        return 0
+    la, lb = len(a), len(b)
+    if abs(la - lb) > cap:
+        return cap + 1
+    prev = list(range(lb + 1))
+    for i in range(1, la + 1):
+        cur = [i] + [0] * lb
+        row_min = cur[0]
+        ca = a[i - 1]
+        for j in range(1, lb + 1):
+            cost = 0 if ca == b[j - 1] else 1
+            cur[j] = min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + cost)
+            row_min = min(row_min, cur[j])
+        if row_min > cap:
+            return cap + 1
+        prev = cur
+    return prev[lb]
+
+
+def _name_sim(a: str, b: str) -> float:
+    """0..1 Ähnlichkeit zweier Namen: kombiniert SequenceMatcher-Ratio und
+    längen-normierte Levenshtein-Distanz."""
+    a, b = (a or "").lower(), (b or "").lower()
+    if not a or not b:
+        return 0.0
+    if a == b:
+        return 1.0
+    seq = SequenceMatcher(None, a, b).ratio()
+    lev = _lev(a, b, cap=max(len(a), len(b)))
+    lev_sim = 1.0 - lev / max(len(a), len(b))
+    return max(seq, lev_sim)
+
+
 def link_duplicates(db, source: str, primary_source: str = "gedcom",
-                    year_tol: int = 3, progress_cb=None) -> int:
+                    year_tol: int = 3, min_score: float = 0.72,
+                    progress_cb=None) -> int:
     """Verknüpft Personen aus `source` mit derselben realen Person in
     `primary_source` (Standard: eigener GEDCOM) in gedcom_person_xref.
 
-    Match: gleicher Kölner-Code + Geburtsjahr ±year_tol + erster Vorname
-    stimmt (oder einer ohne Jahr). Überschreibt KEINE Daten – legt nur den
-    Querbezug an. Gibt Anzahl neuer Verknüpfungen zurück.
+    Fuzzy-Match (überschreibt KEINE Daten):
+      * Blocking: Kandidaten teilen den Kölner-Code ODER die ersten 4 Zeichen
+        des normalisierten Nachnamens (fängt Schreibvarianten wie
+        Kovermann/Covermann, Röwekamp/Rowekamp).
+      * Scoring: Nachnamen-Ähnlichkeit (Kölner + Levenshtein/SequenceMatcher),
+        Vornamen-Ähnlichkeit (Levenshtein), Geburtsjahr-Nähe (±year_tol),
+        kleiner Orts-Bonus. Verknüpft nur, wenn Gesamtscore >= min_score.
+    Gibt Anzahl neuer Verknüpfungen zurück.
     """
     ensure_tables(db)
 
@@ -351,47 +393,76 @@ def link_duplicates(db, source: str, primary_source: str = "gedcom",
         toks = (g or "").lower().split()
         return toks[0] if toks else ""
 
+    def _region(place):
+        return _extract_region(place or "")
+
     with db._cursor() as cur:
         prim = cur.execute(
-            "SELECT ged_id, given_name, koelner_code, birth_year FROM gedcom_persons "
-            "WHERE source=? AND koelner_code<>''", (primary_source,)).fetchall()
-        # Index: koelner_code -> Liste (ged_id, first_given, year)
-        idx = defaultdict(list)
+            "SELECT ged_id, given_name, surname_norm, koelner_code, birth_year, "
+            "birth_place FROM gedcom_persons WHERE source=?",
+            (primary_source,)).fetchall()
+
+        # zwei Blocking-Indizes: nach Kölner-Code und nach Nachname-Präfix
+        idx_koel = defaultdict(list)
+        idx_pref = defaultdict(list)
         for r in prim:
-            idx[r["koelner_code"]].append(
-                (r["ged_id"], _first(r["given_name"]), r["birth_year"]))
+            entry = (r["ged_id"], _first(r["given_name"]), r["surname_norm"],
+                     r["birth_year"], _region(r["birth_place"]))
+            if r["koelner_code"]:
+                idx_koel[r["koelner_code"]].append(entry)
+            if r["surname_norm"]:
+                idx_pref[r["surname_norm"][:4]].append(entry)
 
         others = cur.execute(
-            "SELECT ged_id, given_name, koelner_code, birth_year FROM gedcom_persons "
-            "WHERE source=? AND koelner_code<>''", (source,)).fetchall()
+            "SELECT ged_id, given_name, surname_norm, koelner_code, birth_year, "
+            "birth_place FROM gedcom_persons WHERE source=?", (source,)).fetchall()
 
         linked = 0
         for r in others:
-            cands = idx.get(r["koelner_code"])
+            o_first  = _first(r["given_name"])
+            o_sn     = r["surname_norm"] or ""
+            o_year   = r["birth_year"]
+            o_region = _region(r["birth_place"])
+
+            # Kandidaten aus beiden Blocking-Buckets sammeln (dedupliziert)
+            cands = {}
+            for e in idx_koel.get(r["koelner_code"], []):
+                cands[e[0]] = e
+            if o_sn:
+                for e in idx_pref.get(o_sn[:4], []):
+                    cands[e[0]] = e
             if not cands:
                 continue
-            ofirst, oyear = _first(r["given_name"]), r["birth_year"]
+
             best, best_score = None, 0.0
-            for pid, pfirst, pyear in cands:
-                score = 0.5
-                if ofirst and pfirst:
-                    if ofirst == pfirst: score += 0.3
-                    elif ofirst[:3] == pfirst[:3]: score += 0.15
-                    else: continue          # Vorname passt gar nicht
-                if oyear and pyear:
-                    dy = abs(int(oyear) - int(pyear))
-                    if dy > year_tol: continue
-                    score += max(0.0, 0.2 * (1 - dy / (year_tol + 1)))
+            for pid, p_first, p_sn, p_year, p_region in cands.values():
+                sn_sim = _name_sim(o_sn, p_sn)
+                if sn_sim < 0.6:
+                    continue
+                score = 0.45 * sn_sim
+                gn_sim = _name_sim(o_first, p_first) if (o_first and p_first) else 0.0
+                score += 0.30 * gn_sim
+                if o_year and p_year:
+                    dy = abs(int(o_year) - int(p_year))
+                    if dy > year_tol:
+                        continue
+                    score += 0.20 * (1 - dy / (year_tol + 1))
+                elif not o_year and not p_year:
+                    score += 0.05
+                if o_region and p_region and o_region == p_region:
+                    score += 0.05
                 if score > best_score:
                     best, best_score = pid, score
-            if best:
+
+            if best and best_score >= min_score:
                 cur.execute(
                     """INSERT OR REPLACE INTO gedcom_person_xref
                        (ged_id_primary, source_primary, ged_id_other, source_other, score)
                        VALUES (?,?,?,?,?)""",
                     (best, primary_source, r["ged_id"], source, round(best_score, 3)))
                 linked += 1
-        p(f"{linked} Querbezüge {source}↔{primary_source} angelegt.")
+        p(f"{linked} Querbezüge {source}↔{primary_source} angelegt "
+          f"(Fuzzy, Schwelle {min_score}).")
     return linked
 
 
