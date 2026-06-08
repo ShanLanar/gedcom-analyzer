@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 """
-Diagnose-Script Phase 11:
-  Extrahiert aus DnaResultsBundled.js:
-  - Den vollständigen i=["mh_automat…"] Cookie-Array
-  - Den Header-Präfix (L.aG / s=…)
-  - Alle exportierten Konstanten rund um den GraphQL-Aufruf
+Diagnose-Script Phase 12:
+  A) Findet L.aG (Header-Präfix) aus DnaResultsBundled.js
+  B) Testet /web-family-graphql mit bekannten Cookies als explizite Header
+  C) Holt Typ-4-Token (verschiedene clientId-Werte)
 """
-import json, re, sys
+import json, re, sys, time
 from pathlib import Path
 import requests
 
@@ -17,6 +16,7 @@ cookies = ({x["name"]: x["value"] for x in raw if "name" in x}
 
 KIT  = "OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ"
 BASE = "https://www.myheritage.com"
+GQLEP= f"{BASE}/web-family-graphql"
 UA   = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36")
 
@@ -27,111 +27,125 @@ s.headers["User-Agent"] = UA
 print("Lade Hauptseite …")
 r0 = s.get(f"{BASE}/dna/matches/{KIT}", timeout=20)
 html = r0.text
+m = re.search(r'mhXsrfToken\s*=\s*["\']([^"\']+)["\']', html)
+xsrf = m.group(1) if m else ""
+fg_web = re.search(r'"fg_token_web"\s*:\s*"([^"]+)"', html)
+fg_web = fg_web.group(1) if fg_web else ""
 
-bundle_map = {}
-for m in re.finditer(r'src="((?:https?://[^"]+|/[^"]+/bundles/JS/[^"]+)\.js[^"]*)"', html):
-    url = m.group(1)
-    name = url.split("/")[-1].split("?")[0]
-    if not url.startswith("http"):
-        url = BASE + url
-    bundle_map[name] = url
+# PHP-Token holen
+tok_url = f"{BASE}/FP/API/FamilyGraph/get-familygraph-token.php?_={int(time.time()*1000)}&csrf_token={xsrf}"
+php_tok = (s.get(tok_url, headers={"Accept":"application/json","Referer":f"{BASE}/dna/matches/{KIT}"}, timeout=15)
+             .json().get("data",{}).get("token",""))
+
+print(f"xsrf    : {xsrf[:40]}")
+print(f"php_tok : {php_tok[:50]}")
+print(f"fg_web  : {fg_web[:50]}\n")
 
 # ── DnaResultsBundled laden ───────────────────────────────────────────────────
+bundle_map = {}
+for m2 in re.finditer(r'src="((?:https?://[^"]+|/[^"]+/bundles/JS/[^"]+)\.js[^"]*)"', html):
+    url = m2.group(1)
+    if not url.startswith("http"): url = BASE + url
+    bundle_map[url.split("/")[-1].split("?")[0]] = url
+
 dna_url = next((v for k, v in bundle_map.items() if "DnaResults" in k), None)
-if not dna_url:
-    print("DnaResultsBundled nicht gefunden!"); sys.exit(1)
-
-print(f"Lade DnaResultsBundled …")
 js = requests.Session().get(dna_url, headers={"User-Agent": UA}, timeout=30).text
-print(f"Größe: {len(js)//1024}KB\n")
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 1) Vollständiger Kontext rund um web-family-graphql (±1200 Zeichen)
+# A) L.aG finden – Kontext nach dem i=[...] Array
 # ══════════════════════════════════════════════════════════════════════════════
 print("=" * 60)
-print("1) web-family-graphql – vollständiger Kontext")
+print("A) L.aG (Header-Präfix) suchen")
 print("=" * 60)
-pos = js.find("web-family-graphql")
-if pos >= 0:
-    start = max(0, pos - 1200)
-    end   = min(len(js), pos + 1200)
-    print(js[start:end])
+
+# Finde vollständigen Array
+arr_m = re.search(r'(\["mh_automations"[^\]]*\])', js)
+if arr_m:
+    arr_end = arr_m.end()
+    # Zeige was nach dem Array kommt (dort sollte s= sein)
+    after = js[arr_end:arr_end+600]
+    print(f"Nach dem Array:\n{after}\n")
+
+# Suche auch direkt nach dem s= Wert
+for pat in [r',s="([^"]{0,40})",', r'const s="([^"]{0,40})"', r';s="([^"]{0,40})"']:
+    m3 = re.search(pat, js[max(0,arr_m.start()-100):arr_m.end()+500] if arr_m else js)
+    if m3:
+        print(f"s= Wert (Muster '{pat}'): {m3.group(1)!r}")
+
+# ══════════════════════════════════════════════════════════════════════════════
+# B) /web-family-graphql mit Cookie-Werten als explizite Header
+# ══════════════════════════════════════════════════════════════════════════════
 print()
+print("=" * 60)
+print("B) /web-family-graphql mit expliziten Cookie-Headern")
+print("=" * 60)
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 2) mh_automat Array – vollständiger Inhalt
-# ══════════════════════════════════════════════════════════════════════════════
-print("=" * 60)
-print("2) mh_automat Array")
-print("=" * 60)
-m = re.search(r'(\[["\'](mh_[^"\']+)["\'][^\]]*\])', js)
-if m:
-    print(f"Gefundener Array: {m.group(1)[:500]}")
-else:
-    # Breiteren Match versuchen
-    m2 = re.search(r'mh_automat[a-z_]*', js)
-    if m2:
-        pos2 = m2.start()
-        print(js[max(0,pos2-200):pos2+400])
-    else:
-        print("❌ 'mh_automat' nicht gefunden – suche nach 'mh_':")
-        for m3 in re.finditer(r'"(mh_[a-z_]+)"', js):
-            print(f"  {m3.group(1)}")
-print()
+QUERY = f'{{ dna_kit (id: "{KIT}", lang: "EN") {{ dna_matches (limit: 3) {{ total_count data {{ id display_name shared_dna relationship }} }} }} }}'
 
-# ══════════════════════════════════════════════════════════════════════════════
-# 3) Alle Exports des GraphQL-Moduls
-# ══════════════════════════════════════════════════════════════════════════════
-print("=" * 60)
-print("3) Exports des GraphQL-Moduls (aG, Gz, mZ, nk, Zh, lD, wv)")
-print("=" * 60)
-# Suche den Export-Block
-export_m = re.search(r'(Zh:\(\)=>[^,}]{1,30},aG:\(\)=>[^,}]{1,30},lD:\(\)=>[^,}]{1,30}[^}]{0,200})', js)
-if export_m:
-    print(f"Export-Block: {export_m.group(1)}")
-else:
-    # Alternativ: Kontext um 'aG:' suchen
-    for m in re.finditer(r'.{0,100}aG:\(\)=>.{0,100}', js):
-        print(f"aG-Kontext: {m.group()}")
-        break
-print()
-
-# ══════════════════════════════════════════════════════════════════════════════
-# 4) Alle String-Konstanten in Nähe des GraphQL-Aufrufs
-# ══════════════════════════════════════════════════════════════════════════════
-print("=" * 60)
-print("4) String-Konstanten rund um FamilyGraphQL-Service")
-print("=" * 60)
-svc_m = re.search(r'familyGraphQlService', js)
-if svc_m:
-    pos3 = svc_m.start()
-    snippet = js[max(0,pos3-2000):pos3+500]
-    # Alle String-Literale extrahieren
-    strings = re.findall(r'"([^"]{2,60})"', snippet)
-    strings = [x for x in strings if not x.startswith('/') and not x.startswith('http')]
-    print(f"Strings in Nähe von familyGraphQlService: {strings[:30]}")
+def probe(label, extra_hdrs):
+    hdrs = {
+        "Content-Type": "application/json",
+        "Accept":       "application/json",
+        "Referer":      f"{BASE}/dna/matches/{KIT}",
+        "Origin":       BASE,
+        "x-xsrf-token": xsrf,
+    }
+    hdrs.update(extra_hdrs)
+    try:
+        resp = s.post(f"{GQLEP}?access_token={php_tok}",
+                      json={"query": QUERY}, headers=hdrs, timeout=15)
+        tag  = "✅" if resp.status_code==200 else "⚠️"
+        body = resp.text
+        print(f"  {tag} [{resp.status_code}] {label}")
+        if body.strip():
+            try:
+                d = resp.json()
+                if "data" in d and d["data"]:
+                    print(f"       🎯 MATCH-DATEN! {json.dumps(d)[:500]}")
+                else:
+                    print(f"       {json.dumps(d)[:300]}")
+            except:
+                print(f"       {body[:200]!r}")
+        else:
+            print(f"       (leerer Body)")
+    except Exception as e:
+        print(f"  ❌ {label}: {e}")
     print()
-    print(f"Vollständiger Kontext (-2000..+500):")
-    print(snippet[:1000])
-print()
+
+# PHPSESSID ohne Präfix
+probe("PHPSESSID als Header",
+      {"PHPSESSID": cookies.get("PHPSESSID","")})
+
+# PHPSESSID mit x-mh- Präfix
+probe("x-mh-PHPSESSID als Header",
+      {"x-mh-PHPSESSID": cookies.get("PHPSESSID","")})
+
+# Alle bekannten Cookies als Headers (ohne Präfix)
+all_cookie_hdrs = {k: str(v) for k, v in cookies.items()
+                   if k in ["PHPSESSID","device_id","mhc_version","uuid","data8"]}
+probe("Alle bekannten Cookies als Headers",
+      all_cookie_hdrs)
+
+# Mit x-mh- Präfix für alle
+xmh_hdrs = {f"x-mh-{k}": str(v) for k, v in all_cookie_hdrs.items()}
+probe("x-mh-{name} Präfix für alle",
+      xmh_hdrs)
 
 # ══════════════════════════════════════════════════════════════════════════════
-# 5) Prüfe ob mh_automat* Cookies in unserem Cookie-File vorhanden
+# C) Verschiedene clientId-Werte für Typ-4-Token
 # ══════════════════════════════════════════════════════════════════════════════
 print("=" * 60)
-print("5) Unsere Cookies vs. mh_* Cookies")
+print("C) Token-Typen mit verschiedenen clientId-Werten")
 print("=" * 60)
-print("Alle Cookies in myheritage_cookies.json:")
-for name, val in cookies.items():
-    print(f"  {name} = {str(val)[:50]}")
-print()
-mh_auto = {k: v for k, v in cookies.items() if 'automat' in k.lower() or 'mh_' in k.lower()}
-if mh_auto:
-    print(f"mh_automat* gefunden: {mh_auto}")
-else:
-    print("❌ Keine mh_automat* Cookies im Cookie-File!")
-    print()
-    print("=> LÖSUNG: Browser-Konsole auf der DNA-Matches-Seite öffnen und eingeben:")
-    print('   let r={}; document.cookie.split(";").forEach(c=>{const[k,...v]=c.trim().split("="); if(k.startsWith("mh_"))r[k]=v.join("=");}); console.log(JSON.stringify(r));')
-    print()
-    print("=> Das zeigt die mh_* Cookies im Browser. Diese bitte hier einfügen.")
+
+for client_id in [4, 3, 2, 1, 35509924739, 10, 100]:
+    ts = int(time.time()*1000)
+    url = f"{BASE}/FP/API/FamilyGraph/get-familygraph-token.php?_={ts}&csrf_token={xsrf}&clientId={client_id}"
+    try:
+        resp = requests.Session().get(url, cookies=cookies, headers={"User-Agent":UA,"Accept":"application/json"}, timeout=10)
+        d = resp.json()
+        tok = (d.get("data") or {}).get("token","")
+        tok_type = tok.split(".")[0] if tok else "❌"
+        print(f"  clientId={client_id}: Token-Typ {tok_type!r}  {tok[:50] if tok else '(leer)'}")
+    except Exception as e:
+        print(f"  clientId={client_id}: Fehler: {e}")
