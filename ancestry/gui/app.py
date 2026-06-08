@@ -301,13 +301,13 @@ class AncestryDnaApp(tk.Tk):
         self.title("Ancestry DNA Tool")
         self.geometry("1200x760")
         self.minsize(960, 620)
-        self.configure(bg=self._active_colors()["bg"])
 
         self._auth    : Optional[AncestryAuth]      = None
         self._client  : Optional[AncestryApiClient] = None
         self._scraper : Optional[Scraper]           = None
         self._db      : Database                    = Database(cfg.DB_FILE)
         self._kit_map : dict[str, str]              = {}
+        self._matches_kit_guid_map: dict[str, str]  = {}
         self._matches : list[DnaMatch]              = []
         self._current_test_guid : Optional[str]     = None
 
@@ -318,6 +318,7 @@ class AncestryDnaApp(tk.Tk):
         self._lang_menus:          list = []   # (menu, index, key) tuples
         self._lang_inner_nb_tabs:  list = []   # (notebook, frame, key) tuples
         self._dark_mode:           bool = False
+        self.configure(bg=self._active_colors()["bg"])
         self._pause_event:         threading.Event = threading.Event()
         self._pause_event.set()  # not paused initially
         self._dl_counters = {"matches": 0, "trees": 0, "shared": 0, "errors": 0}
@@ -331,6 +332,7 @@ class AncestryDnaApp(tk.Tk):
 
         self.protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(200, self._load_settings)
+        self.after(300, self._update_matches_kit_combo)
         self.after(400, self._load_lang_setting)
 
     # ── Styling ───────────────────────────────────────────────────────────────
@@ -889,6 +891,27 @@ class AncestryDnaApp(tk.Tk):
         self._kit_combo["values"] = names
         if names and not self._kit_var.get():
             self._kit_combo.current(0)
+        self._update_matches_kit_combo()
+
+    def _update_matches_kit_combo(self):
+        """Befüllt den Kit-Selektor im Matches-Tab aus DB + _kit_map."""
+        if not hasattr(self, "_matches_kit_combo"):
+            return
+        try:
+            db_kits = self._db.get_kits()
+        except Exception:
+            db_kits = []
+        combined: dict[str, str] = {}
+        for k in db_kits:
+            name = k.name or f"Kit {k.guid[:8]}"
+            combined[name] = k.guid
+        for name, guid in self._kit_map.items():
+            combined.setdefault(name, guid)
+        self._matches_kit_guid_map = combined
+        names = list(combined.keys())
+        self._matches_kit_combo["values"] = names
+        if names and self._matches_kit_var.get() not in names:
+            self._matches_kit_combo.current(0)
 
     def _get_kit_guid(self) -> Optional[str]:
         return self._kit_map.get(self._kit_var.get())
@@ -2936,6 +2959,18 @@ class AncestryDnaApp(tk.Tk):
     def _build_tab_matches(self):
         f = self._tab_matches
 
+        # Kit-Leiste
+        kl = ttk.Frame(f); kl.pack(fill="x", padx=10, pady=(6, 0))
+        ttk.Label(kl, text="Kit:", font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 4))
+        self._matches_kit_var = tk.StringVar()
+        self._matches_kit_combo = ttk.Combobox(
+            kl, textvariable=self._matches_kit_var, width=38, state="readonly")
+        self._matches_kit_combo.pack(side="left")
+        self._matches_kit_combo.bind(
+            "<<ComboboxSelected>>", lambda _: self._refresh_match_table())
+        ttk.Button(kl, text="⚡ Seiten ableiten",
+                   command=self._auto_assign_sides).pack(side="left", padx=(12, 0))
+
         # Filter-Leiste
         fl = ttk.Frame(f); fl.pack(fill="x", padx=10, pady=6)
         _sv_s = tk.StringVar(value=self._t("mf.search"))
@@ -3069,6 +3104,8 @@ class AncestryDnaApp(tk.Tk):
             self._tree.column(col, width=width, anchor=anchor, stretch=(col == "name"))
             self._lang_headings.append((self._tree, col, key))
 
+        self._tree.tag_configure("paternal",  background="#DDF0FF")
+        self._tree.tag_configure("maternal",  background="#FFE0E0")
         self._tree.tag_configure("close",    background="#D6F5E3")
         self._tree.tag_configure("starred",  background="#FFF3CD")
         self._tree.tag_configure("no_tree",  foreground="#999999")
@@ -3381,7 +3418,15 @@ class AncestryDnaApp(tk.Tk):
                    "ged":"match_guid","ca":"has_common_ancestor","starred":"starred"}
         sort_col = col_map.get(self._sort_col, "shared_cm")
 
+        # Kit-GUID aus Matches-Tab-Selektor
+        active_kit: Optional[str] = None
+        if hasattr(self, "_matches_kit_var") and self._matches_kit_var.get():
+            active_kit = self._matches_kit_guid_map.get(self._matches_kit_var.get())
+        if not active_kit:
+            active_kit = self._current_test_guid or self._get_kit_guid()
+
         self._matches = self._db.get_matches(
+            test_guid      = active_kit,
             search         = self._search_var.get().strip() or None,
             relationship   = self._rel_var.get() if hasattr(self,"_rel_var") else None,
             starred_only   = self._starred_var.get() if hasattr(self,"_starred_var") else False,
@@ -3391,6 +3436,22 @@ class AncestryDnaApp(tk.Tk):
             sort_col       = sort_col,
             sort_asc       = self._sort_asc,
         )
+
+        # Overlap-Set: welche GUIDs kommen noch in anderen Kits vor?
+        overlap_guids: set = set()
+        if active_kit:
+            try:
+                all_kits = [k.guid for k in self._db.get_kits() if k.guid != active_kit]
+                if all_kits:
+                    with self._db._cursor() as _cur:
+                        rows = _cur.execute(
+                            "SELECT match_guid FROM match_kit_membership WHERE test_guid IN ({})".format(
+                                ",".join("?" * len(all_kits))),
+                            all_kits,
+                        ).fetchall()
+                    overlap_guids = {r[0] for r in rows}
+            except Exception:
+                pass
         self._match_count_var.set(f"{len(self._matches)} Match(es)")
         self._tree.delete(*self._tree.get_children())
         # Apply pat/mat chip filter
@@ -3413,6 +3474,11 @@ class AncestryDnaApp(tk.Tk):
         for m in self._matches:
             endo = getattr(m, "endogamy_cluster", "") or ""
             tags = []
+            pm = m.paternal_maternal or ""
+            if pm == "paternal":
+                tags.append("paternal")
+            elif pm == "maternal":
+                tags.append("maternal")
             if endo:
                 tags.append("endogamy")
             elif m.starred:
@@ -3435,8 +3501,14 @@ class AncestryDnaApp(tk.Tk):
             else:
                 tree_txt = "—"
 
-            # Bemerkungsspalte: Endogamie-Cluster hat Vorrang vor tag_surname
-            note_txt = (f"🔇 {endo}" if endo else m.tag_surname or "")
+            # Bemerkungsspalte: Overlap → Endogamie → tag_surname
+            in_other_kit = m.match_guid in overlap_guids
+            if endo:
+                note_txt = f"🔇 {endo}"
+            elif in_other_kit:
+                note_txt = f"👥 {m.tag_surname or ''}".strip()
+            else:
+                note_txt = m.tag_surname or ""
 
             n_hits = bridge_hits.get(m.match_guid, 0)
             ged_txt = f"🌳{n_hits}" if n_hits else ""
@@ -3902,23 +3974,57 @@ class AncestryDnaApp(tk.Tk):
         self._cluster_count_var.set(f"{len(self._clusters)} Cluster")
         self._cluster_text_var.set(suggest_grandparent_lines(self._clusters))
 
+        # Seiten-Map für alle Cluster-Mitglieder vorladen
+        all_guids = [m["guid"] for mlist in self._clusters.values() for m in mlist]
+        side_map: dict[str, str] = {}
+        if all_guids:
+            try:
+                with self._db._cursor() as _cur:
+                    _rows = _cur.execute(
+                        "SELECT match_guid, paternal_maternal FROM matches "
+                        "WHERE match_guid IN ({})".format(",".join("?" * len(all_guids))),
+                        all_guids,
+                    ).fetchall()
+                side_map = {r["match_guid"]: (r["paternal_maternal"] or "") for r in _rows}
+            except Exception:
+                pass
+        self._cluster_side_colors: dict[int, str] = {}
+
         # Cluster-Liste füllen
         self._cluster_list.delete(*self._cluster_list.get_children())
         cluster_colors = COLORS["cluster"]
         for cid, members in self._clusters.items():
             cms   = [m["cm"] for m in members]
-            color = cluster_colors[(cid - 1) % len(cluster_colors)]
+            sides = [side_map.get(m["guid"], "") for m in members]
+            n_pat = sides.count("paternal")
+            n_mat = sides.count("maternal")
+            n_known = n_pat + n_mat
+            if n_known >= max(3, len(members) // 2):
+                if n_pat / n_known >= 0.7:
+                    color = "#DDF0FF"
+                    side_icon = "🔵 "
+                elif n_mat / n_known >= 0.7:
+                    color = "#FFE0E0"
+                    side_icon = "🔴 "
+                else:
+                    color = cluster_colors[(cid - 1) % len(cluster_colors)]
+                    side_icon = ""
+            else:
+                color = cluster_colors[(cid - 1) % len(cluster_colors)]
+                side_icon = ""
+            self._cluster_side_colors[cid] = color
             try:
                 from core.treematch import cluster_confidence
                 conf_result = cluster_confidence(members)
                 quality_icon = "🟢" if conf_result.get("realistic") else ("🟡" if len(members) >= 3 else "🔴")
             except Exception:
                 quality_icon = "—"
+            top_name = side_icon + (members[0]["name"] if members else "")
             self._cluster_list.insert("", "end", iid=str(cid),
                                        tags=(f"c{cid}",),
                                        values=(f"#{cid}", len(members),
                                                f"{max(cms):.0f}",
-                                               members[0]["name"] if members else "",
+                                               top_name,
                                                quality_icon))
             self._cluster_list.tag_configure(f"c{cid}", background=color)
 
@@ -3933,7 +4039,8 @@ class AncestryDnaApp(tk.Tk):
         descs = self._load_ui_settings().get("cluster_descs", {})
         if hasattr(self, "_cluster_desc_var"):
             self._cluster_desc_var.set(descs.get(str(cid), ""))
-        color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
+        color = getattr(self, "_cluster_side_colors", {}).get(
+            cid, COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])])
 
         # Build guid → match lookup for tree-link indicators
         test_guid = self._current_guid()

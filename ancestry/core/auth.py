@@ -123,8 +123,11 @@ class AncestryAuth:
                 name   = c["name"]
                 value  = c["value"]
                 domain = c.get("domain", ".ancestry.com")
-                if domain and not domain.startswith(".") and "ancestry" in domain:
-                    domain = "." + domain.lstrip(".")
+                # Add dot prefix only for bare second-level domains (ancestry.com → .ancestry.com).
+                # Subdomains like www.ancestry.com must stay unchanged — adding a dot would
+                # create .www.ancestry.com which conflicts with fresh warmup cookies.
+                if domain and not domain.startswith(".") and domain.count(".") == 1:
+                    domain = "." + domain
                 self.session.cookies.set(name, value, domain=domain,
                                          path=c.get("path", "/"))
                 loaded += 1

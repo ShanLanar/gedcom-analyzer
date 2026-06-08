@@ -57,12 +57,59 @@ def _status(msg):
     print(f"\n[Status] {msg}")
 
 
+def _check_jwt(session) -> int:
+    """Gibt verbleibende Sekunden des SecureATT JWT zurück (negativ = abgelaufen)."""
+    import base64, json as _json, time as _time
+    try:
+        jwt = session.cookies.get("SecureATT", domain="www.ancestry.com") or ""
+        if not jwt:
+            jwt = session.cookies.get("SecureATT") or ""
+        if not jwt:
+            return 0
+        parts = jwt.split(".")
+        if len(parts) < 2:
+            return 0
+        pad = parts[1] + "=" * (4 - len(parts[1]) % 4)
+        payload = _json.loads(base64.urlsafe_b64decode(pad))
+        return int(payload.get("exp", 0)) - int(_time.time())
+    except Exception:
+        return 0
+
+
+def _find_kit_from_pages(session) -> str:
+    """Versucht die Kit-GUID aus den DNA-Seiten zu extrahieren."""
+    import re
+    patterns = [
+        r'discoveryui-matches/list/([0-9A-Fa-f\-]{32,})',
+        r'"testGuid"\s*:\s*"([0-9A-Fa-f\-]{32,})"',
+        r'"sampleId"\s*:\s*"([0-9A-Fa-f\-]{32,})"',
+    ]
+    urls = [
+        "https://www.ancestry.com/discoveryui-matches/list/",
+        "https://www.ancestry.com/dna/home",
+        "https://www.ancestry.com/dna/insights",
+    ]
+    for url in urls:
+        try:
+            r = session.get(url, timeout=15)
+            if r.status_code == 200:
+                for pat in patterns:
+                    m = re.search(pat, r.text)
+                    if m:
+                        return m.group(1)
+        except Exception:
+            pass
+    return ""
+
+
 def main():
     ap = argparse.ArgumentParser(description="Mutter-Kit herunterladen")
+    ap.add_argument("--kit-guid",  type=str,   default="",
+                    help="Kit-GUID manuell angeben (URL: .../discoveryui-matches/list/{GUID})")
+    ap.add_argument("--kit-name",  type=str,   default="Mutter-Kit",
+                    help="Anzeigename für dieses Kit (Standard: Mutter-Kit)")
     ap.add_argument("--min-cm",    type=float, default=0.0,
                     help="Nur Matches ab dieser cM-Zahl (Standard: 0)")
-    ap.add_argument("--max-pages", type=int,   default=9999,
-                    help="Maximale Seiten (für Tests)")
     ap.add_argument("--only-new",  action="store_true",
                     help="Nur neue Matches laden (bereits vorhandene überspringen)")
     args = ap.parse_args()
@@ -82,41 +129,101 @@ def main():
     uid = auth.uid or ""
     log.info("Authentifiziert. UID: %s", uid[:20] if uid else "(unbekannt)")
 
+    # ── JWT-Gültigkeit prüfen ──────────────────────────────────────────────────
+    remaining = _check_jwt(auth.get_session())
+    if remaining < 0:
+        log.error(
+            "SecureATT JWT abgelaufen (vor %d Sekunden = %.1f Minuten).\n"
+            "  Das ist der Grund für 303-Fehler beim Match-Download.\n\n"
+            "  Lösung (sofort):\n"
+            "  1. ancestry.com im Browser öffnen → als Mutter eingeloggt bleiben\n"
+            "  2. DNA-Matches-Seite aufrufen (damit JWT erneuert wird)\n"
+            "  3. Cookie-Editor → Export All → data/mother_cookies.json überschreiben\n"
+            "  4. Script SOFORT ausführen (JWT nur 30 Minuten gültig!)\n",
+            -remaining, -remaining / 60,
+        )
+        sys.exit(1)
+    elif remaining > 0:
+        log.info("JWT noch %d Sekunden gültig (%.1f Minuten)", remaining, remaining / 60)
+    else:
+        log.warning("JWT-Status unbekannt (kein SecureATT-Cookie gefunden).")
+
     # ── Kit ermitteln ──────────────────────────────────────────────────────────
     client = AncestryApiClient(auth.get_session())
-    kits = []
-    if uid:
-        kits = client.get_dna_kits(uid)
-    if not kits and uid:
-        guid = client.detect_kit_from_uid(uid)
-        if guid:
-            kits = [DnaKit(guid=guid, name="Mutter-Kit")]
-    if not kits:
-        # LAU-Cookie als UID-Fallback
-        lau = auth.get_session().cookies.get("LAU")
-        if lau:
-            log.info("Versuche Kit-Erkennung via LAU-Cookie: %s", lau[:20])
-            guid = client.detect_kit_from_uid(lau)
-            if guid:
-                kits = [DnaKit(guid=guid, name="Mutter-Kit")]
+    kit_guid = args.kit_guid.strip()
 
-    if not kits:
-        log.error("Kein DNA-Kit gefunden. Session möglicherweise abgelaufen.")
+    if not kit_guid:
+        # Versuch 1: API via UID
+        kits = []
+        for try_uid in filter(None, [uid, auth.get_session().cookies.get("LAU")]):
+            kits = client.get_dna_kits(try_uid)
+            if kits:
+                break
+            g = client.detect_kit_from_uid(try_uid)
+            if g:
+                kits = [DnaKit(guid=g, name=args.kit_name)]
+                break
+
+        if kits:
+            kit_guid = kits[0].guid
+            log.info("Kit via API erkannt: %s", kit_guid)
+
+    if not kit_guid:
+        # Versuch 2: aus DNA-Seiten extrahieren
+        log.info("Suche Kit-GUID aus DNA-Seiten …")
+        kit_guid = _find_kit_from_pages(auth.get_session())
+        if kit_guid:
+            log.info("Kit aus Seite extrahiert: %s", kit_guid)
+
+    if not kit_guid:
+        log.error(
+            "Kit-GUID konnte nicht automatisch ermittelt werden.\n"
+            "\n"
+            "  Lösung: GUID manuell angeben:\n"
+            "  1. Auf ancestry.com als Mutter einloggen\n"
+            "  2. DNA-Matches aufrufen\n"
+            "  3. URL lautet: .../discoveryui-matches/list/{GUID}\n"
+            "  4. GUID aus URL kopieren und übergeben:\n"
+            "\n"
+            "     python tools/download_mother_kit.py --kit-guid XXXXXXXX-XXXX-...\n"
+        )
         sys.exit(1)
 
-    kit = kits[0]
-    log.info("Kit erkannt: %s (GUID: %s)", kit.name or "Mutter", kit.guid)
+    log.info("Verwende Kit-GUID: %s", kit_guid)
+
+    # ── Session aufwärmen (DNA-Seite besuchen → CSRF + JWT frisch) ────────────
+    log.info("Wärme Session auf (besuche DNA-Seite) …")
+    _session = auth.get_session()
+    for _warm_url in [
+        f"https://www.ancestry.com/discoveryui-matches/list/{kit_guid}",
+        "https://www.ancestry.com/dna/home",
+    ]:
+        try:
+            _r = _session.get(_warm_url, timeout=15)
+            log.info("  %s → %s", _warm_url[:60], _r.status_code)
+            if _r.status_code == 200:
+                # Log CSRF cookies present after warmup
+                for _cname in ("_dnamatches-matchlistui-x-csrf-token", "_csrf"):
+                    try:
+                        _cv = _session.cookies.get(_cname, domain="www.ancestry.com")
+                        if _cv:
+                            log.info("  CSRF %s: %s…", _cname[:40], str(_cv)[:20])
+                    except Exception:
+                        pass
+                break
+        except Exception as _e:
+            log.warning("  Warmup-Fehler: %s", _e)
 
     # ── Datenbank ──────────────────────────────────────────────────────────────
     db = Database(os.path.abspath(DB_FILE))
     db.upsert_kit(DnaKit(
-        guid=kit.guid,
-        name=kit.name or "Mutter-Kit",
-        test_type=kit.test_type or "AncestryDNA",
-        created_date=kit.created_date or "",
+        guid=kit_guid,
+        name=args.kit_name,
+        test_type="AncestryDNA",
+        created_date="",
         is_owner=False,
     ))
-    log.info("Kit in DB gespeichert.")
+    log.info("Kit in DB gespeichert: %s (%s)", args.kit_name, kit_guid[:16])
 
     # ── Matches laden ──────────────────────────────────────────────────────────
     done = {"ok": False}
@@ -135,9 +242,9 @@ def main():
         on_done=_on_done,
     )
 
-    log.info("Starte Match-Download für Kit %s …", kit.guid[:16])
+    log.info("Starte Match-Download für Kit %s …", kit_guid[:16])
     scraper.start_matches(
-        test_guid=kit.guid,
+        test_guid=kit_guid,
         filter_by="ALL",
         sort_by="RELATIONSHIP",
         only_new=args.only_new,

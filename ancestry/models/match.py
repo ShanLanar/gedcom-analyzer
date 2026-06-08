@@ -112,6 +112,9 @@ class DnaMatch:
     match_cluster_code: str = ""
     created_date: int = 0       # Unix-Timestamp ms
 
+    # Seitenableitung: "paternal", "maternal", "both", "" = unbekannt
+    paternal_maternal: str = ""
+
     ethnicity_regions: list = field(default_factory=list)
     last_login: str = ""
     fetched_at: str = ""

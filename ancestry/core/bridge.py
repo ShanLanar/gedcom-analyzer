@@ -295,10 +295,25 @@ def compute_link_score(ped_given: str, ped_surname: str, ped_year,
 
 # ── Matching für einen Match ───────────────────────────────────────────────────
 
+def _parse_ancestor_name(full_name: str) -> tuple[str, str]:
+    """Teilt einen vollständigen Namen in (Vorname, Nachname).
+    Unterstützt 'Vorname Nachname' und 'Nachname, Vorname'."""
+    full_name = full_name.strip()
+    if "," in full_name:
+        parts = full_name.split(",", 1)
+        return parts[1].strip(), parts[0].strip()
+    parts = full_name.split()
+    if len(parts) >= 2:
+        return " ".join(parts[:-1]), parts[-1]
+    return "", full_name
+
+
 def run_match_for_match(db, test_guid: str, match_guid: str) -> list[dict]:
     """Findet GEDCOM-Kandidaten für alle Ahnen-Einträge eines DNA-Matches.
     Schreibt Treffer nach gedcom_links.
-    Gibt eine sortierte Liste von Zeilen zurück (je ein Pedigree-Eintrag)."""
+    Gibt eine sortierte Liste von Zeilen zurück (je ein Pedigree-Eintrag).
+    Fallback: wenn keine Ahnentafel vorhanden, wird match_ancestors (Ancestry API)
+    verwendet."""
     # Pedigree-Zeilen laden
     with db._cursor() as cur:
         ped_rows = [dict(r) for r in cur.execute(
@@ -310,8 +325,28 @@ def run_match_for_match(db, test_guid: str, match_guid: str) -> list[dict]:
             (test_guid, match_guid),
         ).fetchall()]
 
-    if not ped_rows:
-        return []
+    # Fallback: gemeinsame Vorfahren aus der Ancestry-API (match_ancestors)
+    use_ancestors_api = not ped_rows
+    if use_ancestors_api:
+        anc_rows = db.get_ancestors_for_match(match_guid)
+        if not anc_rows:
+            return []
+        # In pedigree-ähnliches Format umwandeln
+        ped_rows = []
+        for a in anc_rows:
+            given, surname = _parse_ancestor_name(a.get("ancestor_name", ""))
+            if not surname:
+                continue
+            ped_rows.append({
+                "given_name":  given,
+                "surname":     surname,
+                "birth_year":  a.get("birth_year") or None,
+                "birth_place": "",
+                "generation":  0,
+                "ahnen_path":  "",   # Pfad unbekannt bei API-Daten
+            })
+        if not ped_rows:
+            return []
 
     # GEDCOM-Personen aus DB laden + in-memory-Index aufbauen
     with db._cursor() as cur:
@@ -376,7 +411,7 @@ def run_match_for_match(db, test_guid: str, match_guid: str) -> list[dict]:
                 "ged_given":   best_ged["given_name"],
                 "ged_surname": best_ged["surname"],
                 "ged_year":    best_ged["birth_year"],
-                "match_method": best_method,
+                "match_method": f"api+{best_method}" if use_ancestors_api else best_method,
                 "total_score": best_score,
             }
             with db._cursor() as cur:

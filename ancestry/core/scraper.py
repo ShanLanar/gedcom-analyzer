@@ -129,7 +129,7 @@ class Scraper:
                 if self._stop.is_set():
                     break
 
-                is_new = not self._db.match_exists(m.match_guid)
+                is_new = not self._db.match_exists_for_kit(m.match_guid, test_guid)
 
                 if only_new and not is_new:
                     consecutive_known_pages += 1
