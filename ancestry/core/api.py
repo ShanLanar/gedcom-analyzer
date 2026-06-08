@@ -28,6 +28,7 @@ RETRY_DELAYS    = [30, 60, 90, 120, 180]
 
 BURST_LIMIT     = 3
 BURST_PAUSE     = 20.0
+JWT_REFRESH_INTERVAL = 25 * 60  # Sekunden zwischen JWT-Erneuerungen
 
 
 def _jitter(base: float) -> float:
@@ -117,6 +118,39 @@ class AncestryApiClient:
         self._detail_blocked = False   # True wenn Namen-API 401/403 lieferte
         self._csrf_mode = None         # gecachte CSRF-Form sobald eine 200 lieferte
         self._http_lock = __import__("threading").Lock()  # serialisiert HTTP bei Parallelität
+        self._last_jwt_refresh: float = time.time()
+
+    def _jwt_remaining(self) -> int:
+        """Verbleibende Gültigkeit des SecureATT JWT in Sekunden (negativ = abgelaufen)."""
+        import base64 as _b64, json as _j
+        try:
+            jwt = self._s.cookies.get("SecureATT", domain="www.ancestry.com") or ""
+            if not jwt:
+                jwt = self._s.cookies.get("SecureATT") or ""
+            if not jwt:
+                return 0
+            parts = jwt.split(".")
+            if len(parts) < 2:
+                return 0
+            pad = parts[1] + "=" * (4 - len(parts[1]) % 4)
+            payload = _j.loads(_b64.urlsafe_b64decode(pad))
+            return int(payload.get("exp", 0)) - int(time.time())
+        except Exception:
+            return 0
+
+    def _refresh_jwt(self, test_guid: str) -> None:
+        """Besucht die DNA-Matches-Seite, damit Ancestry einen frischen SecureATT-Cookie setzt."""
+        warmup = f"{cfg.BASE_URL}/discoveryui-matches/list/{test_guid}"
+        try:
+            r = self._s.get(warmup, timeout=cfg.REQUEST_TIMEOUT)
+            remaining = self._jwt_remaining()
+            if remaining > 0:
+                log.info("JWT erneuert – noch %.0f min gültig", remaining / 60)
+            else:
+                log.warning("JWT-Erneuerung: SecureATT immer noch abgelaufen")
+        except Exception as e:
+            log.warning("JWT-Erneuerung fehlgeschlagen: %s", e)
+        self._last_jwt_refresh = time.time()
 
     @staticmethod
     def _pick_name(info: dict) -> str:
@@ -657,6 +691,10 @@ class AncestryApiClient:
                 url += f"&sortBy={sort_by}"
             if filter_by and filter_by != "ALL":
                 url += f"&filterBy={filter_by}"
+
+            if time.time() - self._last_jwt_refresh >= JWT_REFRESH_INTERVAL:
+                log.info("JWT-Erneuerung (alle %.0f min) …", JWT_REFRESH_INTERVAL / 60)
+                self._refresh_jwt(test_guid)
 
             log.debug("GET Seite %d  %s", page, url)
             r = _api_get(self._s, url)
