@@ -1,11 +1,8 @@
 #!/usr/bin/env python3
 """
-Diagnose-Script Phase 5:
-  A) FamilyGraphTokenBundled.js lesen (zeigt wie FG-Token benutzt wird)
-  B) DnaResultsBundled.js nach API-Calls scannen
-  C) uuid/data8p2 JWTs als FamilyGraph access_token testen
+Diagnose-Script Phase 6: FamilyGraph-Token holen + GraphQL-Query testen.
 """
-import json, re, base64
+import json, re, time
 from pathlib import Path
 import requests
 
@@ -21,185 +18,163 @@ s.headers["User-Agent"] = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36"
 )
 
-KIT  = "OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ"
-BASE = "https://www.myheritage.com"
-FG   = "https://familygraph.myheritage.com"
+KIT   = "OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ"
+BASE  = "https://www.myheritage.com"
+GQLEP = "https://familygraphql.myheritage.com"
 
-# ── Hauptseite laden ──────────────────────────────────────────────────────────
+# ── Hauptseite laden → XSRF-Token ────────────────────────────────────────────
 print("Lade Hauptseite …")
 r0 = s.get(f"{BASE}/dna/matches/{KIT}", timeout=20)
 html = r0.text
-
-def find(pattern, default=""):
-    m = re.search(pattern, html)
-    return m.group(1) if m else default
-
-xsrf   = find(r'mhXsrfToken\s*=\s*["\']([^"\']+)["\']')
-fg_tok = find(r'"fg_token_web"\s*:\s*"([^"]+)"') or \
-         find(r'fg_token_web\s*[=:]\s*["\']([^"\']+)["\']')
-uuid_c = cookies.get("uuid", "")
-data8p2= cookies.get("data8p2", "")
-
-print(f"xsrf         : {xsrf[:40] if xsrf else '❌'}")
-print(f"fg_token_web : {fg_tok[:40] if fg_tok else '❌'}")
-print(f"uuid (JWT)   : {uuid_c[:60] if uuid_c else '❌'}")
-print(f"data8p2 (JWT): {data8p2[:60] if data8p2 else '❌'}")
-print()
-
-# JWT Payload dekodieren (nur zur Info)
-def decode_jwt_payload(token):
-    try:
-        parts = token.split(".")
-        if len(parts) < 2: return {}
-        pad = parts[1] + "=" * (4 - len(parts[1]) % 4)
-        return json.loads(base64.urlsafe_b64decode(pad))
-    except:
-        return {}
-
-if uuid_c:
-    pl = decode_jwt_payload(uuid_c)
-    print(f"uuid JWT payload: {json.dumps(pl)[:200]}")
-if data8p2:
-    pl2 = decode_jwt_payload(data8p2)
-    print(f"data8p2 payload: {json.dumps(pl2)[:200]}")
-print()
-
-# ── Bundle-URLs aus HTML ──────────────────────────────────────────────────────
-bundle_map = {}
-for m in re.finditer(r'src="((?:https?://[^"]+|/[^"]+/bundles/JS/[^"]+)\.js[^"]*)"', html):
-    url = m.group(1)
-    name = url.split("/")[-1].split("?")[0]
-    if not url.startswith("http"):
-        url = BASE + url
-    bundle_map[name] = url
-
-# ══════════════════════════════════════════════════════════════════════════════
-# A) FamilyGraphTokenBundled.js lesen
-# ══════════════════════════════════════════════════════════════════════════════
-print("=" * 60)
-print("A) FamilyGraphTokenBundled.js")
-print("=" * 60)
-
-fg_bundle_url = next((v for k, v in bundle_map.items() if "FamilyGraphToken" in k), None)
-if fg_bundle_url:
-    print(f"URL: {fg_bundle_url}")
-    r = s.get(fg_bundle_url, timeout=15)
-    content = r.text
-    print(f"Inhalt ({len(content)} Zeichen):")
-    print(content)
-else:
-    print("❌ FamilyGraphTokenBundled nicht gefunden in Bundle-Map")
-    print("Bekannte Bundle-Namen:", list(bundle_map.keys())[:10])
+xsrf = (re.search(r'mhXsrfToken\s*=\s*["\']([^"\']+)["\']', html) or re.Match()).group(1) \
+       if re.search(r'mhXsrfToken\s*=\s*["\']([^"\']+)["\']', html) else ""
+print(f"xsrf: {xsrf[:40] if xsrf else '❌ nicht gefunden'}")
 print()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# B) DnaResultsBundled.js nach fetch/axios/endpoint scannen
+# SCHRITT 1: FamilyGraph-Token über PHP-Endpoint holen
 # ══════════════════════════════════════════════════════════════════════════════
 print("=" * 60)
-print("B) DnaResultsBundled.js – API-Call-Scan")
+print("SCHRITT 1 – FamilyGraph-Token holen")
 print("=" * 60)
 
-dna_bundle_url = next((v for k, v in bundle_map.items() if "DnaResults" in k), None)
-if dna_bundle_url:
-    print(f"Lade {dna_bundle_url[-60:]} …")
-    r2 = s.get(dna_bundle_url, timeout=30)
-    js = r2.text
-    print(f"  Größe: {len(js)//1024}KB")
+token_url = (f"{BASE}/FP/API/FamilyGraph/get-familygraph-token.php"
+             f"?_={int(time.time()*1000)}&csrf_token={xsrf}")
+print(f"URL: {token_url[:80]}…")
 
-    endpoints = set()
+r_tok = s.get(token_url, headers={
+    "Accept": "application/json",
+    "Referer": f"{BASE}/dna/matches/{KIT}",
+    "X-Requested-With": "XMLHttpRequest",
+}, timeout=15)
 
-    # Muster 1: String-Pfade mit dna/match/segment Keywords
-    for m in re.finditer(r'["\`]((?:https?://|/)[A-Za-z0-9/_\-\.]{5,80})["\`]', js):
-        ep = m.group(1)
-        if any(kw in ep.lower() for kw in ["dna","match","segment","chromosome","relatives"]):
-            endpoints.add(ep)
+print(f"Status: {r_tok.status_code}  CT: {r_tok.headers.get('content-type','')}")
+print(f"Body:   {r_tok.text[:500]}")
 
-    # Muster 2: fetch/axios calls
-    for m in re.finditer(r'(?:fetch|axios\.(?:get|post))\(\s*["\`](https?://[^"\'`]{5,120})["\`]', js):
-        endpoints.add(m.group(1))
-
-    # Muster 3: URL-Teile zusammengebaut (template literals)
-    for m in re.finditer(r'["\`](/FP/[A-Za-z0-9/_\-\.]{3,80})["\`]', js):
-        ep = m.group(1)
-        if any(kw in ep.lower() for kw in ["dna","match","get","api"]):
-            endpoints.add(ep)
-
-    # Muster 4: FamilyGraph URL-Bau
-    for m in re.finditer(r'["\`](https?://familygraph\.myheritage\.com/[^"\'`\s]{3,120})["\`]', js):
-        endpoints.add(m.group(1))
-
-    # Muster 5: PHP-Endpoints
-    for m in re.finditer(r'["\`](/[A-Za-z0-9/_\-]+\.php)["\`]', js):
-        endpoints.add(m.group(1))
-
-    if endpoints:
-        print(f"\n  Gefundene Pfade ({len(endpoints)}):")
-        for ep in sorted(endpoints):
-            print(f"    {ep}")
+fg_access_token = ""
+try:
+    tok_data = r_tok.json()
+    fg_access_token = (tok_data.get("data") or {}).get("token", "")
+    if fg_access_token:
+        print(f"\n✅ FamilyGraph-Token erhalten: {fg_access_token[:60]}…")
     else:
-        print("  Keine Pfade gefunden")
+        print(f"\n⚠️  Kein token-Feld in Antwort: {list(tok_data.keys())}")
+except Exception as e:
+    print(f"\n❌ JSON-Parse-Fehler: {e}")
+print()
 
-    # Kontext-Suche für 'dna_match' / 'matches'
-    print("\n  Kontext-Suche 'dna_match' (erste 5 Treffer):")
-    for m in list(re.finditer(r'.{0,60}dna_match.{0,60}', js))[:5]:
-        print(f"    …{m.group()}…")
+if not fg_access_token:
+    print("Ohne FG-Token kann nicht weiter gemacht werden.")
+    import sys; sys.exit(1)
 
-    print("\n  Kontext-Suche 'familygraph' (erste 5 Treffer):")
-    for m in list(re.finditer(r'.{0,80}familygraph.{0,80}', js, re.I))[:5]:
-        print(f"    …{m.group()}…")
-else:
-    print("❌ DnaResultsBundled nicht gefunden")
+# ══════════════════════════════════════════════════════════════════════════════
+# SCHRITT 2: GraphQL-Introspection (welche Felder gibt es?)
+# ══════════════════════════════════════════════════════════════════════════════
+print("=" * 60)
+print("SCHRITT 2 – GraphQL-Introspection")
+print("=" * 60)
+
+gql_headers = {
+    "Authorization":  f"Bearer {fg_access_token}",
+    "Content-Type":   "application/json",
+    "Accept":         "application/json",
+    "Referer":        f"{BASE}/dna/matches/{KIT}",
+    "Origin":         BASE,
+}
+
+# Nur den dna_kit Typ introspectieren
+intro_q = """
+{
+  __type(name: "DnaKit") {
+    name
+    fields { name type { name kind ofType { name kind } } }
+  }
+}
+"""
+r_intro = s.post(GQLEP, json={"query": intro_q}, headers=gql_headers, timeout=15)
+print(f"Status: {r_intro.status_code}")
+try:
+    d = r_intro.json()
+    if "data" in d and d["data"]:
+        fields = (d["data"].get("__type") or {}).get("fields", [])
+        print(f"DnaKit-Felder: {[f['name'] for f in fields]}")
+    else:
+        print(f"Antwort: {json.dumps(d)[:400]}")
+except:
+    print(f"Body: {r_intro.text[:400]}")
 print()
 
 # ══════════════════════════════════════════════════════════════════════════════
-# C) uuid/data8p2 JWTs gegen FamilyGraph testen
+# SCHRITT 3: Echte dna_matches Query (erste 5 Matches)
 # ══════════════════════════════════════════════════════════════════════════════
 print("=" * 60)
-print("C) JWT-Tokens gegen FamilyGraph")
+print("SCHRITT 3 – dna_matches Query (5 Matches)")
 print("=" * 60)
 
-def probe(label, url, params=None, hdrs=None):
-    h = {"Referer": f"{BASE}/dna/matches/{KIT}", "Accept": "application/json, */*"}
-    if hdrs: h.update(hdrs)
-    try:
-        resp = s.get(url, params=params or {}, headers=h, timeout=10)
-        ct   = resp.headers.get("content-type","")
-        tag  = "✅" if resp.status_code==200 else "⚠️"
-        print(f"  {tag} [{resp.status_code}] {label}")
-        if "json" in ct:
-            try:
-                d = resp.json()
-                txt = json.dumps(d)
-                keys = list(d.keys())[:15] if isinstance(d,dict) else f"[{len(d)}]"
-                print(f"       Keys: {keys}")
-                if any(k in txt for k in ["sharedDna","matchId","dna_match","matches","items","results","total"]):
-                    print(f"       🎯 MATCH-DATEN!")
-                print(f"       {txt[:400]}")
-            except: print(f"       {resp.text[:200]!r}")
-        else:
-            print(f"       {resp.text[:150].replace(chr(10),' ')!r}")
-    except Exception as e:
-        print(f"  ❌ {label}: {e}")
-    print()
+matches_q = f"""
+{{
+  dna_kit (id: "{KIT}", lang: "EN") {{
+    dna_matches (limit: 5, offset: 0) {{
+      data {{
+        id
+        link
+        display_name
+        first_name
+        last_name
+        shared_dna
+        shared_segments
+        relationship
+        predicted_relationship
+        image_url
+        added_date
+      }}
+      total_count
+    }}
+  }}
+}}
+"""
+r_matches = s.post(GQLEP, json={"query": matches_q}, headers=gql_headers, timeout=20)
+print(f"Status: {r_matches.status_code}  CT: {r_matches.headers.get('content-type','')}")
+try:
+    d = r_matches.json()
+    print(f"Keys: {list(d.keys())}")
+    txt = json.dumps(d, indent=2)
+    print(txt[:2000])
+    if "errors" not in d and "data" in d:
+        print("\n🎯 MATCH-DATEN GEFUNDEN!")
+    elif "errors" in d:
+        print(f"\n⚠️  GraphQL-Fehler: {json.dumps(d['errors'])[:300]}")
+except Exception as e:
+    print(f"Parse-Fehler: {e}")
+    print(r_matches.text[:500])
+print()
 
-for token_name, token_val in [("uuid", uuid_c), ("data8p2", data8p2)]:
-    if not token_val:
-        continue
-    probe(f"{token_name} als access_token (Query)",
-          f"{FG}/{KIT}/dna_matches",
-          params={"access_token": token_val, "limit": 5})
-    probe(f"{token_name} als Bearer-Header",
-          f"{FG}/{KIT}/dna_matches",
-          params={"limit": 5},
-          hdrs={"Authorization": f"Bearer {token_val}"})
+# ══════════════════════════════════════════════════════════════════════════════
+# SCHRITT 4: Alternativ-Query ohne Feldliste (alle Felder)
+# ══════════════════════════════════════════════════════════════════════════════
+print("=" * 60)
+print("SCHRITT 4 – Alternativ (einfache Felder)")
+print("=" * 60)
 
-# PHP Exchange-Endpoint: Session → FG-Token
-probe("PHP FG-Token Exchange",
-      f"{BASE}/FP/API/FamilyGraph/get-access-token.php",
-      params={"siteId": KIT},
-      hdrs={"x-xsrf-token": xsrf, "X-Requested-With": "XMLHttpRequest"})
-
-probe("PHP FG-Token Exchange v2",
-      f"{BASE}/FP/Process/getFamilyGraphToken.php",
-      params={"siteId": KIT},
-      hdrs={"x-xsrf-token": xsrf, "X-Requested-With": "XMLHttpRequest"})
+simple_q = f"""
+{{
+  dna_kit (id: "{KIT}", lang: "EN") {{
+    dna_matches (limit: 3) {{
+      total_count
+      data {{
+        id
+        display_name
+        shared_dna
+        relationship
+      }}
+    }}
+  }}
+}}
+"""
+r2 = s.post(GQLEP, json={"query": simple_q}, headers=gql_headers, timeout=15)
+print(f"Status: {r2.status_code}")
+try:
+    d2 = r2.json()
+    print(json.dumps(d2, indent=2)[:1500])
+except:
+    print(r2.text[:500])
