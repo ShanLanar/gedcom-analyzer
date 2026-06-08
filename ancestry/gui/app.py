@@ -183,6 +183,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.last":      {"de": "Letzter Login:",                       "en": "Last Login:"},
     "md.pedigree":  {"de": "Ahnentafel:",                          "en": "Pedigree:"},
     "md.origin":    {"de": "Herkunft:",                            "en": "Origin:"},
+    "md.rel_cm":    {"de": "Beziehung (cM):",                      "en": "Relationship (cM):"},
     "md.note":      {"de": "Notiz:",                               "en": "Note:"},
     "md.save_note": {"de": "💾 Notiz speichern",                   "en": "💾 Save note"},
     "md.open_anc":  {"de": "🔗 In Ancestry öffnen",                "en": "🔗 Open in Ancestry"},
@@ -3170,6 +3171,7 @@ class AncestryDnaApp(tk.Tk):
         self._detail_fields: dict[str, tk.StringVar] = {}
         for de_lbl, key in [("cM","md.cm"),("Segmente","md.seg"),
                              ("Längstes Seg.","md.longseg"),("Beziehung","md.rel"),
+                             ("Beziehung (cM)","md.rel_cm"),
                              ("Konfidenz","md.conf"),("Stammbaum","md.tree_lbl"),
                              ("Gem. Vorfahre","md.anc"),("Geschlecht","md.sex"),
                              ("Letzter Login","md.last"),
@@ -3866,6 +3868,7 @@ class AncestryDnaApp(tk.Tk):
             ("Segmente",       str(match.shared_segments)),
             ("Längstes Seg.",  f"{match.longest_segment:.2f} cM"),
             ("Beziehung",      match.predicted_relationship or "—"),
+            ("Beziehung (cM)", self._rel_cm_summary(match.shared_cm or 0)),
             ("Konfidenz",      match.confidence or "—"),
             ("Stammbaum",      self._tree_detail_text(match)),
             ("Gem. Vorfahre",  "Ja 👪" if getattr(match, "has_common_ancestor", False) else "Nein"),
@@ -4005,26 +4008,37 @@ class AncestryDnaApp(tk.Tk):
         url = f"https://www.familysearch.org/search/record/results?q.surname={quote(name.split()[-1])}"
         webbrowser.open(url)
 
+    @staticmethod
+    def _rel_cm_summary(cm: float) -> str:
+        """Shared-cM-Project-Verteilung als Einzeiler, z.B.
+        '70% 2. Cousin · 19% Halb-1C · 11% …'."""
+        try:
+            from core.shared_cm import summary_line
+            return summary_line(cm, top=3) if cm and cm > 0 else "—"
+        except Exception:
+            return "—"
+
     def _update_rel_prob(self, cm: float):
-        """Draw top-3 relationship probability bars on the canvas."""
+        """Draw top-3 relationship probability bars on the canvas
+        (Shared cM Project 4.0 distribution)."""
         c = self._rel_prob_canvas
         c.delete("all")
         if cm <= 0:
             return
         w = c.winfo_width() or 260
         h = c.winfo_height() or 52
-        # compute top 3 matches from CM_RANGES
-        scored = []
-        for lo, hi, label, gen in self._CM_RANGES:
-            mid_val = (lo + hi) / 2.0
-            dist = abs(cm - mid_val) / (hi - lo + 1)
-            score = max(0.0, 1.0 - dist)
-            scored.append((score, label))
-        scored.sort(reverse=True)
-        total = sum(s for s, _ in scored[:3]) or 1.0
+        try:
+            from core.shared_cm import relationship_probabilities
+            probs = relationship_probabilities(cm, top=3)
+            scored = [(p["probability"], p["labels"][0]) for p in probs]
+        except Exception:
+            scored = []
+        if not scored:
+            return
+        total = sum(s for s, _ in scored) or 1.0
         colors = [COLORS["primary"], COLORS["accent"], COLORS["light"]]
         bar_h = (h - 6) // 3
-        for i, (score, label) in enumerate(scored[:3]):
+        for i, (score, label) in enumerate(scored):
             pct = score / total
             y0 = 3 + i * (bar_h + 2)
             bar_w = max(4, int((w - 130) * pct))
