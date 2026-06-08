@@ -15,6 +15,7 @@ zwischen Vorfahren aus DNA-Match-Ahnentafeln und dem eigenen Baum.
 Minimaler Link-Score: 0.45
 """
 
+import json
 import os
 import re
 import sys
@@ -713,3 +714,168 @@ def apply_gedcom_endogamy_to_matches(
 
     p(f"Endogamie-Marker gesetzt: {len(marked)} Matches")
     return len(marked)
+
+
+# ── Ort-Nachnamen-Korrelation: wahrscheinliche Herkunftsregion ────────────────
+
+def _extract_region(birth_place: str) -> str:
+    """Extrahiert die Region (letzter nicht-leerer Teil nach Komma) aus einem Geburtsort."""
+    if not birth_place:
+        return ""
+    parts = [p.strip() for p in birth_place.split(",") if p.strip()]
+    if not parts:
+        return ""
+    # Last part is typically country, second-to-last is region/state
+    if len(parts) >= 2:
+        return parts[-2].lower()
+    return parts[-1].lower()
+
+
+def infer_match_origins(
+    db,
+    test_guid: str,
+    progress_cb=None,
+    persist: bool = True,
+) -> list[dict]:
+    """Korreliert Nachnamen und Geburtsorte aus Match-Ahnentafeln mit dem GEDCOM-Baum,
+    um die wahrscheinliche Herkunftsregion jedes DNA-Matches abzuleiten.
+
+    Algorithmus:
+      1. Aus gedcom_persons: pro Region (vorletzter Ortsteil) → Menge bekannter
+         Nachnamen (surname_norm) und Kölner-Codes.
+      2. Für jeden Match: Nachnamen aus match_pedigree gegen alle GEDCOM-Regionen
+         gewichten. Frühgenerationen zählen stärker (1/generation).
+      3. Regionsscore = Summe der gewichteten Übereinstimmungen:
+           exact norm match → 1.0,  gleicher Kölner-Code → 0.7
+      4. Bester Score → probable_origin gespeichert (JSON) in matches-Tabelle.
+
+    Gibt Liste von Dicts zurück:
+      {"match_guid", "match_name", "top_region", "score",
+       "evidence_surnames", "evidence_places"}
+    """
+    p = progress_cb or (lambda *a: None)
+
+    # ── 1. GEDCOM-Regionen-Index aufbauen ─────────────────────────────────────
+    try:
+        with db._cursor() as cur:
+            ged_rows = cur.execute(
+                "SELECT surname_norm, koelner_code, birth_place FROM gedcom_persons "
+                "WHERE birth_place != '' AND surname_norm != ''"
+            ).fetchall()
+    except Exception:
+        p("GEDCOM-Tabelle nicht gefunden – bitte zuerst GEDCOM laden.")
+        return []
+
+    # region → {"norms": set, "koelner": set}
+    region_index: dict[str, dict] = defaultdict(lambda: {"norms": set(), "koelner": set()})
+    for row in ged_rows:
+        region = _extract_region(row["birth_place"])
+        if not region:
+            continue
+        if row["surname_norm"]:
+            region_index[region]["norms"].add(row["surname_norm"])
+        if row["koelner_code"]:
+            region_index[region]["koelner"].add(row["koelner_code"])
+
+    if not region_index:
+        p("Keine GEDCOM-Personen mit Geburtsort und Nachnamen gefunden.")
+        return []
+
+    p(f"GEDCOM-Index: {len(region_index)} Regionen aus {len(ged_rows)} Personen …")
+
+    # ── 2. Match-Ahnentafel-Daten laden ──────────────────────────────────────
+    try:
+        with db._cursor() as cur:
+            ped_rows = cur.execute(
+                """SELECT mp.match_guid, m.display_name,
+                          mp.surname, mp.birth_place, mp.generation
+                   FROM match_pedigree mp
+                   JOIN matches m ON m.match_guid = mp.match_guid
+                   WHERE m.test_guid = ? AND mp.surname != ''""",
+                (test_guid,),
+            ).fetchall()
+    except Exception:
+        p("match_pedigree-Tabelle nicht gefunden – bitte Ahnentafeln herunterladen.")
+        return []
+
+    if not ped_rows:
+        p("Keine Pedigree-Daten vorhanden.")
+        return []
+
+    # Gruppieren nach Match
+    match_data: dict[str, dict] = {}
+    for row in ped_rows:
+        guid = row["match_guid"]
+        if guid not in match_data:
+            match_data[guid] = {
+                "name": row["display_name"] or guid,
+                "ancestors": [],
+            }
+        match_data[guid]["ancestors"].append({
+            "surname"   : row["surname"],
+            "birth_place": row["birth_place"] or "",
+            "generation": row["generation"] or 1,
+        })
+
+    p(f"Pedigree-Daten: {len(match_data)} Matches mit Ahnentafel-Nachnamen …")
+
+    # ── 3. Scoring pro Match × Region ────────────────────────────────────────
+    results: list[dict] = []
+
+    for match_guid, mdata in match_data.items():
+        region_scores: dict[str, float] = defaultdict(float)
+        matched_surnames: dict[str, list] = defaultdict(list)
+        matched_places: dict[str, list] = defaultdict(list)
+
+        for anc in mdata["ancestors"]:
+            sn_raw = anc["surname"]
+            gen    = max(1, anc["generation"])
+            weight = 1.0 / gen
+
+            sn_norm   = _norm(sn_raw)
+            sn_koelner = _koelner(sn_raw)
+
+            for region, idx in region_index.items():
+                score = 0.0
+                if sn_norm and sn_norm in idx["norms"]:
+                    score = 1.0
+                elif sn_koelner and sn_koelner in idx["koelner"]:
+                    score = 0.7
+
+                if score > 0:
+                    region_scores[region] += score * weight
+                    matched_surnames[region].append(sn_raw)
+                    if anc["birth_place"]:
+                        matched_places[region].append(anc["birth_place"])
+
+        if not region_scores:
+            continue
+
+        top_region = max(region_scores, key=lambda r: region_scores[r])
+        top_score  = round(region_scores[top_region], 3)
+
+        # Deduplicate evidence
+        ev_sn  = list(dict.fromkeys(matched_surnames[top_region]))[:6]
+        ev_pl  = list(dict.fromkeys(matched_places[top_region]))[:4]
+
+        entry = {
+            "match_guid"       : match_guid,
+            "match_name"       : mdata["name"],
+            "top_region"       : top_region.title(),
+            "score"            : top_score,
+            "evidence_surnames": ev_sn,
+            "evidence_places"  : ev_pl,
+        }
+        results.append(entry)
+
+        if persist:
+            db.set_probable_origin(match_guid, json.dumps({
+                "region"  : entry["top_region"],
+                "score"   : top_score,
+                "surnames": ev_sn,
+                "places"  : ev_pl,
+            }, ensure_ascii=False))
+
+    results.sort(key=lambda r: r["score"], reverse=True)
+    p(f"Herkunfts-Analyse: {len(results)} Matches mit Regionszuordnung abgeschlossen.")
+    return results

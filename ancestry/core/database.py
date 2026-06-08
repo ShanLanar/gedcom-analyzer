@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 16
+    SCHEMA_VERSION = 17
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -97,6 +97,7 @@ class Database:
                 self._migrate_v14_v15(cur)
             if current < 16:
                 self._migrate_v15_v16(cur)
+                self._migrate_v16_v17(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -706,6 +707,12 @@ class Database:
             cur.execute(sql, params)
             return [DnaMatch.from_db_row(dict(r)) for r in cur.fetchall()]
 
+    def set_probable_origin(self, match_guid: str, origin_json: str):
+        """Stores the JSON-serialized origin inference result for a match."""
+        with self._cursor() as cur:
+            cur.execute("UPDATE matches SET probable_origin=? WHERE match_guid=?",
+                        (origin_json, match_guid))
+
     def set_endogamy_cluster(self, match_guid: str, cluster: str):
         """Setzt oder löscht den Endogamie-Cluster-Label für einen Match."""
         with self._cursor() as cur:
@@ -1281,6 +1288,13 @@ class Database:
                 cur.execute(stmt)
             except Exception:
                 pass
+
+    def _migrate_v16_v17(self, cur):
+        """Schema v17: probable_origin column for place/surname correlation results."""
+        try:
+            cur.execute("ALTER TABLE matches ADD COLUMN probable_origin TEXT DEFAULT ''")
+        except Exception:
+            pass
 
     # ── New methods (v12) ─────────────────────────────────────────────────────
 

@@ -182,6 +182,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.sex":       {"de": "Geschlecht:",                          "en": "Gender:"},
     "md.last":      {"de": "Letzter Login:",                       "en": "Last Login:"},
     "md.pedigree":  {"de": "Ahnentafel:",                          "en": "Pedigree:"},
+    "md.origin":    {"de": "Herkunft:",                            "en": "Origin:"},
     "md.note":      {"de": "Notiz:",                               "en": "Note:"},
     "md.save_note": {"de": "💾 Notiz speichern",                   "en": "💾 Save note"},
     "md.open_anc":  {"de": "🔗 In Ancestry öffnen",                "en": "🔗 Open in Ancestry"},
@@ -3172,7 +3173,8 @@ class AncestryDnaApp(tk.Tk):
                              ("Konfidenz","md.conf"),("Stammbaum","md.tree_lbl"),
                              ("Gem. Vorfahre","md.anc"),("Geschlecht","md.sex"),
                              ("Letzter Login","md.last"),
-                             ("Ahnentafel","md.pedigree")]:
+                             ("Ahnentafel","md.pedigree"),
+                             ("Herkunft","md.origin")]:
             row = ttk.Frame(inf); row.pack(fill="x", pady=1)
             sv_lbl = tk.StringVar(value=self._t(key))
             ttk.Label(row, textvariable=sv_lbl, width=15, anchor="e",
@@ -3286,6 +3288,8 @@ class AncestryDnaApp(tk.Tk):
                    command=lambda: self._ensure_gedcom_loaded(
                        self._on_gedcom_loaded_update_header, force_ask=True)
                    ).pack(side="left")
+        ttk.Button(hdr, text="🗺 Herkunft ableiten",
+                   command=self._run_origin_inference).pack(side="right", padx=4)
         ttk.Button(hdr, text="🧬 Endogamie übertragen",
                    command=self._run_endogamy_transfer).pack(side="right", padx=4)
 
@@ -3541,6 +3545,37 @@ class AncestryDnaApp(tk.Tk):
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="endo-transfer").start()
+
+    def _run_origin_inference(self):
+        """Leitet wahrscheinliche Herkunftsregionen aus Pedigree-Nachnamen × GEDCOM-Orten ab."""
+        ged = getattr(self, "_gedcom", None)
+        if not ged:
+            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            return
+        test_guid = self._current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set("Herkunfts-Analyse läuft …")
+
+        def _worker():
+            try:
+                from core import bridge as _bridge
+                results = _bridge.infer_match_origins(
+                    self._db, test_guid,
+                    progress_cb=lambda m, **kw: self.after(
+                        0, lambda mm=m: self._ged_link_status.set(mm)),
+                )
+                n = len(results)
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"Herkunfts-Analyse fertig: {n} Matches zugeordnet"))
+                self.after(0, self._refresh_match_table)
+            except Exception as exc:
+                log.warning("origin-inference: %s", exc)
+                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="origin-infer").start()
 
     def _refresh_match_table(self, *_):
         try:
@@ -3852,6 +3887,29 @@ class AncestryDnaApp(tk.Tk):
                 self.after(0, lambda: self._detail_fields["Ahnentafel"].set("—"))
         import threading as _thr
         _thr.Thread(target=_load_ped, daemon=True, name="ped-summary").start()
+
+        # Herkunfts-Schätzung aus probable_origin-Spalte laden
+        self._detail_fields["Herkunft"].set("…")
+        def _load_origin(guid=match.match_guid):
+            try:
+                import json as _json
+                with self._db._cursor() as _cur:
+                    row = _cur.execute(
+                        "SELECT probable_origin FROM matches WHERE match_guid=?", (guid,)
+                    ).fetchone()
+                raw = row["probable_origin"] if row else ""
+                if raw:
+                    data = _json.loads(raw)
+                    region = data.get("region", "")
+                    score  = data.get("score", 0)
+                    sn     = ", ".join(data.get("surnames", [])[:3])
+                    label  = f"{region} ({score:.2f})" + (f"  [{sn}]" if sn else "")
+                else:
+                    label = "—"
+                self.after(0, lambda lb=label: self._detail_fields["Herkunft"].set(lb))
+            except Exception:
+                self.after(0, lambda: self._detail_fields["Herkunft"].set("—"))
+        _thr.Thread(target=_load_origin, daemon=True, name="origin-load").start()
 
         self._note_text.delete("1.0","end")
         self._note_text.insert("1.0", match.note or "")
