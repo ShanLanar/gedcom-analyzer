@@ -1268,6 +1268,31 @@ class Database:
             except Exception:
                 r["gedcom_persons"] = 0
                 r["gedcom_linked"] = 0
+
+            # Seitenzuweisung
+            cur.execute(f"""
+                SELECT paternal_maternal, COUNT(*) FROM matches {where}
+                GROUP BY paternal_maternal
+            """, params)
+            sides = {"paternal": 0, "maternal": 0, "": 0}
+            for row in cur.fetchall():
+                sides[row[0] or ""] = row[1]
+            r["side_paternal"] = sides.get("paternal", 0)
+            r["side_maternal"] = sides.get("maternal", 0)
+            r["side_unset"] = sides.get("", 0)
+
+            # Per-Kit-Übersicht (join mit kits für Namen)
+            try:
+                cur.execute("""
+                    SELECT k.name, k.guid, COUNT(m.match_guid) AS cnt
+                    FROM kits k
+                    LEFT JOIN match_kit_membership m ON m.test_guid = k.guid
+                    GROUP BY k.guid ORDER BY cnt DESC
+                """)
+                r["kit_breakdown"] = [(row[0] or row[1][:16], row[2])
+                                      for row in cur.fetchall()]
+            except Exception:
+                r["kit_breakdown"] = []
         return r
 
     def get_bridge_hit_counts(self, test_guid: str) -> dict:

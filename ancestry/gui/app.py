@@ -205,6 +205,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "st.ged_kz":    {"de": "GEDCOM-Brücke",                        "en": "GEDCOM Bridge"},
     "st.ged_pers":  {"de": "GEDCOM-Personen:",                     "en": "GEDCOM persons:"},
     "st.ged_linked":{"de": "Matches mit Treffer:",                  "en": "Matches with hits:"},
+    "st.side_kz":   {"de": "Seitenzuweisung",                      "en": "Side Assignment"},
+    "st.side_pat":  {"de": "🔵 Väterlich:",                        "en": "🔵 Paternal:"},
+    "st.side_mat":  {"de": "🔴 Mütterlich:",                       "en": "🔴 Maternal:"},
+    "st.side_open": {"de": "❓ Nicht zugewiesen:",                  "en": "❓ Unassigned:"},
+    "st.kit_kz":    {"de": "Kits & Matches",                       "en": "Kits & Matches"},
     # Menu bar — cascade labels
     "mn.file":      {"de": "Datei",                                "en": "File"},
     "mn.view":      {"de": "Ansicht",                              "en": "View"},
@@ -4388,6 +4393,37 @@ class AncestryDnaApp(tk.Tk):
                       foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
             self._stat_vars[stat_key] = var
 
+        # Seitenzuweisung section
+        sz = ttk.LabelFrame(f, text=self._t("st.side_kz"), padding=10)
+        sz.pack(fill="x", padx=14, pady=4)
+        self._lang_widgets.append((sz, "st.side_kz"))
+        side_label_keys = [
+            ("side_paternal", "st.side_pat"),
+            ("side_maternal", "st.side_mat"),
+            ("side_unset",    "st.side_open"),
+        ]
+        for i, (stat_key, t_key) in enumerate(side_label_keys):
+            sv_lbl = tk.StringVar(value=self._t(t_key))
+            ttk.Label(sz, textvariable=sv_lbl, foreground="#555555").grid(
+                row=0, column=i*2, sticky="e", padx=(14,4), pady=3)
+            self._lang_widgets.append((sv_lbl, t_key))
+            var = tk.StringVar(value="—")
+            ttk.Label(sz, textvariable=var, font=("Segoe UI", 10, "bold"),
+                      foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
+            self._stat_vars[stat_key] = var
+
+        # Kits & Matches section
+        kf = ttk.LabelFrame(f, text=self._t("st.kit_kz"), padding=10)
+        kf.pack(fill="x", padx=14, pady=4)
+        self._lang_widgets.append((kf, "st.kit_kz"))
+        self._kit_stat_tree = ttk.Treeview(kf, columns=("kit", "count"),
+                                            show="headings", height=4)
+        self._kit_stat_tree.heading("kit",   text="Kit")
+        self._kit_stat_tree.heading("count", text="Matches")
+        self._kit_stat_tree.column("kit",   width=280)
+        self._kit_stat_tree.column("count", width=80, anchor="e")
+        self._kit_stat_tree.pack(fill="x")
+
         # Progress ring section
         ring_frame = ttk.Frame(f); ring_frame.pack(fill="x", padx=14, pady=4)
         self._ring_canvas = tk.Canvas(ring_frame, height=90, bg=COLORS["bg"],
@@ -4416,6 +4452,9 @@ class AncestryDnaApp(tk.Tk):
         self._rel_tree.delete(*self._rel_tree.get_children())
         for rel, cnt in stats.get("relationship_breakdown", []):
             self._rel_tree.insert("", "end", values=(rel, cnt))
+        self._kit_stat_tree.delete(*self._kit_stat_tree.get_children())
+        for kit_name, cnt in stats.get("kit_breakdown", []):
+            self._kit_stat_tree.insert("", "end", values=(kit_name, cnt))
         self._draw_stat_rings(stats)
 
     def _draw_stat_rings(self, stats: dict):
