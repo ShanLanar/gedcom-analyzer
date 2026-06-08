@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 17
+    SCHEMA_VERSION = 18
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -98,6 +98,7 @@ class Database:
             if current < 16:
                 self._migrate_v15_v16(cur)
                 self._migrate_v16_v17(cur)
+                self._migrate_v17_v18(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -1295,6 +1296,20 @@ class Database:
             cur.execute("ALTER TABLE matches ADD COLUMN probable_origin TEXT DEFAULT ''")
         except Exception:
             pass
+
+    def _migrate_v17_v18(self, cur):
+        """Schema v18: ml_origin column — ML 'second opinion' on match origin,
+        stored separately from the rule-based probable_origin."""
+        try:
+            cur.execute("ALTER TABLE matches ADD COLUMN ml_origin TEXT DEFAULT ''")
+        except Exception:
+            pass
+
+    def set_ml_origin(self, match_guid: str, origin_json: str):
+        """Store the ML origin prediction (JSON) for a match."""
+        with self._cursor() as cur:
+            cur.execute("UPDATE matches SET ml_origin=? WHERE match_guid=?",
+                        (origin_json, match_guid))
 
     # ── New methods (v12) ─────────────────────────────────────────────────────
 

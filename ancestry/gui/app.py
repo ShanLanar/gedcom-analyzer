@@ -184,6 +184,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.pedigree":  {"de": "Ahnentafel:",                          "en": "Pedigree:"},
     "md.origin":    {"de": "Herkunft:",                            "en": "Origin:"},
     "md.rel_cm":    {"de": "Beziehung (cM):",                      "en": "Relationship (cM):"},
+    "md.ml_origin": {"de": "Herkunft (ML):",                       "en": "Origin (ML):"},
     "md.note":      {"de": "Notiz:",                               "en": "Note:"},
     "md.save_note": {"de": "💾 Notiz speichern",                   "en": "💾 Save note"},
     "md.open_anc":  {"de": "🔗 In Ancestry öffnen",                "en": "🔗 Open in Ancestry"},
@@ -3176,7 +3177,8 @@ class AncestryDnaApp(tk.Tk):
                              ("Gem. Vorfahre","md.anc"),("Geschlecht","md.sex"),
                              ("Letzter Login","md.last"),
                              ("Ahnentafel","md.pedigree"),
-                             ("Herkunft","md.origin")]:
+                             ("Herkunft","md.origin"),
+                             ("Herkunft (ML)","md.ml_origin")]:
             row = ttk.Frame(inf); row.pack(fill="x", pady=1)
             sv_lbl = tk.StringVar(value=self._t(key))
             ttk.Label(row, textvariable=sv_lbl, width=15, anchor="e",
@@ -3294,6 +3296,8 @@ class AncestryDnaApp(tk.Tk):
                    command=self._run_origin_inference).pack(side="right", padx=4)
         ttk.Button(hdr, text="🔗 WikiTree",
                    command=self._run_wikitree_extend).pack(side="right", padx=4)
+        ttk.Button(hdr, text="🤖 ML-Herkunft",
+                   command=self._run_ml_origin).pack(side="right", padx=4)
         ttk.Button(hdr, text="🧬 Endogamie übertragen",
                    command=self._run_endogamy_transfer).pack(side="right", padx=4)
 
@@ -3549,6 +3553,37 @@ class AncestryDnaApp(tk.Tk):
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="endo-transfer").start()
+
+    def _run_ml_origin(self):
+        """Trainiert (falls nötig) das ML-Herkunftsmodell auf dem GEDCOM und
+        wendet es als 'zweite Meinung' auf alle Matches an (ml_origin-Spalte)."""
+        test_guid = self._current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+        self._ged_link_status.set("ML-Herkunft: starte …")
+
+        def _worker():
+            try:
+                from core import ml_origin as _ml
+                cb = lambda m: self.after(0, lambda mm=m: self._ged_link_status.set(mm))
+                if not _ml.load():
+                    cb("ML: trainiere Modell auf GEDCOM …")
+                    metrics = _ml.train(self._db, progress_cb=cb)
+                    cb(f"ML: trainiert ({metrics['n_train']} Personen, "
+                       f"{metrics['n_regions']} Regionen, "
+                       f"{metrics['train_acc']:.0%})")
+                n = _ml.apply_to_matches(self._db, test_guid, progress_cb=cb)
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"ML-Herkunft fertig: {n} Matches gelabelt"))
+                self.after(0, self._refresh_match_table)
+            except Exception as exc:
+                log.warning("ml-origin: %s", exc)
+                msg = str(exc).split("\n")[0]
+                self.after(0, lambda: self._ged_link_status.set(f"ML-Fehler: {msg}"))
+                self.after(0, lambda: messagebox.showwarning("ML-Herkunft", str(exc)))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="ml-origin").start()
 
     def _run_wikitree_extend(self):
         """Verlängert die Ahnenlinie des gewählten Matches über die WikiTree-API."""
@@ -3981,6 +4016,32 @@ class AncestryDnaApp(tk.Tk):
             except Exception:
                 self.after(0, lambda: self._detail_fields["Herkunft"].set("—"))
         _thr.Thread(target=_load_origin, daemon=True, name="origin-load").start()
+
+        # ML-Herkunft (zweite Meinung) aus ml_origin-Spalte laden
+        self._detail_fields["Herkunft (ML)"].set("…")
+        def _load_ml_origin(guid=match.match_guid):
+            try:
+                import json as _json
+                with self._db._cursor() as _cur:
+                    row = _cur.execute(
+                        "SELECT ml_origin FROM matches WHERE match_guid=?", (guid,)
+                    ).fetchone()
+                raw = row["ml_origin"] if row and "ml_origin" in row.keys() else ""
+                if raw:
+                    data = _json.loads(raw)
+                    region = data.get("region", "")
+                    prob   = data.get("prob", 0)
+                    alts   = data.get("alts", [])
+                    label  = f"{region} ({prob*100:.0f}%)"
+                    if alts:
+                        label += "  · " + ", ".join(
+                            f"{a['region']} {a['prob']*100:.0f}%" for a in alts[:2])
+                else:
+                    label = "—"
+                self.after(0, lambda lb=label: self._detail_fields["Herkunft (ML)"].set(lb))
+            except Exception:
+                self.after(0, lambda: self._detail_fields["Herkunft (ML)"].set("—"))
+        _thr.Thread(target=_load_ml_origin, daemon=True, name="ml-origin-load").start()
 
         self._note_text.delete("1.0","end")
         self._note_text.insert("1.0", match.note or "")
