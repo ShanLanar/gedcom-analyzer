@@ -151,21 +151,12 @@ def compute_wrights_f(
     ODER innerhalb seines Clusters eine überdurchschnittlich hohe Segmentanzahl
     relativ zur Gesamt-cM hat (viele kleine Fragmente = mehrfache Ahnenlinien).
 
-    Formel (DNA-Approximation nach Lander/Green-Logik):
-        F_excess  = max(0, actual_segments / expected_segments − 1)
+    Formel (strukturelle Approximation):
         F_struct  = (cluster_memberships − 1) / 3   (max. 4 Linien → max. F≈1)
-        F_approx  = 1 − (1 − F_excess) × (1 − F_struct)
 
-    Liefert {match_guid: {"f": float 0..1, "label": str, "segments": int,
-                           "expected_seg": float, "n_clusters": int}}.
+    shared_data liefert keine Segmentanzahl, daher wird F_excess nicht berechnet.
+    Liefert {match_guid: {"f": float 0..1, "label": str, "n_clusters": int, "cm": float}}.
     """
-    # Segment-Daten aus shared_data
-    seg_data: dict[str, tuple[float, int]] = {}  # guid → (total_cm, segments)
-    for row in shared_data:
-        g = row["match_guid_a"]
-        if g not in seg_data:
-            seg_data[g] = (row.get("cm_a") or 0, 0)
-
     # Cluster-Zugehörigkeit (ein Match kann in mehreren Clustern stecken,
     # wenn er Shared-Match-Verbindungen zu mehreren Primär-Clustern hat)
     guid_clusters: dict[str, set] = {}
@@ -177,31 +168,19 @@ def compute_wrights_f(
     for cid, members in clusters.items():
         for m in members:
             guid = m["guid"]
-            cm   = m.get("cm") or 0
-            # Erwartete Segmentanzahl: empirisch ~cm/15 (Durchschnitt ~15 cM/Segment)
-            expected = max(1.0, cm / 15.0)
-            # Segment-Excess (falls keine Segmentdaten: kein F_excess)
-            f_excess = 0.0
-            n_segs   = 0
-
-            # Strukturelle Endogamie: Mitgliedschaft in mehreren Clustern
-            n_clust   = len(guid_clusters.get(guid, {cid}))
-            f_struct  = min(1.0, (n_clust - 1) / 3.0)
-
-            # Noisy-OR-Kombination
-            f_approx = 1.0 - (1.0 - f_excess) * (1.0 - f_struct)
-            f_approx = round(min(1.0, max(0.0, f_approx)), 3)
+            cm      = m.get("cm") or 0
+            n_clust = len(guid_clusters.get(guid, {cid}))
+            f_approx = round(min(1.0, (n_clust - 1) / 3.0), 3)
 
             label = ("Endogamie sehr wahrscheinlich (F≥0.5)" if f_approx >= 0.5 else
                      "Endogamie möglich (F≥0.2)"             if f_approx >= 0.2 else
                      "keine Endogamie-Signatur")
 
             result[guid] = {
-                "f":            f_approx,
-                "label":        label,
-                "n_clusters":   n_clust,
-                "expected_seg": round(expected, 1),
-                "cm":           cm,
+                "f":          f_approx,
+                "label":      label,
+                "n_clusters": n_clust,
+                "cm":         cm,
             }
     return result
 

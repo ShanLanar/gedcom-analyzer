@@ -3510,14 +3510,19 @@ class AncestryDnaApp(tk.Tk):
         def _worker():
             try:
                 from core import bridge as _bridge
-                import sys as _sys, os as _os
+                import sys as _sys, os as _os, importlib.util as _ilu
                 # GEDCOM-Endogamie aus dem Haupt-Analyzer laden (tasks/endogamy.py)
                 _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
                 if _root not in _sys.path:
                     _sys.path.insert(0, _root)
                 from tasks.endogamy import compute_endogamy_with_detailed_places
                 from lib.places import load_location_data
-                import config as _cfg_root
+                # Root-config direkt laden (nicht über sys.modules["config"],
+                # der auf ancestry/config.py zeigt)
+                _cfg_spec = _ilu.spec_from_file_location(
+                    "_root_config", _os.path.join(_root, "config.py"))
+                _cfg_root = _ilu.module_from_spec(_cfg_spec)
+                _cfg_spec.loader.exec_module(_cfg_root)
                 loc = load_location_data(
                     _cfg_root.DEFAULT_CONFIG.get("location_data_json", ""))
                 endo_results = compute_endogamy_with_detailed_places(

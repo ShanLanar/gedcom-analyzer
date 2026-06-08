@@ -233,12 +233,17 @@ class Scraper:
                                 f"{result.new} mit Vorfahren-Daten …")
             _time.sleep(delay * (0.7 + random.random() * 0.6))
 
-        with ThreadPoolExecutor(max_workers=workers) as ex:
-            futures = [ex.submit(_work, it) for it in todo]
-            for f in futures:
-                if self._stop.is_set():
-                    break
-                f.result()
+        ex = ThreadPoolExecutor(max_workers=workers)
+        futures = [ex.submit(_work, it) for it in todo]
+        for f in futures:
+            if self._stop.is_set():
+                # Noch nicht gestartete Tasks verwerfen, laufende können nicht sofort
+                # unterbrochen werden, aber _work() prüft stop am Anfang.
+                ex.shutdown(wait=False, cancel_futures=True)
+                break
+            f.result()
+        else:
+            ex.shutdown(wait=False)
 
         if self._stop.is_set():
             result.success = False
