@@ -757,10 +757,19 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 else:
                     eta_str = ">100h"
                 growth_str = f"{growth_per_page:+.2f}/S"
-                # Bekannte Untergrenze: bereits besucht + noch offen
+                # Bekannte Untergrenze: bereits besucht + noch offen (dedupliziert)
                 known_min = total + openf
+                # Hochrechnung: wenn Wachstum ≈ G, Fan-Out ≈ 1+G pro Person
+                # total_est ≈ total * (1 + G) / (1 - max(G-1,0)) — grobe Näherung
+                # Einfacher: known_min ist Untergrenze; Schätzung = known_min * 1/(1-G)
+                # wenn G < 1 (konvergiert)
+                if 0 < growth_per_page < 0.95:
+                    est_total = int(known_min / (1.0 - growth_per_page))
+                    total_str = f"gesamt≥{known_min} (~{est_total})"
+                else:
+                    total_str = f"gesamt≥{known_min}"
                 print(f"  +{processed}  | Personen: {total} | offen({direction}): {openf}"
-                      f" | gesamt≥{known_min} | {rate:.2f}/s | Wachstum: {growth_str} | ETA ~{eta_str}")
+                      f" | {total_str} | {rate:.2f}/s | Wachstum: {growth_str} | ETA ~{eta_str}")
         c.commit()
         if max_pages > 0 and processed >= max_pages:
             print(f"Seiten-Limit ({max_pages}) erreicht – erneut starten zum Fortsetzen.")
