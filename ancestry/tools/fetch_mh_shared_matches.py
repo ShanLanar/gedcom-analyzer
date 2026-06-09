@@ -626,27 +626,33 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     sm_query = _mp.get("query", "")
                     if debug:
                         print(f"    [DBG] mp fields: {list(_mp.keys())}"
-                              f" | query start={sm_query[:60]!r}")
+                              f" | query start={sm_query[:80]!r}")
 
                 if total_sm_count > PAGE_SIZE and sm_query:
-                    # Replay via FormData aus dem Browser-Kontext (hat Session-Cookies).
-                    # Alle Felder des Original-Requests übernehmen, nur offset im query ersetzen.
-                    # fields: list of [name, value] pairs — JSON-serialisierbar
-                    sm_fields = [[k, v] for k, v in _mp.items() if k != "query"]
+                    # Replay via FormData, alle Felder in Originalreihenfolge.
+                    # query-Feld: offset ersetzen (ggf. JSON-kodiert → innen ersetzen).
+                    # fields: [[name, value], ...] in Originalreihenfolge mit query drin.
+                    sm_fields = [[k, v] for k, v in _mp.items()]
 
                     _JS_PAGINATE = """
-async ([url, fields, query, offset]) => {
+async ([url, fields, offset]) => {
     try {
-        const q = query.replace(/(\\boffset\\s*:\\s*)\\d+/, '$1' + offset);
         const fd = new FormData();
-        for (const [k, v] of fields) fd.append(k, v);
-        fd.append('query', q);
+        for (const [k, v] of fields) {
+            if (k === 'query') {
+                // offset ersetzen — funktioniert egal ob raw oder JSON-kodiert
+                const q = v.replace(/(\\boffset\\s*:\\s*)\\d+/g, '$1' + offset);
+                fd.append(k, q);
+            } else {
+                fd.append(k, v);
+            }
+        }
         const relUrl = url.replace(/^https?:\\/\\/[^\\/]+/, '');
         const r = await fetch(relUrl, {
             method: 'POST', credentials: 'include',
             body: fd
         });
-        if (!r.ok) return '__HTTP_' + r.status;
+        if (!r.ok) return '__HTTP_' + r.status + ':' + (await r.text()).slice(0,200);
         return await r.text();
     } catch(e) { return '__ERR_' + String(e); }
 }
@@ -655,7 +661,7 @@ async ([url, fields, query, offset]) => {
                         offset = PAGE_SIZE
                         while offset < total_sm_count:
                             result = page.evaluate(
-                                _JS_PAGINATE, [sm_url, sm_fields, sm_query, offset])
+                                _JS_PAGINATE, [sm_url, sm_fields, offset])
                             if not result or result.startswith("__"):
                                 if debug:
                                     print(f"    [DBG] Pagination {offset}: {result!r}")
