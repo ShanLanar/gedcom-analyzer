@@ -1,0 +1,354 @@
+#!/usr/bin/env python3
+"""
+MyHeritage Shared-Matches-Scraper
+
+Lädt für alle MH-Matches ab einem cM-Schwellwert die "Gemeinsame DNA-Matches"-CSV
+von jeder Match-Seite herunter und importiert sie in shared_matches.
+
+Voraussetzung:
+  • Playwright mit Chromium installiert (pip install playwright && playwright install chromium)
+  • Eingeloggter MH-Browser (Session wird über --profile oder manuellen Login gehalten)
+  • Die Haupt-Match-Liste als CSV (aus MH → DNA → Matches → Download CSV → All Matches)
+
+Start:
+    python fetch_mh_shared_matches.py --csv pfad/zur/match_list.csv
+    python fetch_mh_shared_matches.py --csv match_list.csv --min-cm 40 --visible
+    python fetch_mh_shared_matches.py --csv match_list.csv --min-cm 50 --limit 100
+
+Argumente:
+    --csv       Pfad zur MH Match-List-CSV (Pflicht)
+    --min-cm    Nur Matches ab dieser cM-Schwelle verarbeiten (default: 50)
+    --limit     Maximale Anzahl zu verarbeitender Matches (default: alle)
+    --visible   Browser sichtbar anzeigen
+    --pause     Pause zwischen Seiten in Sekunden (default: 2.0)
+    --skip-done Matches überspringen, die bereits in shared_matches_fetched sind
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import io
+import os
+import sys
+import time
+import re
+from datetime import datetime, timezone
+
+ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.join(ROOT, "ancestry"))
+
+from core.database import AncestryDatabase
+from models.match import SharedMatch
+
+
+def _parse_cm(val: str) -> float:
+    """'3.533,5' oder '255.5' → float."""
+    if not val:
+        return 0.0
+    # MH verwendet manchmal Punkt als Tausender und Komma als Dezimal
+    val = val.strip().replace("\xa0", "")
+    if "," in val and "." in val:
+        # z.B. "3.533,5" → 3533.5
+        val = val.replace(".", "").replace(",", ".")
+    elif "," in val:
+        val = val.replace(",", ".")
+    try:
+        return float(val)
+    except ValueError:
+        return 0.0
+
+
+def _extract_guid(url: str) -> str:
+    """Extrahiert die Match-GUID aus einer MH-URL."""
+    # https://www.myheritage.com/dna/match/D-AAA-D-BBB  → D-BBB
+    parts = url.rstrip("/").split("/")
+    last = parts[-1] if parts else ""
+    # Format: D-XXXXX-D-YYYYY → zweite GUID
+    m = re.search(r"(D-[0-9A-F-]{30,})", last, re.I)
+    if m:
+        return m.group(1).upper()
+    return last
+
+
+def _load_main_csv(path: str, min_cm: float) -> list[dict]:
+    """Liest die MH Match-List-CSV und filtert nach min_cm."""
+    matches = []
+    with open(path, encoding="utf-8-sig") as f:
+        reader = csv.DictReader(f)
+        for row in reader:
+            cm = _parse_cm(row.get("Shared cM", "0"))
+            if cm < min_cm:
+                continue
+            url = (row.get("URL") or "").strip()
+            guid = row.get("GUID", "").strip()
+            if not url and not guid:
+                continue
+            matches.append({
+                "name":  row.get("Match Name", "").strip(),
+                "cm":    cm,
+                "guid":  guid,
+                "url":   url,
+            })
+    # Absteigend nach cM sortieren
+    matches.sort(key=lambda x: x["cm"], reverse=True)
+    return matches
+
+
+def _parse_shared_csv(csv_text: str, test_guid: str,
+                      match_guid_a: str, fetched_at: str) -> list[SharedMatch]:
+    """Parst eine MH Shared-Matches-CSV in SharedMatch-Objekte."""
+    results = []
+    try:
+        reader = csv.DictReader(io.StringIO(csv_text))
+        for row in reader:
+            guid_b = row.get("GUID", "").strip()
+            if not guid_b:
+                continue
+            cm_b  = _parse_cm(row.get("Shared cM", "0"))
+            cm_ab = _parse_cm(row.get("Shared cM with Match", "0"))
+            results.append(SharedMatch(
+                test_guid       = test_guid,
+                match_guid_a    = match_guid_a,
+                match_guid_b    = guid_b,
+                display_name_b  = row.get("Match Name", "").strip(),
+                shared_cm_b     = cm_b,
+                shared_cm_ab    = cm_ab,
+                shared_segments_b = 0,
+                relationship_b  = row.get("Estimated Relationship", "").strip(),
+                has_tree_b      = bool(row.get("Tree Size", "0").strip()
+                                       not in ("", "0")),
+                fetched_at      = fetched_at,
+            ))
+    except Exception as e:
+        print(f"    ⚠ CSV-Parse-Fehler: {e}")
+    return results
+
+
+def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
+           headless: bool = True, pause: float = 2.0, skip_done: bool = True):
+    try:
+        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+    except ImportError:
+        print("Playwright nicht installiert:\n"
+              "  pip install playwright && playwright install chromium")
+        sys.exit(1)
+
+    db = AncestryDatabase()
+
+    # Test-GUID aus CSV-Dateiname oder DB ermitteln
+    # Dateiname: Andreas_Kovermann_D44D71405...  → D-44D71405-...
+    test_guid = ""
+    fname = os.path.basename(csv_path)
+    m = re.search(r"_(D[0-9A-F]{8,})[_\.]", fname, re.I)
+    if m:
+        raw = m.group(1)
+        # D44D71405... → D-44D71405-0D71-...  (bereits mit Bindestrichen in DB)
+        # Versuche direkt aus DB zu lesen
+        try:
+            with db._cursor() as cur:
+                row = cur.execute(
+                    "SELECT guid FROM dna_kits WHERE is_owner=1 LIMIT 1"
+                ).fetchone()
+                if row:
+                    test_guid = row[0]
+        except Exception:
+            pass
+        if not test_guid:
+            # Bindestriche einfügen: D44D71405 0D71 4D2B 91F7 337F3344BD17
+            raw = raw.upper().lstrip("D")
+            if len(raw) >= 32:
+                test_guid = f"D-{raw[:8]}-{raw[8:12]}-{raw[12:16]}-{raw[16:20]}-{raw[20:32]}"
+
+    print(f"Test-GUID: {test_guid or '(unbekannt — wird aus URL ermittelt)'}")
+
+    # Bereits verarbeitete Matches laden
+    done_guids: set[str] = set()
+    if skip_done:
+        try:
+            with db._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT match_guid_a FROM shared_matches_fetched WHERE test_guid=?",
+                    (test_guid,)
+                ).fetchall()
+                done_guids = {r[0] for r in rows}
+            print(f"{len(done_guids)} Matches bereits verarbeitet (--skip-done aktiv).")
+        except Exception:
+            pass
+
+    matches = _load_main_csv(csv_path, min_cm)
+    if limit:
+        matches = matches[:limit]
+
+    to_do = [m for m in matches if m["guid"] not in done_guids]
+    print(f"\n{len(matches)} Matches ≥ {min_cm} cM geladen, "
+          f"{len(to_do)} noch nicht verarbeitet.\n")
+
+    if not to_do:
+        print("Nichts zu tun.")
+        return
+
+    total_imported = 0
+    with sync_playwright() as pw:
+        browser = pw.chromium.launch(headless=headless)
+        ctx = browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                       "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+            locale="de-DE",
+            accept_downloads=True,
+        )
+        page = ctx.new_page()
+        page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
+
+        # ── Einmal einloggen / Session prüfen ─────────────────────────────────
+        print("Öffne MyHeritage — bitte ggf. einloggen …")
+        try:
+            page.goto("https://www.myheritage.de/dna",
+                      wait_until="domcontentloaded", timeout=30_000)
+        except PWTimeout:
+            pass
+        time.sleep(2)
+
+        # Prüfen ob Login-Dialog offen
+        if page.query_selector("input[name='username'], input[type='email']"):
+            print("\n⚠  Nicht eingeloggt! Bitte mit --visible starten und einloggen.")
+            if headless:
+                browser.close()
+                print("Starte erneut mit: python fetch_mh_shared_matches.py "
+                      "--csv ... --visible")
+                return
+            print("Warte 60s auf Login …")
+            time.sleep(60)
+
+        # ── Matches verarbeiten ───────────────────────────────────────────────
+        for i, match in enumerate(to_do, 1):
+            url      = match["url"]
+            guid_a   = match["guid"]
+            name     = match["name"]
+            cm       = match["cm"]
+            fetched  = datetime.now(timezone.utc).isoformat()
+
+            print(f"  [{i:4d}/{len(to_do)}] {name:<40} {cm:7.1f} cM … ",
+                  end="", flush=True)
+
+            # Test-GUID aus URL ableiten falls noch unbekannt
+            if not test_guid and url:
+                parts = url.rstrip("/").split("/")[-1].split("-D-")
+                if len(parts) >= 2:
+                    raw = parts[0].lstrip("D-").replace("-", "")
+                    if len(raw) >= 32:
+                        test_guid = (f"D-{raw[:8]}-{raw[8:12]}-"
+                                     f"{raw[12:16]}-{raw[16:20]}-{raw[20:32]}")
+
+            shared: list[SharedMatch] = []
+            try:
+                # Match-Seite laden
+                try:
+                    page.goto(url, wait_until="networkidle", timeout=25_000)
+                except PWTimeout:
+                    page.goto(url, wait_until="domcontentloaded", timeout=25_000)
+                time.sleep(pause * 0.5)
+
+                # Zur Shared-Matches-Sektion scrollen
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                time.sleep(pause * 0.4)
+
+                # "Download CSV"-Button für Shared Matches finden
+                # MH hat mehrere Download-Buttons; der für Shared Matches ist
+                # typischerweise in der Shared-Matches-Sektion
+                csv_text = None
+
+                # Variante A: Button direkt klicken und Download abfangen
+                dl_buttons = page.query_selector_all(
+                    "button:has-text('Download CSV'), "
+                    "a:has-text('Download CSV'), "
+                    "[data-testid='download-csv'], "
+                    ".download-csv-btn"
+                )
+                # Nimm den letzten Button (= Shared Matches, nicht Match-Liste)
+                if dl_buttons:
+                    btn = dl_buttons[-1]
+                    with page.expect_download(timeout=15_000) as dl_info:
+                        btn.click()
+                    dl = dl_info.value
+                    csv_text = dl.path() and open(dl.path(),
+                                                   encoding="utf-8-sig").read()
+
+                # Variante B: API-Endpunkt direkt aufrufen
+                if not csv_text:
+                    # MH liefert Shared-Matches auch über eine API
+                    # URL-Muster: /dna/shared-matches/export?...
+                    api_urls = [
+                        url.replace("/match/", "/shared-matches/")
+                           .replace("myheritage.de", "www.myheritage.com")
+                        + "/export",
+                        url + "/shared/export",
+                    ]
+                    for api_url in api_urls:
+                        try:
+                            resp = page.request.get(api_url, timeout=10_000)
+                            if resp.ok and "text/csv" in resp.headers.get(
+                                    "content-type", ""):
+                                csv_text = resp.text()
+                                break
+                        except Exception:
+                            pass
+
+                if csv_text:
+                    shared = _parse_shared_csv(csv_text, test_guid,
+                                               guid_a, fetched)
+
+                if shared:
+                    n = db.bulk_upsert_shared(shared)
+                    total_imported += n
+                    print(f"✓ {n} Shared")
+                else:
+                    print("○ 0 Shared")
+
+                # Als verarbeitet markieren
+                try:
+                    with db._cursor() as cur:
+                        cur.execute("""
+                            INSERT OR REPLACE INTO shared_matches_fetched
+                            (test_guid, match_guid_a, fetched_at)
+                            VALUES (?, ?, ?)
+                        """, (test_guid, guid_a, fetched))
+                except Exception:
+                    pass
+
+            except Exception as e:
+                print(f"⚠ {e}")
+
+            time.sleep(pause)
+
+        browser.close()
+
+    print(f"\n✅  {total_imported} Shared Matches importiert "
+          f"({len(to_do)} Match-Seiten verarbeitet)")
+    print(f"    DB: {db._db_path if hasattr(db, '_db_path') else 'ancestry_dna.db'}")
+
+
+if __name__ == "__main__":
+    ap = argparse.ArgumentParser(
+        description="MH Shared Matches per Match-Seite laden und importieren")
+    ap.add_argument("--csv", required=True,
+                    help="Pfad zur MH Match-List-CSV (alle Matches)")
+    ap.add_argument("--min-cm", type=float, default=50.0,
+                    help="Nur Matches ab dieser cM-Schwelle (default: 50)")
+    ap.add_argument("--limit", type=int, default=0,
+                    help="Max. Anzahl Matches (0 = alle)")
+    ap.add_argument("--visible", action="store_true",
+                    help="Browser sichtbar anzeigen")
+    ap.add_argument("--pause", type=float, default=2.0,
+                    help="Pause zwischen Seiten in Sekunden (default: 2.0)")
+    ap.add_argument("--no-skip", action="store_true",
+                    help="Bereits verarbeitete Matches nicht überspringen")
+    args = ap.parse_args()
+
+    scrape(
+        csv_path   = args.csv,
+        min_cm     = args.min_cm,
+        limit      = args.limit,
+        headless   = not args.visible,
+        pause      = args.pause,
+        skip_done  = not args.no_skip,
+    )
