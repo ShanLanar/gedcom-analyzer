@@ -440,35 +440,51 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(wait_total * 0.3)
 
-                # ── Pagination via UI-Scroll ─────────────────────────────────────
-                # MH lädt weitere Shared Matches per Lazy-Loading nach, wenn die Liste
-                # gescrollt wird. Wir scrollen alle scrollbaren Container + window nach
-                # unten und warten, bis MH selbst die nächsten Seiten feuert. Diese
-                # Antworten fängt _on_resp ab (korrekt von MH signiert → kein 400).
+                # ── Pagination via UI ────────────────────────────────────────────
+                # MH lädt weitere Shared Matches NICHT per Scroll, sondern per Klick
+                # auf einen "Mehr anzeigen"-Button. Wir suchen passende klickbare
+                # Elemente und klicken sie wiederholt; MH feuert dann selbst die
+                # nächsten (korrekt signierten) Requests → _on_resp fängt sie ab.
                 _SM_URL_KEY = "dna_single_match_get_shared_matches"
 
                 def _count_sm_responses() -> int:
                     return sum(1 for ru, _ in intercepted if _SM_URL_KEY in ru)
 
-                _JS_SCROLL_ALL = """
+                # JS: scrollt + sucht & klickt "Mehr anzeigen"-Buttons.
+                # Gibt zurück: [#geklickt, [debug-Texte der Kandidaten]]
+                _JS_LOAD_MORE = """
 () => {
-    let n = 0;
-    // window nach unten
     window.scrollTo(0, document.body.scrollHeight);
-    // alle scrollbaren Elemente bis zum Ende scrollen
     for (const el of document.querySelectorAll('*')) {
         const st = getComputedStyle(el).overflowY;
         if ((st === 'auto' || st === 'scroll') &&
             el.scrollHeight > el.clientHeight + 20) {
             el.scrollTop = el.scrollHeight;
-            n++;
         }
     }
-    return n;
+    const rx = /(mehr|more|weitere|anzeigen|show|load|alle|all\\b)/i;
+    const cands = [];
+    let clicked = 0;
+    const els = document.querySelectorAll(
+        'button, a, [role="button"], span[class*="more"], div[class*="more"], ' +
+        '[class*="showMore"], [class*="show-more"], [class*="loadMore"], ' +
+        '[class*="pagination"] *');
+    for (const el of els) {
+        const txt = (el.innerText || el.textContent || '').trim();
+        if (!txt || txt.length > 60) continue;
+        if (rx.test(txt)) {
+            const r = el.getBoundingClientRect();
+            const visible = r.width > 0 && r.height > 0;
+            cands.push(txt + (visible ? '' : ' [hidden]'));
+            if (visible) {
+                try { el.scrollIntoView({block:'center'}); el.click(); clicked++; } catch(e){}
+            }
+        }
+    }
+    return [clicked, cands.slice(0, 25)];
 }
 """
                 try:
-                    # Gesamtzahl aus erster SM-Antwort schätzen (für Abbruch)
                     _expected = 0
                     for _ru, _rb in intercepted:
                         if _SM_URL_KEY in _ru and _rb:
@@ -478,25 +494,30 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
                     _stall = 0
                     _last_resp_count = _count_sm_responses()
-                    # genug Scrolls für _expected Matches (10/Seite) + Puffer
-                    _max_scrolls = max(4, (_expected // 10) + 6) if _expected else 30
-                    for _i in range(_max_scrolls):
-                        page.evaluate(_JS_SCROLL_ALL)
-                        time.sleep(max(1.2, pause * 0.5))
+                    _dumped = False
+                    _max_iters = max(4, (_expected // 10) + 8) if _expected else 30
+                    for _i in range(_max_iters):
+                        _res = page.evaluate(_JS_LOAD_MORE)
+                        _clicked = _res[0] if isinstance(_res, list) else 0
+                        _cands   = _res[1] if isinstance(_res, list) and len(_res) > 1 else []
+                        if debug and not _dumped:
+                            print(f"    [DBG] Klick-Kandidaten (Iter {_i+1}): {_cands}")
+                            _dumped = True
+                        time.sleep(max(1.5, pause * 0.6))
                         _now = _count_sm_responses()
                         if _now > _last_resp_count:
                             _last_resp_count = _now
                             _stall = 0
                         else:
                             _stall += 1
-                            if _stall >= 3:   # 3x kein neuer Request → fertig
+                            if _stall >= 4:
                                 break
                         if debug:
-                            print(f"    [DBG] Scroll {_i+1}: SM-Antworten={_now}"
-                                  f" (erwartet ~{(_expected or 0)//10 + 1} Seiten)")
+                            print(f"    [DBG] Iter {_i+1}: geklickt={_clicked}, "
+                                  f"SM-Antworten={_now}/~{(_expected or 0)//10 + 1}")
                 except Exception as _se:
                     if debug:
-                        print(f"    [DBG] Scroll-Pagination-Fehler: {_se}")
+                        print(f"    [DBG] UI-Pagination-Fehler: {_se}")
 
                 page.remove_listener("response", _on_resp)
                 page.unroute("**/web-family-graphql/**", _route_capture)
