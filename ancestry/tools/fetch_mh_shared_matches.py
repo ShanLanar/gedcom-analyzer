@@ -376,18 +376,11 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             _gql_req_info: dict = {}   # speichert headers+body des SM-GraphQL-Requests
 
             try:
-                # Request-Listener: SM-GraphQL-Request passiv abfangen (für Pagination)
-                # page.on("request") ist zuverlässiger als page.route() für POST-Bodies
+                # Request-Body aus Response-Objekt holen (zuverlässiger als on("request"))
                 _SM_KEY = "dna_single_match_get_shared_matches"
                 def _capture_gql_req(request):
-                    if _SM_KEY in request.url and not _gql_req_info:
-                        try:
-                            _gql_req_info["url"]     = request.url
-                            _gql_req_info["headers"] = dict(request.headers)
-                            _gql_req_info["body"]    = request.post_data or ""
-                        except Exception:
-                            pass
-                page.on("request", _capture_gql_req)
+                    pass  # wird jetzt über Response-Handler befüllt
+                page.on("request", _capture_gql_req)  # Dummy, wird unten entfernt
 
                 # Netzwerk-Intercept: ALLE JSON-Antworten von MH abfangen
                 def _on_resp(response):
@@ -400,7 +393,14 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             print(f"    [NET] {response.status} {ct[:25]:25} {ru[:110]}")
                         if response.ok and is_mh and ("json" in ct or "csv" in ct):
                             try:
-                                intercepted.append((ru, response.text()))
+                                body = response.text()
+                                intercepted.append((ru, body))
+                                # Body des SM-Requests für Pagination merken
+                                if _SM_KEY in ru and not _gql_req_info:
+                                    req = response.request
+                                    _gql_req_info["url"]     = req.url
+                                    _gql_req_info["headers"] = dict(req.headers)
+                                    _gql_req_info["body"]    = req.post_data or ""
                             except Exception:
                                 pass
                     except Exception:
@@ -724,9 +724,13 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             print(f"    [DBG] Segment-Response: {resp_body[:800]}")
                         dm_node = ((seg_data.get("data") or {})
                                    .get("dna_match") or {})
-                        # MH GraphQL: shared_segments ist ein JSON-String oder Liste
-                        raw_segs = (dm_node.get("shared_segments") or
-                                    dm_node.get("dna_shared_segments") or
+                        if debug:
+                            can_view = dm_node.get("can_view_shared_segments")
+                            print(f"    [DBG] can_view_shared_segments={can_view}"
+                                  f" | dm_node keys: {list(dm_node.keys())}")
+                        # MH GraphQL: dna_shared_segments (korrekter Schlüssel)
+                        raw_segs = (dm_node.get("dna_shared_segments") or
+                                    dm_node.get("shared_segments") or
                                     dm_node.get("segments") or [])
                         if isinstance(raw_segs, str):
                             try:
