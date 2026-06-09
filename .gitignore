@@ -30,3 +30,5 @@ output/*.html
 ancestry/ancestry_dna.db
 ancestry/ancestry_dna.db-*
 ancestry/data/
+ancestry/tools/webtrees_crawl.db
+ancestry/tools/matricula_parishes.db
