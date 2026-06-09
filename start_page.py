@@ -24,22 +24,16 @@ from tkinter import filedialog, scrolledtext, ttk
 
 import importlib as _il
 import sys as _sys
-# Immer Root-config laden, unabhängig von sys.path-Reihenfolge
-_ROOT_CFG_PATH = os.path.dirname(os.path.abspath(__file__))
-if _ROOT_CFG_PATH not in _sys.path:
-    _sys.path.insert(0, _ROOT_CFG_PATH)
-# Falls ancestry/config bereits im Cache sitzt, Root-config erzwingen
-_cfg_mod = _sys.modules.get("config")
-if _cfg_mod is not None and not hasattr(_cfg_mod, "FONT_HEAD"):
+# Immer Root-config laden, unabhängig von sys.path-Reihenfolge.
+# WICHTIG: kein importlib.util-Fallback — cfg muss dasselbe Objekt wie
+# tasks._runner.cfg sein, damit DEFAULT_CONFIG-Änderungen propagiert werden.
+_ROOT_DIR = os.path.dirname(os.path.abspath(__file__))
+_cached = _sys.modules.get("config")
+if _cached is None or not hasattr(_cached, "FONT_HEAD"):
     _sys.modules.pop("config", None)
+    if _ROOT_DIR not in _sys.path:
+        _sys.path.insert(0, _ROOT_DIR)
 import config as cfg
-if not hasattr(cfg, "FONT_HEAD"):
-    # Letzter Ausweg: Root-config direkt laden
-    import importlib.util as _ilu
-    _spec = _ilu.spec_from_file_location(
-        "config", os.path.join(_ROOT_CFG_PATH, "config.py"))
-    cfg = _ilu.module_from_spec(_spec)
-    _spec.loader.exec_module(cfg)  # type: ignore
 
 # Pfade (relativ zur Repo-Wurzel)
 _ROOT        = os.path.dirname(os.path.abspath(__file__))
@@ -49,16 +43,16 @@ _PARISH_JSON = os.path.join(_ROOT, "ancestry", "tools", "matricula_parishes.json
 
 # ── Farben — direkt hardcoded (config-Swap in unified.py kann ancestry/config laden) ─
 P = {
-    "bg":     getattr(cfg, "BG",     "#1e1e2e"),
-    "bg2":    getattr(cfg, "BG2",    "#2a2a3e"),
-    "bg3":    getattr(cfg, "BG3",    "#232336"),
-    "fg":     getattr(cfg, "FG",     "#cdd6f4"),
-    "dim":    getattr(cfg, "FG_DIM", "#6c7086"),
-    "acc":    getattr(cfg, "ACCENT", "#7c7cf8"),
-    "green":  getattr(cfg, "GREEN",  "#a6e3a1"),
-    "yellow": getattr(cfg, "YELLOW", "#f9e2af"),
-    "red":    getattr(cfg, "RED",    "#f38ba8"),
-    "orange": getattr(cfg, "ORANGE", "#fab387"),
+    "bg":     cfg.BG,
+    "bg2":    cfg.BG2,
+    "bg3":    cfg.BG3,
+    "fg":     cfg.FG,
+    "dim":    cfg.FG_DIM,
+    "acc":    cfg.ACCENT,
+    "green":  cfg.GREEN,
+    "yellow": cfg.YELLOW,
+    "red":    cfg.RED,
+    "orange": cfg.ORANGE,
 }
 
 # ── Hilfe-Texte (Woher bekomme ich was?) ─────────────────────────────────────
