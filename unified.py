@@ -79,19 +79,18 @@ def _error_tab(parent: tk.Frame, title: str, exc: Exception) -> None:
 
 def _apply_notebook_style(root: tk.Tk) -> None:
     """Färbt Notebook-Reiter im Dark-Theme ein."""
-    import config as cfg
+    # Farben direkt — kein import config hier, da ancestry/config.py im path sein kann
+    BG    = "#1e1e2e"
+    BG2   = "#2a2a3e"
+    BG3   = "#232336"
+    ACC   = "#7c7cf8"   # noqa: F841
+    FG    = "#cdd6f4"
+    DIM   = "#6c7086"
     style = ttk.Style(root)
     try:
         style.theme_use("clam")
     except tk.TclError:
         pass
-
-    BG    = cfg.BG        # "#1e1e2e"
-    BG2   = cfg.BG2       # "#2a2a3e"
-    BG3   = cfg.BG3       # "#232336"
-    ACC   = cfg.ACCENT    # "#7c7cf8"
-    FG    = cfg.FG        # "#cdd6f4"
-    DIM   = cfg.FG_DIM    # "#6c7086"
 
     style.configure("TNotebook",
                     background=BG, borderwidth=0, tabmargins=[0, 0, 0, 0])
