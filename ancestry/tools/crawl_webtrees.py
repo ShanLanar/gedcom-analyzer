@@ -737,13 +737,15 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 elapsed = time.time() - _phase_start
                 rate = processed / elapsed if elapsed > 0 else 0
 
-                # Kumulatives Wachstum seit Phasenstart (stabil, kein Rauschen)
-                open0 = getattr(crawl, "_open0", None)
-                if open0 is None:
-                    crawl._open0 = openf  # type: ignore[attr-defined]
-                    open0 = openf
-                # growth_per_page: wie viel wächst frontier pro verarbeiteter Seite?
-                growth_per_page = ((openf - open0) / processed) if processed > 0 else 0.0
+                # EMA-Wachstum: letzten 200 Seiten als Fenster
+                if not hasattr(crawl, "_ema_state"):
+                    crawl._ema_state = {}  # type: ignore[attr-defined]
+                _st = crawl._ema_state.setdefault(direction, {"prev_open": openf, "ema": 0.0})
+                interval_growth = (openf - _st["prev_open"]) / 25.0
+                alpha = 0.15  # EMA-Glättung: ~200-Seiten-Fenster
+                _st["ema"] = alpha * interval_growth + (1 - alpha) * _st["ema"]
+                _st["prev_open"] = openf
+                growth_per_page = _st["ema"]
 
                 net_drain = 1.0 - growth_per_page
                 if net_drain > 0.05 and rate > 0:
