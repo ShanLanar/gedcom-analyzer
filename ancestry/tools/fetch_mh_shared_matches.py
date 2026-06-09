@@ -59,6 +59,11 @@ def _parse_cm(val: str) -> float:
         val = val.replace(".", "").replace(",", ".")
     elif "," in val:
         val = val.replace(",", ".")
+    elif val.count(".") > 1:
+        # mehrere Punkte, kein Komma: z.B. "3.533.5" → 3533.5
+        # letzter Punkt = Dezimaltrenner, alle anderen = Tausender
+        _idx = val.rfind(".")
+        val = val[:_idx].replace(".", "") + val[_idx:]
     try:
         return float(val)
     except ValueError:
