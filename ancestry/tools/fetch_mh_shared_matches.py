@@ -440,6 +440,64 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(wait_total * 0.3)
 
+                # ── Pagination via UI-Scroll ─────────────────────────────────────
+                # MH lädt weitere Shared Matches per Lazy-Loading nach, wenn die Liste
+                # gescrollt wird. Wir scrollen alle scrollbaren Container + window nach
+                # unten und warten, bis MH selbst die nächsten Seiten feuert. Diese
+                # Antworten fängt _on_resp ab (korrekt von MH signiert → kein 400).
+                _SM_URL_KEY = "dna_single_match_get_shared_matches"
+
+                def _count_sm_responses() -> int:
+                    return sum(1 for ru, _ in intercepted if _SM_URL_KEY in ru)
+
+                _JS_SCROLL_ALL = """
+() => {
+    let n = 0;
+    // window nach unten
+    window.scrollTo(0, document.body.scrollHeight);
+    // alle scrollbaren Elemente bis zum Ende scrollen
+    for (const el of document.querySelectorAll('*')) {
+        const st = getComputedStyle(el).overflowY;
+        if ((st === 'auto' || st === 'scroll') &&
+            el.scrollHeight > el.clientHeight + 20) {
+            el.scrollTop = el.scrollHeight;
+            n++;
+        }
+    }
+    return n;
+}
+"""
+                try:
+                    # Gesamtzahl aus erster SM-Antwort schätzen (für Abbruch)
+                    _expected = 0
+                    for _ru, _rb in intercepted:
+                        if _SM_URL_KEY in _ru and _rb:
+                            _mm = re.search(r'"dna_shared_matches"\s*:\s*\{\s*"count"\s*:\s*(\d+)', _rb)
+                            if _mm:
+                                _expected = int(_mm.group(1)); break
+
+                    _stall = 0
+                    _last_resp_count = _count_sm_responses()
+                    # genug Scrolls für _expected Matches (10/Seite) + Puffer
+                    _max_scrolls = max(4, (_expected // 10) + 6) if _expected else 30
+                    for _i in range(_max_scrolls):
+                        page.evaluate(_JS_SCROLL_ALL)
+                        time.sleep(max(1.2, pause * 0.5))
+                        _now = _count_sm_responses()
+                        if _now > _last_resp_count:
+                            _last_resp_count = _now
+                            _stall = 0
+                        else:
+                            _stall += 1
+                            if _stall >= 3:   # 3x kein neuer Request → fertig
+                                break
+                        if debug:
+                            print(f"    [DBG] Scroll {_i+1}: SM-Antworten={_now}"
+                                  f" (erwartet ~{(_expected or 0)//10 + 1} Seiten)")
+                except Exception as _se:
+                    if debug:
+                        print(f"    [DBG] Scroll-Pagination-Fehler: {_se}")
+
                 page.remove_listener("response", _on_resp)
                 page.unroute("**/web-family-graphql/**", _route_capture)
 
@@ -559,140 +617,42 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                                 return inner
                     return []
 
-                # Erst gezielt den Shared-Matches-Endpoint auswerten
+                # Shared-Matches aus ALLEN abgefangenen Seiten sammeln (Scroll-Pagination).
+                # Dedup über match_guid_b, da sich Seiten überlappen können.
                 _SM_URL = "dna_single_match_get_shared_matches"
                 total_sm_count = 0
+                _seen_guids: set = set()
+                _pages_seen = 0
                 for resp_url, resp_body in intercepted:
                     if not resp_body or _SM_URL not in resp_url:
                         continue
                     try:
                         data = _json.loads(resp_body)
                         items = _items_from_json(data)
-                        # Gesamtanzahl für Pagination merken
                         try:
                             sm_node = (data.get("data") or {}).get("dna_match") or {}
-                            total_sm_count = int(
-                                (sm_node.get("dna_shared_matches") or {}).get("count") or 0)
+                            total_sm_count = max(total_sm_count, int(
+                                (sm_node.get("dna_shared_matches") or {}).get("count") or 0))
                         except Exception:
                             pass
-                        if debug:
-                            print(f"    [DBG] GraphQL shared_matches Items: {len(items)}"
-                                  f" (gesamt: {total_sm_count})")
+                        _pages_seen += 1
+                        _added = 0
                         for item in items:
                             sm = _parse_mh_item(item)
-                            if sm:
+                            if sm and sm.match_guid_b not in _seen_guids:
+                                _seen_guids.add(sm.match_guid_b)
                                 shared.append(sm)
-                        if shared:
-                            if debug:
-                                print(f"    [DBG] {len(shared)} Matches aus: {resp_url[:80]}")
-                            break
+                                _added += 1
+                        if debug:
+                            print(f"    [DBG] SM-Seite: {len(items)} Items, "
+                                  f"+{_added} neu → {len(shared)} gesamt "
+                                  f"(von {total_sm_count})")
                     except Exception as exc:
                         if debug:
                             print(f"    [DBG] Parse-Fehler: {exc}")
-
-                # Pagination: weitere Seiten via page.evaluate(fetch) aus Browser-Kontext
-                PAGE_SIZE = 10
-                _sm_info = _route_bodies.get(_SM_KEY, {})
-
-                def _extract_gql_json(raw_body: str) -> str:
-                    """Extrahiert das JSON aus multipart/form-data 'operations'-Feld (Fallback)."""
-                    stripped = raw_body.lstrip()
-                    if stripped.startswith("{"):
-                        return stripped
-                    m = re.search(
-                        r'name=["\']operations["\'][^\r\n]*[\r\n]{1,4}[\r\n]*([\{\[].*?)[\r\n]+--',
-                        raw_body, re.DOTALL)
-                    return m.group(1).strip() if m else ""
-
-                def _parse_multipart(raw_body: str) -> dict:
-                    """Parst alle Felder einer multipart/form-data-Body in ein Dict."""
-                    fields: dict = {}
-                    parts = re.split(r'\r?\n--+WebKitFormBoundary\S+', raw_body)
-                    for part in parts:
-                        m = re.match(
-                            r'\r?\nContent-Disposition: form-data; name="([^"]+)"\r?\n\r?\n(.*)',
-                            part, re.DOTALL)
-                        if m:
-                            fields[m.group(1)] = m.group(2).rstrip("\r\n")
-                    return fields
-
                 if debug:
-                    print(f"    [DBG] SM route-body len={len(_sm_info.get('body',''))}"
-                          f" | total_sm_count={total_sm_count}")
-                if total_sm_count > PAGE_SIZE and _sm_info.get("body"):
-                    import json as _pjson
-                    _mp = _parse_multipart(_sm_info["body"])
-                    sm_url   = _sm_info["url"]
-                    sm_query = _mp.get("query", "")
-                    if debug:
-                        print(f"    [DBG] mp fields: {list(_mp.keys())}"
-                              f" | query start={sm_query[:80]!r}")
-
-                if total_sm_count > PAGE_SIZE and sm_query:
-                    # Replay via FormData, alle Felder in Originalreihenfolge.
-                    # query-Feld: offset ersetzen (ggf. JSON-kodiert → innen ersetzen).
-                    # fields: [[name, value], ...] in Originalreihenfolge mit query drin.
-                    sm_fields = [[k, v] for k, v in _mp.items()]
-
-                    _JS_PAGINATE = """
-async ([url, fields, offset]) => {
-    try {
-        // PHPSESSID aus aktuellem Cookie lesen (captured body-Wert könnte veraltet sein)
-        const sessCookie = document.cookie.split(';')
-            .map(c => c.trim().split('='))
-            .find(([k]) => k === 'PHPSESSID');
-        const sessVal = sessCookie ? sessCookie[1] : null;
-
-        const fd = new FormData();
-        for (const [k, v] of fields) {
-            if (k === 'query') {
-                const q = v.replace(/(\\boffset\\s*:\\s*)\\d+/g, '$1' + offset);
-                fd.append(k, q);
-            } else if (k.includes('PHPSESSID') && sessVal) {
-                // immer aktuellen Session-Wert verwenden
-                fd.append(k, sessVal);
-            } else {
-                fd.append(k, v);
-            }
-        }
-        const relUrl = url.replace(/^https?:\\/\\/[^\\/]+/, '');
-        const r = await fetch(relUrl, {
-            method: 'POST', credentials: 'include',
-            body: fd
-        });
-        if (!r.ok) return '__HTTP_' + r.status + ':' + (await r.text()).slice(0,300);
-        return await r.text();
-    } catch(e) { return '__ERR_' + String(e); }
-}
-"""
-                    try:
-                        offset = PAGE_SIZE
-                        while offset < total_sm_count:
-                            result = page.evaluate(
-                                _JS_PAGINATE, [sm_url, sm_fields, offset])
-                            if not result or result.startswith("__"):
-                                if debug:
-                                    print(f"    [DBG] Pagination {offset}: {result!r}")
-                                break
-                            data_p  = _pjson.loads(result)
-                            items_p = _items_from_json(data_p)
-                            if not items_p:
-                                if debug:
-                                    print(f"    [DBG] Pagination {offset}: keine Items"
-                                          f" | {result[:120]!r}")
-                                break
-                            for item in items_p:
-                                sm = _parse_mh_item(item)
-                                if sm:
-                                    shared.append(sm)
-                            if debug:
-                                print(f"    [DBG] offset={offset}: "
-                                      f"{len(items_p)} Items → {len(shared)} gesamt")
-                            offset += PAGE_SIZE
-                            time.sleep(0.4)
-                    except Exception as exc:
-                        if debug:
-                            print(f"    [DBG] Pagination-Fehler: {exc}")
+                    print(f"    [DBG] {_pages_seen} SM-Seiten verarbeitet, "
+                          f"{len(shared)}/{total_sm_count} Matches eindeutig")
 
                 # Fallback: alle anderen JSON-Antworten durchsuchen
                 if not shared:
