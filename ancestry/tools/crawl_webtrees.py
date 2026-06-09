@@ -704,7 +704,7 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
         print(f"\n=== Phase {ph_idx+1}/{len(phases)}: {label} ===")
         processed = 0
         _phase_start = time.time()
-        while processed < max_pages:
+        while max_pages == 0 or processed < max_pages:
             row = c.execute("SELECT id, depth FROM wt_frontier WHERE done=0 AND "
                             "direction=? ORDER BY depth LIMIT 1", (direction,)
                             ).fetchone()
@@ -741,7 +741,7 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 print(f"  +{processed}  | Personen: {total} | offen({direction}): {openf}"
                       f" | {rate:.2f}/s | ETA ~{eta_str}")
         c.commit()
-        if processed >= max_pages:
+        if max_pages > 0 and processed >= max_pages:
             print(f"Seiten-Limit ({max_pages}) erreicht – erneut starten zum Fortsetzen.")
             break
 
