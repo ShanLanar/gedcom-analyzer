@@ -472,6 +472,34 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 time.sleep(90)
             print("Weiter geht's …")
 
+        # ── Konto-Sperre/Rate-Limit erkennen und SOFORT abbrechen ─────────────
+        def _check_lockout(pg) -> bool:
+            try:
+                _txt = pg.content()
+            except Exception:
+                return False
+            _markers = [
+                "vorübergehend deaktiviert",
+                "unregelmäßiger Aktivitäten",
+                "temporarily deactivated",
+                "irregular activity",
+                "try again in 24",
+                "in 24 Stunden erneut",
+            ]
+            return any(m.lower() in _txt.lower() for m in _markers)
+
+        if _check_lockout(page):
+            print("\n🛑 MyHeritage hat den Zugang vorübergehend gesperrt "
+                  "(unregelmäßige Aktivität / Rate-Limit).")
+            print("   Bitte ~24 Stunden warten und danach mit größerem --pause "
+                  "und wenigen Läufen erneut versuchen.")
+            if _via_cdp:
+                try: page.close()
+                except Exception: pass
+            else:
+                ctx.close()
+            return
+
         # Prüfen ob Login-Dialog offen (im CDP-Modus übersprungen — echte Session)
         if not _via_cdp and page.query_selector(
                 "input[name='username'], input[type='email']"):
@@ -577,6 +605,13 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 # React/Redux braucht Zeit zum Hydratisieren + GraphQL-Calls abwarten
                 wait_total = max(pause, 8.0)
                 time.sleep(wait_total * 0.4)
+
+                # Sperre auch mitten im Lauf erkennen → sofort abbrechen
+                if _check_lockout(page):
+                    print("\n🛑 MyHeritage-Sperre erkannt — Abbruch, um die Sperre "
+                          "nicht zu verlängern. Bitte ~24 h warten.")
+                    break
+
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(wait_total * 0.3)
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
