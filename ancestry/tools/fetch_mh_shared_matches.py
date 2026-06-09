@@ -677,8 +677,14 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     if debug:
                         print(f"    [DBG] Download-CSV Fehler: {_de}")
 
-                page.remove_listener("response", _on_resp)
-                page.unroute("**/web-family-graphql/**", _route_capture)
+                try:
+                    page.remove_listener("response", _on_resp)
+                except Exception:
+                    pass
+                try:
+                    page.unroute("**/web-family-graphql/**", _route_capture)
+                except Exception:
+                    pass
 
                 if debug:
                     for k in (_SM_KEY, _SEG_KEY):
