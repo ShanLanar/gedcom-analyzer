@@ -37,7 +37,7 @@ from datetime import datetime, timezone
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "ancestry"))
 
-from core.database import AncestryDatabase
+from core.database import Database as AncestryDatabase
 from models.match import SharedMatch
 
 
@@ -324,13 +324,13 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
     print(f"\n✅  {total_imported} Shared Matches importiert "
           f"({len(to_do)} Match-Seiten verarbeitet)")
-    print(f"    DB: {db._db_path if hasattr(db, '_db_path') else 'ancestry_dna.db'}")
+    print(f"    DB: ancestry_dna.db")
 
 
 if __name__ == "__main__":
     ap = argparse.ArgumentParser(
         description="MH Shared Matches per Match-Seite laden und importieren")
-    ap.add_argument("--csv", required=True,
+    ap.add_argument("--csv", "-csv", required=True,
                     help="Pfad zur MH Match-List-CSV (alle Matches)")
     ap.add_argument("--min-cm", type=float, default=50.0,
                     help="Nur Matches ab dieser cM-Schwelle (default: 50)")
