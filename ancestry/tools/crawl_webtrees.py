@@ -738,12 +738,12 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
 
                 # ETA basierend auf Netto-Drain (Verarbeitung minus Frontier-Wachstum)
                 # openf wächst wenn jede Person mehr als 1 neue verlinkt → echte ETA
-                prev_open  = getattr(_phase_crawl, "prev_open",  openf)
-                prev_proc  = getattr(_phase_crawl, "prev_proc",  0)
+                prev_open  = getattr(crawl, "_prev_open",  openf)
+                prev_proc  = getattr(crawl, "_prev_proc",  0)
                 delta_open = openf - prev_open
                 delta_proc = processed - prev_proc
-                _phase_crawl.prev_open = openf   # type: ignore[attr-defined]
-                _phase_crawl.prev_proc = processed  # type: ignore[attr-defined]
+                crawl._prev_open = openf   # type: ignore[attr-defined]
+                crawl._prev_proc = processed  # type: ignore[attr-defined]
 
                 # Netto-Drain: pro verarbeiteter Seite sinkt das Frontier um (1 - Wachstum)
                 growth_per_page = (delta_open / delta_proc) if delta_proc > 0 else 0
