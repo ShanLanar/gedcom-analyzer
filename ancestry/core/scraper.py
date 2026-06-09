@@ -132,8 +132,13 @@ class Scraper:
                 log.error("Phase %d Fehler: %s", phase_idx, exc)
                 cb(phase_idx, phase_name, "error")
                 # Phasen-Fehler stoppen nicht den Gesamt-Lauf (nur loggen)
-        self._on_status("Alle Phasen abgeschlossen." if not self._stop.is_set()
-                        else "Phasen-Lauf abgebrochen.")
+        success = not self._stop.is_set()
+        msg = "Alle Phasen abgeschlossen." if success else "Phasen-Lauf abgebrochen."
+        self._on_status(msg)
+        result = DownloadResult()
+        result.success = success
+        result.message = msg
+        self._on_done(result)
 
     def stop(self):
         self._stop.set()
