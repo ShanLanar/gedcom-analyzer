@@ -19,14 +19,16 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sqlite3
 import sys
 import tkinter as tk
 from tkinter import ttk, messagebox
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-CRAWL_DB    = os.path.join(ROOT, "ancestry", "tools", "webtrees_crawl.db")
-ANCESTRY_DB = os.path.join(ROOT, "ancestry", "ancestry_dna.db")
+CRAWL_DB      = os.path.join(ROOT, "ancestry", "tools", "webtrees_crawl.db")
+ANCESTRY_DB   = os.path.join(ROOT, "ancestry", "ancestry_dna.db")
+PARISH_JSON   = os.path.join(ROOT, "ancestry", "tools", "matricula_parishes.json")
 
 # ── Farben (an die Ancestry-Optik angelehnt) ─────────────────────────────────
 C = {
@@ -43,12 +45,53 @@ C = {
     "mapped":    "#2e7d32",   # dunkelgrün  – im GEDCOM bestätigt
     "fuzzy":     "#5d4037",   # dunkelbraun – fuzzy-Match
     "cluster":   "#6a1b9a",   # lila        – DNA-Cluster
+    "kath":      "#1565c0",   # blau        – katholisch
+    "ev":        "#558b2f",   # grün        – evangelisch
 }
 
 _FILTER_ALL    = "Alle"
 _FILTER_MAPPED = "Im GEDCOM ✓"
 _FILTER_FUZZY  = "Fuzzy-Match ~"
 _FILTER_UNMAP  = "Nicht im GEDCOM"
+
+_CONF_ALL  = "Alle Konfessionen"
+_CONF_KATH = "Katholisch"
+_CONF_EV   = "Evangelisch"
+_CONF_UNK  = "Unbekannt"
+
+
+def _load_parish_lookup() -> dict:
+    """Lädt matricula_parishes.json: Ortsname (lower) → Pfarrei-Info."""
+    if not os.path.exists(PARISH_JSON):
+        return {}
+    try:
+        with open(PARISH_JSON, encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+# Globaler Pfarrei-Lookup (einmal geladen)
+_PARISH_LOOKUP: dict = _load_parish_lookup()
+
+
+def _parish_for(birth_place: str) -> dict | None:
+    """Gibt Pfarrei-Info für einen Geburtsort zurück oder None."""
+    if not birth_place or not _PARISH_LOOKUP:
+        return None
+    place = birth_place.strip().lower()
+    # Direkter Match
+    if place in _PARISH_LOOKUP:
+        return _PARISH_LOOKUP[place]
+    # Erster Teil vor Komma/Klammer (z.B. "Hagen a.T.W., Landkreis Osnabrück")
+    short = re.split(r"[,\(]", place)[0].strip()
+    if short and short in _PARISH_LOOKUP:
+        return _PARISH_LOOKUP[short]
+    # Partial-Match: Lookup-Schlüssel der im Ortsnamen enthalten ist
+    for key, val in _PARISH_LOOKUP.items():
+        if key in place or place in key:
+            return val
+    return None
 
 
 def _ro_connect(path: str) -> sqlite3.Connection | None:
@@ -114,6 +157,7 @@ class DataViewer(tk.Frame):
         self._gedcom_map: dict[str, str] = {}   # wt_id  → ged_id (bestätigt via xref)
         self._fuzzy_map:  dict[str, str] = {}   # wt_id  → ged_id (fuzzy Name+Jahr)
         self._cluster_map: dict[str, int] = {}  # ged_id → cluster_id
+        self._parish_cache: dict[str, dict | None] = {}  # birth_place → parish-info
 
         self._build()
         self._open_db()
@@ -239,6 +283,17 @@ class DataViewer(tk.Frame):
             except Exception:
                 continue
 
+    def _parish_info(self, birth_place: str) -> dict | None:
+        """Pfarrei-Info für einen Geburtsort (gecacht)."""
+        if birth_place not in self._parish_cache:
+            self._parish_cache[birth_place] = _parish_for(birth_place)
+        return self._parish_cache[birth_place]
+
+    def _confession_of(self, birth_place: str) -> str:
+        """'kath' | 'ev' | '' für einen Geburtsort."""
+        info = self._parish_info(birth_place or "")
+        return (info or {}).get("confession", "")
+
     def _mapping_for(self, wt_id: str) -> tuple[str | None, bool]:
         """Gibt (ged_id, is_fuzzy) zurück oder (None, False) wenn ungemappt."""
         wt_id = str(wt_id)
@@ -277,6 +332,15 @@ class DataViewer(tk.Frame):
         flt.pack(side="left", pady=8)
         flt.bind("<<ComboboxSelected>>", lambda _: self._do_search())
 
+        tk.Label(top, text="Konfession:", bg=C["panel"], fg=C["text"]).pack(
+            side="left", padx=(12, 4))
+        self._conf_var = tk.StringVar(value=_CONF_ALL)
+        conf = ttk.Combobox(top, textvariable=self._conf_var, width=16,
+                            state="readonly",
+                            values=[_CONF_ALL, _CONF_KATH, _CONF_EV, _CONF_UNK])
+        conf.pack(side="left", pady=8)
+        conf.bind("<<ComboboxSelected>>", lambda _: self._do_search())
+
         tk.Label(top, text="Suche:", bg=C["panel"], fg=C["text"]).pack(
             side="left", padx=(16, 4))
         self._search_var = tk.StringVar()
@@ -298,6 +362,8 @@ class DataViewer(tk.Frame):
             (C["fuzzy"],   "~ Fuzzy-Match"),
             (C["cluster"], "◆ DNA-Cluster"),
             (C["card"],    "○ Ungemappt"),
+            (C["kath"],    "✝ Katholisch"),
+            (C["ev"],      "✝ Evangelisch"),
         ):
             tk.Label(leg, text="  ■ ", bg=C["bg"], fg=color,
                      font=("Segoe UI", 8)).pack(side="left")
@@ -330,6 +396,8 @@ class DataViewer(tk.Frame):
         self._list.tag_configure("mapped",   foreground=C["mapped"])
         self._list.tag_configure("fuzzy",    foreground=C["fuzzy"])
         self._list.tag_configure("cluster",  foreground=C["cluster"])
+        self._list.tag_configure("kath",     foreground=C["kath"])
+        self._list.tag_configure("ev",       foreground=C["ev"])
 
         # Mitte: navigierbarer Mini-Baum
         mid = tk.Frame(body, bg=C["bg"]); mid.pack(side="left", fill="both",
@@ -402,6 +470,7 @@ class DataViewer(tk.Frame):
             return
         q       = self._search_var.get().strip()
         flt     = self._filter_var.get()
+        conf_flt = self._conf_var.get()
         try:
             if self._source == "anverwandte":
                 if q:
@@ -420,13 +489,21 @@ class DataViewer(tk.Frame):
                     wt_id = str(r["id"])
                     ged_id, is_fuzzy = self._mapping_for(wt_id)
                     cluster = self._cluster_map.get(ged_id) if ged_id else None
+                    confession = self._confession_of(r["birth_place"] or "")
 
-                    # Filter anwenden
+                    # GEDCOM-Filter
                     if flt == _FILTER_MAPPED and (not ged_id or is_fuzzy):
                         continue
                     if flt == _FILTER_FUZZY and not is_fuzzy:
                         continue
                     if flt == _FILTER_UNMAP and ged_id:
+                        continue
+                    # Konfessions-Filter
+                    if conf_flt == _CONF_KATH and confession != "kath":
+                        continue
+                    if conf_flt == _CONF_EV and confession != "ev":
+                        continue
+                    if conf_flt == _CONF_UNK and confession:
                         continue
 
                     label = r["name"] or f"{r['given_name']} {r['surname']}".strip()
@@ -438,9 +515,16 @@ class DataViewer(tk.Frame):
                     if cluster is not None:
                         ged_badge += f"C{cluster}"
 
+                    conf_badge = ("✝K" if confession == "kath" else
+                                  "✝E" if confession == "ev" else "")
+                    if conf_badge:
+                        ged_badge = f"{conf_badge} {ged_badge}".strip()
+
                     tag = ("cluster" if cluster is not None else
                            "mapped"  if ged_id and not is_fuzzy else
-                           "fuzzy"   if is_fuzzy else "")
+                           "fuzzy"   if is_fuzzy else
+                           "kath"    if confession == "kath" else
+                           "ev"      if confession == "ev" else "")
                     self._list.insert("", "end", iid=wt_id, values=(
                         label,
                         _years(r["birth_year"], r["death_year"]),
@@ -696,6 +780,28 @@ class DataViewer(tk.Frame):
                 p.get("birth_date"), p.get("birth_place")) if x))
             fact("Gestorben", " · ".join(x for x in (
                 p.get("death_date"), p.get("death_place")) if x))
+
+            # Pfarrei-Info aus Matricula-Lookup
+            parish = self._parish_info(p.get("birth_place") or "")
+            if parish:
+                hdr("Kirchspiel (Matricula)")
+                conf_label = ("Katholisch" if parish.get("confession") == "kath"
+                              else "Evangelisch" if parish.get("confession") == "ev"
+                              else parish.get("confession", ""))
+                conf_color = (C["kath"] if parish.get("confession") == "kath"
+                              else C["ev"] if parish.get("confession") == "ev"
+                              else C["text"])
+                f_conf = tk.Frame(self._detail, bg=C["panel"])
+                f_conf.pack(fill="x", padx=12, pady=1)
+                tk.Label(f_conf, text="Konfession", bg=C["panel"], fg=C["muted"],
+                         width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
+                tk.Label(f_conf, text=conf_label, bg=C["panel"], fg=conf_color,
+                         anchor="w", font=("Segoe UI", 8, "bold")).pack(side="left")
+                fact("Pfarrei", parish.get("parish", ""))
+                if parish.get("parent_id"):
+                    fact("Mutterpfarrei", parish.get("parent_id", "").replace("-", " ").title())
+                if parish.get("founded"):
+                    fact("Gegründet", str(parish["founded"]))
 
             hdr("Beziehungen")
             for par in _loads(p.get("parents_json")):
