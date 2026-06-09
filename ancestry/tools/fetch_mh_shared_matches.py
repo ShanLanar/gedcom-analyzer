@@ -34,6 +34,13 @@ import time
 import re
 from datetime import datetime, timezone
 
+# Windows-Konsole auf UTF-8 setzen damit Sonderzeichen funktionieren
+if sys.platform == "win32":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")  # type: ignore[attr-defined]
+    except Exception:
+        pass
+
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(ROOT, "ancestry"))
 
