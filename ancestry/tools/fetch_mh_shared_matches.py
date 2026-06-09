@@ -167,7 +167,8 @@ def _load_cookie_editor_json(path: str) -> list[dict]:
 
 def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
            headless: bool = True, pause: float = 2.0, skip_done: bool = True,
-           profile_dir: str | None = None, cookies_path: str | None = None):
+           profile_dir: str | None = None, cookies_path: str | None = None,
+           debug: bool = False):
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -311,13 +312,16 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             intercepted: list[tuple[str, str]] = []
 
             try:
-                # Netzwerk-Intercept: alle MH-API-Antworten mit Match-Daten abfangen
+                # Netzwerk-Intercept: alle MH-API-Antworten abfangen
                 def _on_resp(response):
                     try:
                         ru = response.url
+                        ct = response.headers.get("content-type", "")
+                        if debug and ("myheritage" in ru or "mhc-static" in ru):
+                            print(f"    [NET] {response.status} {ct[:30]:30} {ru[:100]}")
                         if response.ok and ("shared" in ru or "dna-match" in ru or
-                                            "dna_match" in ru or "relatives" in ru):
-                            ct = response.headers.get("content-type", "")
+                                            "dna_match" in ru or "relatives" in ru or
+                                            "dna/match" in ru):
                             if "json" in ct or "csv" in ct:
                                 try:
                                     intercepted.append((ru, response.text()))
@@ -341,6 +345,12 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 time.sleep(pause * 0.4)
 
                 page.remove_listener("response", _on_resp)
+
+                if debug:
+                    print(f"    [DBG] {len(intercepted)} Antworten abgefangen:")
+                    for ru, rb in intercepted:
+                        print(f"      {ru[:120]}")
+                        print(f"      → {rb[:200]!r}")
 
                 # Intercept-Antworten auswerten
                 csv_text = None
@@ -466,6 +476,8 @@ if __name__ == "__main__":
                     help="Persistentes Chromium-Profil-Verzeichnis (speichert Login)")
     ap.add_argument("--cookies", default="",
                     help="Cookie-Editor-JSON-Export von myheritage.de (empfohlen bei Google-Login)")
+    ap.add_argument("--debug", action="store_true",
+                    help="Netzwerk-Requests und abgefangene API-Antworten ausgeben")
     args = ap.parse_args()
 
     scrape(
@@ -477,4 +489,5 @@ if __name__ == "__main__":
         skip_done    = not args.no_skip,
         profile_dir  = args.profile_dir or None,
         cookies_path = args.cookies or None,
+        debug        = args.debug,
     )
