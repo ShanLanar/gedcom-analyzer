@@ -1,26 +1,23 @@
 #!/usr/bin/env python3
 """
-Vereinte Genealogie-Suite – EIN Fenster, zwei Reiter:
+Genealogie-Suite — vereintes Hauptfenster (3 Reiter)
 
-  🌳 Stammbaum-Auswertung   (der bisherige GEDCOM-Analyzer / main.py)
-  🧬 DNA-Matches             (das bisherige Ancestry-DNA-Tool / ancestry)
+  🏠 Start        – Pfadeinstellungen, GEDCOM laden, DNA-Quellen, DB-Status
+  🌳 Stammbaum    – GEDCOM-Analyzer (main.py / AhnenApp)
+  🧬 DNA-Matches  – DNA-Match-Analyzer (ancestry/gui/app.py / AncestryDnaApp)
 
-Beide Programme bleiben weiterhin auch einzeln startbar (main.py bzw.
-ancestry/main.py) – dieser Launcher bettet sie nur gemeinsam ein.
+Die drei Reiter teilen dasselbe Dark-Theme (cfg-Farben).
+GEDCOM-Pfad und Root-ID, die im Start-Tab gesetzt werden, werden live in
+beide Analyse-Reiter propagiert.
 
-Technischer Knackpunkt: beide Codebasen haben ein eigenes Top-Level-Modul
-namens `config` mit UNTERSCHIEDLICHEM Inhalt. tkinter erlaubt zudem nur EINEN
-Tk-Root. Daher:
-  1. Erst die GESAMTE Analyzer-Seite laden, solange `config` == Root-config
-     (alle tasks.*/lib.*-Module eager importieren, damit ihr `import config`
-     dauerhaft an die Root-config bindet).
-  2. Dann `config` aus dem Cache nehmen, ancestry/ auf den Pfad legen und die
-     DNA-App laden – deren `import config` trifft jetzt die Ancestry-config.
-Bereits importierte Module behalten ihre jeweils richtige config-Referenz.
-
-ACHTUNG: Alle Unter-Module MÜSSEN `import config` verwenden (nie
-`from config import X`), damit die Modul-Identität nach dem Swap stimmt.
+Technische Besonderheit:
+  Zwei verschiedene `config`-Module (Root vs. ancestry/) existieren gleichnamig.
+  Lösung: Root-config + alle tasks./lib.-Module erst vollständig importieren
+  (eager), dann config aus dem Cache entfernen und ancestry-config laden.
+  So hat jedes Modul dauerhaft die richtige config-Referenz.
 """
+from __future__ import annotations
+
 import logging
 import os
 import sys
@@ -36,15 +33,17 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 ANC  = os.path.join(ROOT, "ancestry")
 
 
+# ── Import-Helfer ──────────────────────────────────────────────────────────────
+
 def _eager_import_analyzer():
-    """Analyzer-Seite vollständig laden, solange config==Root gilt."""
+    """Lädt Root-config + alle tasks./lib.-Module, bevor config-Swap."""
     if ROOT not in sys.path:
         sys.path.insert(0, ROOT)
-    import config as _root_config          # noqa: F401  (cached als 'config')
-    from main import AhnenApp              # main.py importiert config=Root
+    import config as _root_config          # noqa: F401
+    from config import apply_overrides
+    apply_overrides()
+    from main import AhnenApp
 
-    # Alle Module unter tasks/ und lib/ eager importieren, damit deren
-    # `import config` jetzt (config=Root) gebunden wird.
     for pkg in ("tasks", "lib"):
         pkg_dir = os.path.join(ROOT, pkg)
         if not os.path.isdir(pkg_dir):
@@ -58,24 +57,76 @@ def _eager_import_analyzer():
 
 
 def _load_dna_app():
-    """Auf Ancestry-config umschalten und die DNA-App laden."""
-    sys.modules.pop("config", None)       # Root-config aus dem Cache nehmen
+    """Config-Swap: ancestry-config aktivieren, DNA-App laden."""
+    sys.modules.pop("config", None)
     if ANC not in sys.path:
-        sys.path.insert(0, ANC)           # ancestry zuerst auf dem Pfad
-    import config as _anc_config          # noqa: F401  (cached jetzt als ancestry)
+        sys.path.insert(0, ANC)
+    import config as _anc_config           # noqa: F401
     from gui.app import AncestryDnaApp
     return AncestryDnaApp
 
 
-def _error_tab(parent: tk.Frame, title: str, exc: Exception) -> None:
-    """Zeigt einen Fehler-Platzhalter statt einer nicht ladbaren App."""
-    msg = f"⚠ {title}\n\n{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
-    lbl = tk.Label(parent, text=msg, justify="left", fg="#cc0000",
-                   font=("Consolas", 9), wraplength=900, anchor="nw")
-    lbl.pack(fill="both", expand=True, padx=20, pady=20)
+# ── Reiter-Fehlerplatzhalter ───────────────────────────────────────────────────
 
+def _error_tab(parent: tk.Frame, title: str, exc: Exception) -> None:
+    msg = f"⚠  {title}\n\n{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
+    tk.Label(parent, text=msg, justify="left", fg="#ff5555",
+             font=("Consolas", 9), wraplength=900, anchor="nw",
+             bg="#1e1e2e").pack(fill="both", expand=True, padx=20, pady=20)
+
+
+# ── Dark-Theme für ttk.Notebook ───────────────────────────────────────────────
+
+def _apply_notebook_style(root: tk.Tk) -> None:
+    """Färbt Notebook-Reiter im Dark-Theme ein."""
+    import config as cfg
+    style = ttk.Style(root)
+    try:
+        style.theme_use("clam")
+    except tk.TclError:
+        pass
+
+    BG    = cfg.BG        # "#1e1e2e"
+    BG2   = cfg.BG2       # "#2a2a3e"
+    BG3   = cfg.BG3       # "#232336"
+    ACC   = cfg.ACCENT    # "#7c7cf8"
+    FG    = cfg.FG        # "#cdd6f4"
+    DIM   = cfg.FG_DIM    # "#6c7086"
+
+    style.configure("TNotebook",
+                    background=BG, borderwidth=0, tabmargins=[0, 0, 0, 0])
+    style.configure("TNotebook.Tab",
+                    background=BG2, foreground=DIM,
+                    padding=[14, 6], borderwidth=0,
+                    font=("Segoe UI", 10))
+    style.map("TNotebook.Tab",
+              background=[("selected", BG3), ("active", BG3)],
+              foreground=[("selected", FG),  ("active", FG)],
+              expand=[("selected", [0, 0, 0, 2])])
+    style.configure("TFrame",   background=BG)
+    style.configure("TLabel",   background=BG,  foreground=FG)
+    style.configure("TCombobox",
+                    fieldbackground=BG3, background=BG3,
+                    foreground=FG, arrowcolor=FG)
+    style.configure("Vertical.TScrollbar",
+                    background=BG2, troughcolor=BG, arrowcolor=DIM, borderwidth=0)
+    style.configure("Horizontal.TScrollbar",
+                    background=BG2, troughcolor=BG, arrowcolor=DIM, borderwidth=0)
+    style.configure("Accent.Horizontal.TProgressbar",
+                    background=ACC, troughcolor=BG2, borderwidth=0)
+
+    # Titelzeile & Fenster-Hintergrund
+    root.configure(bg=BG)
+    root.option_add("*Background",       BG)
+    root.option_add("*Foreground",       FG)
+    root.option_add("*Font",             "Segoe\\ UI 10")
+    root.option_add("*highlightThickness", "0")
+
+
+# ── Hauptfunktion ──────────────────────────────────────────────────────────────
 
 def main():
+    # ── Imports ────────────────────────────────────────────────────────────────
     AhnenApp = None
     _ahnen_exc: Exception = RuntimeError("not loaded")
     try:
@@ -94,41 +145,102 @@ def main():
         log.exception("DNA-App-Import fehlgeschlagen")
         _dna_exc = exc
 
-    root = tk.Tk()
-    root.title("Genealogie-Suite – Stammbaum & DNA")
-    root.geometry("1300x840")
-    root.minsize(1000, 680)
+    # Root-config wieder in den Cache (für StartPage + AhnenApp)
+    sys.modules.pop("config", None)
+    if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    import config as cfg  # noqa: F811  — Root-config
 
+    # ── Tk-Fenster ─────────────────────────────────────────────────────────────
+    root = tk.Tk()
+    root.title("Genealogie-Suite")
+    root.geometry("1380x880")
+    root.minsize(1100, 700)
+
+    _apply_notebook_style(root)
+
+    # ── Notebook mit 3 Reitern ─────────────────────────────────────────────────
     nb = ttk.Notebook(root)
     nb.pack(fill="both", expand=True)
 
-    tab_ged = ttk.Frame(nb)
-    tab_dna = ttk.Frame(nb)
-    nb.add(tab_ged, text="   🌳 Stammbaum-Auswertung   ")
-    nb.add(tab_dna, text="   🧬 DNA-Matches   ")
+    tab_start = ttk.Frame(nb, style="TFrame")
+    tab_ged   = ttk.Frame(nb, style="TFrame")
+    tab_dna   = ttk.Frame(nb, style="TFrame")
 
-    # GEDCOM-Analyzer einbetten
-    dna_obj = None
+    nb.add(tab_start, text="  🏠 Start  ")
+    nb.add(tab_ged,   text="  🌳 Stammbaum-Auswertung  ")
+    nb.add(tab_dna,   text="  🧬 DNA-Matches  ")
+
+    # ── Start-Reiter (Zuerst, damit on_gedcom_change-Callback gebaut werden kann)
+    ahnen_obj: AhnenApp | None = None       # type: ignore[valid-type]
+    dna_obj:   AncestryDnaApp | None = None  # type: ignore[valid-type]
+
+    def _on_gedcom_change(ged_path: str, root_id: str):
+        """Propagiert Pfad-Änderungen vom Start-Tab in beide Analyse-Tabs."""
+        if ahnen_obj is not None:
+            try:
+                ahnen_obj._path_var.set(ged_path)
+                ahnen_obj._root_id_var.set(root_id)
+            except Exception:
+                pass
+        if dna_obj is not None:
+            try:
+                dna_obj._set_gedcom(ged_path)
+            except Exception:
+                pass
+
+    from start_page import StartPage
+    try:
+        start_obj = StartPage(master=tab_start,
+                               on_gedcom_change=_on_gedcom_change)
+    except Exception as exc:
+        log.exception("StartPage fehlgeschlagen")
+        _error_tab(tab_start, "Start-Seite konnte nicht geladen werden", exc)
+        start_obj = None
+
+    # ── Stammbaum-Reiter ──────────────────────────────────────────────────────
     if AhnenApp is None:
         _error_tab(tab_ged, "GEDCOM-Analyzer konnte nicht geladen werden", _ahnen_exc)
     else:
         try:
-            AhnenApp(master=tab_ged)
+            ahnen_obj = AhnenApp(master=tab_ged)
+            # Start-Tab mit aktuellem GEDCOM-Pfad des Analyzers synchronisieren
+            if start_obj is not None:
+                try:
+                    ged_path = cfg.DEFAULT_CONFIG.get("gedfile", "")
+                    start_obj._vars["gedfile"].set(ged_path)
+                    start_obj._vars["root_id"].set(cfg.DEFAULT_CONFIG.get("root_id", ""))
+                    start_obj._vars["exclude_id"].set(
+                        cfg.DEFAULT_CONFIG.get("exclude_id", ""))
+                except Exception:
+                    pass
         except Exception as exc:
-            log.exception("AhnenApp-Initialisierung fehlgeschlagen")
+            log.exception("AhnenApp-Init fehlgeschlagen")
             _error_tab(tab_ged, "GEDCOM-Analyzer-Fehler beim Start", exc)
 
-    # DNA-Tool einbetten
+    # ── DNA-Reiter ────────────────────────────────────────────────────────────
     if AncestryDnaApp is None:
         _error_tab(tab_dna, "DNA-Tool konnte nicht geladen werden", _dna_exc)
     else:
         try:
             dna_obj = AncestryDnaApp(master=tab_dna)
         except Exception as exc:
-            log.exception("AncestryDnaApp-Initialisierung fehlgeschlagen")
+            log.exception("AncestryDnaApp-Init fehlgeschlagen")
             _error_tab(tab_dna, "DNA-Tool-Fehler beim Start", exc)
             dna_obj = None
 
+    # ── Tab-Wechsel-Event: Status im Start-Tab aktualisieren ──────────────────
+    def _on_tab_change(event=None):
+        if start_obj is not None:
+            try:
+                idx = nb.index(nb.select())
+                if idx == 0:
+                    start_obj._refresh_status()
+            except Exception:
+                pass
+    nb.bind("<<NotebookTabChanged>>", _on_tab_change)
+
+    # ── Fenster schließen ─────────────────────────────────────────────────────
     def _on_close():
         if dna_obj is not None:
             try:
@@ -148,4 +260,4 @@ if __name__ == "__main__":
         main()
     except Exception:
         traceback.print_exc()
-        input("\nFehler – Eingabetaste zum Beenden ...")
+        input("\nFehler — Eingabetaste zum Beenden ...")

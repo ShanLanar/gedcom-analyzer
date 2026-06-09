@@ -42,15 +42,15 @@ COLORS = {
 }
 
 COLORS_DARK = {
-    "primary" : "#2E75B6",
-    "accent"  : "#4A9FD4",
-    "light"   : "#2A3A4A",
-    "bg"      : "#1A2130",
-    "text"    : "#E8EDF2",
-    "success" : "#4CAF50",
-    "warning" : "#FF9800",
-    "white"   : "#FFFFFF",
-    "cluster" : ["#4A2020","#1E4A2A","#1A2E4A","#3A3010","#2E1A4A","#0A2A3A"],
+    "primary" : "#7c7cf8",   # wie cfg.ACCENT
+    "accent"  : "#a5a5ff",
+    "light"   : "#2a2a3e",   # wie cfg.BG2
+    "bg"      : "#1e1e2e",   # wie cfg.BG
+    "text"    : "#cdd6f4",   # wie cfg.FG
+    "success" : "#50fa7b",   # wie cfg.GREEN
+    "warning" : "#ffb86c",   # wie cfg.ORANGE
+    "white"   : "#ffffff",
+    "cluster" : ["#3a2020","#1a3a2a","#1e1e3a","#2e2a10","#2a1a3a","#0a2230"],
 }
 
 TRANSLATIONS: dict[str, dict[str, str]] = {
@@ -5861,3 +5861,13 @@ class AncestryDnaApp(tk.Frame):
         except Exception: pass
         try: self._db.close()
         except Exception: pass
+
+    def _set_gedcom(self, path: str):
+        """Setzt den GEDCOM-Pfad von außen (z.B. aus dem Start-Tab)."""
+        try:
+            import os as _os
+            if path and _os.path.exists(path):
+                self._save_ui_settings(gedcom_path=path)
+                self._set_status(f"GEDCOM-Pfad aktualisiert: {_os.path.basename(path)}")
+        except Exception:
+            pass
