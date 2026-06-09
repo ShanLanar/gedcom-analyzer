@@ -385,13 +385,26 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     req = route.request
                     for _k in (_SM_KEY, _SEG_KEY):
                         if _k in req.url and _k not in _route_bodies:
-                            _b = req.post_data or ""
+                            # post_data kann binär/komprimiert sein → post_data_buffer + decompress
+                            _b = ""
+                            try:
+                                raw = req.post_data_buffer  # bytes
+                                if raw:
+                                    if raw[:2] == b'\x1f\x8b':  # gzip magic
+                                        import gzip as _gz
+                                        raw = _gz.decompress(raw)
+                                    _b = raw.decode("utf-8", errors="replace")
+                            except Exception:
+                                _b = req.post_data or ""
                             if len(_b) > 5:
                                 _route_bodies[_k] = {
                                     "url": req.url,
                                     "headers": dict(req.headers),
                                     "body": _b,
                                 }
+                                if debug:
+                                    print(f"    [DBG] route captured {_k[-20:]}: "
+                                          f"len={len(_b)} start={_b[:40]!r}")
                     route.continue_()
                 page.route("**/web-family-graphql/**", _route_capture)
 
