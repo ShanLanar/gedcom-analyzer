@@ -195,6 +195,58 @@ def _load_cookie_editor_json(path: str) -> list[dict]:
     return result
 
 
+def _resolve_extension_dir(id_or_path: str) -> str | None:
+    """Findet den entpackten Erweiterungs-Ordner.
+
+    Akzeptiert entweder einen direkten Pfad (mit manifest.json) ODER eine
+    Chrome-Extension-ID (z.B. 'knnjkkdihbjonnkmajijmnfblpbopapk') — dann wird
+    in den Standard-Chrome/Edge-Profilen nach der neuesten Version gesucht.
+    """
+    if not id_or_path:
+        return None
+    p = os.path.abspath(os.path.expanduser(id_or_path))
+    if os.path.isdir(p) and os.path.isfile(os.path.join(p, "manifest.json")):
+        return p
+
+    ext_id = id_or_path.strip()
+    # Kandidaten-Basisverzeichnisse (Windows/macOS/Linux, Chrome + Edge)
+    home = os.path.expanduser("~")
+    bases = []
+    local = os.environ.get("LOCALAPPDATA", os.path.join(home, "AppData", "Local"))
+    for vendor in (
+        os.path.join(local, "Google", "Chrome", "User Data"),
+        os.path.join(local, "Microsoft", "Edge", "User Data"),
+        os.path.join(local, "Google", "Chrome Beta", "User Data"),
+        os.path.join(home, ".config", "google-chrome"),
+        os.path.join(home, ".config", "chromium"),
+        os.path.join(home, ".config", "microsoft-edge"),
+        os.path.join(home, "Library", "Application Support", "Google", "Chrome"),
+        os.path.join(home, "Library", "Application Support", "Microsoft Edge"),
+    ):
+        bases.append(vendor)
+
+    candidates = []
+    for base in bases:
+        if not os.path.isdir(base):
+            continue
+        # alle Profile (Default, Profile 1, …) durchsuchen
+        try:
+            for prof in os.listdir(base):
+                ext_dir = os.path.join(base, prof, "Extensions", ext_id)
+                if os.path.isdir(ext_dir):
+                    for ver in os.listdir(ext_dir):
+                        vp = os.path.join(ext_dir, ver)
+                        if os.path.isfile(os.path.join(vp, "manifest.json")):
+                            candidates.append(vp)
+        except Exception:
+            continue
+    if not candidates:
+        return None
+    # neueste Version (lexikografisch/mtime) wählen
+    candidates.sort(key=lambda x: os.path.getmtime(x))
+    return candidates[-1]
+
+
 def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
            headless: bool = True, pause: float = 2.0, skip_done: bool = True,
            profile_dir: str | None = None, cookies_path: str | None = None,
@@ -283,10 +335,13 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
     # Headless-Modus NICHT geladen → "--headless=new" verwenden.
     _ext_args: list[str] = []
     if extension_dir:
-        extension_dir = os.path.abspath(os.path.expanduser(extension_dir))
-        if not os.path.isdir(extension_dir):
-            print(f"⚠  Extension-Verzeichnis nicht gefunden: {extension_dir}")
+        _resolved = _resolve_extension_dir(extension_dir)
+        if not _resolved:
+            print(f"⚠  Extension nicht gefunden (Pfad/ID): {extension_dir}")
+            extension_dir = None
         else:
+            extension_dir = _resolved
+        if extension_dir:
             _ext_args = [
                 f"--disable-extensions-except={extension_dir}",
                 f"--load-extension={extension_dir}",
@@ -944,8 +999,12 @@ if __name__ == "__main__":
     ap.add_argument("--debug", action="store_true",
                     help="Netzwerk-Requests und abgefangene API-Antworten ausgeben")
     ap.add_argument("--extension", default="",
-                    help="Pfad zur entpackten Browser-Erweiterung (z.B. Genealogy "
-                         "Assistant) für 'Download CSV (all pages)'")
+                    help="Pfad ODER Chrome-Extension-ID der Browser-Erweiterung "
+                         "(z.B. Genealogy Assistant 'knnjkkdihbjonnkmajijmnfblpbopapk') "
+                         "für 'Download CSV (all pages)'")
+    ap.add_argument("--extension-id", default="",
+                    help="Alias für --extension: Chrome-Extension-ID; Ordner wird "
+                         "automatisch im Chrome/Edge-Profil gesucht")
     args = ap.parse_args()
 
     scrape(
@@ -958,5 +1017,5 @@ if __name__ == "__main__":
         profile_dir   = args.profile_dir or None,
         cookies_path  = args.cookies or None,
         debug         = args.debug,
-        extension_dir = args.extension or None,
+        extension_dir = args.extension or args.extension_id or None,
     )
