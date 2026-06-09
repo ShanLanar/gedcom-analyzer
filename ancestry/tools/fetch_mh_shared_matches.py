@@ -155,19 +155,26 @@ def _load_cookie_editor_json(path: str) -> list[dict]:
         cookie = {
             "name":   c.get("name", ""),
             "value":  c.get("value", ""),
+            # Playwright braucht Domain ohne führenden Punkt für exakte Matches,
+            # aber mit Punkt für Subdomains — wir normalisieren auf mit Punkt
             "domain": c.get("domain", ""),
             "path":   c.get("path", "/"),
         }
+        # Domain normalisieren: sicherstellen dass myheritage-Cookies für beide
+        # TLDs gelten (.de und .com teilen sich die DNA-Session nicht automatisch)
+        domain = cookie["domain"].lstrip(".")
+        if "myheritage" in domain and not domain.startswith("."):
+            domain = "." + domain
+        cookie["domain"] = domain
         if "secure" in c:
             cookie["secure"] = bool(c["secure"])
         if "httpOnly" in c:
             cookie["httpOnly"] = bool(c["httpOnly"])
         if "expirationDate" in c:
             cookie["expires"] = int(c["expirationDate"])
-        if "sameSite" in c:
-            ss = str(c["sameSite"]).capitalize()
-            if ss in ("Strict", "Lax", "None"):
-                cookie["sameSite"] = ss
+        # SameSite=Strict verhindert Cross-Context-Nutzung → auf Lax setzen
+        ss = str(c.get("sameSite", "Lax")).capitalize()
+        cookie["sameSite"] = ss if ss in ("Strict", "Lax", "None") else "Lax"
         result.append(cookie)
     return result
 
@@ -293,17 +300,24 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
         # ── Session aufwärmen: erst Startseite, dann DNA-Bereich ─────────────
         print("Öffne MyHeritage — Session aufwärmen …")
         for warmup_url in ["https://www.myheritage.de/",
-                           "https://www.myheritage.de/dna"]:
+                           "https://www.myheritage.de/dna/matches"]:
             try:
-                page.goto(warmup_url, wait_until="domcontentloaded", timeout=30_000)
+                resp = page.goto(warmup_url, wait_until="domcontentloaded", timeout=30_000)
+                if debug:
+                    print(f"    [DBG] Warmup {warmup_url[:60]} → {page.url[:80]}"
+                          f" (status={getattr(resp,'status','?')})")
                 time.sleep(1.5)
             except PWTimeout:
-                pass
+                if debug:
+                    print(f"    [DBG] Warmup Timeout: {warmup_url}")
         time.sleep(1)
 
         final_url = page.url
+        on_dna = "myheritage" in final_url and (
+            "/dna" in final_url or "match" in final_url)
         if debug:
             print(f"    [DBG] Nach Warmup: {final_url}")
+            print(f"    [DBG] DNA-Seite erreicht: {on_dna}")
 
         # Prüfen ob Login-Dialog offen
         if page.query_selector("input[name='username'], input[type='email']"):
