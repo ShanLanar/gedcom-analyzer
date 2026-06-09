@@ -421,24 +421,76 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 csv_text = None
                 import json as _json
 
+                def _parse_mh_item(item: dict) -> SharedMatch | None:
+                    """Parst ein MH-GraphQL-Match-Item (REST oder dna_shared_matches)."""
+                    if not isinstance(item, dict):
+                        return None
+                    # MH GraphQL: { shared_member: {guid, display_name, ...},
+                    #               shared_dna, shared_segments, ... }
+                    member = item.get("shared_member") or {}
+                    g = (member.get("guid") or member.get("dna_kit_id") or
+                         item.get("guid") or item.get("matchGuid") or
+                         item.get("relativeGuid") or item.get("id") or "")
+                    if isinstance(g, str):
+                        g = g.upper()
+                    cm_val = float(item.get("shared_dna") or
+                                   item.get("sharedDna") or item.get("sharedCm") or
+                                   item.get("shared_dna_percentage") or
+                                   member.get("shared_dna") or 0)
+                    if not g or not cm_val:
+                        return None
+                    name = (member.get("display_name") or member.get("displayName") or
+                            item.get("displayName") or item.get("name") or "")
+                    segs = int(item.get("shared_segments") or
+                               item.get("sharedSegments") or
+                               item.get("dna_matches_cluster_shared_segments_count") or 0)
+                    rel = str(item.get("relationship") or
+                              member.get("estimated_relationship") or "")
+                    tree = bool(item.get("hasTree") or member.get("has_tree") or
+                                member.get("hasTree"))
+                    return SharedMatch(
+                        test_guid=test_guid,
+                        match_guid_a=guid_a,
+                        match_guid_b=g,
+                        display_name_b=str(name),
+                        shared_cm_b=cm_val,
+                        shared_cm_ab=0.0,
+                        shared_segments_b=segs,
+                        relationship_b=rel,
+                        has_tree_b=tree,
+                        fetched_at=fetched,
+                    )
+
                 def _items_from_json(data) -> list:
                     """Sucht rekursiv nach Listen von Match-Objekten in MH-JSON."""
                     if isinstance(data, list):
                         return data
                     if not isinstance(data, dict):
                         return []
-                    # direkte bekannte Schlüssel (REST + GraphQL)
-                    for key in ("matches", "data", "results", "relatives",
-                                "sharedMatches", "shared_matches", "items",
+                    # MH GraphQL bekannte Schlüssel (Priorität: spezifischste zuerst)
+                    for key in ("dna_shared_matches", "sharedMatches", "shared_matches",
+                                "matches", "results", "relatives", "items",
                                 "nodes", "edges"):
                         v = data.get(key)
                         if isinstance(v, list) and v:
                             return v
                         if isinstance(v, dict):
+                            # MH GraphQL: {"count": N, "data": [...]}
+                            inner_list = v.get("data")
+                            if isinstance(inner_list, list) and inner_list:
+                                return inner_list
                             inner = _items_from_json(v)
                             if inner:
                                 return inner
-                    # GraphQL: data.dnaMatch.sharedMatches.results o.ä.
+                    # "data" als generischer Wrapper
+                    v = data.get("data")
+                    if isinstance(v, list) and v:
+                        return v
+                    if isinstance(v, dict):
+                        inner = _items_from_json(v)
+                        if inner:
+                            return inner
+                    # Alle anderen Dict-Werte rekursiv durchsuchen
                     for v in data.values():
                         if isinstance(v, (dict, list)):
                             inner = _items_from_json(v)
@@ -446,53 +498,51 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                                 return inner
                     return []
 
+                # Erst gezielt den Shared-Matches-Endpoint auswerten
+                _SM_URL = "dna_single_match_get_shared_matches"
                 for resp_url, resp_body in intercepted:
-                    if not resp_body:
+                    if not resp_body or _SM_URL not in resp_url:
                         continue
-                    stripped = resp_body.lstrip()
-                    # JSON-Antwort
-                    if stripped.startswith("{") or stripped.startswith("["):
-                        try:
-                            data = _json.loads(resp_body)
-                            items = _items_from_json(data)
-                            for item in items:
-                                if not isinstance(item, dict):
-                                    continue
-                                g = (item.get("guid") or item.get("matchGuid") or
-                                     item.get("relativeGuid") or item.get("id") or
-                                     "")
-                                if isinstance(g, str):
-                                    g = g.upper()
-                                cm_val = float(item.get("sharedDna") or
-                                               item.get("sharedCm") or
-                                               item.get("shared_dna") or
-                                               item.get("sharedCentimorgans") or 0)
-                                if g and cm_val:
-                                    shared.append(SharedMatch(
-                                        test_guid=test_guid,
-                                        match_guid_a=guid_a,
-                                        match_guid_b=g,
-                                        display_name_b=str(item.get("displayName") or
-                                                           item.get("name") or ""),
-                                        shared_cm_b=cm_val,
-                                        shared_cm_ab=0.0,
-                                        shared_segments_b=int(
-                                            item.get("sharedSegments") or 0),
-                                        relationship_b=str(
-                                            item.get("relationship") or ""),
-                                        has_tree_b=bool(item.get("hasTree")),
-                                        fetched_at=fetched,
-                                    ))
-                            if shared:
-                                if debug:
-                                    print(f"    [DBG] Match-Daten aus: {resp_url[:80]}")
-                                break
-                        except Exception:
-                            pass
-                    # CSV-Antwort
-                    elif "\n" in resp_body and "," in resp_body:
-                        csv_text = resp_body
-                        break
+                    try:
+                        data = _json.loads(resp_body)
+                        items = _items_from_json(data)
+                        if debug:
+                            print(f"    [DBG] GraphQL shared_matches Items: {len(items)}")
+                        for item in items:
+                            sm = _parse_mh_item(item)
+                            if sm:
+                                shared.append(sm)
+                        if shared:
+                            if debug:
+                                print(f"    [DBG] {len(shared)} Matches aus: {resp_url[:80]}")
+                            break
+                    except Exception as exc:
+                        if debug:
+                            print(f"    [DBG] Parse-Fehler: {exc}")
+
+                # Fallback: alle anderen JSON-Antworten durchsuchen
+                if not shared:
+                    for resp_url, resp_body in intercepted:
+                        if not resp_body or _SM_URL in resp_url:
+                            continue
+                        stripped = resp_body.lstrip()
+                        if stripped.startswith("{") or stripped.startswith("["):
+                            try:
+                                data = _json.loads(resp_body)
+                                items = _items_from_json(data)
+                                for item in items:
+                                    sm = _parse_mh_item(item)
+                                    if sm:
+                                        shared.append(sm)
+                                if shared:
+                                    if debug:
+                                        print(f"    [DBG] Match-Daten aus Fallback: {resp_url[:80]}")
+                                    break
+                            except Exception:
+                                pass
+                        elif "\n" in resp_body and "," in resp_body:
+                            csv_text = resp_body
+                            break
 
                 if csv_text:
                     shared = _parse_shared_csv(csv_text, test_guid, guid_a, fetched)
