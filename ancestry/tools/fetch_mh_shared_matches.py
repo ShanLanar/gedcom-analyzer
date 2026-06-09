@@ -670,9 +670,12 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             _hdr = _dl_csv_text.split("\n", 1)[0]
                             _rows = _dl_csv_text.count("\n")
                             print(f"    [DBG] CSV geladen: {_rows} Zeilen | Header: {_hdr[:200]}")
-                        # Modal der Erweiterung per Escape schließen (kein Seiten-Reload)
+                        # Close-Button klicken (ohne auf den dadurch ausgelösten
+                        # Seiten-Reload zu warten — das nächste page.goto() bricht ihn ab)
                         try:
-                            page.keyboard.press("Escape")
+                            _close_btn = page.get_by_role(
+                                "button", name=re.compile(r"^close$", re.I))
+                            _close_btn.click(timeout=3000, no_wait_after=True)
                         except Exception:
                             pass
                         # Extra-Tabs schließen die die Erweiterung evtl. geöffnet hat
