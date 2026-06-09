@@ -972,9 +972,8 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 seg_count = 0
                 _seg_intercepted = [(ru, rb) for ru, rb in intercepted if _SEG_KEY in ru]
                 _seg_info = _route_bodies.get(_SEG_KEY, {})
-                # Falls bereits intercepted aber dna_shared_segments=null → via browser fetch
-                # nochmals anfragen (evtl. war Seite noch nicht fertig geladen)
-                if _seg_info.get("body") and not any(
+                # Segment-Re-Fetch nur wenn keine CSV-Daten vorhanden (CSV enthält keine Segmente)
+                if not _dl_csv_text and _seg_info.get("body") and not any(
                     '"dna_shared_segments"' in rb and '"data":[' in rb
                     for _, rb in _seg_intercepted
                 ):
