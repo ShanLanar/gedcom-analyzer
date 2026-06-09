@@ -376,16 +376,18 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             _gql_req_info: dict = {}   # speichert headers+body des SM-GraphQL-Requests
 
             try:
-                # Route-Handler: SM-GraphQL-Request abfangen (für Pagination)
-                # Pattern ohne trailing ** — URL endet mit "/"
-                _SM_ROUTE = "**dna_single_match_get_shared_matches**"
-                def _capture_gql_req(route, request):
-                    if not _gql_req_info:
-                        _gql_req_info["url"]     = request.url
-                        _gql_req_info["headers"] = dict(request.headers)
-                        _gql_req_info["body"]    = request.post_data or ""
-                    route.continue_()
-                page.route(_SM_ROUTE, _capture_gql_req)
+                # Request-Listener: SM-GraphQL-Request passiv abfangen (für Pagination)
+                # page.on("request") ist zuverlässiger als page.route() für POST-Bodies
+                _SM_KEY = "dna_single_match_get_shared_matches"
+                def _capture_gql_req(request):
+                    if _SM_KEY in request.url and not _gql_req_info:
+                        try:
+                            _gql_req_info["url"]     = request.url
+                            _gql_req_info["headers"] = dict(request.headers)
+                            _gql_req_info["body"]    = request.post_data or ""
+                        except Exception:
+                            pass
+                page.on("request", _capture_gql_req)
 
                 # Netzwerk-Intercept: ALLE JSON-Antworten von MH abfangen
                 def _on_resp(response):
@@ -420,10 +422,7 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 time.sleep(wait_total * 0.3)
 
                 page.remove_listener("response", _on_resp)
-                try:
-                    page.unroute(_SM_ROUTE)
-                except Exception:
-                    pass
+                page.remove_listener("request", _capture_gql_req)
 
                 if debug:
                     print(f"    [DBG] {len(intercepted)} Antworten abgefangen:")
