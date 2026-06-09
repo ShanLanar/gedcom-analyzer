@@ -508,6 +508,9 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                         items = _items_from_json(data)
                         if debug:
                             print(f"    [DBG] GraphQL shared_matches Items: {len(items)}")
+                            if items:
+                                import json as _dbg_json
+                                print(f"    [DBG] Erstes Item: {_dbg_json.dumps(items[0], ensure_ascii=False)[:600]}")
                         for item in items:
                             sm = _parse_mh_item(item)
                             if sm:
