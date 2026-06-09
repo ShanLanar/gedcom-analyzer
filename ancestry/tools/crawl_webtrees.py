@@ -689,6 +689,7 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
     phases = {"up": ["up"], "down": ["down"], "both": ["up", "down"]}[mode]
 
     for ph_idx, direction in enumerate(phases):
+        crawl._open0 = None   # type: ignore[attr-defined]  # Reset pro Phase
         if direction == "up" and seed_id:
             enqueue(seed_id, "up", 0)
         if direction == "down":
@@ -736,20 +737,13 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 elapsed = time.time() - _phase_start
                 rate = processed / elapsed if elapsed > 0 else 0
 
-                # Gleitender Durchschnitt über die letzten N Messpunkte (geglättet)
-                history = getattr(crawl, "_open_history", [])
-                history.append(openf)
-                if len(history) > 10:
-                    history.pop(0)
-                crawl._open_history = history  # type: ignore[attr-defined]
-
-                # Netto-Drain über den gesamten gleitenden Fenster berechnen
-                if len(history) >= 2:
-                    window_delta_open = history[-1] - history[0]
-                    window_delta_proc = 25 * (len(history) - 1)
-                    growth_per_page = window_delta_open / window_delta_proc
-                else:
-                    growth_per_page = 0.0
+                # Kumulatives Wachstum seit Phasenstart (stabil, kein Rauschen)
+                open0 = getattr(crawl, "_open0", None)
+                if open0 is None:
+                    crawl._open0 = openf  # type: ignore[attr-defined]
+                    open0 = openf
+                # growth_per_page: wie viel wächst frontier pro verarbeiteter Seite?
+                growth_per_page = ((openf - open0) / processed) if processed > 0 else 0.0
 
                 net_drain = 1.0 - growth_per_page
                 if net_drain > 0.05 and rate > 0:
