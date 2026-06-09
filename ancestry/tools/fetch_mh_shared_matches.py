@@ -292,34 +292,6 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
         page.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
-        # GQL-Request-Body auf JS-Ebene abfangen (post_data via Playwright-API ist leer)
-        page.add_init_script("""
-(function() {
-    var _gql = {};
-    function _cap(key, url, body) {
-        if (!_gql[key] && typeof url === 'string' && url.includes(key)) {
-            _gql[key] = { url: url, body: (typeof body === 'string' ? body : JSON.stringify(body)) };
-        }
-    }
-    var _of = window.fetch;
-    window.fetch = function(url, opts) {
-        _cap('dna_single_match_get_shared_matches', url, opts && opts.body);
-        _cap('dna_single_match_get_shared_segments', url, opts && opts.body);
-        return _of.apply(this, arguments);
-    };
-    var _ox = XMLHttpRequest.prototype.send;
-    var _oo = XMLHttpRequest.prototype.open;
-    XMLHttpRequest.prototype.open = function(m, url) {
-        this._mh_url = url; return _oo.apply(this, arguments);
-    };
-    XMLHttpRequest.prototype.send = function(body) {
-        _cap('dna_single_match_get_shared_matches', this._mh_url, body);
-        _cap('dna_single_match_get_shared_segments', this._mh_url, body);
-        return _ox.apply(this, arguments);
-    };
-    window.__mh_gql = _gql;
-})();
-""")
         page.set_extra_http_headers({
             "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -401,13 +373,29 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
             shared: list[SharedMatch] = []
             intercepted: list[tuple[str, str]] = []
-            _gql_req_info: dict = {}   # speichert headers+body des SM-GraphQL-Requests
+            _route_bodies: dict = {}   # via page.route() abgefangene GQL-Request-Bodies
 
             try:
                 _SM_KEY  = "dna_single_match_get_shared_matches"
                 _SEG_KEY = "dna_single_match_get_shared_segments"
 
-                # Netzwerk-Intercept: ALLE JSON-Antworten von MH abfangen
+                # ── Route-Handler: GQL POST-Body zuverlässig abfangen ────────────
+                # page.route() liefert request.post_data korrekt (anders als response.request)
+                def _route_capture(route):
+                    req = route.request
+                    for _k in (_SM_KEY, _SEG_KEY):
+                        if _k in req.url and _k not in _route_bodies:
+                            _b = req.post_data or ""
+                            if len(_b) > 5:
+                                _route_bodies[_k] = {
+                                    "url": req.url,
+                                    "headers": dict(req.headers),
+                                    "body": _b,
+                                }
+                    route.continue_()
+                page.route("**/web-family-graphql/**", _route_capture)
+
+                # Netzwerk-Intercept: JSON-Antworten abfangen
                 def _on_resp(response):
                     try:
                         ru = response.url
@@ -418,12 +406,7 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             print(f"    [NET] {response.status} {ct[:25]:25} {ru[:110]}")
                         if response.ok and is_mh and ("json" in ct or "csv" in ct):
                             try:
-                                body = response.text()
-                                intercepted.append((ru, body))
-                                # Response-URL für Pagination/Segments merken
-                                if _SM_KEY in ru and not _gql_req_info:
-                                    _gql_req_info["url"] = ru
-                                    _gql_req_info["headers"] = dict(response.request.headers)
+                                intercepted.append((ru, response.text()))
                             except Exception:
                                 pass
                     except Exception:
@@ -445,22 +428,12 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 time.sleep(wait_total * 0.3)
 
                 page.remove_listener("response", _on_resp)
+                page.unroute("**/web-family-graphql/**", _route_capture)
 
-                # GQL-Body aus JS-Intercept holen (zuverlässiger als Playwright post_data)
-                try:
-                    _js_gql = page.evaluate("window.__mh_gql || {}") or {}
-                    if _SM_KEY in _js_gql and _js_gql[_SM_KEY].get("body"):
-                        _gql_req_info["body"] = _js_gql[_SM_KEY]["body"]
-                        if not _gql_req_info.get("url"):
-                            _gql_req_info["url"] = _js_gql[_SM_KEY].get("url", "")
-                    if debug:
-                        sm_js = _js_gql.get(_SM_KEY, {})
-                        seg_js = _js_gql.get(_SEG_KEY, {})
-                        print(f"    [DBG] JS-GQL SM  body len={len(sm_js.get('body',''))}"
-                              f"  SEG body len={len(seg_js.get('body',''))}")
-                except Exception as exc:
-                    if debug:
-                        print(f"    [DBG] JS-GQL eval Fehler: {exc}")
+                if debug:
+                    for k in (_SM_KEY, _SEG_KEY):
+                        bl = len((_route_bodies.get(k) or {}).get("body", ""))
+                        print(f"    [DBG] route-body {k[-20:]}: len={bl}")
 
                 if debug:
                     print(f"    [DBG] {len(intercepted)} Antworten abgefangen:")
@@ -604,50 +577,57 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                         if debug:
                             print(f"    [DBG] Parse-Fehler: {exc}")
 
-                # Pagination: weitere Seiten per direkter GraphQL-API holen
+                # Pagination: weitere Seiten via page.evaluate(fetch) aus Browser-Kontext
+                # (ctx.request.post → 403, da CSRF-Token fehlt; browser fetch hat alles)
                 PAGE_SIZE = 10
+                _sm_info = _route_bodies.get(_SM_KEY, {})
                 if debug:
-                    body_len = len(_gql_req_info.get("body", ""))
-                    print(f"    [DBG] GQL-Request erfasst: {bool(_gql_req_info)}"
-                          f" | body_len={body_len} | total_sm_count={total_sm_count}")
-                if total_sm_count > PAGE_SIZE and _gql_req_info.get("body"):
+                    print(f"    [DBG] SM route-body len={len(_sm_info.get('body',''))}"
+                          f" | total_sm_count={total_sm_count}")
+                if total_sm_count > PAGE_SIZE and _sm_info.get("body"):
+                    _JS_PAGINATE = """
+async ([url, bodyStr, offset]) => {
+    try {
+        const body = JSON.parse(bodyStr);
+        if (body.variables) { body.variables.offset = offset; }
+        else { body.variables = {offset: offset}; }
+        const r = await fetch(url, {
+            method: 'POST', credentials: 'include',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        return await r.text();
+    } catch(e) { return null; }
+}
+"""
                     try:
                         import json as _pjson
-                        gql_url = _gql_req_info["url"]
-                        gql_hdrs = {k: v for k, v in _gql_req_info.get("headers", {}).items()
-                                    if k.lower() not in ("content-length",)}
-                        # Sicherstellen dass Content-Type gesetzt
-                        if not any(k.lower() == "content-type" for k in gql_hdrs):
-                            gql_hdrs["content-type"] = "application/json"
-                        base_body = _pjson.loads(_gql_req_info["body"])
-                        offset = PAGE_SIZE
+                        sm_url  = _sm_info["url"]
+                        sm_body = _sm_info["body"]
+                        offset  = PAGE_SIZE
                         while offset < total_sm_count:
-                            body_page = _pjson.loads(_pjson.dumps(base_body))
-                            vars_ = body_page.get("variables") or {}
-                            vars_["offset"] = offset
-                            body_page["variables"] = vars_
-                            resp_p = ctx.request.post(
-                                gql_url,
-                                headers=gql_hdrs,
-                                data=_pjson.dumps(body_page),
-                            )
-                            if not resp_p.ok:
+                            result = page.evaluate(
+                                _JS_PAGINATE, [sm_url, sm_body, offset])
+                            if not result:
                                 if debug:
-                                    print(f"    [DBG] Pagination {offset}: HTTP {resp_p.status}")
+                                    print(f"    [DBG] Pagination {offset}: leer")
                                 break
-                            data_p = _pjson.loads(resp_p.text())
+                            data_p  = _pjson.loads(result)
                             items_p = _items_from_json(data_p)
                             if not items_p:
+                                if debug:
+                                    print(f"    [DBG] Pagination {offset}: keine Items"
+                                          f" | {result[:120]!r}")
                                 break
                             for item in items_p:
                                 sm = _parse_mh_item(item)
                                 if sm:
                                     shared.append(sm)
                             if debug:
-                                print(f"    [DBG] Seite offset={offset}: "
+                                print(f"    [DBG] offset={offset}: "
                                       f"{len(items_p)} Items → {len(shared)} gesamt")
                             offset += PAGE_SIZE
-                            time.sleep(0.5)
+                            time.sleep(0.4)
                     except Exception as exc:
                         if debug:
                             print(f"    [DBG] Pagination-Fehler: {exc}")
@@ -753,63 +733,40 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     except Exception:
                         pass
 
-                # DNA-Segmente: falls noch nicht geladen, via JS-Body direkt anfragen
+                # DNA-Segmente: aus intercept oder via Browser-fetch nachladen
                 seg_count = 0
                 _seg_intercepted = [(ru, rb) for ru, rb in intercepted if _SEG_KEY in ru]
-                if not _seg_intercepted:
-                    # Segment-Request noch nicht ausgelöst: JS-Body aus Cache holen oder
-                    # Seite weiter scrollen / auf Chromosomen-Bereich klicken
+                _seg_info = _route_bodies.get(_SEG_KEY, {})
+                # Falls bereits intercepted aber dna_shared_segments=null → via browser fetch
+                # nochmals anfragen (evtl. war Seite noch nicht fertig geladen)
+                if _seg_info.get("body") and not any(
+                    '"dna_shared_segments"' in rb and '"data":[' in rb
+                    for _, rb in _seg_intercepted
+                ):
+                    _JS_SEG = """
+async ([url, bodyStr]) => {
+    try {
+        const body = JSON.parse(bodyStr);
+        const r = await fetch(url, {
+            method: 'POST', credentials: 'include',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify(body)
+        });
+        return await r.text();
+    } catch(e) { return null; }
+}
+"""
                     try:
-                        _js_gql2 = page.evaluate("window.__mh_gql || {}") or {}
-                        seg_js_info = _js_gql2.get(_SEG_KEY, {})
-                        if seg_js_info.get("body"):
-                            # Direkt anfragen
-                            import json as _sjson
-                            seg_url  = seg_js_info.get("url", "")
-                            seg_hdrs = {"content-type": "application/json"}
-                            seg_base = _sjson.loads(seg_js_info["body"])
-                            resp_s = ctx.request.post(
-                                seg_url, headers=seg_hdrs,
-                                data=_sjson.dumps(seg_base))
-                            if resp_s.ok:
-                                _seg_intercepted.append((seg_url, resp_s.text()))
-                                if debug:
-                                    print(f"    [DBG] Segment via JS-Body direkt geladen OK")
-                        else:
-                            # Lazy-Load: Seite weiter unten suchen und klicken
+                        seg_result = page.evaluate(_JS_SEG,
+                                                   [_seg_info["url"], _seg_info["body"]])
+                        if seg_result:
+                            _seg_intercepted.append((_seg_info["url"], seg_result))
                             if debug:
-                                print("    [DBG] Kein Segment-Body in JS — versuche Scroll+Klick")
-                            # Chromosomenbrowser-Abschnitt suchen
-                            page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.7)")
-                            time.sleep(1.5)
-                            # Auf "Chromosomenbrowser" oder "Segments" Link klicken
-                            for sel in [
-                                "a[href*='chromosome']", "a[href*='segment']",
-                                "[data-testid*='segment']", "[class*='chromosome']",
-                                "button:has-text('Chromosome')", "button:has-text('Segment')",
-                            ]:
-                                try:
-                                    el = page.query_selector(sel)
-                                    if el:
-                                        el.click()
-                                        time.sleep(2.0)
-                                        break
-                                except Exception:
-                                    pass
-                            # Segment-Response aus neuen Intercepts prüfen
-                            _js_gql3 = page.evaluate("window.__mh_gql || {}") or {}
-                            seg_js3 = _js_gql3.get(_SEG_KEY, {})
-                            if seg_js3.get("body") and seg_js3.get("url"):
-                                import json as _sjson3
-                                resp_s3 = ctx.request.post(
-                                    seg_js3["url"],
-                                    headers={"content-type": "application/json"},
-                                    data=seg_js3["body"])
-                                if resp_s3.ok:
-                                    _seg_intercepted.append((seg_js3["url"], resp_s3.text()))
+                                print(f"    [DBG] Segment via browser-fetch neu geladen: "
+                                      f"{seg_result[:200]!r}")
                     except Exception as exc:
                         if debug:
-                            print(f"    [DBG] Segment-Trigger-Fehler: {exc}")
+                            print(f"    [DBG] Segment-fetch Fehler: {exc}")
 
                 for resp_url, resp_body in _seg_intercepted:
                     if not resp_body:
@@ -822,8 +779,11 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                                    .get("dna_match") or {})
                         if debug:
                             can_view = dm_node.get("can_view_shared_segments")
-                            print(f"    [DBG] can_view_shared_segments={can_view}"
-                                  f" | dm_node keys: {list(dm_node.keys())}")
+                            dss = dm_node.get("dna_shared_segments")
+                            print(f"    [DBG] can_view={can_view}"
+                                  f" | dm_node keys: {list(dm_node.keys())}"
+                                  f" | dna_shared_segments type={type(dss).__name__}"
+                                  f" val={str(dss)[:120]!r}")
                         # MH GraphQL: dna_shared_segments (korrekter Schlüssel)
                         raw_segs = (dm_node.get("dna_shared_segments") or
                                     dm_node.get("shared_segments") or
