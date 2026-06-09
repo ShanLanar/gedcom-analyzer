@@ -440,78 +440,52 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(wait_total * 0.3)
 
-                # ── Pagination: gezielt "Show more DNA Matches" klicken ──────────
-                # MH lädt weitere Shared Matches per Klick auf EINEN bestimmten Button
-                # ("Show more DNA Matches" / "Mehr DNA-Matches anzeigen"). Andere
-                # "Show more"-Buttons (z.B. "Search all records") navigieren weg und
-                # zerstören den Kontext — daher GENAU diesen Button-Text matchen und
-                # nur EINEN pro Iteration klicken. Jeder Klick feuert einen korrekt
-                # signierten GraphQL-Request → _on_resp fängt ihn ab.
+                # ── Pagination via "Download CSV" (all pages) ────────────────────
+                # MH bietet im Shared-Matches-Bereich einen "Download CSV"-Button mit
+                # "all pages"-Auswahl. MH lädt dann SELBST alle Seiten (Modal
+                # "Loading all pages – Page N loaded…") und liefert eine fertige CSV
+                # mit ALLEN Shared Matches. Wir setzen die Auswahl auf "all", klicken
+                # Download und fangen den Datei-Download via Playwright ab. Das umgeht
+                # das fragile "Show more"-Klicken komplett.
                 _SM_URL_KEY = "dna_single_match_get_shared_matches"
-
-                def _count_sm_responses() -> int:
-                    return sum(1 for ru, _ in intercepted if _SM_URL_KEY in ru)
-
+                _dl_csv_text = None
                 try:
-                    _expected = 0
-                    for _ru, _rb in intercepted:
-                        if _SM_URL_KEY in _ru and _rb:
-                            _mm = re.search(r'"dna_shared_matches"\s*:\s*\{\s*"count"\s*:\s*(\d+)', _rb)
-                            if _mm:
-                                _expected = int(_mm.group(1)); break
+                    # Auswahl-Dropdown neben "Download CSV" auf "all" stellen (best effort).
+                    # MH-Spinbox: <select> oder Custom-Spinner mit "all"/Zahl.
+                    try:
+                        for _sel in page.locator("select").all():
+                            try:
+                                _opts = [o.strip().lower()
+                                         for o in _sel.locator("option").all_inner_texts()]
+                                if any("all" in o for o in _opts):
+                                    _sel.select_option(label=re.compile(r"all", re.I))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
 
-                    # Echter Playwright-Klick (echte Maus-Events → React-Handler feuert).
-                    # Button-Text matchen, <a href>-Navigationslinks ausschließen.
-                    _btn_re = re.compile(r"show more dna match|mehr dna[- ]?match|"
-                                         r"weitere dna[- ]?match", re.I)
-                    _stall = 0
-                    _last_resp_count = _count_sm_responses()
-                    _max_iters = max(4, (_expected // 10) + 8) if _expected else 30
-                    for _i in range(_max_iters):
-                        _clicked = False
-                        try:
-                            _loc = page.get_by_text(_btn_re)
-                            _n = _loc.count()
-                            # ersten klickbaren Treffer suchen, der KEIN Navigations-<a> ist
-                            for _j in range(_n):
-                                _el = _loc.nth(_j)
-                                try:
-                                    if not _el.is_visible():
-                                        continue
-                                except Exception:
-                                    continue
-                                # GraphQL-Antwort gezielt abwarten
-                                try:
-                                    with page.expect_response(
-                                            lambda r: _SM_URL_KEY in r.url,
-                                            timeout=8000):
-                                        _el.scroll_into_view_if_needed(timeout=3000)
-                                        _el.click(timeout=3000)
-                                    _clicked = True
-                                except PWTimeout:
-                                    # Klick hat keinen neuen SM-Request ausgelöst
-                                    _clicked = True  # Button war da, aber nichts kam
-                                break
-                        except Exception as _ce:
-                            if debug:
-                                print(f"    [DBG] Klick-Iter {_i+1} Fehler: {_ce}")
-                        time.sleep(max(1.0, pause * 0.4))
-                        _now = _count_sm_responses()
+                    _dl_btn = page.get_by_text(re.compile(r"download\s+csv", re.I)).first
+                    if _dl_btn.count() if hasattr(_dl_btn, "count") else True:
                         if debug:
-                            print(f"    [DBG] Iter {_i+1}: clicked={_clicked} → "
-                                  f"SM-Antworten={_now}/~{(_expected or 0)//10 + 1}")
-                        if _now > _last_resp_count:
-                            _last_resp_count = _now
-                            _stall = 0
-                        elif not _clicked:
-                            break  # kein Button mehr → fertig
-                        else:
-                            _stall += 1
-                            if _stall >= 3:
-                                break
-                except Exception as _se:
+                            print("    [DBG] Klicke 'Download CSV' (all pages) …")
+                        # Download kann lange dauern (alle Seiten laden) → großzügig
+                        with page.expect_download(timeout=300_000) as _dl_info:
+                            _dl_btn.scroll_into_view_if_needed(timeout=5000)
+                            _dl_btn.click(timeout=5000)
+                        _dl = _dl_info.value
+                        _dl_path = _dl.path()
+                        with open(_dl_path, encoding="utf-8-sig", errors="replace") as _f:
+                            _dl_csv_text = _f.read()
+                        if debug:
+                            _hdr = _dl_csv_text.split("\n", 1)[0]
+                            _rows = _dl_csv_text.count("\n")
+                            print(f"    [DBG] CSV geladen: {_rows} Zeilen | Header: {_hdr[:200]}")
+                except PWTimeout:
                     if debug:
-                        print(f"    [DBG] Klick-Pagination-Fehler: {_se}")
+                        print("    [DBG] Download-CSV Timeout — kein Download erhalten")
+                except Exception as _de:
+                    if debug:
+                        print(f"    [DBG] Download-CSV Fehler: {_de}")
 
                 page.remove_listener("response", _on_resp)
                 page.unroute("**/web-family-graphql/**", _route_capture)
@@ -632,11 +606,21 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                                 return inner
                     return []
 
-                # Shared-Matches aus ALLEN abgefangenen Seiten sammeln (Scroll-Pagination).
-                # Dedup über match_guid_b, da sich Seiten überlappen können.
+                # PRIMÄR: per "Download CSV (all pages)" geladene CSV — enthält ALLE
+                # Shared Matches. Diese hat Vorrang vor der GraphQL-Vorschau (10).
                 _SM_URL = "dna_single_match_get_shared_matches"
-                total_sm_count = 0
                 _seen_guids: set = set()
+                if _dl_csv_text:
+                    _csv_rows = _parse_shared_csv(_dl_csv_text, test_guid, guid_a, fetched)
+                    for sm in _csv_rows:
+                        if sm.match_guid_b and sm.match_guid_b not in _seen_guids:
+                            _seen_guids.add(sm.match_guid_b)
+                            shared.append(sm)
+                    if debug:
+                        print(f"    [DBG] {len(shared)} Shared Matches aus Download-CSV")
+
+                # Ergänzend/Fallback: GraphQL-Antworten sammeln (Dedup über guid_b).
+                total_sm_count = 0
                 _pages_seen = 0
                 for resp_url, resp_body in intercepted:
                     if not resp_body or _SM_URL not in resp_url:
@@ -671,7 +655,9 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 # Hinweis, wenn nicht alle geladen wurden
                 if total_sm_count > len(shared):
                     print(f"    ⚠  {len(shared)} von {total_sm_count} Shared Matches geladen "
-                          f"(weitere konnten nicht per 'Show more' nachgeladen werden).")
+                          f"(Download-CSV evtl. fehlgeschlagen).")
+                elif len(shared) >= max(total_sm_count, 1) and len(shared) > 10:
+                    print(f"    ✓ Alle {len(shared)} Shared Matches via Download-CSV geladen.")
 
                 # Fallback: alle anderen JSON-Antworten durchsuchen
                 if not shared:
