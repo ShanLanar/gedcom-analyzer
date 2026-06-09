@@ -145,37 +145,48 @@ def _parse_shared_csv(csv_text: str, test_guid: str,
 
 
 def _load_cookie_editor_json(path: str) -> list[dict]:
-    """Liest Cookie-Editor-JSON und gibt Playwright-kompatible Cookie-Dicts zurück."""
+    """Liest Cookie-Editor-JSON und gibt Playwright-kompatible Cookie-Dicts zurück.
+
+    Dupliziert Session-Cookies für .com UND .de, da MH je nach Browser-Sprache
+    auf verschiedenen TLDs landet, aber die gleichen Session-Tokens nutzt.
+    """
     import json
     with open(path, encoding="utf-8") as f:
         raw = json.load(f)
-    # Cookie Editor exportiert eine Liste von Dicts mit 'name','value','domain',...
-    result = []
-    for c in raw:
-        cookie = {
-            "name":   c.get("name", ""),
-            "value":  c.get("value", ""),
-            # Playwright braucht Domain ohne führenden Punkt für exakte Matches,
-            # aber mit Punkt für Subdomains — wir normalisieren auf mit Punkt
-            "domain": c.get("domain", ""),
-            "path":   c.get("path", "/"),
-        }
-        # Domain normalisieren: sicherstellen dass myheritage-Cookies für beide
-        # TLDs gelten (.de und .com teilen sich die DNA-Session nicht automatisch)
-        domain = cookie["domain"].lstrip(".")
+
+    def _make(c: dict, domain_override: str | None = None) -> dict:
+        domain = (domain_override or c.get("domain", "")).lstrip(".")
         if "myheritage" in domain and not domain.startswith("."):
             domain = "." + domain
-        cookie["domain"] = domain
+        ss = str(c.get("sameSite", "Lax")).capitalize()
+        cookie: dict = {
+            "name":     c.get("name", ""),
+            "value":    c.get("value", ""),
+            "domain":   domain,
+            "path":     c.get("path", "/"),
+            "sameSite": ss if ss in ("Strict", "Lax", "None") else "Lax",
+        }
         if "secure" in c:
             cookie["secure"] = bool(c["secure"])
         if "httpOnly" in c:
             cookie["httpOnly"] = bool(c["httpOnly"])
         if "expirationDate" in c:
             cookie["expires"] = int(c["expirationDate"])
-        # SameSite=Strict verhindert Cross-Context-Nutzung → auf Lax setzen
-        ss = str(c.get("sameSite", "Lax")).capitalize()
-        cookie["sameSite"] = ss if ss in ("Strict", "Lax", "None") else "Lax"
-        result.append(cookie)
+        return cookie
+
+    result = []
+    for c in raw:
+        orig = _make(c)
+        result.append(orig)
+        # Für MH-Cookies: auch für die jeweils andere TLD eintragen
+        # (.com ↔ .de) damit DNA-Seiten egal welche TLD den Login akzeptieren
+        d = orig["domain"]  # z.B. ".myheritage.com" oder ".myheritage.de"
+        if "myheritage.com" in d:
+            alt = d.replace("myheritage.com", "myheritage.de")
+            result.append(_make(c, alt))
+        elif "myheritage.de" in d:
+            alt = d.replace("myheritage.de", "myheritage.com")
+            result.append(_make(c, alt))
     return result
 
 
@@ -298,9 +309,10 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 print(f"⚠  Cookie-Datei konnte nicht geladen werden: {exc}")
 
         # ── Session aufwärmen: erst Startseite, dann DNA-Bereich ─────────────
+        # .com nutzen: DNA-Features laufen primär auf myheritage.com
         print("Öffne MyHeritage — Session aufwärmen …")
-        for warmup_url in ["https://www.myheritage.de/",
-                           "https://www.myheritage.de/dna/matches"]:
+        for warmup_url in ["https://www.myheritage.com/",
+                           "https://www.myheritage.com/dna/matches"]:
             try:
                 resp = page.goto(warmup_url, wait_until="domcontentloaded", timeout=30_000)
                 if debug:
@@ -343,6 +355,9 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             name     = match["name"]
             cm       = match["cm"]
             fetched  = datetime.now(timezone.utc).isoformat()
+
+            # DNA-URLs immer auf .com normalisieren
+            url = url.replace("myheritage.de/", "myheritage.com/")
 
             print(f"  [{i:4d}/{len(to_do)}] {name:<40} {cm:7.1f} cM … ",
                   end="", flush=True)
