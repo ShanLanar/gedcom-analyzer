@@ -591,13 +591,16 @@ async ([url, bodyStr, offset]) => {
         const body = JSON.parse(bodyStr);
         if (body.variables) { body.variables.offset = offset; }
         else { body.variables = {offset: offset}; }
-        const r = await fetch(url, {
+        // Relative URL nutzen (gleiche Origin → kein CORS)
+        const relUrl = url.replace(/^https?:\\/\\/[^\\/]+/, '');
+        const r = await fetch(relUrl, {
             method: 'POST', credentials: 'include',
             headers: {'Content-Type': 'application/json'},
             body: JSON.stringify(body)
         });
+        if (!r.ok) return '__HTTP_' + r.status;
         return await r.text();
-    } catch(e) { return null; }
+    } catch(e) { return '__ERR_' + String(e); }
 }
 """
                     try:
@@ -608,9 +611,9 @@ async ([url, bodyStr, offset]) => {
                         while offset < total_sm_count:
                             result = page.evaluate(
                                 _JS_PAGINATE, [sm_url, sm_body, offset])
-                            if not result:
+                            if not result or result.startswith("__"):
                                 if debug:
-                                    print(f"    [DBG] Pagination {offset}: leer")
+                                    print(f"    [DBG] Pagination {offset}: {result!r}")
                                 break
                             data_p  = _pjson.loads(result)
                             items_p = _items_from_json(data_p)
@@ -799,14 +802,17 @@ async ([url, bodyStr]) => {
                         for seg in raw_segs:
                             if not isinstance(seg, dict):
                                 continue
-                            chrom = int(seg.get("chromosome") or seg.get("chr") or
+                            chrom = int(seg.get("chromosome_id") or
+                                        seg.get("chromosome") or seg.get("chr") or
                                         seg.get("id") or 0)
-                            start = int(seg.get("start_location") or
+                            start = int(seg.get("start_position") or
+                                        seg.get("start_location") or
                                         seg.get("startLocation") or 0)
-                            end   = int(seg.get("end_location") or
+                            end   = int(seg.get("end_position") or
+                                        seg.get("end_location") or
                                         seg.get("endLocation") or 0)
-                            lcm   = float(seg.get("length_in_cm") or
-                                          seg.get("length_cm") or
+                            lcm   = float(seg.get("length_cm") or
+                                          seg.get("length_in_cm") or
                                           seg.get("lengthCm") or
                                           seg.get("length") or 0.0)
                             snps  = int(seg.get("snp_count") or
