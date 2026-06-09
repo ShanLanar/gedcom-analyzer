@@ -1121,10 +1121,10 @@ if __name__ == "__main__":
     ap.add_argument("--wait-login", action="store_true",
                     help="Nach dem Aufwärmen pausieren (ENTER), um im sichtbaren "
                          "Browser die Erweiterung zu verifizieren/einzuloggen")
-    ap.add_argument("--cdp", nargs="?", const="http://localhost:9222", default="",
+    ap.add_argument("--cdp", nargs="?", const="http://127.0.0.1:9222", default="",
                     help="An ein laufendes Chrome anhängen (Remote-Debugging). "
                          "Nutzt dessen bereits installierte/verifizierte Erweiterung "
-                         "und Session. Standard-URL: http://localhost:9222")
+                         "und Session. Standard-URL: http://127.0.0.1:9222")
     args = ap.parse_args()
 
     scrape(
