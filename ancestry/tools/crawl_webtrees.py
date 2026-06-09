@@ -736,18 +736,22 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 elapsed = time.time() - _phase_start
                 rate = processed / elapsed if elapsed > 0 else 0
 
-                # ETA basierend auf Netto-Drain (Verarbeitung minus Frontier-Wachstum)
-                # openf wächst wenn jede Person mehr als 1 neue verlinkt → echte ETA
-                prev_open  = getattr(crawl, "_prev_open",  openf)
-                prev_proc  = getattr(crawl, "_prev_proc",  0)
-                delta_open = openf - prev_open
-                delta_proc = processed - prev_proc
-                crawl._prev_open = openf   # type: ignore[attr-defined]
-                crawl._prev_proc = processed  # type: ignore[attr-defined]
+                # Gleitender Durchschnitt über die letzten N Messpunkte (geglättet)
+                history = getattr(crawl, "_open_history", [])
+                history.append(openf)
+                if len(history) > 10:
+                    history.pop(0)
+                crawl._open_history = history  # type: ignore[attr-defined]
 
-                # Netto-Drain: pro verarbeiteter Seite sinkt das Frontier um (1 - Wachstum)
-                growth_per_page = (delta_open / delta_proc) if delta_proc > 0 else 0
-                net_drain = 1.0 - growth_per_page   # positiv → konvergiert
+                # Netto-Drain über den gesamten gleitenden Fenster berechnen
+                if len(history) >= 2:
+                    window_delta_open = history[-1] - history[0]
+                    window_delta_proc = 25 * (len(history) - 1)
+                    growth_per_page = window_delta_open / window_delta_proc
+                else:
+                    growth_per_page = 0.0
+
+                net_drain = 1.0 - growth_per_page
                 if net_drain > 0.05 and rate > 0:
                     eta_s = (openf / net_drain) / rate
                     eta_str = (f"{int(eta_s//3600)}h{int((eta_s%3600)//60)}m"
@@ -757,12 +761,7 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 else:
                     eta_str = ">100h"
                 growth_str = f"{growth_per_page:+.2f}/S"
-                # Bekannte Untergrenze: bereits besucht + noch offen (dedupliziert)
                 known_min = total + openf
-                # Hochrechnung: wenn Wachstum ≈ G, Fan-Out ≈ 1+G pro Person
-                # total_est ≈ total * (1 + G) / (1 - max(G-1,0)) — grobe Näherung
-                # Einfacher: known_min ist Untergrenze; Schätzung = known_min * 1/(1-G)
-                # wenn G < 1 (konvergiert)
                 if 0 < growth_per_page < 0.95:
                     est_total = int(known_min / (1.0 - growth_per_page))
                     total_str = f"gesamt≥{known_min} (~{est_total})"
