@@ -596,6 +596,11 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                         pass
                 page.on("response", _on_resp)
 
+                # Laufende Navigation (z.B. Close-Modal-Reload) abbrechen
+                try:
+                    page.evaluate("window.stop()")
+                except Exception:
+                    pass
                 # Match-Seite laden
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=40_000)
