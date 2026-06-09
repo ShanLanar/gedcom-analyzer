@@ -597,17 +597,14 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                         pass
                 page.on("response", _on_resp)
 
-                print(f"    [TA] window.stop …", flush=True)
                 try:
                     page.evaluate("window.stop()")
                 except Exception:
                     pass
-                print(f"    [TB] goto {url[:60]} …", flush=True)
                 try:
                     page.goto(url, wait_until="domcontentloaded", timeout=40_000)
                 except PWTimeout:
                     page.goto(url, wait_until="commit", timeout=20_000)
-                print("    [TC] goto fertig", flush=True)
 
                 # React/Redux braucht Zeit zum Hydratisieren + GraphQL-Calls abwarten
                 wait_total = max(pause, 8.0)
@@ -677,42 +674,37 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             _hdr = _dl_csv_text.split("\n", 1)[0]
                             _rows = _dl_csv_text.count("\n")
                             print(f"    [DBG] CSV geladen: {_rows} Zeilen | Header: {_hdr[:200]}")
-                        print("    [T1] Close klicken …", flush=True)
                         # Close-Button klicken (ohne auf den dadurch ausgelösten
                         # Seiten-Reload zu warten — das nächste page.goto() bricht ihn ab)
                         try:
                             _close_btn = page.get_by_role(
                                 "button", name=re.compile(r"^close$", re.I))
                             _close_btn.click(timeout=3000, no_wait_after=True)
-                            print("    [T2] Close geklickt", flush=True)
-                        except Exception as _ce:
-                            print(f"    [T2] Close-Fehler: {_ce}", flush=True)
+                        except Exception:
+                            pass
                         # Extra-Tabs schließen die die Erweiterung evtl. geöffnet hat
-                        print("    [T3] Extra-Tabs schließen …", flush=True)
                         try:
                             for _p in ctx.pages:
                                 if _p != page:
                                     _p.close()
                         except Exception:
                             pass
-                        print("    [T4] Extra-Tabs fertig", flush=True)
                 except PWTimeout:
-                    print("    [T1] Download-CSV Timeout", flush=True)
+                    if debug:
+                        print("    [DBG] Download-CSV Timeout — kein Download erhalten")
                 except Exception as _de:
-                    print(f"    [T1] Download-CSV Fehler: {_de}", flush=True)
+                    if debug:
+                        print(f"    [DBG] Download-CSV Fehler: {_de}")
 
-                print("    [T5] Listener entfernen …", flush=True)
                 try:
                     page.remove_listener("response", _on_resp)
                 except Exception:
                     pass
                 if not _via_cdp:
-                    print("    [T6] Unroute …", flush=True)
                     try:
                         page.unroute("**/web-family-graphql/**", _route_capture)
                     except Exception:
                         pass
-                print("    [T7] Listener fertig", flush=True)
 
                 if debug:
                     for k in (_SM_KEY, _SEG_KEY):
@@ -1105,11 +1097,9 @@ async ([url, bodyStr]) => {
                     pass
 
             except Exception as e:
-                print(f"⚠ {e}", flush=True)
+                print(f"⚠ {e}")
 
-            print(f"    [T8] Pause {pause}s …", flush=True)
             time.sleep(pause)
-            print("    [T9] Nächster Match", flush=True)
 
         # Bei CDP nur die eigene Seite schließen, NICHT das Chrome des Nutzers.
         if _via_cdp:
