@@ -709,10 +709,64 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     except Exception:
                         pass
 
+                # DNA-Segmente aus dna_single_match_get_shared_segments parsen
+                _SEG_URL = "dna_single_match_get_shared_segments"
+                seg_count = 0
+                for resp_url, resp_body in intercepted:
+                    if not resp_body or _SEG_URL not in resp_url:
+                        continue
+                    try:
+                        seg_data = _json.loads(resp_body)
+                        # Struktur: data.system.dna_enums.data[0].chromosomes = JSON-String
+                        enums = ((seg_data.get("data") or {})
+                                 .get("system") or {}).get("dna_enums") or {}
+                        enum_list = enums.get("data") or []
+                        # Segmente sind in data.dna_match.shared_segments o.ä.
+                        # Versuche erst direkten Pfad, dann generisch
+                        dm_node = ((seg_data.get("data") or {})
+                                   .get("dna_match") or {})
+                        raw_segs = (dm_node.get("shared_segments") or
+                                    dm_node.get("dna_shared_segments") or
+                                    dm_node.get("segments") or [])
+                        if isinstance(raw_segs, dict):
+                            raw_segs = raw_segs.get("data") or []
+                        seg_rows = []
+                        for seg in raw_segs:
+                            if not isinstance(seg, dict):
+                                continue
+                            chrom = int(seg.get("chromosome") or seg.get("chr") or 0)
+                            start = int(seg.get("start_location") or
+                                        seg.get("startLocation") or 0)
+                            end   = int(seg.get("end_location") or
+                                        seg.get("endLocation") or 0)
+                            lcm   = float(seg.get("length_in_cm") or
+                                          seg.get("lengthCm") or
+                                          seg.get("length") or 0.0)
+                            snps  = int(seg.get("snp_count") or
+                                        seg.get("snpCount") or 0)
+                            if chrom and (start or end):
+                                seg_rows.append({
+                                    "test_guid": test_guid,
+                                    "match_guid": guid_a,
+                                    "chromosome": chrom,
+                                    "start_location": start,
+                                    "end_location": end,
+                                    "length_cm": lcm,
+                                    "snp_count": snps,
+                                    "fetched_at": fetched,
+                                })
+                        if seg_rows:
+                            seg_count = db.bulk_upsert_segments(seg_rows)
+                    except Exception as exc:
+                        if debug:
+                            print(f"    [DBG] Segment-Parse-Fehler: {exc}")
+                    break
+
                 if shared:
                     n = db.bulk_upsert_shared(shared)
                     total_imported += n
-                    print(f"✓ {n} Shared")
+                    seg_str = f" + {seg_count} Seg" if seg_count else ""
+                    print(f"✓ {n} Shared{seg_str}")
                 else:
                     print("○ 0 Shared")
 

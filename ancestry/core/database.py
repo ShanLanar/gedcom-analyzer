@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 19
+    SCHEMA_VERSION = 20
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -113,6 +113,8 @@ class Database:
                 self._migrate_v17_v18(cur)
             if current < 19:
                 self._migrate_v18_v19(cur)
+            if current < 20:
+                self._migrate_v19_v20(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -1411,6 +1413,54 @@ class Database:
             CREATE INDEX IF NOT EXISTS idx_gb_match
                 ON gedmatch_bridge(match_guid);
         """)
+
+    def _migrate_v19_v20(self, cur):
+        """Schema v20: dna_segments — Chromosomen-Segmente aus MH shared_segments."""
+        cur.executescript("""
+            CREATE TABLE IF NOT EXISTS dna_segments (
+                test_guid        TEXT NOT NULL,
+                match_guid       TEXT NOT NULL,
+                chromosome       INTEGER NOT NULL,
+                start_location   INTEGER NOT NULL,
+                end_location     INTEGER NOT NULL,
+                length_cm        REAL NOT NULL DEFAULT 0.0,
+                snp_count        INTEGER NOT NULL DEFAULT 0,
+                fetched_at       TEXT NOT NULL DEFAULT '',
+                PRIMARY KEY (test_guid, match_guid, chromosome, start_location)
+            );
+            CREATE INDEX IF NOT EXISTS idx_dna_seg_match
+                ON dna_segments(test_guid, match_guid);
+            CREATE INDEX IF NOT EXISTS idx_dna_seg_chrom
+                ON dna_segments(chromosome);
+        """)
+
+    def bulk_upsert_segments(self, segments: list) -> int:
+        """Speichert Chromosomen-Segmente (Liste von Dicts oder DnaSegment-Objekten)."""
+        if not segments:
+            return 0
+        rows = []
+        for s in segments:
+            if isinstance(s, dict):
+                rows.append((
+                    s.get("test_guid", ""), s.get("match_guid", ""),
+                    int(s.get("chromosome", 0)), int(s.get("start_location", 0)),
+                    int(s.get("end_location", 0)), float(s.get("length_cm", 0.0)),
+                    int(s.get("snp_count", 0)), s.get("fetched_at", ""),
+                ))
+            else:
+                rows.append((
+                    s.test_guid, s.match_guid, s.chromosome,
+                    s.start_location, s.end_location,
+                    s.length_cm, s.snp_count, s.fetched_at,
+                ))
+        with self._cursor() as cur:
+            cur.executemany("""
+                INSERT OR REPLACE INTO dna_segments
+                    (test_guid, match_guid, chromosome, start_location,
+                     end_location, length_cm, snp_count, fetched_at)
+                VALUES (?,?,?,?,?,?,?,?)
+            """, rows)
+        return len(rows)
 
     def set_ml_origin(self, match_guid: str, origin_json: str):
         """Store the ML origin prediction (JSON) for a match."""
