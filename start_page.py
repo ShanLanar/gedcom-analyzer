@@ -22,7 +22,24 @@ import time
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk
 
+import importlib as _il
+import sys as _sys
+# Immer Root-config laden, unabhängig von sys.path-Reihenfolge
+_ROOT_CFG_PATH = os.path.dirname(os.path.abspath(__file__))
+if _ROOT_CFG_PATH not in _sys.path:
+    _sys.path.insert(0, _ROOT_CFG_PATH)
+# Falls ancestry/config bereits im Cache sitzt, Root-config erzwingen
+_cfg_mod = _sys.modules.get("config")
+if _cfg_mod is not None and not hasattr(_cfg_mod, "FONT_HEAD"):
+    _sys.modules.pop("config", None)
 import config as cfg
+if not hasattr(cfg, "FONT_HEAD"):
+    # Letzter Ausweg: Root-config direkt laden
+    import importlib.util as _ilu
+    _spec = _ilu.spec_from_file_location(
+        "config", os.path.join(_ROOT_CFG_PATH, "config.py"))
+    cfg = _ilu.module_from_spec(_spec)
+    _spec.loader.exec_module(cfg)  # type: ignore
 
 # Pfade (relativ zur Repo-Wurzel)
 _ROOT        = os.path.dirname(os.path.abspath(__file__))
