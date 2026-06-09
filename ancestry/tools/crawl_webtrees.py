@@ -608,10 +608,6 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
         parsed_host = parse.urlparse(base).hostname or ""
         tree_source = f"{parsed_host}/{tree}" if parsed_host else tree
 
-    print(f"tree_source : {tree_source}")
-    print(f"Seed-ID     : {seed_id or '(aus URL nicht erkannt)'}")
-    print(f"DB          : {db_path}")
-
     f = Fetcher(base, delay=delay,
                 auth=auth,
                 cookies_path=cookies,
@@ -620,6 +616,10 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 login_pass=login_pass)
     c = _db(db_path)
     seed_id = (_IND_RE.search(seed_url) or [None, ""])[1]
+
+    print(f"tree_source : {tree_source}")
+    print(f"Seed-ID     : {seed_id or '(aus URL nicht erkannt)'}")
+    print(f"DB          : {db_path}")
 
     # Seed-Person + Meta persistieren (für Resume-Erkennung und Viewer-Verknüpfung)
     if seed_id:
