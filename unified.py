@@ -145,8 +145,16 @@ def main():
         _dna_exc = exc
 
     # Root-config wieder in den Cache (für StartPage + AhnenApp)
+    # ANC wurde von _load_dna_app an sys.path[0] gesetzt → ROOT erzwingen
     sys.modules.pop("config", None)
+    try:
+        sys.path.remove(ANC)
+    except ValueError:
+        pass
     if ROOT not in sys.path:
+        sys.path.insert(0, ROOT)
+    else:
+        sys.path.remove(ROOT)
         sys.path.insert(0, ROOT)
     import config as cfg  # noqa: F811  — Root-config
 
