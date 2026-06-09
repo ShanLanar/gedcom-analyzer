@@ -75,21 +75,34 @@ def _load_main_csv(path: str, min_cm: float) -> list[dict]:
     matches = []
     with open(path, encoding="utf-8-sig") as f:
         reader = csv.DictReader(f)
+        headers = reader.fieldnames or []
+        # Debug: Spalten beim ersten Lauf ausgeben
+        if not hasattr(_load_main_csv, "_headers_printed"):
+            _load_main_csv._headers_printed = True  # type: ignore[attr-defined]
+            print(f"CSV-Spalten: {headers}")
+        # Flexible Spaltenerkennung (MH ändert manchmal Sprache/Format)
+        cm_col   = next((h for h in headers if "cm" in h.lower() and "shared" in h.lower()), None) \
+                or next((h for h in headers if "cM" in h or "cm" in h.lower()), None) \
+                or "Shared cM"
+        name_col = next((h for h in headers if "name" in h.lower() and "match" in h.lower()), None) \
+                or next((h for h in headers if "name" in h.lower()), None) \
+                or "Match Name"
+        url_col  = next((h for h in headers if "url" in h.lower()), None) or "URL"
+        guid_col = next((h for h in headers if "guid" in h.lower()), None) or "GUID"
         for row in reader:
-            cm = _parse_cm(row.get("Shared cM", "0"))
+            cm = _parse_cm(row.get(cm_col, "0"))
             if cm < min_cm:
                 continue
-            url = (row.get("URL") or "").strip()
-            guid = row.get("GUID", "").strip()
+            url  = (row.get(url_col)  or "").strip()
+            guid = (row.get(guid_col) or "").strip()
             if not url and not guid:
                 continue
             matches.append({
-                "name":  row.get("Match Name", "").strip(),
+                "name":  (row.get(name_col) or "").strip(),
                 "cm":    cm,
                 "guid":  guid,
                 "url":   url,
             })
-    # Absteigend nach cM sortieren
     matches.sort(key=lambda x: x["cm"], reverse=True)
     return matches
 
@@ -295,72 +308,95 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                                      f"{raw[12:16]}-{raw[16:20]}-{raw[20:32]}")
 
             shared: list[SharedMatch] = []
+            intercepted: list[tuple[str, str]] = []
+
             try:
+                # Netzwerk-Intercept: alle MH-API-Antworten mit Match-Daten abfangen
+                def _on_resp(response):
+                    try:
+                        ru = response.url
+                        if response.ok and ("shared" in ru or "dna-match" in ru or
+                                            "dna_match" in ru or "relatives" in ru):
+                            ct = response.headers.get("content-type", "")
+                            if "json" in ct or "csv" in ct:
+                                try:
+                                    intercepted.append((ru, response.text()))
+                                except Exception:
+                                    pass
+                    except Exception:
+                        pass
+                page.on("response", _on_resp)
+
                 # Match-Seite laden
                 try:
-                    page.goto(url, wait_until="networkidle", timeout=25_000)
+                    page.goto(url, wait_until="domcontentloaded", timeout=40_000)
                 except PWTimeout:
-                    page.goto(url, wait_until="domcontentloaded", timeout=25_000)
-                time.sleep(pause * 0.5)
+                    page.goto(url, wait_until="commit", timeout=20_000)
+                time.sleep(pause)
 
-                # Zur Shared-Matches-Sektion scrollen
+                # Scrollen damit MH Shared-Matches lazy-lädt
+                page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                time.sleep(pause * 0.6)
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(pause * 0.4)
 
-                # "Download CSV"-Button für Shared Matches finden
-                # MH hat mehrere Download-Buttons; der für Shared Matches ist
-                # typischerweise in der Shared-Matches-Sektion
+                page.remove_listener("response", _on_resp)
+
+                # Intercept-Antworten auswerten
                 csv_text = None
-
-                # Variante A: Button direkt klicken und Download abfangen
-                dl_buttons = page.query_selector_all(
-                    "button:has-text('Download CSV'), "
-                    "a:has-text('Download CSV'), "
-                    "[data-testid='download-csv'], "
-                    ".download-csv-btn"
-                )
-                # Nimm den letzten Button (= Shared Matches, nicht Match-Liste)
-                if dl_buttons:
-                    btn = dl_buttons[-1]
-                    with page.expect_download(timeout=15_000) as dl_info:
-                        btn.click()
-                    dl = dl_info.value
-                    csv_text = dl.path() and open(dl.path(),
-                                                   encoding="utf-8-sig").read()
-
-                # Variante B: API-Endpunkt direkt aufrufen
-                if not csv_text:
-                    # MH liefert Shared-Matches auch über eine API
-                    # URL-Muster: /dna/shared-matches/export?...
-                    api_urls = [
-                        url.replace("/match/", "/shared-matches/")
-                           .replace("myheritage.de", "www.myheritage.com")
-                        + "/export",
-                        url + "/shared/export",
-                    ]
-                    for api_url in api_urls:
+                import json as _json
+                for resp_url, resp_body in intercepted:
+                    if not resp_body:
+                        continue
+                    # JSON-Antwort mit Shared-Matches
+                    if resp_body.lstrip().startswith("{") or resp_body.lstrip().startswith("["):
                         try:
-                            resp = page.request.get(api_url, timeout=10_000)
-                            if resp.ok and "text/csv" in resp.headers.get(
-                                    "content-type", ""):
-                                csv_text = resp.text()
-                                break
+                            data = _json.loads(resp_body)
+                            items = (data if isinstance(data, list) else
+                                     data.get("matches") or data.get("data") or
+                                     data.get("results") or data.get("relatives") or [])
+                            for item in items:
+                                g   = (item.get("guid") or item.get("matchGuid") or
+                                       item.get("id") or "").upper()
+                                cm_val = float(item.get("sharedDna") or
+                                               item.get("sharedCm") or
+                                               item.get("shared_dna") or 0)
+                                if g and cm_val:
+                                    shared.append(SharedMatch(
+                                        test_guid=test_guid,
+                                        match_guid_a=guid_a,
+                                        match_guid_b=g,
+                                        display_name_b=str(item.get("displayName") or
+                                                           item.get("name") or ""),
+                                        shared_cm_b=cm_val,
+                                        shared_cm_ab=0.0,
+                                        shared_segments_b=int(
+                                            item.get("sharedSegments") or 0),
+                                        relationship_b=str(
+                                            item.get("relationship") or ""),
+                                        has_tree_b=bool(item.get("hasTree")),
+                                        fetched_at=fetched,
+                                    ))
                         except Exception:
                             pass
+                        if shared:
+                            break
+                    # CSV-Antwort
+                    elif "\n" in resp_body and "," in resp_body:
+                        csv_text = resp_body
+                        break
 
                 if csv_text:
-                    shared = _parse_shared_csv(csv_text, test_guid,
-                                               guid_a, fetched)
+                    shared = _parse_shared_csv(csv_text, test_guid, guid_a, fetched)
 
-                # Variante C: Shared-Matches aus JSON-API im Seiteninhalt extrahieren
+                # Fallback: JSON-Regex im Seiteninhalt
                 if not shared:
                     try:
                         html = page.content()
-                        # MH bettet Shared-Matches-Daten als JSON in <script>-Tag ein
                         json_matches = re.findall(
-                            r'"guid"\s*:\s*"(D-[0-9A-F-]{30,})".*?'
+                            r'"guid"\s*:\s*"(D-[0-9A-F-]{30,})"[^}]{0,300}'
                             r'"sharedDna"\s*:\s*([\d.]+)',
-                            html, re.IGNORECASE
+                            html, re.IGNORECASE | re.DOTALL
                         )
                         for guid_b, cm_str in json_matches:
                             try:
