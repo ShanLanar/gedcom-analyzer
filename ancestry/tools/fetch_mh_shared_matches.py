@@ -360,21 +360,21 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             intercepted: list[tuple[str, str]] = []
 
             try:
-                # Netzwerk-Intercept: alle MH-API-Antworten abfangen
+                # Netzwerk-Intercept: ALLE JSON-Antworten von MH abfangen
+                # (kein URL-Keyword-Filter — GraphQL-Endpunkte haben andere Namen)
                 def _on_resp(response):
                     try:
                         ru = response.url
                         ct = response.headers.get("content-type", "")
-                        if debug and ("myheritage" in ru or "mhc-static" in ru):
-                            print(f"    [NET] {response.status} {ct[:30]:30} {ru[:100]}")
-                        if response.ok and ("shared" in ru or "dna-match" in ru or
-                                            "dna_match" in ru or "relatives" in ru or
-                                            "dna/match" in ru):
-                            if "json" in ct or "csv" in ct:
-                                try:
-                                    intercepted.append((ru, response.text()))
-                                except Exception:
-                                    pass
+                        is_mh = ("myheritage" in ru or "mhcache.com" in ru
+                                 or "mhc-static" in ru)
+                        if debug and is_mh:
+                            print(f"    [NET] {response.status} {ct[:25]:25} {ru[:110]}")
+                        if response.ok and is_mh and ("json" in ct or "csv" in ct):
+                            try:
+                                intercepted.append((ru, response.text()))
+                            except Exception:
+                                pass
                     except Exception:
                         pass
                 page.on("response", _on_resp)
@@ -384,13 +384,15 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     page.goto(url, wait_until="domcontentloaded", timeout=40_000)
                 except PWTimeout:
                     page.goto(url, wait_until="commit", timeout=20_000)
-                time.sleep(pause)
 
-                # Scrollen damit MH Shared-Matches lazy-lädt
+                # React/Redux braucht Zeit zum Hydratisieren + GraphQL-Calls abwarten
+                # Shared Matches werden async nachgeladen — mindestens 8s warten
+                wait_total = max(pause, 8.0)
+                time.sleep(wait_total * 0.4)
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                time.sleep(pause * 0.6)
+                time.sleep(wait_total * 0.3)
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                time.sleep(pause * 0.4)
+                time.sleep(wait_total * 0.3)
 
                 page.remove_listener("response", _on_resp)
 
@@ -403,22 +405,53 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 # Intercept-Antworten auswerten
                 csv_text = None
                 import json as _json
+
+                def _items_from_json(data) -> list:
+                    """Sucht rekursiv nach Listen von Match-Objekten in MH-JSON."""
+                    if isinstance(data, list):
+                        return data
+                    if not isinstance(data, dict):
+                        return []
+                    # direkte bekannte Schlüssel (REST + GraphQL)
+                    for key in ("matches", "data", "results", "relatives",
+                                "sharedMatches", "shared_matches", "items",
+                                "nodes", "edges"):
+                        v = data.get(key)
+                        if isinstance(v, list) and v:
+                            return v
+                        if isinstance(v, dict):
+                            inner = _items_from_json(v)
+                            if inner:
+                                return inner
+                    # GraphQL: data.dnaMatch.sharedMatches.results o.ä.
+                    for v in data.values():
+                        if isinstance(v, (dict, list)):
+                            inner = _items_from_json(v)
+                            if inner:
+                                return inner
+                    return []
+
                 for resp_url, resp_body in intercepted:
                     if not resp_body:
                         continue
-                    # JSON-Antwort mit Shared-Matches
-                    if resp_body.lstrip().startswith("{") or resp_body.lstrip().startswith("["):
+                    stripped = resp_body.lstrip()
+                    # JSON-Antwort
+                    if stripped.startswith("{") or stripped.startswith("["):
                         try:
                             data = _json.loads(resp_body)
-                            items = (data if isinstance(data, list) else
-                                     data.get("matches") or data.get("data") or
-                                     data.get("results") or data.get("relatives") or [])
+                            items = _items_from_json(data)
                             for item in items:
-                                g   = (item.get("guid") or item.get("matchGuid") or
-                                       item.get("id") or "").upper()
+                                if not isinstance(item, dict):
+                                    continue
+                                g = (item.get("guid") or item.get("matchGuid") or
+                                     item.get("relativeGuid") or item.get("id") or
+                                     "")
+                                if isinstance(g, str):
+                                    g = g.upper()
                                 cm_val = float(item.get("sharedDna") or
                                                item.get("sharedCm") or
-                                               item.get("shared_dna") or 0)
+                                               item.get("shared_dna") or
+                                               item.get("sharedCentimorgans") or 0)
                                 if g and cm_val:
                                     shared.append(SharedMatch(
                                         test_guid=test_guid,
@@ -435,10 +468,12 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                                         has_tree_b=bool(item.get("hasTree")),
                                         fetched_at=fetched,
                                     ))
+                            if shared:
+                                if debug:
+                                    print(f"    [DBG] Match-Daten aus: {resp_url[:80]}")
+                                break
                         except Exception:
                             pass
-                        if shared:
-                            break
                     # CSV-Antwort
                     elif "\n" in resp_body and "," in resp_body:
                         csv_text = resp_body
@@ -447,10 +482,56 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 if csv_text:
                     shared = _parse_shared_csv(csv_text, test_guid, guid_a, fetched)
 
-                # Fallback: JSON-Regex im Seiteninhalt
+                # Fallback A: dnaAppData Redux-State aus dem HTML parsen
                 if not shared:
                     try:
                         html = page.content()
+                        # Redux-Preloaded-State suchen: var dnaAppData = {...}
+                        m_app = re.search(
+                            r'var\s+dnaAppData\s*=\s*(\{.*?\});\s*(?:var|</script>)',
+                            html, re.DOTALL)
+                        if not m_app:
+                            # Alternativ: window.__INITIAL_STATE__ o.ä.
+                            m_app = re.search(
+                                r'__(?:INITIAL|REDUX)_STATE__\s*=\s*(\{.*?\});\s*',
+                                html, re.DOTALL)
+                        if m_app:
+                            try:
+                                app_data = _json.loads(m_app.group(1))
+                                items = _items_from_json(app_data)
+                                if debug:
+                                    print(f"    [DBG] dnaAppData Items: {len(items)}")
+                                for item in items:
+                                    if not isinstance(item, dict):
+                                        continue
+                                    g = (item.get("guid") or item.get("matchGuid") or "")
+                                    if isinstance(g, str):
+                                        g = g.upper()
+                                    cm_val = float(item.get("sharedDna") or
+                                                   item.get("sharedCm") or 0)
+                                    if g and cm_val:
+                                        shared.append(SharedMatch(
+                                            test_guid=test_guid,
+                                            match_guid_a=guid_a,
+                                            match_guid_b=g,
+                                            display_name_b=str(
+                                                item.get("displayName") or ""),
+                                            shared_cm_b=cm_val,
+                                            shared_cm_ab=0.0,
+                                            shared_segments_b=0,
+                                            relationship_b="",
+                                            has_tree_b=False,
+                                            fetched_at=fetched,
+                                        ))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
+                # Fallback B: GUID+sharedDna per Regex im HTML
+                if not shared:
+                    try:
+                        html = page.content() if "html" not in dir() else html
                         json_matches = re.findall(
                             r'"guid"\s*:\s*"(D-[0-9A-F-]{30,})"[^}]{0,300}'
                             r'"sharedDna"\s*:\s*([\d.]+)',
