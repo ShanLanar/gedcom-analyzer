@@ -670,21 +670,14 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             _hdr = _dl_csv_text.split("\n", 1)[0]
                             _rows = _dl_csv_text.count("\n")
                             print(f"    [DBG] CSV geladen: {_rows} Zeilen | Header: {_hdr[:200]}")
-                        # "Click close to refresh"-Modal der Erweiterung wegklicken
+                        # "Close"-Button im Download-Complete-Modal der Erweiterung
                         try:
-                            _close_btn = page.get_by_text(
-                                re.compile(r"click\s+close\s+to\s+refresh", re.I)).first
-                            _close_btn.wait_for(state="visible", timeout=3000)
+                            _close_btn = page.get_by_role(
+                                "button", name=re.compile(r"^close$", re.I))
+                            _close_btn.wait_for(state="visible", timeout=4000)
                             _close_btn.click(timeout=3000)
                         except Exception:
-                            # Fallback: button/a mit "close" im Text
-                            try:
-                                _close_btn = page.locator(
-                                    "button, a, span, div"
-                                ).filter(has_text=re.compile(r"^close$", re.I)).first
-                                _close_btn.click(timeout=2000)
-                            except Exception:
-                                pass
+                            pass
                         # Extra-Tabs schließen die die Erweiterung evtl. geöffnet hat
                         try:
                             for _p in ctx.pages:
