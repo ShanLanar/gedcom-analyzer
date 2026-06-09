@@ -377,7 +377,8 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
             try:
                 # Route-Handler: SM-GraphQL-Request abfangen (für Pagination)
-                _SM_ROUTE = "**/dna_single_match_get_shared_matches/**"
+                # Pattern ohne trailing ** — URL endet mit "/"
+                _SM_ROUTE = "**dna_single_match_get_shared_matches**"
                 def _capture_gql_req(route, request):
                     if not _gql_req_info:
                         _gql_req_info["url"]     = request.url
@@ -568,6 +569,9 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
                 # Pagination: weitere Seiten per direkter GraphQL-API holen
                 PAGE_SIZE = 10
+                if debug:
+                    print(f"    [DBG] GQL-Request erfasst: {bool(_gql_req_info)}"
+                          f" | total_sm_count={total_sm_count}")
                 if shared and total_sm_count > PAGE_SIZE and _gql_req_info:
                     try:
                         import json as _pjson
@@ -717,29 +721,33 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                         continue
                     try:
                         seg_data = _json.loads(resp_body)
-                        # Struktur: data.system.dna_enums.data[0].chromosomes = JSON-String
-                        enums = ((seg_data.get("data") or {})
-                                 .get("system") or {}).get("dna_enums") or {}
-                        enum_list = enums.get("data") or []
-                        # Segmente sind in data.dna_match.shared_segments o.ä.
-                        # Versuche erst direkten Pfad, dann generisch
+                        if debug:
+                            print(f"    [DBG] Segment-Response: {resp_body[:800]}")
                         dm_node = ((seg_data.get("data") or {})
                                    .get("dna_match") or {})
+                        # MH GraphQL: shared_segments ist ein JSON-String oder Liste
                         raw_segs = (dm_node.get("shared_segments") or
                                     dm_node.get("dna_shared_segments") or
                                     dm_node.get("segments") or [])
+                        if isinstance(raw_segs, str):
+                            try:
+                                raw_segs = _json.loads(raw_segs)
+                            except Exception:
+                                raw_segs = []
                         if isinstance(raw_segs, dict):
                             raw_segs = raw_segs.get("data") or []
                         seg_rows = []
                         for seg in raw_segs:
                             if not isinstance(seg, dict):
                                 continue
-                            chrom = int(seg.get("chromosome") or seg.get("chr") or 0)
+                            chrom = int(seg.get("chromosome") or seg.get("chr") or
+                                        seg.get("id") or 0)
                             start = int(seg.get("start_location") or
                                         seg.get("startLocation") or 0)
                             end   = int(seg.get("end_location") or
                                         seg.get("endLocation") or 0)
                             lcm   = float(seg.get("length_in_cm") or
+                                          seg.get("length_cm") or
                                           seg.get("lengthCm") or
                                           seg.get("length") or 0.0)
                             snps  = int(seg.get("snp_count") or
@@ -757,6 +765,9 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                                 })
                         if seg_rows:
                             seg_count = db.bulk_upsert_segments(seg_rows)
+                        elif debug:
+                            print(f"    [DBG] Keine Segmente in dm_node-Keys: "
+                                  f"{list(dm_node.keys())}")
                     except Exception as exc:
                         if debug:
                             print(f"    [DBG] Segment-Parse-Fehler: {exc}")
