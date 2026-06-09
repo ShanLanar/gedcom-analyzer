@@ -250,7 +250,8 @@ def _resolve_extension_dir(id_or_path: str) -> str | None:
 def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
            headless: bool = True, pause: float = 2.0, skip_done: bool = True,
            profile_dir: str | None = None, cookies_path: str | None = None,
-           debug: bool = False, extension_dir: str | None = None):
+           debug: bool = False, extension_dir: str | None = None,
+           wait_login: bool = False):
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -377,6 +378,29 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             ctx = browser.new_context(**_CTX_OPTS)
             page = ctx.new_page()
 
+        # ── Prüfen, ob die Erweiterung wirklich geladen wurde ─────────────────
+        if _ext_args:
+            time.sleep(2)
+            _loaded = False
+            try:
+                # MV3: Service-Worker; MV2: Background-Page
+                _sws = list(getattr(ctx, "service_workers", []) or [])
+                _bgs = list(getattr(ctx, "background_pages", []) or [])
+                _ext_origins = [w.url for w in _sws] + [b.url for b in _bgs]
+                _loaded = any(u.startswith("chrome-extension://") for u in _ext_origins)
+                if debug:
+                    print(f"    [DBG] Extension-Worker: {_ext_origins}")
+            except Exception as _ee:
+                if debug:
+                    print(f"    [DBG] Extension-Check-Fehler: {_ee}")
+            if _loaded:
+                print("✓ Erweiterung ist aktiv (Service-Worker geladen).")
+            else:
+                print("⚠  Erweiterung scheint NICHT geladen. Mögliche Ursachen:\n"
+                      "   • Pfad/ID falsch (kein manifest.json gefunden)\n"
+                      "   • Im echten Chrome erst öffnen, damit der Ordner existiert\n"
+                      "   • Headless: nur '--headless=new' lädt Extensions (oder --visible)")
+
         # navigator.webdriver auf false setzen (wichtigster Anti-Bot-Trick)
         page.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
@@ -419,6 +443,21 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
         if debug:
             print(f"    [DBG] Nach Warmup: {final_url}")
             print(f"    [DBG] DNA-Seite erreicht: {on_dna}")
+
+        # ── Pause zum Einloggen/Verifizieren der Erweiterung ──────────────────
+        # Gibt dir Zeit, im sichtbaren Browser den Genealogy Assistant zu
+        # verifizieren. Dank festem --profile-dir nur EINMAL nötig.
+        if wait_login:
+            print("\n" + "=" * 66)
+            print("  PAUSE: Bitte jetzt im geöffneten Browser den Genealogy")
+            print("  Assistant aktivieren/verifizieren (einloggen).")
+            print("  Wenn fertig: hier im Terminal ENTER drücken …")
+            print("=" * 66)
+            try:
+                input()
+            except EOFError:
+                time.sleep(90)
+            print("Weiter geht's …")
 
         # Prüfen ob Login-Dialog offen
         if page.query_selector("input[name='username'], input[type='email']"):
@@ -1023,6 +1062,9 @@ if __name__ == "__main__":
     ap.add_argument("--extension-id", default="",
                     help="Alias für --extension: Chrome-Extension-ID; Ordner wird "
                          "automatisch im Chrome/Edge-Profil gesucht")
+    ap.add_argument("--wait-login", action="store_true",
+                    help="Nach dem Aufwärmen pausieren (ENTER), um im sichtbaren "
+                         "Browser die Erweiterung zu verifizieren/einzuloggen")
     args = ap.parse_args()
 
     scrape(
@@ -1036,4 +1078,5 @@ if __name__ == "__main__":
         cookies_path  = args.cookies or None,
         debug         = args.debug,
         extension_dir = args.extension or args.extension_id or None,
+        wait_login    = args.wait_login,
     )
