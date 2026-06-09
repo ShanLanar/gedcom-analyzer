@@ -637,12 +637,20 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     _JS_PAGINATE = """
 async ([url, fields, offset]) => {
     try {
+        // PHPSESSID aus aktuellem Cookie lesen (captured body-Wert könnte veraltet sein)
+        const sessCookie = document.cookie.split(';')
+            .map(c => c.trim().split('='))
+            .find(([k]) => k === 'PHPSESSID');
+        const sessVal = sessCookie ? sessCookie[1] : null;
+
         const fd = new FormData();
         for (const [k, v] of fields) {
             if (k === 'query') {
-                // offset ersetzen — funktioniert egal ob raw oder JSON-kodiert
                 const q = v.replace(/(\\boffset\\s*:\\s*)\\d+/g, '$1' + offset);
                 fd.append(k, q);
+            } else if (k.includes('PHPSESSID') && sessVal) {
+                // immer aktuellen Session-Wert verwenden
+                fd.append(k, sessVal);
             } else {
                 fd.append(k, v);
             }
@@ -652,7 +660,7 @@ async ([url, fields, offset]) => {
             method: 'POST', credentials: 'include',
             body: fd
         });
-        if (!r.ok) return '__HTTP_' + r.status + ':' + (await r.text()).slice(0,200);
+        if (!r.ok) return '__HTTP_' + r.status + ':' + (await r.text()).slice(0,300);
         return await r.text();
     } catch(e) { return '__ERR_' + String(e); }
 }
