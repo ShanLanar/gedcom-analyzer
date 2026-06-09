@@ -25,7 +25,7 @@ import tkinter as tk
 from tkinter import ttk, messagebox
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-CRAWL_DB   = os.path.join(ROOT, "ancestry", "tools", "webtrees_crawl.db")
+CRAWL_DB    = os.path.join(ROOT, "ancestry", "tools", "webtrees_crawl.db")
 ANCESTRY_DB = os.path.join(ROOT, "ancestry", "ancestry_dna.db")
 
 # ── Farben (an die Ancestry-Optik angelehnt) ─────────────────────────────────
@@ -40,7 +40,15 @@ C = {
     "accent":    "#7cb342",
     "link":      "#8ab4f8",
     "sel":       "#3d5a3d",
+    "mapped":    "#2e7d32",   # dunkelgrün  – im GEDCOM bestätigt
+    "fuzzy":     "#5d4037",   # dunkelbraun – fuzzy-Match
+    "cluster":   "#6a1b9a",   # lila        – DNA-Cluster
 }
+
+_FILTER_ALL    = "Alle"
+_FILTER_MAPPED = "Im GEDCOM ✓"
+_FILTER_FUZZY  = "Fuzzy-Match ~"
+_FILTER_UNMAP  = "Nicht im GEDCOM"
 
 
 def _ro_connect(path: str) -> sqlite3.Connection | None:
@@ -97,9 +105,15 @@ class DataViewer(tk.Frame):
         self._db_path = db_path or CRAWL_DB
         self._source  = "anverwandte"        # anverwandte | gedcom
         self._conn: sqlite3.Connection | None = None
+        self._anc_conn: sqlite3.Connection | None = None
         self._current_id: str | None = None
         self._name_cache: dict[str, str] = {}
         self._history: list[str] = []
+
+        # GEDCOM-Mapping-Caches
+        self._gedcom_map: dict[str, str] = {}   # wt_id  → ged_id (bestätigt via xref)
+        self._fuzzy_map:  dict[str, str] = {}   # wt_id  → ged_id (fuzzy Name+Jahr)
+        self._cluster_map: dict[str, int] = {}  # ged_id → cluster_id
 
         self._build()
         self._open_db()
@@ -112,21 +126,133 @@ class DataViewer(tk.Frame):
             self._conn = _ro_connect(self._db_path)
         else:
             self._conn = _ro_connect(ANCESTRY_DB)
+        self._anc_conn = _ro_connect(ANCESTRY_DB)
         if self._conn is None:
             self._status.set("⚠ Datenbank nicht gefunden / noch nicht angelegt: "
                              + (self._db_path if self._source == "anverwandte"
                                 else ANCESTRY_DB))
+        self._load_gedcom_mapping()
+        self._load_clusters()
 
     def _reopen(self):
-        try:
-            if self._conn:
-                self._conn.close()
-        except Exception:
-            pass
+        for c in (self._conn, self._anc_conn):
+            try:
+                if c:
+                    c.close()
+            except Exception:
+                pass
         self._name_cache.clear()
         self._open_db()
         self._refresh_stats()
         self._do_search()
+
+    # ── GEDCOM-Mapping ────────────────────────────────────────────────────────
+    def _load_gedcom_mapping(self):
+        """Befüllt _gedcom_map (bestätigt) und _fuzzy_map (Schätzung)."""
+        self._gedcom_map.clear()
+        self._fuzzy_map.clear()
+        if not self._anc_conn:
+            return
+
+        # 1) Bestätigte Links aus gedcom_person_xref
+        try:
+            rows = self._anc_conn.execute(
+                "SELECT ged_id_main, ged_id_other, source_main, source_other "
+                "FROM gedcom_person_xref WHERE status != 'rejected'"
+            ).fetchall()
+            for r in rows:
+                m, o  = r["ged_id_main"],   r["ged_id_other"]
+                sm, so = r["source_main"], r["source_other"]
+                if so == "anverwandte":
+                    self._gedcom_map[o] = m
+                elif sm == "anverwandte":
+                    self._gedcom_map[m] = o
+        except Exception:
+            pass
+
+        # 2) Fuzzy-Fallback: gleicher Nachname + Geburtsjahr ±5
+        if self._source != "anverwandte" or not self._conn:
+            return
+        try:
+            ged_rows = self._anc_conn.execute(
+                "SELECT ged_id, surname, birth_year FROM gedcom_persons "
+                "WHERE source='gedcom'"
+            ).fetchall()
+        except Exception:
+            return
+
+        # Nachname → [(ged_id, birth_year)]
+        ged_index: dict[str, list[tuple]] = {}
+        for r in ged_rows:
+            sn = (r["surname"] or "").strip().lower()
+            if sn:
+                ged_index.setdefault(sn, []).append((r["ged_id"], r["birth_year"]))
+
+        try:
+            wt_rows = self._conn.execute(
+                "SELECT id, surname, birth_year FROM wt_persons"
+            ).fetchall()
+        except Exception:
+            return
+
+        for r in wt_rows:
+            wt_id = str(r["id"])
+            if wt_id in self._gedcom_map:
+                continue
+            sn = (r["surname"] or "").strip().lower()
+            if not sn:
+                continue
+            by_raw = r["birth_year"]
+            candidates = ged_index.get(sn, [])
+            for ged_id, ged_by in candidates:
+                try:
+                    if by_raw and ged_by and abs(int(by_raw) - int(ged_by)) <= 5:
+                        self._fuzzy_map[wt_id] = str(ged_id)
+                        break
+                    elif not by_raw and not ged_by:
+                        self._fuzzy_map[wt_id] = str(ged_id)
+                        break
+                except (ValueError, TypeError):
+                    pass
+
+    def _load_clusters(self):
+        """Befüllt _cluster_map: ged_id → cluster_id aus der DNA-Datenbank."""
+        self._cluster_map.clear()
+        if not self._anc_conn:
+            return
+        # Versuche über gedcom_links (match_guid → ged_id) + matches.cluster_id
+        for sql in (
+            ("SELECT gl.ged_id, m.cluster_id FROM gedcom_links gl "
+             "JOIN matches m ON m.match_guid = gl.match_guid "
+             "WHERE m.cluster_id IS NOT NULL"),
+            ("SELECT ged_id, cluster_id FROM gedcom_person_cluster "
+             "WHERE cluster_id IS NOT NULL"),
+        ):
+            try:
+                rows = self._anc_conn.execute(sql).fetchall()
+                for r in rows:
+                    ged_id = str(r["ged_id"])
+                    if ged_id not in self._cluster_map:
+                        self._cluster_map[ged_id] = int(r["cluster_id"])
+                if self._cluster_map:
+                    break
+            except Exception:
+                continue
+
+    def _mapping_for(self, wt_id: str) -> tuple[str | None, bool]:
+        """Gibt (ged_id, is_fuzzy) zurück oder (None, False) wenn ungemappt."""
+        wt_id = str(wt_id)
+        if wt_id in self._gedcom_map:
+            return self._gedcom_map[wt_id], False
+        if wt_id in self._fuzzy_map:
+            return self._fuzzy_map[wt_id], True
+        return None, False
+
+    def _cluster_for_wt(self, wt_id: str) -> int | None:
+        ged_id, _ = self._mapping_for(wt_id)
+        if ged_id:
+            return self._cluster_map.get(ged_id)
+        return None
 
     # ── UI-Aufbau ───────────────────────────────────────────────────────────
     def _build(self):
@@ -140,6 +266,16 @@ class DataViewer(tk.Frame):
                            values=["Anverwandte (Crawl)", "GEDCOM / extern"])
         src.pack(side="left", pady=8)
         src.bind("<<ComboboxSelected>>", self._on_source_change)
+
+        tk.Label(top, text="Filter:", bg=C["panel"], fg=C["text"]).pack(
+            side="left", padx=(16, 4))
+        self._filter_var = tk.StringVar(value=_FILTER_ALL)
+        flt = ttk.Combobox(top, textvariable=self._filter_var, width=18,
+                           state="readonly",
+                           values=[_FILTER_ALL, _FILTER_MAPPED,
+                                   _FILTER_FUZZY, _FILTER_UNMAP])
+        flt.pack(side="left", pady=8)
+        flt.bind("<<ComboboxSelected>>", lambda _: self._do_search())
 
         tk.Label(top, text="Suche:", bg=C["panel"], fg=C["text"]).pack(
             side="left", padx=(16, 4))
@@ -155,6 +291,19 @@ class DataViewer(tk.Frame):
         tk.Label(top, textvariable=self._stats, bg=C["panel"], fg=C["accent"],
                  font=("Segoe UI", 9, "bold")).pack(side="right", padx=12)
 
+        # Mapping-Legende
+        leg = tk.Frame(self, bg=C["bg"]); leg.pack(fill="x")
+        for color, label in (
+            (C["mapped"],  "✓ Im GEDCOM"),
+            (C["fuzzy"],   "~ Fuzzy-Match"),
+            (C["cluster"], "◆ DNA-Cluster"),
+            (C["card"],    "○ Ungemappt"),
+        ):
+            tk.Label(leg, text="  ■ ", bg=C["bg"], fg=color,
+                     font=("Segoe UI", 8)).pack(side="left")
+            tk.Label(leg, text=label, bg=C["bg"], fg=C["muted"],
+                     font=("Segoe UI", 8)).pack(side="left")
+
         # Hauptbereich: links Liste, Mitte Baum, rechts Detail
         body = tk.Frame(self, bg=C["bg"]); body.pack(fill="both", expand=True)
 
@@ -163,17 +312,24 @@ class DataViewer(tk.Frame):
             side="left", fill="y"); left.pack_propagate(False)
         tk.Label(left, text="Ergebnisse", bg=C["panel"], fg=C["muted"],
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
-        cols = ("name", "years", "place")
+        cols = ("name", "years", "place", "status")
         self._list = ttk.Treeview(left, columns=cols, show="headings",
                                   selectmode="browse")
-        self._list.heading("name", text="Name")
-        self._list.heading("years", text="Jahre")
-        self._list.heading("place", text="Ort")
-        self._list.column("name", width=150)
-        self._list.column("years", width=70, anchor="center")
-        self._list.column("place", width=70)
+        self._list.heading("name",   text="Name")
+        self._list.heading("years",  text="Jahre")
+        self._list.heading("place",  text="Ort")
+        self._list.heading("status", text="GED")
+        self._list.column("name",   width=130)
+        self._list.column("years",  width=60, anchor="center")
+        self._list.column("place",  width=60)
+        self._list.column("status", width=36, anchor="center")
         self._list.pack(fill="both", expand=True, padx=6, pady=6)
         self._list.bind("<<TreeviewSelect>>", self._on_list_select)
+
+        # Treeview-Tags für Farbkodierung
+        self._list.tag_configure("mapped",   foreground=C["mapped"])
+        self._list.tag_configure("fuzzy",    foreground=C["fuzzy"])
+        self._list.tag_configure("cluster",  foreground=C["cluster"])
 
         # Mitte: navigierbarer Mini-Baum
         mid = tk.Frame(body, bg=C["bg"]); mid.pack(side="left", fill="both",
@@ -226,7 +382,12 @@ class DataViewer(tk.Frame):
                     ).fetchone()[0]
                 except Exception:
                     pass
-                self._stats.set(f"{n:,} Personen · {openf:,} offen".replace(",", "."))
+                mapped = len(self._gedcom_map)
+                fuzzy  = len(self._fuzzy_map)
+                self._stats.set(
+                    f"{n:,} Personen · {openf:,} offen · "
+                    f"{mapped:,} gemappt · {fuzzy:,} fuzzy"
+                    .replace(",", "."))
             else:
                 n = self._conn.execute(
                     "SELECT COUNT(*) FROM gedcom_persons").fetchone()[0]
@@ -239,7 +400,8 @@ class DataViewer(tk.Frame):
         self._list.delete(*self._list.get_children())
         if not self._conn:
             return
-        q = self._search_var.get().strip()
+        q       = self._search_var.get().strip()
+        flt     = self._filter_var.get()
         try:
             if self._source == "anverwandte":
                 if q:
@@ -247,19 +409,46 @@ class DataViewer(tk.Frame):
                         "SELECT id, name, given_name, surname, birth_year, "
                         "death_year, birth_place FROM wt_persons "
                         "WHERE name LIKE ? OR surname LIKE ? OR given_name LIKE ? "
-                        "ORDER BY surname, given_name LIMIT 500",
+                        "ORDER BY surname, given_name LIMIT 800",
                         (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
                 else:
                     rows = self._conn.execute(
                         "SELECT id, name, given_name, surname, birth_year, "
                         "death_year, birth_place FROM wt_persons "
-                        "ORDER BY rowid DESC LIMIT 300").fetchall()
+                        "ORDER BY rowid DESC LIMIT 600").fetchall()
                 for r in rows:
+                    wt_id = str(r["id"])
+                    ged_id, is_fuzzy = self._mapping_for(wt_id)
+                    cluster = self._cluster_map.get(ged_id) if ged_id else None
+
+                    # Filter anwenden
+                    if flt == _FILTER_MAPPED and (not ged_id or is_fuzzy):
+                        continue
+                    if flt == _FILTER_FUZZY and not is_fuzzy:
+                        continue
+                    if flt == _FILTER_UNMAP and ged_id:
+                        continue
+
                     label = r["name"] or f"{r['given_name']} {r['surname']}".strip()
-                    self._list.insert("", "end", iid=r["id"], values=(
-                        label, _years(r["birth_year"], r["death_year"]),
-                        (r["birth_place"] or "")[:18]))
+                    ged_badge = ""
+                    if ged_id and not is_fuzzy:
+                        ged_badge = "✓"
+                    elif is_fuzzy:
+                        ged_badge = "~"
+                    if cluster is not None:
+                        ged_badge += f"C{cluster}"
+
+                    tag = ("cluster" if cluster is not None else
+                           "mapped"  if ged_id and not is_fuzzy else
+                           "fuzzy"   if is_fuzzy else "")
+                    self._list.insert("", "end", iid=wt_id, values=(
+                        label,
+                        _years(r["birth_year"], r["death_year"]),
+                        (r["birth_place"] or "")[:18],
+                        ged_badge,
+                    ), tags=(tag,) if tag else ())
             else:
+                # GEDCOM-Quelle – kein GEDCOM-Mapping-Filter sinnvoll
                 if q:
                     rows = self._conn.execute(
                         "SELECT ged_id, given_name, surname, birth_year, "
@@ -274,10 +463,14 @@ class DataViewer(tk.Frame):
                         "ORDER BY surname, given_name LIMIT 300").fetchall()
                 for r in rows:
                     label = f"{r['given_name']} {r['surname']}".strip()
+                    cluster = self._cluster_map.get(str(r["ged_id"]))
+                    tag = "cluster" if cluster is not None else ""
                     self._list.insert("", "end", iid=r["ged_id"], values=(
                         label,
                         _years(str(r["birth_year"] or ""), str(r["death_year"] or "")),
-                        (r["birth_place"] or "")[:18]))
+                        (r["birth_place"] or "")[:18],
+                        f"C{cluster}" if cluster is not None else "",
+                    ), tags=(tag,) if tag else ())
         except Exception as e:
             self._status.set(f"⚠ Suche: {e}")
 
@@ -342,8 +535,8 @@ class DataViewer(tk.Frame):
             return
 
         if self._source == "anverwandte":
-            parents = _loads(p.get("parents_json"))
-            spouses = _loads(p.get("spouses_json"))
+            parents  = _loads(p.get("parents_json"))
+            spouses  = _loads(p.get("spouses_json"))
             children = _loads(p.get("children_json"))
             siblings = _loads(p.get("siblings_json"))
         else:
@@ -372,7 +565,6 @@ class DataViewer(tk.Frame):
             tk.Label(self._tree_canvas, text=f"Kinder ({len(children)})",
                      bg=C["bg"], fg=C["muted"]).pack()
             kwrap = tk.Frame(self._tree_canvas, bg=C["bg"]); kwrap.pack()
-            # bis zu 12 Kinder in Reihen zu je 6
             for i, ch in enumerate(children[:12]):
                 if i % 6 == 0:
                     krow = tk.Frame(kwrap, bg=C["bg"]); krow.pack()
@@ -388,16 +580,46 @@ class DataViewer(tk.Frame):
                      bg=C["bg"], fg=C["muted"]).pack(pady=(10, 0))
 
     def _person_card(self, parent, pid: str, highlight=False, small=False) -> tk.Widget:
-        p = self._person(pid)
+        p   = self._person(pid)
         sex = (p or {}).get("sex", "") if p else ""
-        bg = C["card_m"] if sex == "M" else C["card_f"] if sex == "F" else C["card"]
+        bg  = C["card_m"] if sex == "M" else C["card_f"] if sex == "F" else C["card"]
+
+        # GEDCOM-Mapping-Overlay-Farbe (nur Anverwandte-Modus)
+        ged_id: str | None  = None
+        is_fuzzy: bool      = False
+        cluster: int | None = None
+        if self._source == "anverwandte":
+            ged_id, is_fuzzy = self._mapping_for(str(pid))
+            if ged_id:
+                cluster = self._cluster_map.get(ged_id)
+
+        border_color = (C["cluster"] if cluster is not None else
+                        C["mapped"]  if ged_id and not is_fuzzy else
+                        C["fuzzy"]   if is_fuzzy else None)
+
         if highlight:
-            frame = tk.Frame(parent, bg=C["accent"], bd=0)
-            inner = tk.Frame(frame, bg=bg); inner.pack(padx=3, pady=3)
+            outer_bg = C["accent"]
+        elif border_color:
+            outer_bg = border_color
         else:
-            frame = tk.Frame(parent, bg=bg)
-            inner = frame
+            outer_bg = bg
+
+        frame = tk.Frame(parent, bg=outer_bg, bd=0)
+        inner = tk.Frame(frame, bg=bg)
+        inner.pack(padx=2, pady=2)
+
         lbl_text = self._label_for(pid)
+        # Badge: GED + Cluster
+        badge = ""
+        if cluster is not None:
+            badge = f" ◆C{cluster}"
+        elif ged_id and not is_fuzzy:
+            badge = " ✓"
+        elif is_fuzzy:
+            badge = " ~"
+        if badge:
+            lbl_text = lbl_text.rstrip() + badge
+
         w = 14 if small else 18
         btn = tk.Label(inner, text=lbl_text, bg=bg, fg="white",
                        width=w, justify="center", cursor="hand2",
@@ -442,6 +664,32 @@ class DataViewer(tk.Frame):
             tk.Label(self._detail, text=f"ID {p.get('id','')} · {p.get('sex','')}",
                      bg=C["panel"], fg=C["muted"], anchor="w").pack(
                 fill="x", padx=12)
+
+            # GEDCOM-Mapping anzeigen
+            wt_id = str(p.get("id", pid))
+            ged_id, is_fuzzy = self._mapping_for(wt_id)
+            cluster = self._cluster_map.get(ged_id) if ged_id else None
+
+            if ged_id or cluster is not None:
+                hdr("GEDCOM-Verknüpfung")
+            if ged_id:
+                kind  = "Fuzzy-Match (~)" if is_fuzzy else "Bestätigt (✓)"
+                color = C["fuzzy"] if is_fuzzy else C["mapped"]
+                f2 = tk.Frame(self._detail, bg=C["panel"])
+                f2.pack(fill="x", padx=12, pady=1)
+                tk.Label(f2, text="Status", bg=C["panel"], fg=C["muted"],
+                         width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
+                tk.Label(f2, text=kind, bg=C["panel"], fg=color, anchor="w",
+                         font=("Segoe UI", 8, "bold")).pack(side="left")
+                fact("GED-ID", ged_id)
+            if cluster is not None:
+                f3 = tk.Frame(self._detail, bg=C["panel"])
+                f3.pack(fill="x", padx=12, pady=1)
+                tk.Label(f3, text="DNA-Cluster", bg=C["panel"], fg=C["muted"],
+                         width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
+                tk.Label(f3, text=f"Cluster {cluster}", bg=C["panel"],
+                         fg=C["cluster"], anchor="w",
+                         font=("Segoe UI", 8, "bold")).pack(side="left")
 
             hdr("Lebensdaten")
             fact("Geboren", " · ".join(x for x in (
@@ -497,6 +745,19 @@ class DataViewer(tk.Frame):
                      text=f"{p.get('ged_id','')} · Quelle: {p.get('source','')}",
                      bg=C["panel"], fg=C["muted"], anchor="w").pack(
                 fill="x", padx=12)
+
+            # Cluster anzeigen (für GEDCOM-Personen direkt)
+            cluster = self._cluster_map.get(str(p.get("ged_id", "")))
+            if cluster is not None:
+                hdr("DNA-Cluster")
+                f3 = tk.Frame(self._detail, bg=C["panel"])
+                f3.pack(fill="x", padx=12, pady=1)
+                tk.Label(f3, text="Cluster", bg=C["panel"], fg=C["muted"],
+                         width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
+                tk.Label(f3, text=f"Cluster {cluster}", bg=C["panel"],
+                         fg=C["cluster"], anchor="w",
+                         font=("Segoe UI", 8, "bold")).pack(side="left")
+
             hdr("Lebensdaten")
             fact("Geboren", " · ".join(str(x) for x in (
                 p.get("birth_year"), p.get("birth_place")) if x))
