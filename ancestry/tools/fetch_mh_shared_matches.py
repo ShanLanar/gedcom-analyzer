@@ -237,28 +237,49 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
         print("Nichts zu tun.")
         return
 
+    # Anti-Bot-Detection: realistischer Chrome-User-Agent + keine Automation-Flags
+    _UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+           "AppleWebKit/537.36 (KHTML, like Gecko) "
+           "Chrome/124.0.0.0 Safari/537.36")
+    _LAUNCH_ARGS = [
+        "--disable-blink-features=AutomationControlled",
+        "--disable-infobars",
+        "--no-sandbox",
+        "--disable-dev-shm-usage",
+    ]
+    _CTX_OPTS = dict(
+        user_agent=_UA,
+        locale="de-DE",
+        viewport={"width": 1366, "height": 768},
+        accept_downloads=True,
+        java_script_enabled=True,
+    )
+
     total_imported = 0
     with sync_playwright() as pw:
         if profile_dir:
             ctx = pw.chromium.launch_persistent_context(
                 profile_dir,
                 headless=headless,
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                           "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-                locale="de-DE",
-                accept_downloads=True,
+                args=_LAUNCH_ARGS,
+                **_CTX_OPTS,
             )
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
         else:
-            browser = pw.chromium.launch(headless=headless)
-            ctx = browser.new_context(
-                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                           "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-                locale="de-DE",
-                accept_downloads=True,
-            )
+            browser = pw.chromium.launch(headless=headless, args=_LAUNCH_ARGS)
+            ctx = browser.new_context(**_CTX_OPTS)
             page = ctx.new_page()
-        page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
+
+        # navigator.webdriver auf false setzen (wichtigster Anti-Bot-Trick)
+        page.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+        page.set_extra_http_headers({
+            "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124"',
+            "Sec-Ch-Ua-Platform": '"Windows"',
+        })
 
         # ── Cookies aus Cookie-Editor-Export injizieren ───────────────────────
         if cookies_path:
@@ -269,14 +290,20 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             except Exception as exc:
                 print(f"⚠  Cookie-Datei konnte nicht geladen werden: {exc}")
 
-        # ── Einmal einloggen / Session prüfen ─────────────────────────────────
-        print("Öffne MyHeritage — bitte ggf. einloggen …")
-        try:
-            page.goto("https://www.myheritage.de/dna",
-                      wait_until="domcontentloaded", timeout=30_000)
-        except PWTimeout:
-            pass
-        time.sleep(2)
+        # ── Session aufwärmen: erst Startseite, dann DNA-Bereich ─────────────
+        print("Öffne MyHeritage — Session aufwärmen …")
+        for warmup_url in ["https://www.myheritage.de/",
+                           "https://www.myheritage.de/dna"]:
+            try:
+                page.goto(warmup_url, wait_until="domcontentloaded", timeout=30_000)
+                time.sleep(1.5)
+            except PWTimeout:
+                pass
+        time.sleep(1)
+
+        final_url = page.url
+        if debug:
+            print(f"    [DBG] Nach Warmup: {final_url}")
 
         # Prüfen ob Login-Dialog offen
         if page.query_selector("input[name='username'], input[type='email']"):
