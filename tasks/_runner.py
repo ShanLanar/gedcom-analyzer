@@ -77,6 +77,26 @@ def load_gedcom(progress_cb=None, stop_event=None):
        f"GEDCOM geladen: {len(indiv):,} Personen, {len(fams):,} Familien",
        tag="ok")
 
+    # GEDCOM-Personen in ancestry_dna.db persistieren (für Viewer + DNA-Bridge)
+    try:
+        import sys as _sys
+        _anc = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                            "ancestry")
+        if _anc not in _sys.path:
+            _sys.path.insert(0, _anc)
+        from core.database import AncestryDatabase
+        from core.bridge import import_gedcom_persons, ensure_tables
+        _db = AncestryDatabase()
+        ensure_tables(_db)
+        _n = import_gedcom_persons(
+            _db, indiv, ged_file=gedfile,
+            root_id=cfg.DEFAULT_CONFIG.get("root_id", ""),
+            families=fams,
+        )
+        _p(progress_cb, f"→ {_n:,} Personen in ancestry_dna.db gespeichert.", tag="ok")
+    except Exception as _e:
+        _p(progress_cb, f"GEDCOM-Persistierung übersprungen: {_e}", tag="warn")
+
 
 # ── Schritt 2: Cousins ────────────────────────────────────────────────────────
 
