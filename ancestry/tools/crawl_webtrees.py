@@ -735,11 +735,30 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                                   "AND direction=?", (direction,)).fetchone()[0]
                 elapsed = time.time() - _phase_start
                 rate = processed / elapsed if elapsed > 0 else 0
-                eta_s = (openf / rate) if rate > 0 else 0
-                eta_str = (f"{int(eta_s//3600)}h{int((eta_s%3600)//60)}m"
-                           if eta_s > 60 else f"{int(eta_s)}s")
+
+                # ETA basierend auf Netto-Drain (Verarbeitung minus Frontier-Wachstum)
+                # openf wächst wenn jede Person mehr als 1 neue verlinkt → echte ETA
+                prev_open  = getattr(_phase_crawl, "prev_open",  openf)
+                prev_proc  = getattr(_phase_crawl, "prev_proc",  0)
+                delta_open = openf - prev_open
+                delta_proc = processed - prev_proc
+                _phase_crawl.prev_open = openf   # type: ignore[attr-defined]
+                _phase_crawl.prev_proc = processed  # type: ignore[attr-defined]
+
+                # Netto-Drain: pro verarbeiteter Seite sinkt das Frontier um (1 - Wachstum)
+                growth_per_page = (delta_open / delta_proc) if delta_proc > 0 else 0
+                net_drain = 1.0 - growth_per_page   # positiv → konvergiert
+                if net_drain > 0.05 and rate > 0:
+                    eta_s = (openf / net_drain) / rate
+                    eta_str = (f"{int(eta_s//3600)}h{int((eta_s%3600)//60)}m"
+                               if eta_s > 60 else f"{int(eta_s)}s")
+                elif net_drain <= 0:
+                    eta_str = "wächst noch"
+                else:
+                    eta_str = ">100h"
+                growth_str = f"{growth_per_page:+.2f}/S"
                 print(f"  +{processed}  | Personen: {total} | offen({direction}): {openf}"
-                      f" | {rate:.2f}/s | ETA ~{eta_str}")
+                      f" | {rate:.2f}/s | Wachstum: {growth_str} | ETA ~{eta_str}")
         c.commit()
         if max_pages > 0 and processed >= max_pages:
             print(f"Seiten-Limit ({max_pages}) erreicht – erneut starten zum Fortsetzen.")
