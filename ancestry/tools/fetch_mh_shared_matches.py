@@ -673,10 +673,18 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                         # "Click close to refresh"-Modal der Erweiterung wegklicken
                         try:
                             _close_btn = page.get_by_text(
-                                re.compile(r"click\s+close|close\b", re.I)).first
+                                re.compile(r"click\s+close\s+to\s+refresh", re.I)).first
+                            _close_btn.wait_for(state="visible", timeout=3000)
                             _close_btn.click(timeout=3000)
                         except Exception:
-                            pass
+                            # Fallback: button/a mit "close" im Text
+                            try:
+                                _close_btn = page.locator(
+                                    "button, a, span, div"
+                                ).filter(has_text=re.compile(r"^close$", re.I)).first
+                                _close_btn.click(timeout=2000)
+                            except Exception:
+                                pass
                         # Extra-Tabs schließen die die Erweiterung evtl. geöffnet hat
                         try:
                             for _p in ctx.pages:
