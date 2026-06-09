@@ -373,10 +373,20 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
             shared: list[SharedMatch] = []
             intercepted: list[tuple[str, str]] = []
+            _gql_req_info: dict = {}   # speichert headers+body des SM-GraphQL-Requests
 
             try:
+                # Route-Handler: SM-GraphQL-Request abfangen (für Pagination)
+                _SM_ROUTE = "**/dna_single_match_get_shared_matches/**"
+                def _capture_gql_req(route, request):
+                    if not _gql_req_info:
+                        _gql_req_info["url"]     = request.url
+                        _gql_req_info["headers"] = dict(request.headers)
+                        _gql_req_info["body"]    = request.post_data or ""
+                    route.continue_()
+                page.route(_SM_ROUTE, _capture_gql_req)
+
                 # Netzwerk-Intercept: ALLE JSON-Antworten von MH abfangen
-                # (kein URL-Keyword-Filter — GraphQL-Endpunkte haben andere Namen)
                 def _on_resp(response):
                     try:
                         ru = response.url
@@ -401,7 +411,6 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     page.goto(url, wait_until="commit", timeout=20_000)
 
                 # React/Redux braucht Zeit zum Hydratisieren + GraphQL-Calls abwarten
-                # Shared Matches werden async nachgeladen — mindestens 8s warten
                 wait_total = max(pause, 8.0)
                 time.sleep(wait_total * 0.4)
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
@@ -410,6 +419,10 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 time.sleep(wait_total * 0.3)
 
                 page.remove_listener("response", _on_resp)
+                try:
+                    page.unroute(_SM_ROUTE)
+                except Exception:
+                    pass
 
                 if debug:
                     print(f"    [DBG] {len(intercepted)} Antworten abgefangen:")
@@ -524,17 +537,23 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
                 # Erst gezielt den Shared-Matches-Endpoint auswerten
                 _SM_URL = "dna_single_match_get_shared_matches"
+                total_sm_count = 0
                 for resp_url, resp_body in intercepted:
                     if not resp_body or _SM_URL not in resp_url:
                         continue
                     try:
                         data = _json.loads(resp_body)
                         items = _items_from_json(data)
+                        # Gesamtanzahl für Pagination merken
+                        try:
+                            sm_node = (data.get("data") or {}).get("dna_match") or {}
+                            total_sm_count = int(
+                                (sm_node.get("dna_shared_matches") or {}).get("count") or 0)
+                        except Exception:
+                            pass
                         if debug:
-                            print(f"    [DBG] GraphQL shared_matches Items: {len(items)}")
-                            if items:
-                                import json as _dbg_json
-                                print(f"    [DBG] Erstes Item: {_dbg_json.dumps(items[0], ensure_ascii=False)[:2000]}")
+                            print(f"    [DBG] GraphQL shared_matches Items: {len(items)}"
+                                  f" (gesamt: {total_sm_count})")
                         for item in items:
                             sm = _parse_mh_item(item)
                             if sm:
@@ -546,6 +565,48 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     except Exception as exc:
                         if debug:
                             print(f"    [DBG] Parse-Fehler: {exc}")
+
+                # Pagination: weitere Seiten per direkter GraphQL-API holen
+                PAGE_SIZE = 10
+                if shared and total_sm_count > PAGE_SIZE and _gql_req_info:
+                    try:
+                        import json as _pjson
+                        gql_url = _gql_req_info["url"]
+                        gql_hdrs = {k: v for k, v in _gql_req_info["headers"].items()
+                                    if k.lower() not in ("content-length",)}
+                        base_body = _pjson.loads(_gql_req_info["body"])
+                        offset = PAGE_SIZE
+                        while offset < total_sm_count:
+                            # offset in GraphQL-Variablen setzen
+                            body_page = _pjson.loads(_pjson.dumps(base_body))
+                            vars_ = body_page.get("variables") or {}
+                            vars_["offset"] = offset
+                            body_page["variables"] = vars_
+                            resp_p = ctx.request.post(
+                                gql_url,
+                                headers=gql_hdrs,
+                                data=_pjson.dumps(body_page),
+                            )
+                            if not resp_p.ok:
+                                if debug:
+                                    print(f"    [DBG] Pagination {offset}: HTTP {resp_p.status}")
+                                break
+                            data_p = _pjson.loads(resp_p.text())
+                            items_p = _items_from_json(data_p)
+                            if not items_p:
+                                break
+                            for item in items_p:
+                                sm = _parse_mh_item(item)
+                                if sm:
+                                    shared.append(sm)
+                            if debug:
+                                print(f"    [DBG] Seite offset={offset}: "
+                                      f"{len(items_p)} Items → {len(shared)} gesamt")
+                            offset += PAGE_SIZE
+                            time.sleep(0.5)
+                    except Exception as exc:
+                        if debug:
+                            print(f"    [DBG] Pagination-Fehler: {exc}")
 
                 # Fallback: alle anderen JSON-Antworten durchsuchen
                 if not shared:
