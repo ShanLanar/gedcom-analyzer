@@ -618,6 +618,9 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                         sm_ops_json  = _extract_gql_json(_sm_info["body"])
                         if debug:
                             print(f"    [DBG] ops JSON start: {sm_ops_json[:80]!r}")
+                            if not sm_ops_json:
+                                # Body-Dump für Diagnose
+                                print(f"    [DBG] raw body repr: {_sm_info['body'][:400]!r}")
                     except Exception as exc:
                         sm_ops_json = ""
                         if debug:
