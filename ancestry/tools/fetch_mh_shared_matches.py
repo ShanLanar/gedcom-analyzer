@@ -349,6 +349,11 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             if not profile_dir:
                 import tempfile
                 profile_dir = tempfile.mkdtemp(prefix="mh_ext_profile_")
+                print("⚠  Kein --profile-dir gesetzt → Temp-Profil. Die Anmeldung in "
+                      "der Erweiterung bleibt NICHT erhalten und muss bei jedem Lauf "
+                      "neu erfolgen.\n"
+                      "   Empfehlung: festes Verzeichnis via --profile-dir, dann nur "
+                      "EINMAL im Genealogy Assistant verifizieren.")
             print(f"✓ Lade Extension: {extension_dir}")
 
     total_imported = 0
@@ -548,14 +553,27 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     except Exception:
                         pass
 
-                    _dl_btn = page.get_by_text(re.compile(r"download\s+csv", re.I)).first
-                    if _dl_btn.count() if hasattr(_dl_btn, "count") else True:
+                    # Auf das Erscheinen des (von der Erweiterung injizierten)
+                    # "Download CSV"-Buttons warten — die Extension braucht ggf. ein
+                    # paar Sekunden bzw. eine erfolgte Verifizierung.
+                    _dl_loc = page.get_by_text(re.compile(r"download\s+csv", re.I)).first
+                    try:
+                        _dl_loc.wait_for(state="visible", timeout=15_000)
+                        _btn_present = True
+                    except PWTimeout:
+                        _btn_present = False
+
+                    if not _btn_present:
+                        print("    ⚠  'Download CSV'-Button nicht gefunden. Ist die "
+                              "Genealogy-Assistant-Erweiterung geladen UND verifiziert? "
+                              "(Einmalig mit --visible + festem --profile-dir einloggen.)")
+                    else:
                         if debug:
                             print("    [DBG] Klicke 'Download CSV' (all pages) …")
                         # Download kann lange dauern (alle Seiten laden) → großzügig
                         with page.expect_download(timeout=300_000) as _dl_info:
-                            _dl_btn.scroll_into_view_if_needed(timeout=5000)
-                            _dl_btn.click(timeout=5000)
+                            _dl_loc.scroll_into_view_if_needed(timeout=5000)
+                            _dl_loc.click(timeout=5000)
                         _dl = _dl_info.value
                         _dl_path = _dl.path()
                         with open(_dl_path, encoding="utf-8-sig", errors="replace") as _f:
