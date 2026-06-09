@@ -422,37 +422,56 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 import json as _json
 
                 def _parse_mh_item(item: dict) -> SharedMatch | None:
-                    """Parst ein MH-GraphQL-Match-Item (REST oder dna_shared_matches)."""
+                    """Parst ein MH-GraphQL-Match-Item aus dna_shared_matches.
+
+                    Item-Shape:
+                    {
+                      dna_matches_cluster_shared_segments_count: N,
+                      shared_member: { name, id: "user-XXX", ... },
+                      dna_match: {
+                        id: "dnamatch-D-OWNER-D-MATCH",
+                        total_shared_segments_length_in_cm: 116.32,
+                        link: "https://...match/D-OWNER-D-MATCH/...",
+                        refined_dna_relationships: [...],
+                      }
+                    }
+                    """
                     if not isinstance(item, dict):
                         return None
-                    # MH GraphQL item shape:
-                    # { shared_member: { id: "user-XXX", name, gender, ... },
-                    #   shared_dna: 123.4, shared_segments: 5, ... }
-                    member = item.get("shared_member") or {}
-                    # ID: "user-OYYV65..." → als GUID verwenden (MH nutzt kein D-Format hier)
-                    g = (member.get("guid") or member.get("dna_kit_id") or
-                         member.get("id") or          # "user-OYYV65..."
-                         item.get("guid") or item.get("matchGuid") or
-                         item.get("relativeGuid") or item.get("id") or "")
-                    if isinstance(g, str):
-                        g = g.upper()
-                    cm_val = float(item.get("shared_dna") or
-                                   item.get("sharedDna") or item.get("sharedCm") or
-                                   item.get("shared_dna_cm") or
-                                   item.get("shared_centimorgans") or
-                                   item.get("shared_dna_percentage") or
-                                   member.get("shared_dna") or 0)
+                    member   = item.get("shared_member") or {}
+                    dna_info = item.get("dna_match") or {}
+
+                    # cM aus dna_match.total_shared_segments_length_in_cm
+                    cm_val = float(dna_info.get("total_shared_segments_length_in_cm") or
+                                   dna_info.get("shared_dna") or
+                                   item.get("shared_dna") or
+                                   item.get("sharedDna") or 0)
+
+                    # GUID: zweite D-xxx aus dna_match.id oder .link extrahieren
+                    # "dnamatch-D-OWNER-D-MATCH" → D-MATCH
+                    g = ""
+                    raw_id = str(dna_info.get("id") or dna_info.get("link") or
+                                 member.get("id") or "")
+                    m_guid = re.findall(r'D-[0-9A-F]{8}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{12}',
+                                        raw_id.upper())
+                    if len(m_guid) >= 2:
+                        g = m_guid[1]           # zweite GUID = der shared Match
+                    elif len(m_guid) == 1:
+                        g = m_guid[0]
+                    if not g:
+                        g = (member.get("id") or "").upper()  # "user-OYYV65..." als Fallback
                     if not g or not cm_val:
                         return None
-                    name = (member.get("display_name") or member.get("displayName") or
-                            item.get("displayName") or item.get("name") or "")
-                    segs = int(item.get("shared_segments") or
-                               item.get("sharedSegments") or
-                               item.get("dna_matches_cluster_shared_segments_count") or 0)
-                    rel = str(item.get("relationship") or
-                              member.get("estimated_relationship") or "")
-                    tree = bool(item.get("hasTree") or member.get("has_tree") or
-                                member.get("hasTree"))
+                    name = str(member.get("name") or member.get("display_name") or
+                               item.get("displayName") or item.get("name") or "")
+                    segs = int(item.get("dna_matches_cluster_shared_segments_count") or
+                               item.get("shared_segments") or
+                               item.get("sharedSegments") or 0)
+                    # Beziehung aus refined_dna_relationships[0]
+                    rels = dna_info.get("refined_dna_relationships") or []
+                    rel = str(rels[0].get("relationship_degree") if rels else
+                              item.get("relationship") or "")
+                    tree = bool(item.get("hasTree") or member.get("has_tree"))
                     return SharedMatch(
                         test_guid=test_guid,
                         match_guid_a=guid_a,
