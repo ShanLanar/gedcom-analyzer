@@ -591,20 +591,57 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             print(f"    [DBG] Parse-Fehler: {exc}")
 
                 # Pagination: weitere Seiten via page.evaluate(fetch) aus Browser-Kontext
-                # (ctx.request.post → 403, da CSRF-Token fehlt; browser fetch hat alles)
                 PAGE_SIZE = 10
                 _sm_info = _route_bodies.get(_SM_KEY, {})
+
+                def _extract_gql_json(raw_body: str) -> str:
+                    """Extrahiert das JSON aus multipart/form-data 'operations'-Feld."""
+                    if raw_body.lstrip().startswith("{"):
+                        return raw_body   # schon JSON
+                    # multipart: ---Boundary\r\nContent-Disposition: ...; name="operations"\r\n\r\n{...}\r\n
+                    # split by boundary line (------Xyz)
+                    lines = raw_body.replace("\r\n", "\n").split("\n")
+                    in_operations = False
+                    json_lines = []
+                    for line in lines:
+                        if line.startswith("--"):
+                            if json_lines:
+                                break
+                            in_operations = False
+                            continue
+                        if in_operations:
+                            if line.startswith("Content-"):
+                                continue  # noch Header
+                            if not line and not json_lines:
+                                continue  # Leerzeile nach Headern
+                            if line:
+                                json_lines.append(line)
+                        elif 'name="operations"' in line or "name='operations'" in line:
+                            in_operations = True
+                    return "\n".join(json_lines)
+
                 if debug:
                     print(f"    [DBG] SM route-body len={len(_sm_info.get('body',''))}"
                           f" | total_sm_count={total_sm_count}")
                 if total_sm_count > PAGE_SIZE and _sm_info.get("body"):
+                    try:
+                        import json as _pjson
+                        sm_url       = _sm_info["url"]
+                        sm_ops_json  = _extract_gql_json(_sm_info["body"])
+                        if debug:
+                            print(f"    [DBG] ops JSON start: {sm_ops_json[:80]!r}")
+                    except Exception as exc:
+                        sm_ops_json = ""
+                        if debug:
+                            print(f"    [DBG] ops-extract Fehler: {exc}")
+
+                if total_sm_count > PAGE_SIZE and sm_ops_json:
                     _JS_PAGINATE = """
-async ([url, bodyStr, offset]) => {
+async ([url, opsStr, offset]) => {
     try {
-        const body = JSON.parse(bodyStr);
+        const body = JSON.parse(opsStr);
         if (body.variables) { body.variables.offset = offset; }
         else { body.variables = {offset: offset}; }
-        // Relative URL nutzen (gleiche Origin → kein CORS)
         const relUrl = url.replace(/^https?:\\/\\/[^\\/]+/, '');
         const r = await fetch(relUrl, {
             method: 'POST', credentials: 'include',
@@ -617,13 +654,10 @@ async ([url, bodyStr, offset]) => {
 }
 """
                     try:
-                        import json as _pjson
-                        sm_url  = _sm_info["url"]
-                        sm_body = _sm_info["body"]
-                        offset  = PAGE_SIZE
+                        offset = PAGE_SIZE
                         while offset < total_sm_count:
                             result = page.evaluate(
-                                _JS_PAGINATE, [sm_url, sm_body, offset])
+                                _JS_PAGINATE, [sm_url, sm_ops_json, offset])
                             if not result or result.startswith("__"):
                                 if debug:
                                     print(f"    [DBG] Pagination {offset}: {result!r}")

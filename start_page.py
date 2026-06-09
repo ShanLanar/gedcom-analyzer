@@ -30,18 +30,18 @@ _ANCESTRY_DB = os.path.join(_ROOT, "ancestry", "ancestry_dna.db")
 _PARISH_JSON = os.path.join(_ROOT, "ancestry", "tools", "matricula_parishes.json")
 
 
-# ── Farben — identisch mit cfg (Dark Theme) ──────────────────────────────────
+# ── Farben — direkt hardcoded (config-Swap in unified.py kann ancestry/config laden) ─
 P = {
-    "bg":     cfg.BG,
-    "bg2":    cfg.BG2,
-    "bg3":    cfg.BG3,
-    "fg":     cfg.FG,
-    "dim":    cfg.FG_DIM,
-    "acc":    cfg.ACCENT,
-    "green":  cfg.GREEN,
-    "yellow": cfg.YELLOW,
-    "red":    cfg.RED,
-    "orange": cfg.ORANGE,
+    "bg":     getattr(cfg, "BG",     "#1e1e2e"),
+    "bg2":    getattr(cfg, "BG2",    "#2a2a3e"),
+    "bg3":    getattr(cfg, "BG3",    "#232336"),
+    "fg":     getattr(cfg, "FG",     "#cdd6f4"),
+    "dim":    getattr(cfg, "FG_DIM", "#6c7086"),
+    "acc":    getattr(cfg, "ACCENT", "#7c7cf8"),
+    "green":  getattr(cfg, "GREEN",  "#a6e3a1"),
+    "yellow": getattr(cfg, "YELLOW", "#f9e2af"),
+    "red":    getattr(cfg, "RED",    "#f38ba8"),
+    "orange": getattr(cfg, "ORANGE", "#fab387"),
 }
 
 # ── Hilfe-Texte (Woher bekomme ich was?) ─────────────────────────────────────
