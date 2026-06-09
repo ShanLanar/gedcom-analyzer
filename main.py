@@ -440,6 +440,7 @@ class AhnenApp(tk.Frame):
         self._stop_event = threading.Event()
         self._task_vars: dict[str, tk.BooleanVar] = {}
         self._build_ui()
+        self.after(400, self._check_first_launch)
 
     def mainloop(self, *a, **k):
         """Standalone-Kompatibilität: leitet an das Toplevel weiter."""
@@ -589,6 +590,9 @@ class AhnenApp(tk.Frame):
         tk.Button(footer, text="? Hilfe", bg=cfg.BG3, fg=cfg.ACCENT,
                   font=cfg.FONT_MAIN, relief="flat",
                   command=self._open_help).pack(side="right", padx=8)
+        tk.Button(footer, text="① Erste Schritte", bg=cfg.BG3, fg=cfg.FG_DIM,
+                  font=cfg.FONT_MAIN, relief="flat",
+                  command=self._open_welcome).pack(side="right", padx=4)
 
     def _build_task_list(self, parent):
         grouped: dict = {}
@@ -730,7 +734,7 @@ class AhnenApp(tk.Frame):
 
     def _open_help(self):
         """Öffnet das In-App-Hilfefenster mit Funktions-Verzeichnis."""
-        from tasks.help_data import HELP_ENTRIES, CLI_HELP, CONCEPTS
+        from tasks.help_data import HELP_ENTRIES, CLI_HELP, CONCEPTS, DNA_TOOLS
 
         # Doppelt-Öffnen vermeiden — bestehendes Fenster wiederholt nach vorne
         win = getattr(self, "_help_win", None)
@@ -798,8 +802,10 @@ class AhnenApp(tk.Frame):
         detail.tag_configure("tip",     foreground=cfg.YELLOW)
 
         # ── Datensatz-Index aufbauen ────────────────────────────────────────
-        # Einträge: ("Task" | "CLI" | "Konzept", key, dict)
+        # Einträge: ("Task" | "CLI" | "Konzept" | "DNA", key, dict)
         all_entries = []
+        for key, data in DNA_TOOLS.items():
+            all_entries.append(("DNA", key, data))
         for key, data in HELP_ENTRIES.items():
             all_entries.append(("Task", key, data))
         for key, data in CLI_HELP.items():
@@ -839,7 +845,7 @@ class AhnenApp(tk.Frame):
                 if not _matches(entry, query):
                     continue
                 kind, key, data = entry
-                prefix = {"Task": "▸", "CLI": "$", "Konzept": "Σ"}[kind]
+                prefix = {"Task": "▸", "CLI": "$", "Konzept": "Σ", "DNA": "🧬"}[kind]
                 title  = data.get("title") or key
                 group  = data.get("group", "")
                 label  = f"{prefix} {title}"
@@ -867,6 +873,9 @@ class AhnenApp(tk.Frame):
                 detail.insert("end", "CLI-Subbefehl\n\n", "group")
             elif kind == "Konzept":
                 detail.insert("end", "Mathematisches Konzept\n\n", "group")
+            elif kind == "DNA":
+                grp = data.get("group", "DNA-Tools")
+                detail.insert("end", f"DNA-Tool / Workflow — {grp}\n\n", "group")
 
             sections = []
             if data.get("purpose"):
@@ -908,6 +917,193 @@ class AhnenApp(tk.Frame):
 
         _refresh_list()
         search_entry.focus_set()
+
+    # ── Erste-Schritte-Onboarding ──────────────────────────────────────────────
+
+    def _check_first_launch(self):
+        """Zeigt beim allerersten Start das Erste-Schritte-Fenster."""
+        flag = os.path.join(os.path.expanduser("~"), ".ahnen_welcome_shown")
+        if not os.path.exists(flag):
+            try:
+                open(flag, "w").close()
+            except OSError:
+                pass
+            self.after(800, self._open_welcome)
+
+    def _open_welcome(self):
+        """Erste-Schritte-Wizard (erscheint beim allerersten Programmstart)."""
+        win = tk.Toplevel(self)
+        win.title("Willkommen — Erste Schritte")
+        win.geometry("780x560")
+        win.configure(bg=cfg.BG)
+        win.grab_set()
+
+        STEPS = [
+            {
+                "num": "①",
+                "title": "GEDCOM laden",
+                "body": (
+                    "Wählen Sie Ihre Stammbaumdatei (.ged oder .ftm) über 'Durchsuchen…'.\n\n"
+                    "• Root-ID eintragen (z.B. @I1@) — die Person, von der aus\n"
+                    "  Verwandtschaftsgrade berechnet werden.\n\n"
+                    "• Klicken Sie 'Starten'. Alle aktivierten Analysen laufen durch.\n\n"
+                    "• Die GEDCOM-Daten werden automatisch in der DNA-Datenbank\n"
+                    "  gespeichert (ancestry_dna.db) — für den GEDCOM-Overlap-Vergleich."
+                ),
+                "color": "#1565c0",
+            },
+            {
+                "num": "②",
+                "title": "DNA-Matches importieren",
+                "body": (
+                    "Ancestry:\n"
+                    "  DNA → Matches → Download → CSV → 'Alle Matches'.\n"
+                    "  Öffnen Sie das DNA-Tool (Button unten) und importieren Sie die Datei.\n\n"
+                    "MyHeritage:\n"
+                    "  DNA → DNA-Matches → Download (Pfeil-Symbol).\n"
+                    "  Dann: python ancestry/tools/import_mh_csv.py <datei.csv>\n\n"
+                    "GEDmatch / WikiTree:\n"
+                    "  Separate Import-Tools unter ancestry/tools/.\n\n"
+                    "Alle Matches landen in ancestry_dna.db (Tabelle dna_matches)."
+                ),
+                "color": "#2e7d32",
+            },
+            {
+                "num": "③",
+                "title": "DNA-Viewer öffnen",
+                "body": (
+                    "Klicken Sie auf '🧬 DNA-Matches' im Hauptfenster.\n\n"
+                    "Im Viewer sehen Sie:\n"
+                    "  • Alle importierten Matches mit cM-Wert\n"
+                    "  • Grün markiert = Person bereits im GEDCOM\n"
+                    "  • Braun = Fuzzy-Match (gleicher Nachname + Geburtsjahr)\n"
+                    "  • Leeds-Cluster (Familien-Gruppen)\n\n"
+                    "Filter-Leiste:\n"
+                    "  GEDCOM-Filter, Konfessions-Filter (nach Kirchspiel),\n"
+                    "  cM-Schwelle, Cluster-Nummer."
+                ),
+                "color": "#6a1b9a",
+            },
+            {
+                "num": "④",
+                "title": "Kirchspiel-Daten (optional)",
+                "body": (
+                    "Für Familien aus dem Bistum Osnabrück empfiehlt sich der\n"
+                    "Matricula-Pfarrei-Scraper:\n\n"
+                    "  python ancestry/tools/scrape_matricula_osnabrueck.py\n\n"
+                    "Einmaliger Lauf (~5 Min.) lädt alle 169 Pfarreien mit:\n"
+                    "  • Konfession (kath./ev.) — für Migrations-Filterung\n"
+                    "  • Gründungsdatum — Abpfarrungen zeigen, wo ältere\n"
+                    "    Kirchenbücher zu finden sind\n"
+                    "  • Ortsteile — für Geburtsort-Mapping\n\n"
+                    "Im Viewer erscheinen danach ✝K / ✝E Badges."
+                ),
+                "color": "#e65100",
+            },
+            {
+                "num": "⑤",
+                "title": "Analysen & Export",
+                "body": (
+                    "Im Hauptfenster die gewünschten Analysen aktivieren und starten:\n\n"
+                    "  • Excel-Export → genealogy_analysis_complete.xlsx\n"
+                    "  • HTML-Dashboard → interaktive Charts im Browser\n"
+                    "  • Fan-Chart SVG → druckbarer Ahnenfächer\n"
+                    "  • Migrations-Sankey → Fluss-Diagramm der Auswanderung\n\n"
+                    "Tipps:\n"
+                    "  '? Hilfe' (unten rechts) öffnet das vollständige Funktions-\n"
+                    "  verzeichnis mit Suche.\n\n"
+                    "  CLI-Modus: python main.py --batch --tasks cousins,export_excel"
+                ),
+                "color": "#795548",
+            },
+        ]
+
+        step_idx = [0]
+
+        # ── Layout ─────────────────────────────────────────────────────────
+        hdr = tk.Frame(win, bg="#1a1a2e", pady=10)
+        hdr.pack(fill="x")
+        tk.Label(hdr, text="🧬  Ahnen-Analyse — Erste Schritte",
+                 bg="#1a1a2e", fg=cfg.ACCENT, font=cfg.FONT_HEAD).pack(side="left", padx=16)
+        tk.Label(hdr, text="Dieses Fenster erscheint nur beim ersten Start.",
+                 bg="#1a1a2e", fg=cfg.FG_DIM, font=("Segoe UI", 8)).pack(side="right", padx=16)
+
+        body_frame = tk.Frame(win, bg=cfg.BG)
+        body_frame.pack(fill="both", expand=True, padx=20, pady=10)
+
+        # Nummern-Leiste links
+        nav_frame = tk.Frame(body_frame, bg=cfg.BG2, width=60)
+        nav_frame.pack(side="left", fill="y", padx=(0, 12))
+        nav_frame.pack_propagate(False)
+
+        nav_btns = []
+        for i, s in enumerate(STEPS):
+            btn = tk.Button(nav_frame, text=s["num"], bg=cfg.BG2, fg=cfg.FG_DIM,
+                            font=("Segoe UI", 14), relief="flat", bd=0,
+                            command=lambda idx=i: _go(idx))
+            btn.pack(pady=6, padx=4)
+            nav_btns.append(btn)
+
+        # Inhalt rechts
+        content = tk.Frame(body_frame, bg=cfg.BG)
+        content.pack(side="left", fill="both", expand=True)
+
+        step_title = tk.Label(content, text="", bg=cfg.BG, fg=cfg.ACCENT,
+                               font=("Segoe UI Semibold", 14), anchor="w")
+        step_title.pack(fill="x", pady=(0, 8))
+
+        step_body = tk.Text(content, bg="#13131f", fg=cfg.FG, font=cfg.FONT_MAIN,
+                            relief="flat", wrap="word", padx=14, pady=12,
+                            state="disabled", height=14)
+        step_body.pack(fill="both", expand=True)
+
+        # Navigations-Footer
+        foot = tk.Frame(win, bg=cfg.BG2, pady=8)
+        foot.pack(fill="x", side="bottom")
+        btn_prev = tk.Button(foot, text="◀ Zurück", bg=cfg.BG3, fg=cfg.FG,
+                              font=cfg.FONT_MAIN, relief="flat", padx=10,
+                              command=lambda: _go(step_idx[0] - 1))
+        btn_prev.pack(side="left", padx=8)
+        page_lbl = tk.Label(foot, text="", bg=cfg.BG2, fg=cfg.FG_DIM,
+                             font=cfg.FONT_MAIN)
+        page_lbl.pack(side="left", padx=8)
+        btn_next = tk.Button(foot, text="Weiter ▶", bg=cfg.ACCENT, fg="#fff",
+                              font=cfg.FONT_MAIN, relief="flat", padx=10,
+                              command=lambda: _go(step_idx[0] + 1))
+        btn_next.pack(side="left", padx=4)
+        tk.Button(foot, text="Hilfe öffnen", bg=cfg.BG3, fg=cfg.ACCENT,
+                  font=cfg.FONT_MAIN, relief="flat", padx=10,
+                  command=lambda: (win.destroy(), self._open_help())).pack(side="right", padx=8)
+        tk.Button(foot, text="Schließen", bg=cfg.BG3, fg=cfg.FG,
+                  font=cfg.FONT_MAIN, relief="flat", padx=10,
+                  command=win.destroy).pack(side="right", padx=4)
+
+        def _go(idx: int):
+            idx = max(0, min(len(STEPS) - 1, idx))
+            step_idx[0] = idx
+            s = STEPS[idx]
+            # Titel + Farbe
+            step_title.configure(text=f"{s['num']} {s['title']}", fg=s["color"])
+            # Body
+            step_body.configure(state="normal")
+            step_body.delete("1.0", "end")
+            step_body.insert("end", s["body"])
+            step_body.configure(state="disabled")
+            # Nav-Buttons
+            for j, nb in enumerate(nav_btns):
+                nb.configure(bg=s["color"] if j == idx else cfg.BG2,
+                             fg="#fff" if j == idx else cfg.FG_DIM)
+            # Pfeile
+            btn_prev.configure(state="normal" if idx > 0 else "disabled")
+            is_last = idx == len(STEPS) - 1
+            btn_next.configure(text="Fertig ✓" if is_last else "Weiter ▶",
+                                command=win.destroy if is_last else lambda: _go(step_idx[0] + 1))
+            page_lbl.configure(text=f"Schritt {idx+1} / {len(STEPS)}")
+
+        _go(0)
+        win.bind("<Right>",  lambda _e: _go(step_idx[0] + 1))
+        win.bind("<Left>",   lambda _e: _go(step_idx[0] - 1))
+        win.bind("<Escape>", lambda _e: win.destroy())
 
     def _set_status(self, text: str):
         self.after(0, lambda: self._status_lbl.configure(text=text))

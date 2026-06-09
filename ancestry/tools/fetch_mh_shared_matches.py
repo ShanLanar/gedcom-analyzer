@@ -125,7 +125,8 @@ def _parse_shared_csv(csv_text: str, test_guid: str,
 
 
 def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
-           headless: bool = True, pause: float = 2.0, skip_done: bool = True):
+           headless: bool = True, pause: float = 2.0, skip_done: bool = True,
+           profile_dir: str | None = None):
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -189,14 +190,25 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
     total_imported = 0
     with sync_playwright() as pw:
-        browser = pw.chromium.launch(headless=headless)
-        ctx = browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                       "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
-            locale="de-DE",
-            accept_downloads=True,
-        )
-        page = ctx.new_page()
+        if profile_dir:
+            ctx = pw.chromium.launch_persistent_context(
+                profile_dir,
+                headless=headless,
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                           "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+                locale="de-DE",
+                accept_downloads=True,
+            )
+            page = ctx.pages[0] if ctx.pages else ctx.new_page()
+        else:
+            browser = pw.chromium.launch(headless=headless)
+            ctx = browser.new_context(
+                user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                           "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+                locale="de-DE",
+                accept_downloads=True,
+            )
+            page = ctx.new_page()
         page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
 
         # ── Einmal einloggen / Session prüfen ─────────────────────────────────
@@ -297,6 +309,35 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     shared = _parse_shared_csv(csv_text, test_guid,
                                                guid_a, fetched)
 
+                # Variante C: Shared-Matches aus JSON-API im Seiteninhalt extrahieren
+                if not shared:
+                    try:
+                        html = page.content()
+                        # MH bettet Shared-Matches-Daten als JSON in <script>-Tag ein
+                        json_matches = re.findall(
+                            r'"guid"\s*:\s*"(D-[0-9A-F-]{30,})".*?'
+                            r'"sharedDna"\s*:\s*([\d.]+)',
+                            html, re.IGNORECASE
+                        )
+                        for guid_b, cm_str in json_matches:
+                            try:
+                                shared.append(SharedMatch(
+                                    test_guid=test_guid,
+                                    match_guid_a=guid_a,
+                                    match_guid_b=guid_b.upper(),
+                                    display_name_b="",
+                                    shared_cm_b=float(cm_str),
+                                    shared_cm_ab=0.0,
+                                    shared_segments_b=0,
+                                    relationship_b="",
+                                    has_tree_b=False,
+                                    fetched_at=fetched,
+                                ))
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+
                 if shared:
                     n = db.bulk_upsert_shared(shared)
                     total_imported += n
@@ -320,7 +361,7 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
             time.sleep(pause)
 
-        browser.close()
+        ctx.close()
 
     print(f"\n✅  {total_imported} Shared Matches importiert "
           f"({len(to_do)} Match-Seiten verarbeitet)")
@@ -342,13 +383,16 @@ if __name__ == "__main__":
                     help="Pause zwischen Seiten in Sekunden (default: 2.0)")
     ap.add_argument("--no-skip", action="store_true",
                     help="Bereits verarbeitete Matches nicht überspringen")
+    ap.add_argument("--profile-dir", default="",
+                    help="Persistentes Chromium-Profil-Verzeichnis (speichert Login)")
     args = ap.parse_args()
 
     scrape(
-        csv_path   = args.csv,
-        min_cm     = args.min_cm,
-        limit      = args.limit,
-        headless   = not args.visible,
-        pause      = args.pause,
-        skip_done  = not args.no_skip,
+        csv_path    = args.csv,
+        min_cm      = args.min_cm,
+        limit       = args.limit,
+        headless    = not args.visible,
+        pause       = args.pause,
+        skip_done   = not args.no_skip,
+        profile_dir = args.profile_dir or None,
     )

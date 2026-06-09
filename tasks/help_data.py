@@ -440,6 +440,172 @@ CLI_HELP = {
 }
 
 
+# ── DNA-Tool / Viewer / Scraper ───────────────────────────────────────────────
+
+DNA_TOOLS: dict = {
+    "workflow_overview": {
+        "title":   "Erste Schritte — Gesamtworkflow",
+        "group":   "Workflow",
+        "purpose": "Überblick über den empfohlenen Arbeitsablauf von GEDCOM-Import bis DNA-Auswertung.",
+        "details": (
+            "Schritt 1 — GEDCOM laden\n"
+            "  Datei wählen (*.ged oder *.ftm), Root-ID setzen, 'Starten' klicken.\n"
+            "  Nach dem ersten Lauf werden alle Stammbaumdaten automatisch in\n"
+            "  ancestry/ancestry_dna.db gespeichert (Tabelle gedcom_persons).\n\n"
+            "Schritt 2 — DNA-Matches importieren\n"
+            "  Ancestry: DNA-Matches per CSV aus ancestry.com exportieren und über\n"
+            "  '🧬 DNA-Matches' → Import-Tool laden.\n"
+            "  MyHeritage: CSV aus MH exportieren und über ancestry/tools/import_mh_csv.py importieren.\n"
+            "  GEDmatch: Über ancestry/tools/import_gedmatch.py.\n\n"
+            "Schritt 3 — DNA-Viewer öffnen\n"
+            "  '🧬 DNA-Matches'-Button → Ancestry-DNA-Tool öffnet sich als eigenes Fenster.\n"
+            "  Dort: Match-Liste, GEDCOM-Overlap-Filter, Konfessions-Filter, Cluster-Färbung.\n\n"
+            "Schritt 4 — Shared Matches laden (optional)\n"
+            "  ancestry/tools/fetch_mh_shared_matches.py für MyHeritage.\n"
+            "  Leeds-Clustering wird automatisch aus Shared-Matches berechnet.\n\n"
+            "Schritt 5 — Kirchspiel-Daten ergänzen (optional)\n"
+            "  ancestry/tools/scrape_matricula_osnabrueck.py einmalig starten.\n"
+            "  Lädt alle 169 Pfarreien des Bistums Osnabrück inkl. Tochterkirchen.\n"
+            "  Im Viewer erscheinen dann ✝K / ✝E Badges und blaue/grüne Markierungen."
+        ),
+        "tips": "GEDCOM jederzeit neu importieren — ersetzt nur die gedcom_persons-Daten, DNA-Matches bleiben erhalten.",
+    },
+    "dna_viewer": {
+        "title":   "DNA-Viewer (Ancestry-DNA-Tool)",
+        "group":   "DNA-Tools",
+        "purpose": "Zeigt alle importierten DNA-Matches, ihre GEDCOM-Übereinstimmungen, Leeds-Cluster und Kirchspiel-Zuordnung.",
+        "details": (
+            "Geöffnet über '🧬 DNA-Matches' aus dem Hauptfenster oder direkt als\n"
+            "  python ancestry/main.py\n\n"
+            "Filter-Optionen:\n"
+            "  • cM-Schwelle: nur Matches über X cM anzeigen\n"
+            "  • GEDCOM-Filter: Alle / Im GEDCOM ✓ / Fuzzy-Match ~ / Nicht im GEDCOM\n"
+            "  • Konfessions-Filter: Alle / Kath. / Ev. / Unbekannt\n"
+            "  • Cluster-Filter: Nach Leeds-Cluster-Nummer filtern\n\n"
+            "Farbmarkierungen:\n"
+            "  Grüner Rand  = im GEDCOM bestätigt (xref-Eintrag)\n"
+            "  Brauner Rand = Fuzzy-Match (gleicher Nachname + Geburtsjahr ±5)\n"
+            "  Lila Rand    = Gleicher DNA-Cluster wie ein bestätigter GEDCOM-Match\n"
+            "  Blau ✝K      = Pfarrei katolisch (Matricula-Daten)\n"
+            "  Grün ✝E      = Pfarrei evangelisch"
+        ),
+        "tips": "Mit Doppelklick auf einen Match öffnet sich das Detail-Panel mit GEDCOM-Verknüpfung und Kirchspiel-Info.",
+    },
+    "gedcom_overlap": {
+        "title":   "GEDCOM-Overlap-Erkennung",
+        "group":   "DNA-Tools",
+        "purpose": "Vergleicht DNA-Matches mit den GEDCOM-Personen und markiert, welche Matches bereits im Stammbaum sind.",
+        "details": (
+            "Drei Ebenen der Erkennung:\n\n"
+            "1. Bestätigt (grün): Eintrag in gedcom_person_xref mit Übereinstimmung\n"
+            "   zwischen einer Match-GUID und einer GEDCOM-Person-ID.\n\n"
+            "2. Fuzzy-Match (braun): Kein xref-Eintrag, aber:\n"
+            "   • Nachname stimmt überein (case-insensitiv) UND\n"
+            "   • Geburtsjahr stimmt überein ±5 Jahre\n\n"
+            "3. Cluster-Verbindung (lila): Match ist im selben Leeds-Cluster wie\n"
+            "   ein bestätigter GEDCOM-Match.\n\n"
+            "Neue Bestätigungen können im Viewer direkt gesetzt werden (xref_review.py)."
+        ),
+        "tips": "Filter 'Im GEDCOM ✓' zeigt nur Matches, die bereits sicher zugeordnet sind — ideal für Qualitätsprüfungen.",
+    },
+    "leeds_clustering": {
+        "title":   "Leeds-Methode / Cluster-Analyse",
+        "group":   "DNA-Tools",
+        "purpose": "Gruppiert DNA-Matches in Familien-Cluster (Großeltern-Linien) per Union-Find-Algorithmus.",
+        "details": (
+            "Algorithmus (ähnlich Leeds-Methode):\n"
+            "  1. Shared-Matches laden: Match A und Match B teilen beide DNA mit mir\n"
+            "     UND teilen DNA miteinander → gehören einem Cluster an.\n"
+            "  2. Union-Find (Disjoint Sets) verbindet alle solche Paare iterativ.\n"
+            "  3. Ergebnis: cluster_id pro Match (1, 2, 3, …)\n\n"
+            "Erwartetes Ergebnis bei nicht-endogamer Familie:\n"
+            "  ~4 Hauptcluster = die 4 Großeltern-Linien (PP/PM/MP/MM)\n"
+            "  Endogame Familien (wie Osnabrück-Region) haben oft weniger Cluster."
+        ),
+        "tips": "Shared Matches müssen zuerst geladen werden (fetch_mh_shared_matches.py oder äquivalent für Ancestry).",
+    },
+    "matricula_scraper": {
+        "title":   "Matricula-Pfarrei-Scraper (Bistum Osnabrück)",
+        "group":   "DNA-Tools",
+        "purpose": "Lädt alle Pfarreien des Bistums Osnabrück von data.matricula-online.eu inkl. Gründungsdatum, Konfession und Mutterpfarreien.",
+        "details": (
+            "Start:\n"
+            "  python ancestry/tools/scrape_matricula_osnabrueck.py\n\n"
+            "Ergebnisse:\n"
+            "  • ancestry/tools/matricula_parishes.db   — SQLite mit Hierarchie\n"
+            "  • ancestry/tools/matricula_parishes.json — Ortsname → Pfarrei-Lookup\n\n"
+            "Datenfelder pro Pfarrei:\n"
+            "  parish_id, parish (Name), confession (kath/ev/unbekannt),\n"
+            "  parent_id (Mutterpfarrei), founded (Gründungsjahr),\n"
+            "  villages (zugehörige Orte)\n\n"
+            "Abpfarrungen:\n"
+            "  Manche Pfarreien sind aus größeren Pfarreien hervorgegangen.\n"
+            "  Das Gründungsjahr der Abpfarrung ist genealogisch relevant:\n"
+            "  vor diesem Jahr → Kirchenbücher in der Mutterpfarrei suchen."
+        ),
+        "tips": "Einmalig starten. Danach nutzt der Viewer die JSON-Datei lokal ohne Internet.",
+    },
+    "mh_shared_matches": {
+        "title":   "MyHeritage Shared Matches (Playwright-Scraper)",
+        "group":   "DNA-Tools",
+        "purpose": "Lädt für alle MH-Matches ab einem cM-Schwellwert die Shared-Matches und importiert sie in die Datenbank.",
+        "details": (
+            "Start:\n"
+            "  python ancestry/tools/fetch_mh_shared_matches.py \\\n"
+            "    --csv \"pfad/zur/MH_Matches.csv\" --min-cm 50\n\n"
+            "Voraussetzungen:\n"
+            "  1. Playwright: pip install playwright && playwright install chromium\n"
+            "  2. Beim ersten Start öffnet sich Chromium — manuell in MyHeritage einloggen.\n"
+            "  3. Danach speichert --profile-dir den Login für Folgeläufe.\n\n"
+            "Argumente:\n"
+            "  --csv        Pfad zur MH Match-List-CSV (Pflicht)\n"
+            "  --min-cm     Schwellwert (default: 50 cM)\n"
+            "  --limit      Max. Anzahl Matches (default: alle)\n"
+            "  --visible    Browser sichtbar anzeigen\n"
+            "  --pause      Pause zwischen Seiten in Sekunden (default: 2.0)\n\n"
+            "Status: Resumable — bereits gescrapte Matches werden übersprungen.\n"
+            "Fortschritt wird in shared_matches_fetched gespeichert."
+        ),
+        "tips": "Falls MH die IP sperrt: VPN aktivieren oder einen Tag warten. Der Scraper setzt automatisch da fort, wo er aufgehört hat.",
+    },
+    "import_mh_csv": {
+        "title":   "MyHeritage Match-List importieren",
+        "group":   "DNA-Tools",
+        "purpose": "Importiert die komplette Match-Liste aus einer MH-CSV-Datei in die ancestry_dna.db.",
+        "details": (
+            "Start:\n"
+            "  python ancestry/tools/import_mh_csv.py \"pfad/zur/MH_Matches.csv\"\n\n"
+            "CSV-Format (MH-Export):\n"
+            "  Name, Match Name, Relationship, Shared DNA, Largest Segment,\n"
+            "  Shared Segments, Ancestral surnames, Locations, Notes\n\n"
+            "Importiert in Tabelle: dna_matches\n"
+            "  kit_name, match_name, match_guid, cm_shared, relationship,\n"
+            "  source='myheritage'\n\n"
+            "Nach dem Import im Viewer über '🧬 DNA-Matches' sichtbar."
+        ),
+        "tips": "MH-CSV-Export: DNA → Matches → Download-Symbol → 'Als CSV herunterladen'.",
+    },
+    "xref_review": {
+        "title":   "GEDCOM↔Match Verknüpfung verwalten (xref_review)",
+        "group":   "DNA-Tools",
+        "purpose": "Prüft und bestätigt/verwirft Fuzzy-Vorschläge für GEDCOM-Person ↔ DNA-Match-Zuordnungen.",
+        "details": (
+            "Start:\n"
+            "  python ancestry/tools/xref_review.py\n\n"
+            "Zeigt alle unbestätigten Fuzzy-Vorschläge mit:\n"
+            "  • GEDCOM-Person (Name, Geburtsjahr, Geburtsort)\n"
+            "  • DNA-Match (Name, cM, Quelle)\n"
+            "  • Konfidenz-Score\n\n"
+            "Aktionen:\n"
+            "  [j] Bestätigen → schreibt in gedcom_person_xref (confirmed=1)\n"
+            "  [n] Verwerfen  → schreibt in gedcom_person_xref (confirmed=0)\n"
+            "  [s] Überspringen\n\n"
+            "Bestätigte Verknüpfungen erscheinen im Viewer als grüner Rand."
+        ),
+    },
+}
+
+
 # ── Mathematische Konzepte (für die Hilfe) ────────────────────────────────────
 
 CONCEPTS = {
