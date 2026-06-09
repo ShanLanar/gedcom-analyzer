@@ -292,6 +292,34 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
         page.add_init_script(
             "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
         )
+        # GQL-Request-Body auf JS-Ebene abfangen (post_data via Playwright-API ist leer)
+        page.add_init_script("""
+(function() {
+    var _gql = {};
+    function _cap(key, url, body) {
+        if (!_gql[key] && typeof url === 'string' && url.includes(key)) {
+            _gql[key] = { url: url, body: (typeof body === 'string' ? body : JSON.stringify(body)) };
+        }
+    }
+    var _of = window.fetch;
+    window.fetch = function(url, opts) {
+        _cap('dna_single_match_get_shared_matches', url, opts && opts.body);
+        _cap('dna_single_match_get_shared_segments', url, opts && opts.body);
+        return _of.apply(this, arguments);
+    };
+    var _ox = XMLHttpRequest.prototype.send;
+    var _oo = XMLHttpRequest.prototype.open;
+    XMLHttpRequest.prototype.open = function(m, url) {
+        this._mh_url = url; return _oo.apply(this, arguments);
+    };
+    XMLHttpRequest.prototype.send = function(body) {
+        _cap('dna_single_match_get_shared_matches', this._mh_url, body);
+        _cap('dna_single_match_get_shared_segments', this._mh_url, body);
+        return _ox.apply(this, arguments);
+    };
+    window.__mh_gql = _gql;
+})();
+""")
         page.set_extra_http_headers({
             "Accept-Language": "de-DE,de;q=0.9,en;q=0.8",
             "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
@@ -376,11 +404,8 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             _gql_req_info: dict = {}   # speichert headers+body des SM-GraphQL-Requests
 
             try:
-                # Request-Body aus Response-Objekt holen (zuverlässiger als on("request"))
-                _SM_KEY = "dna_single_match_get_shared_matches"
-                def _capture_gql_req(request):
-                    pass  # wird jetzt über Response-Handler befüllt
-                page.on("request", _capture_gql_req)  # Dummy, wird unten entfernt
+                _SM_KEY  = "dna_single_match_get_shared_matches"
+                _SEG_KEY = "dna_single_match_get_shared_segments"
 
                 # Netzwerk-Intercept: ALLE JSON-Antworten von MH abfangen
                 def _on_resp(response):
@@ -395,12 +420,10 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             try:
                                 body = response.text()
                                 intercepted.append((ru, body))
-                                # Body des SM-Requests für Pagination merken
+                                # Response-URL für Pagination/Segments merken
                                 if _SM_KEY in ru and not _gql_req_info:
-                                    req = response.request
-                                    _gql_req_info["url"]     = req.url
-                                    _gql_req_info["headers"] = dict(req.headers)
-                                    _gql_req_info["body"]    = req.post_data or ""
+                                    _gql_req_info["url"] = ru
+                                    _gql_req_info["headers"] = dict(response.request.headers)
                             except Exception:
                                 pass
                     except Exception:
@@ -422,7 +445,22 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 time.sleep(wait_total * 0.3)
 
                 page.remove_listener("response", _on_resp)
-                page.remove_listener("request", _capture_gql_req)
+
+                # GQL-Body aus JS-Intercept holen (zuverlässiger als Playwright post_data)
+                try:
+                    _js_gql = page.evaluate("window.__mh_gql || {}") or {}
+                    if _SM_KEY in _js_gql and _js_gql[_SM_KEY].get("body"):
+                        _gql_req_info["body"] = _js_gql[_SM_KEY]["body"]
+                        if not _gql_req_info.get("url"):
+                            _gql_req_info["url"] = _js_gql[_SM_KEY].get("url", "")
+                    if debug:
+                        sm_js = _js_gql.get(_SM_KEY, {})
+                        seg_js = _js_gql.get(_SEG_KEY, {})
+                        print(f"    [DBG] JS-GQL SM  body len={len(sm_js.get('body',''))}"
+                              f"  SEG body len={len(seg_js.get('body',''))}")
+                except Exception as exc:
+                    if debug:
+                        print(f"    [DBG] JS-GQL eval Fehler: {exc}")
 
                 if debug:
                     print(f"    [DBG] {len(intercepted)} Antworten abgefangen:")
@@ -569,18 +607,21 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 # Pagination: weitere Seiten per direkter GraphQL-API holen
                 PAGE_SIZE = 10
                 if debug:
+                    body_len = len(_gql_req_info.get("body", ""))
                     print(f"    [DBG] GQL-Request erfasst: {bool(_gql_req_info)}"
-                          f" | total_sm_count={total_sm_count}")
-                if shared and total_sm_count > PAGE_SIZE and _gql_req_info:
+                          f" | body_len={body_len} | total_sm_count={total_sm_count}")
+                if total_sm_count > PAGE_SIZE and _gql_req_info.get("body"):
                     try:
                         import json as _pjson
                         gql_url = _gql_req_info["url"]
-                        gql_hdrs = {k: v for k, v in _gql_req_info["headers"].items()
+                        gql_hdrs = {k: v for k, v in _gql_req_info.get("headers", {}).items()
                                     if k.lower() not in ("content-length",)}
+                        # Sicherstellen dass Content-Type gesetzt
+                        if not any(k.lower() == "content-type" for k in gql_hdrs):
+                            gql_hdrs["content-type"] = "application/json"
                         base_body = _pjson.loads(_gql_req_info["body"])
                         offset = PAGE_SIZE
                         while offset < total_sm_count:
-                            # offset in GraphQL-Variablen setzen
                             body_page = _pjson.loads(_pjson.dumps(base_body))
                             vars_ = body_page.get("variables") or {}
                             vars_["offset"] = offset
@@ -712,11 +753,66 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     except Exception:
                         pass
 
-                # DNA-Segmente aus dna_single_match_get_shared_segments parsen
-                _SEG_URL = "dna_single_match_get_shared_segments"
+                # DNA-Segmente: falls noch nicht geladen, via JS-Body direkt anfragen
                 seg_count = 0
-                for resp_url, resp_body in intercepted:
-                    if not resp_body or _SEG_URL not in resp_url:
+                _seg_intercepted = [(ru, rb) for ru, rb in intercepted if _SEG_KEY in ru]
+                if not _seg_intercepted:
+                    # Segment-Request noch nicht ausgelöst: JS-Body aus Cache holen oder
+                    # Seite weiter scrollen / auf Chromosomen-Bereich klicken
+                    try:
+                        _js_gql2 = page.evaluate("window.__mh_gql || {}") or {}
+                        seg_js_info = _js_gql2.get(_SEG_KEY, {})
+                        if seg_js_info.get("body"):
+                            # Direkt anfragen
+                            import json as _sjson
+                            seg_url  = seg_js_info.get("url", "")
+                            seg_hdrs = {"content-type": "application/json"}
+                            seg_base = _sjson.loads(seg_js_info["body"])
+                            resp_s = ctx.request.post(
+                                seg_url, headers=seg_hdrs,
+                                data=_sjson.dumps(seg_base))
+                            if resp_s.ok:
+                                _seg_intercepted.append((seg_url, resp_s.text()))
+                                if debug:
+                                    print(f"    [DBG] Segment via JS-Body direkt geladen OK")
+                        else:
+                            # Lazy-Load: Seite weiter unten suchen und klicken
+                            if debug:
+                                print("    [DBG] Kein Segment-Body in JS — versuche Scroll+Klick")
+                            # Chromosomenbrowser-Abschnitt suchen
+                            page.evaluate("window.scrollTo(0, document.body.scrollHeight * 0.7)")
+                            time.sleep(1.5)
+                            # Auf "Chromosomenbrowser" oder "Segments" Link klicken
+                            for sel in [
+                                "a[href*='chromosome']", "a[href*='segment']",
+                                "[data-testid*='segment']", "[class*='chromosome']",
+                                "button:has-text('Chromosome')", "button:has-text('Segment')",
+                            ]:
+                                try:
+                                    el = page.query_selector(sel)
+                                    if el:
+                                        el.click()
+                                        time.sleep(2.0)
+                                        break
+                                except Exception:
+                                    pass
+                            # Segment-Response aus neuen Intercepts prüfen
+                            _js_gql3 = page.evaluate("window.__mh_gql || {}") or {}
+                            seg_js3 = _js_gql3.get(_SEG_KEY, {})
+                            if seg_js3.get("body") and seg_js3.get("url"):
+                                import json as _sjson3
+                                resp_s3 = ctx.request.post(
+                                    seg_js3["url"],
+                                    headers={"content-type": "application/json"},
+                                    data=seg_js3["body"])
+                                if resp_s3.ok:
+                                    _seg_intercepted.append((seg_js3["url"], resp_s3.text()))
+                    except Exception as exc:
+                        if debug:
+                            print(f"    [DBG] Segment-Trigger-Fehler: {exc}")
+
+                for resp_url, resp_body in _seg_intercepted:
+                    if not resp_body:
                         continue
                     try:
                         seg_data = _json.loads(resp_body)
