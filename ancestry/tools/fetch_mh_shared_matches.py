@@ -124,9 +124,37 @@ def _parse_shared_csv(csv_text: str, test_guid: str,
     return results
 
 
+def _load_cookie_editor_json(path: str) -> list[dict]:
+    """Liest Cookie-Editor-JSON und gibt Playwright-kompatible Cookie-Dicts zurück."""
+    import json
+    with open(path, encoding="utf-8") as f:
+        raw = json.load(f)
+    # Cookie Editor exportiert eine Liste von Dicts mit 'name','value','domain',...
+    result = []
+    for c in raw:
+        cookie = {
+            "name":   c.get("name", ""),
+            "value":  c.get("value", ""),
+            "domain": c.get("domain", ""),
+            "path":   c.get("path", "/"),
+        }
+        if "secure" in c:
+            cookie["secure"] = bool(c["secure"])
+        if "httpOnly" in c:
+            cookie["httpOnly"] = bool(c["httpOnly"])
+        if "expirationDate" in c:
+            cookie["expires"] = int(c["expirationDate"])
+        if "sameSite" in c:
+            ss = str(c["sameSite"]).capitalize()
+            if ss in ("Strict", "Lax", "None"):
+                cookie["sameSite"] = ss
+        result.append(cookie)
+    return result
+
+
 def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
            headless: bool = True, pause: float = 2.0, skip_done: bool = True,
-           profile_dir: str | None = None):
+           profile_dir: str | None = None, cookies_path: str | None = None):
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -211,6 +239,15 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             page = ctx.new_page()
         page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
 
+        # ── Cookies aus Cookie-Editor-Export injizieren ───────────────────────
+        if cookies_path:
+            try:
+                cookies = _load_cookie_editor_json(cookies_path)
+                ctx.add_cookies(cookies)
+                print(f"✓ {len(cookies)} Cookies aus {cookies_path} geladen.")
+            except Exception as exc:
+                print(f"⚠  Cookie-Datei konnte nicht geladen werden: {exc}")
+
         # ── Einmal einloggen / Session prüfen ─────────────────────────────────
         print("Öffne MyHeritage — bitte ggf. einloggen …")
         try:
@@ -222,11 +259,17 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
         # Prüfen ob Login-Dialog offen
         if page.query_selector("input[name='username'], input[type='email']"):
-            print("\n⚠  Nicht eingeloggt! Bitte mit --visible starten und einloggen.")
+            if cookies_path:
+                print("\n⚠  Cookies wurden geladen, aber Session ist nicht aktiv.")
+                print("   Bitte neue Cookies exportieren (MyHeritage neu einloggen → Cookie Editor → Export).")
+                ctx.close()
+                return
+            print("\n⚠  Nicht eingeloggt! Optionen:")
+            print("   1. Cookie Editor in Chrome installieren, auf myheritage.de einloggen,")
+            print("      alle Cookies exportieren als JSON → --cookies mh_cookies.json")
+            print("   2. Oder: --visible starten und 60s Zeit zum Einloggen")
             if headless:
-                browser.close()
-                print("Starte erneut mit: python fetch_mh_shared_matches.py "
-                      "--csv ... --visible")
+                ctx.close()
                 return
             print("Warte 60s auf Login …")
             time.sleep(60)
@@ -385,14 +428,17 @@ if __name__ == "__main__":
                     help="Bereits verarbeitete Matches nicht überspringen")
     ap.add_argument("--profile-dir", default="",
                     help="Persistentes Chromium-Profil-Verzeichnis (speichert Login)")
+    ap.add_argument("--cookies", default="",
+                    help="Cookie-Editor-JSON-Export von myheritage.de (empfohlen bei Google-Login)")
     args = ap.parse_args()
 
     scrape(
-        csv_path    = args.csv,
-        min_cm      = args.min_cm,
-        limit       = args.limit,
-        headless    = not args.visible,
-        pause       = args.pause,
-        skip_done   = not args.no_skip,
-        profile_dir = args.profile_dir or None,
+        csv_path     = args.csv,
+        min_cm       = args.min_cm,
+        limit        = args.limit,
+        headless     = not args.visible,
+        pause        = args.pause,
+        skip_done    = not args.no_skip,
+        profile_dir  = args.profile_dir or None,
+        cookies_path = args.cookies or None,
     )
