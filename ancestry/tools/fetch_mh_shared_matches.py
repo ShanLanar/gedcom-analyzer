@@ -670,6 +670,13 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             _hdr = _dl_csv_text.split("\n", 1)[0]
                             _rows = _dl_csv_text.count("\n")
                             print(f"    [DBG] CSV geladen: {_rows} Zeilen | Header: {_hdr[:200]}")
+                        # Extra-Tabs schließen die die Erweiterung evtl. geöffnet hat
+                        try:
+                            for _p in ctx.pages:
+                                if _p != page:
+                                    _p.close()
+                        except Exception:
+                            pass
                 except PWTimeout:
                     if debug:
                         print("    [DBG] Download-CSV Timeout — kein Download erhalten")
