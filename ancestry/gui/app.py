@@ -680,7 +680,27 @@ class AncestryDnaApp(tk.Frame):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _build_tab_download(self):
-        f = self._tab_download
+        # Scrollable canvas so content is not clipped on small screens
+        _outer = self._tab_download
+        _canvas = tk.Canvas(_outer, highlightthickness=0)
+        _vsb = ttk.Scrollbar(_outer, orient="vertical", command=_canvas.yview)
+        _canvas.configure(yscrollcommand=_vsb.set)
+        _vsb.pack(side="right", fill="y")
+        _canvas.pack(side="left", fill="both", expand=True)
+        f = ttk.Frame(_canvas)
+        _canvas_win = _canvas.create_window((0, 0), window=f, anchor="nw")
+
+        def _on_frame_configure(event=None):
+            _canvas.configure(scrollregion=_canvas.bbox("all"))
+        def _on_canvas_configure(event=None):
+            _canvas.itemconfigure(_canvas_win, width=event.width)
+        def _on_mousewheel(event):
+            _canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        f.bind("<Configure>", _on_frame_configure)
+        _canvas.bind("<Configure>", _on_canvas_configure)
+        _canvas.bind("<MouseWheel>", _on_mousewheel)
+        f.bind("<MouseWheel>", _on_mousewheel)
+
         p = {"padx": 14, "pady": 6}
 
         # Kit-Auswahl

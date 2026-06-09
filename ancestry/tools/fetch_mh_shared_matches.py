@@ -595,49 +595,56 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 _sm_info = _route_bodies.get(_SM_KEY, {})
 
                 def _extract_gql_json(raw_body: str) -> str:
-                    """Extrahiert das JSON aus multipart/form-data 'operations'-Feld."""
+                    """Extrahiert das JSON aus multipart/form-data 'operations'-Feld (Fallback)."""
                     stripped = raw_body.lstrip()
                     if stripped.startswith("{"):
-                        return stripped   # schon JSON
-                    # multipart/form-data: name="operations" gefolgt von Leerzeile + JSON
-                    # Regex: nach name="operations" (beliebige Whitespace) → {JSON} bis nächste Boundary
+                        return stripped
                     m = re.search(
                         r'name=["\']operations["\'][^\r\n]*[\r\n]{1,4}[\r\n]*([\{\[].*?)[\r\n]+--',
                         raw_body, re.DOTALL)
-                    if m:
-                        return m.group(1).strip()
-                    return ""
+                    return m.group(1).strip() if m else ""
+
+                def _parse_multipart(raw_body: str) -> dict:
+                    """Parst alle Felder einer multipart/form-data-Body in ein Dict."""
+                    fields: dict = {}
+                    parts = re.split(r'\r?\n--+WebKitFormBoundary\S+', raw_body)
+                    for part in parts:
+                        m = re.match(
+                            r'\r?\nContent-Disposition: form-data; name="([^"]+)"\r?\n\r?\n(.*)',
+                            part, re.DOTALL)
+                        if m:
+                            fields[m.group(1)] = m.group(2).rstrip("\r\n")
+                    return fields
 
                 if debug:
                     print(f"    [DBG] SM route-body len={len(_sm_info.get('body',''))}"
                           f" | total_sm_count={total_sm_count}")
                 if total_sm_count > PAGE_SIZE and _sm_info.get("body"):
-                    try:
-                        import json as _pjson
-                        sm_url       = _sm_info["url"]
-                        sm_ops_json  = _extract_gql_json(_sm_info["body"])
-                        if debug:
-                            print(f"    [DBG] ops JSON start: {sm_ops_json[:80]!r}")
-                            if not sm_ops_json:
-                                # Body-Dump für Diagnose
-                                print(f"    [DBG] raw body repr: {_sm_info['body'][:400]!r}")
-                    except Exception as exc:
-                        sm_ops_json = ""
-                        if debug:
-                            print(f"    [DBG] ops-extract Fehler: {exc}")
+                    import json as _pjson
+                    _mp = _parse_multipart(_sm_info["body"])
+                    sm_url       = _sm_info["url"]
+                    sm_bearer    = _mp.get("bearer_token", "")
+                    sm_query     = _mp.get("query", "")
+                    if debug:
+                        print(f"    [DBG] mp fields: {list(_mp.keys())}"
+                              f" | bearer len={len(sm_bearer)}"
+                              f" | query start={sm_query[:60]!r}")
 
-                if total_sm_count > PAGE_SIZE and sm_ops_json:
+                if total_sm_count > PAGE_SIZE and sm_query:
+                    # Replay via FormData aus dem Browser-Kontext (hat Session-Cookies)
+                    # offset im query-String per Regex ersetzen
                     _JS_PAGINATE = """
-async ([url, opsStr, offset]) => {
+async ([url, bearer, query, offset]) => {
     try {
-        const body = JSON.parse(opsStr);
-        if (body.variables) { body.variables.offset = offset; }
-        else { body.variables = {offset: offset}; }
+        // offset-Wert im query ersetzen (z.B. offset:0 → offset:N)
+        const q = query.replace(/(\\boffset\\s*:\\s*)\\d+/, '$1' + offset);
+        const fd = new FormData();
+        if (bearer) fd.append('bearer_token', bearer);
+        fd.append('query', q);
         const relUrl = url.replace(/^https?:\\/\\/[^\\/]+/, '');
         const r = await fetch(relUrl, {
             method: 'POST', credentials: 'include',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify(body)
+            body: fd
         });
         if (!r.ok) return '__HTTP_' + r.status;
         return await r.text();
@@ -648,7 +655,7 @@ async ([url, opsStr, offset]) => {
                         offset = PAGE_SIZE
                         while offset < total_sm_count:
                             result = page.evaluate(
-                                _JS_PAGINATE, [sm_url, sm_ops_json, offset])
+                                _JS_PAGINATE, [sm_url, sm_bearer, sm_query, offset])
                             if not result or result.startswith("__"):
                                 if debug:
                                     print(f"    [DBG] Pagination {offset}: {result!r}")
