@@ -251,7 +251,7 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
            headless: bool = True, pause: float = 2.0, skip_done: bool = True,
            profile_dir: str | None = None, cookies_path: str | None = None,
            debug: bool = False, extension_dir: str | None = None,
-           wait_login: bool = False):
+           wait_login: bool = False, cdp_url: str | None = None):
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -359,7 +359,17 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
     total_imported = 0
     with sync_playwright() as pw:
-        if profile_dir:
+        _via_cdp = bool(cdp_url)
+        if _via_cdp:
+            # An laufendes Chrome anhängen (mit bereits installierter, verifizierter
+            # Erweiterung). Chrome muss mit Remote-Debugging gestartet sein:
+            #   chrome.exe --remote-debugging-port=9222 --user-data-dir="..."
+            print(f"Verbinde mit laufendem Chrome via CDP: {cdp_url} …")
+            browser = pw.chromium.connect_over_cdp(cdp_url)
+            ctx = browser.contexts[0] if browser.contexts else browser.new_context()
+            # Eigene Seite öffnen (vorhandene Tabs unangetastet lassen)
+            page = ctx.new_page()
+        elif profile_dir:
             _args = list(_LAUNCH_ARGS) + _ext_args
             # Mit Extension: neuer Headless-Modus (lädt Erweiterungen)
             _launch_headless = headless
@@ -413,13 +423,16 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
         })
 
         # ── Cookies aus Cookie-Editor-Export injizieren ───────────────────────
-        if cookies_path:
+        # Bei CDP nutzt das echte Chrome bereits die aktive Session → nicht nötig.
+        if cookies_path and not _via_cdp:
             try:
                 cookies = _load_cookie_editor_json(cookies_path)
                 ctx.add_cookies(cookies)
                 print(f"✓ {len(cookies)} Cookies aus {cookies_path} geladen.")
             except Exception as exc:
                 print(f"⚠  Cookie-Datei konnte nicht geladen werden: {exc}")
+        elif _via_cdp:
+            print("✓ CDP-Modus: bestehende Chrome-Session + Erweiterung werden genutzt.")
 
         # ── Session aufwärmen: erst Startseite, dann DNA-Bereich ─────────────
         # .com nutzen: DNA-Features laufen primär auf myheritage.com
@@ -459,8 +472,9 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 time.sleep(90)
             print("Weiter geht's …")
 
-        # Prüfen ob Login-Dialog offen
-        if page.query_selector("input[name='username'], input[type='email']"):
+        # Prüfen ob Login-Dialog offen (im CDP-Modus übersprungen — echte Session)
+        if not _via_cdp and page.query_selector(
+                "input[name='username'], input[type='email']"):
             if cookies_path:
                 print("\n⚠  Cookies wurden geladen, aber Session ist nicht aktiv.")
                 print("   Bitte neue Cookies exportieren (MyHeritage neu einloggen → Cookie Editor → Export).")
@@ -1027,7 +1041,14 @@ async ([url, bodyStr]) => {
 
             time.sleep(pause)
 
-        ctx.close()
+        # Bei CDP nur die eigene Seite schließen, NICHT das Chrome des Nutzers.
+        if _via_cdp:
+            try:
+                page.close()
+            except Exception:
+                pass
+        else:
+            ctx.close()
 
     print(f"\n✅  {total_imported} Shared Matches importiert "
           f"({len(to_do)} Match-Seiten verarbeitet)")
@@ -1065,6 +1086,10 @@ if __name__ == "__main__":
     ap.add_argument("--wait-login", action="store_true",
                     help="Nach dem Aufwärmen pausieren (ENTER), um im sichtbaren "
                          "Browser die Erweiterung zu verifizieren/einzuloggen")
+    ap.add_argument("--cdp", nargs="?", const="http://localhost:9222", default="",
+                    help="An ein laufendes Chrome anhängen (Remote-Debugging). "
+                         "Nutzt dessen bereits installierte/verifizierte Erweiterung "
+                         "und Session. Standard-URL: http://localhost:9222")
     args = ap.parse_args()
 
     scrape(
@@ -1079,4 +1104,5 @@ if __name__ == "__main__":
         debug         = args.debug,
         extension_dir = args.extension or args.extension_id or None,
         wait_login    = args.wait_login,
+        cdp_url       = args.cdp or None,
     )
