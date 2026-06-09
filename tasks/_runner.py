@@ -84,7 +84,7 @@ def load_gedcom(progress_cb=None, stop_event=None):
                             "ancestry")
         if _anc not in _sys.path:
             _sys.path.insert(0, _anc)
-        from core.database import AncestryDatabase
+        from core.database import Database as AncestryDatabase
         from core.bridge import import_gedcom_persons, ensure_tables
         _db = AncestryDatabase()
         ensure_tables(_db)
