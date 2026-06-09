@@ -135,14 +135,16 @@ echo Welches Programm starten?
 echo   [1] Genealogie-Suite (Stammbaum + DNA in EINEM Fenster)  ^<-- empfohlen
 echo   [2] Nur GEDCOM-Analyzer  (Stammbaum-Auswertung)
 echo   [3] Nur Ancestry DNA Tool (DNA-Matches ^& Clustering)
-echo   [4] Beenden
+echo   [4] Datenviewer (Anverwandte-Crawl / GEDCOM durchsuchen)
+echo   [5] Beenden
 echo.
-set /p CHOICE="Auswahl (1/2/3/4): "
+set /p CHOICE="Auswahl (1/2/3/4/5): "
 
 if "%CHOICE%"=="1" goto start_unified
 if "%CHOICE%"=="2" goto start_gedcom
 if "%CHOICE%"=="3" goto start_dna
-if "%CHOICE%"=="4" goto end
+if "%CHOICE%"=="4" goto start_viewer
+if "%CHOICE%"=="5" goto end
 echo Ungueltige Eingabe – starte Genealogie-Suite.
 
 :start_unified
@@ -165,6 +167,14 @@ goto done
 echo Starte Ancestry DNA Tool ...
 pushd "%REPO_DIR%\ancestry" >nul
 %PYTHON% main.py
+set "RC=%errorlevel%"
+popd >nul
+goto done
+
+:start_viewer
+echo Starte Datenviewer (oeffnet die Crawl-DB read-only - stoert den Crawler nicht) ...
+pushd "%REPO_DIR%" >nul
+%PYTHON% viewer.py
 set "RC=%errorlevel%"
 popd >nul
 goto done
