@@ -742,20 +742,20 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                     crawl._ema_state = {}  # type: ignore[attr-defined]
                 _st = crawl._ema_state.setdefault(direction, {"prev_open": openf, "ema": 0.0})
                 interval_growth = (openf - _st["prev_open"]) / 25.0
-                alpha = 0.15  # EMA-Glättung: ~200-Seiten-Fenster
+                alpha = 0.05  # EMA-Glättung: ~500-Seiten-Fenster
                 _st["ema"] = alpha * interval_growth + (1 - alpha) * _st["ema"]
                 _st["prev_open"] = openf
                 growth_per_page = _st["ema"]
 
                 net_drain = 1.0 - growth_per_page
                 if net_drain > 0.05 and rate > 0:
-                    eta_s = (openf / net_drain) / rate
+                    eta_s = min((openf / net_drain) / rate, 999 * 3600)
                     eta_str = (f"{int(eta_s//3600)}h{int((eta_s%3600)//60)}m"
                                if eta_s > 60 else f"{int(eta_s)}s")
                 elif net_drain <= 0:
                     eta_str = "wächst noch"
                 else:
-                    eta_str = ">100h"
+                    eta_str = ">99h"
                 growth_str = f"{growth_per_page:+.2f}/S"
                 known_min = total + openf
                 if 0 < growth_per_page < 0.95:
