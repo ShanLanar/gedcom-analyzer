@@ -576,7 +576,8 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                                     print(f"    [DBG] route captured {_k[-20:]}: "
                                           f"len={len(_b)} start={_b[:40]!r}")
                     route.continue_()
-                page.route("**/web-family-graphql/**", _route_capture)
+                if not _via_cdp:  # CDP: CSV liefert alle Daten, kein Route-Intercepting nötig
+                    page.route("**/web-family-graphql/**", _route_capture)
 
                 # Netzwerk-Intercept: JSON-Antworten abfangen
                 def _on_resp(response):
@@ -705,11 +706,12 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     page.remove_listener("response", _on_resp)
                 except Exception:
                     pass
-                print("    [T6] Unroute …", flush=True)
-                try:
-                    page.unroute("**/web-family-graphql/**", _route_capture)
-                except Exception:
-                    pass
+                if not _via_cdp:
+                    print("    [T6] Unroute …", flush=True)
+                    try:
+                        page.unroute("**/web-family-graphql/**", _route_capture)
+                    except Exception:
+                        pass
                 print("    [T7] Listener fertig", flush=True)
 
                 if debug:
