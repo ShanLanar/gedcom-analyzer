@@ -585,6 +585,33 @@ DNA_TOOLS: dict = {
         ),
         "tips": "MH-CSV-Export: DNA → Matches → Download-Symbol → 'Als CSV herunterladen'.",
     },
+    "webtrees_crawler": {
+        "title":   "webtrees-Crawler (beliebige Instanz)",
+        "group":   "DNA-Tools",
+        "purpose": "Crawlt einen öffentlichen (oder login-geschützten) webtrees-Stammbaum und speichert alle Personen lokal für den GEDCOM-Overlap-Vergleich.",
+        "details": (
+            "Unterstützt jede webtrees-Instanz:\n\n"
+            "Einfacher Start:\n"
+            "  python ancestry/tools/crawl_webtrees.py crawl \\\n"
+            "    \"https://mein-stammbaum.de/tree/family/individual/I1/\"\n\n"
+            "Mit Login (HTTP Basic Auth):\n"
+            "  python crawl_webtrees.py crawl <URL> --auth user:passwort\n\n"
+            "Mit Cookie-Login (Cookie Editor JSON):\n"
+            "  python crawl_webtrees.py crawl <URL> --cookies cookies.json\n\n"
+            "Mit webtrees-Formular-Login:\n"
+            "  python crawl_webtrees.py crawl <URL> \\\n"
+            "    --login-url https://site.de/login \\\n"
+            "    --login-user meins --login-pass geheim\n\n"
+            "Profil speichern (für Wiederholungs-Läufe):\n"
+            "  python crawl_webtrees.py crawl <URL> --save-profile meinbaum\n"
+            "  python crawl_webtrees.py crawl --profile meinbaum\n\n"
+            "Alle bekannten Sites auflisten:\n"
+            "  python crawl_webtrees.py list-sites\n\n"
+            "Datenbank: webtrees_{host}.db (pro Instanz getrennt)\n"
+            "anverwandte.info → webtrees_crawl.db (Rückwärtskompatibel)"
+        ),
+        "tips": "Rate-Limit: Standard 4s + Jitter. Nie auf --delay < 4 setzen. Resumable: Einfach erneut starten.",
+    },
     "xref_review": {
         "title":   "GEDCOM↔Match Verknüpfung verwalten (xref_review)",
         "group":   "DNA-Tools",

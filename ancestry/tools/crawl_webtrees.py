@@ -38,6 +38,14 @@ Nachkommen-Explosion eindämmen (optional, Raum/Zeit):
 Matricula-Belege samt reparierter (Pfarrei-)URLs ausgeben:
 
     python crawl_webtrees.py matricula
+
+Gespeicherte Profile auflisten:
+
+    python crawl_webtrees.py profiles
+
+Alle bekannten Instanzen (lokale DBs) auflisten:
+
+    python crawl_webtrees.py list-sites
 """
 from __future__ import annotations
 import re
@@ -47,6 +55,7 @@ import json
 import sqlite3
 import argparse
 import logging
+import http.cookiejar
 from urllib import request, parse
 from urllib.error import HTTPError, URLError
 from urllib.robotparser import RobotFileParser
@@ -55,7 +64,9 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 USER_AGENT = "gedcom-analyzer-crawler/1.0 (personal genealogy research)"
-DB_PATH    = Path(__file__).resolve().parent / "webtrees_crawl.db"
+SCRIPT_DIR = Path(__file__).resolve().parent
+DB_PATH    = SCRIPT_DIR / "webtrees_crawl.db"   # legacy default (anverwandte)
+PROFILES_FILE = SCRIPT_DIR / "webtrees_profiles.json"
 
 # webtrees-Link-Muster: /tree/<baum>/individual/I12345/slug
 # IDs können auch andere Buchstaben-Präfixe haben (X…, F… ist Familie)
@@ -99,19 +110,149 @@ def _clean(html_fragment: str) -> str:
     return re.sub(r"\s+", " ", txt).strip()
 
 
+def _host_to_slug(host: str) -> str:
+    """Convert hostname to filesystem-safe slug: dots → underscores."""
+    return host.replace(".", "_").replace("-", "_")
+
+
+def _db_path_for_url(seed_url: str) -> Path:
+    """Derive default DB path from seed URL host.
+
+    Special case: stammbaum.anverwandte.info → webtrees_crawl.db (legacy name)
+    for backward compatibility. All other hosts get webtrees_{slug}.db.
+    """
+    m = _BASE_RE.match(seed_url)
+    if not m:
+        return SCRIPT_DIR / "webtrees_crawl.db"
+    host = parse.urlparse(m.group(1)).hostname or ""
+    # Legacy alias: keep the old DB name for anverwandte
+    if host == "stammbaum.anverwandte.info":
+        legacy = SCRIPT_DIR / "webtrees_crawl.db"
+        if legacy.exists():
+            return legacy
+    slug = _host_to_slug(host)
+    return SCRIPT_DIR / f"webtrees_{slug}.db"
+
+
+# ── Profile helpers ───────────────────────────────────────────────────────────
+
+def _load_profiles() -> dict:
+    if PROFILES_FILE.exists():
+        try:
+            return json.loads(PROFILES_FILE.read_text(encoding="utf-8"))
+        except Exception:
+            pass
+    return {}
+
+
+def _save_profiles(profiles: dict):
+    PROFILES_FILE.write_text(json.dumps(profiles, indent=2, ensure_ascii=False),
+                             encoding="utf-8")
+
+
 # ── HTTP (höflich) ────────────────────────────────────────────────────────────
 
 class Fetcher:
-    def __init__(self, base: str, delay: float = 4.0):
+    def __init__(self, base: str, delay: float = 4.0,
+                 auth: str | None = None,
+                 cookies_path: str | None = None,
+                 login_url: str | None = None,
+                 login_user: str | None = None,
+                 login_pass: str | None = None):
+        """
+        base         – scheme + host, e.g. "https://stammbaum.anverwandte.info"
+        delay        – minimum seconds between requests
+        auth         – "user:pass" for HTTP Basic Auth
+        cookies_path – path to a cookie JSON file (Cookie Editor / Netscape format)
+        login_url    – full URL for form-based login POST
+        login_user   – username for form-based login
+        login_pass   – password for form-based login
+        """
         self.base = base
         self.delay = delay      # Mindestpause zwischen Anfragen (Sekunden)
         self._last = 0.0
+        self._extra_headers: dict[str, str] = {}
+
+        # HTTP Basic Auth
+        if auth:
+            import base64
+            encoded = base64.b64encode(auth.encode()).decode()
+            self._extra_headers["Authorization"] = f"Basic {encoded}"
+
+        # Cookie jar (shared across requests for session persistence)
+        self._cookie_jar = http.cookiejar.CookieJar()
+        self._opener = request.build_opener(
+            request.HTTPCookieProcessor(self._cookie_jar)
+        )
+
+        # Load cookies from file (JSON from Cookie Editor or Netscape)
+        if cookies_path:
+            self._load_cookies(cookies_path)
+
+        # Form-based login (must happen after cookie jar is set up)
+        if login_url and login_user is not None and login_pass is not None:
+            self._form_login(login_url, login_user, login_pass)
+
         self.robots = RobotFileParser()
         try:
             self.robots.set_url(base + "/robots.txt")
             self.robots.read()
         except Exception:
             self.robots = None  # kein robots.txt -> erlaubt
+
+    def _load_cookies(self, cookies_path: str):
+        """Load cookies from a JSON file (Cookie Editor export format) or
+        attempt Netscape format via MozillaCookieJar."""
+        p = Path(cookies_path)
+        if not p.exists():
+            log.warning("Cookie-Datei nicht gefunden: %s", cookies_path)
+            return
+        raw = p.read_text(encoding="utf-8").strip()
+        # Try JSON format first (Cookie Editor exports a JSON array)
+        if raw.startswith("[") or raw.startswith("{"):
+            try:
+                data = json.loads(raw)
+                if isinstance(data, dict):
+                    data = list(data.values())
+                # Build a Cookie header string to inject into every request
+                pairs = []
+                for entry in data:
+                    name = entry.get("name", "")
+                    value = entry.get("value", "")
+                    if name:
+                        pairs.append(f"{name}={value}")
+                if pairs:
+                    self._extra_headers["Cookie"] = "; ".join(pairs)
+                log.info("Cookies geladen (%d Stück) aus %s", len(pairs), cookies_path)
+                return
+            except json.JSONDecodeError:
+                pass
+        # Fallback: Netscape / Mozilla format
+        try:
+            jar = http.cookiejar.MozillaCookieJar(cookies_path)
+            jar.load(ignore_discard=True, ignore_expires=True)
+            for cookie in jar:
+                self._cookie_jar.set_cookie(cookie)
+            log.info("Netscape-Cookies geladen aus %s", cookies_path)
+        except Exception as e:
+            log.warning("Cookie-Datei konnte nicht gelesen werden: %s", e)
+
+    def _form_login(self, login_url: str, username: str, password: str):
+        """POST username/password to login_url (webtrees login form)."""
+        data = parse.urlencode({
+            "username": username,
+            "password": password,
+        }).encode()
+        req = request.Request(login_url, data=data, method="POST", headers={
+            "User-Agent": USER_AGENT,
+            "Content-Type": "application/x-www-form-urlencoded",
+            **self._extra_headers,
+        })
+        try:
+            with self._opener.open(req, timeout=25) as r:
+                log.info("Login-POST an %s → HTTP %s", login_url, r.status)
+        except Exception as e:
+            log.warning("Form-Login fehlgeschlagen: %s", e)
 
     def allowed(self, url: str) -> bool:
         if not self.robots:
@@ -134,12 +275,14 @@ class Fetcher:
         last_err = None
         for attempt in range(retries + 1):
             try:
-                req = request.Request(url, headers={
+                headers = {
                     "User-Agent": USER_AGENT,
                     "Accept": "text/html,application/xhtml+xml",
                     "Accept-Language": "de,en;q=0.8",
-                })
-                with request.urlopen(req, timeout=timeout) as r:
+                    **self._extra_headers,
+                }
+                req = request.Request(url, headers=headers)
+                with self._opener.open(req, timeout=timeout) as r:
                     self._last = time.time()
                     return r.read().decode("utf-8", errors="replace")
             except (HTTPError, URLError, TimeoutError) as e:
@@ -364,17 +507,24 @@ def _db(path: Path) -> sqlite3.Connection:
         );
     """)
     c.commit()
+
+    # Schema migration: add tree_source column if missing
+    existing_cols = {row[1] for row in c.execute("PRAGMA table_info(wt_persons)")}
+    if "tree_source" not in existing_cols:
+        c.execute("ALTER TABLE wt_persons ADD COLUMN tree_source TEXT")
+        c.commit()
+
     return c
 
 
-def _save_person(c, p, ind_id, url):
+def _save_person(c, p, ind_id, url, tree_source: str | None = None):
     c.execute("""INSERT OR REPLACE INTO wt_persons
         (id,url,name,given_name,surname,sex,birth_date,birth_place,
          birth_year,death_date,death_place,death_year,father_name,
          mother_name,spouse_names_json,child_names_json,matricula_json,
          parents_json,children_json,spouses_json,siblings_json,
-         related_json,families_json,fetched_at)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'))""",
+         related_json,families_json,fetched_at,tree_source)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)""",
         (p["id"] or ind_id, url, p["name"], p["given_name"], p["surname"],
          p["sex"], p["birth_date"], p["birth_place"], p["birth_year"],
          p["death_date"], p["death_place"], p["death_year"],
@@ -383,7 +533,8 @@ def _save_person(c, p, ind_id, url):
          json.dumps(p["matricula"]),
          json.dumps(p["parents"]), json.dumps(p["children"]),
          json.dumps(p["spouses_ids"]), json.dumps(p["siblings"]),
-         json.dumps(p["related"]), json.dumps(p["families"])))
+         json.dumps(p["related"]), json.dumps(p["families"]),
+         tree_source))
 
 
 def _in_scope(p, place_filter, year_min, year_max) -> bool:
@@ -416,13 +567,23 @@ def _in_scope(p, place_filter, year_min, year_max) -> bool:
 
 def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
           mode: str = "both", place_filter=None, year_min=0, year_max=0,
-          db_path: Path = DB_PATH):
+          db_path: Path = DB_PATH,
+          auth: str | None = None,
+          cookies: str | None = None,
+          login_url: str | None = None,
+          login_user: str | None = None,
+          login_pass: str | None = None,
+          tree_source: str | None = None):
     """mode:
         'up'   – nur Vorfahren (Eltern rückwärts)
         'down' – nur Nachkommen (Kinder vorwärts)
         'both' – erst alle Vorfahren, dann von ihnen alle Nachkommen
     place_filter: Liste von Ortsteilstrings (lowercase); year_min/max: Pruning
     der Nachkommen, damit der Crawl im gewünschten Raum/Zeitfenster bleibt.
+    auth: "user:pass" for HTTP Basic Auth.
+    cookies: path to cookie JSON file.
+    login_url/login_user/login_pass: form-based login credentials.
+    tree_source: "{host}/{tree}" label stored in wt_persons.tree_source column.
     """
     base = (_BASE_RE.match(seed_url) or [None, ""])[1]
     if not base:
@@ -431,7 +592,20 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
     tree = tree_m.group(1) if tree_m else "anverwandte"
     place_filter = [s.lower() for s in (place_filter or [])]
 
-    f = Fetcher(base, delay=delay)
+    # Derive tree_source from seed URL if not explicitly provided
+    if tree_source is None:
+        parsed_host = parse.urlparse(base).hostname or ""
+        tree_source = f"{parsed_host}/{tree}" if parsed_host else tree
+
+    print(f"tree_source: {tree_source}")
+    print(f"DB: {db_path}")
+
+    f = Fetcher(base, delay=delay,
+                auth=auth,
+                cookies_path=cookies,
+                login_url=login_url,
+                login_user=login_user,
+                login_pass=login_pass)
     c = _db(db_path)
     seed_id = (_IND_RE.search(seed_url) or [None, ""])[1]
 
@@ -456,7 +630,7 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 return None, None   # Netzwerkfehler → nicht als erledigt markieren
             try:
                 p = parse_individual(html, url)
-                _save_person(c, p, pid, url)
+                _save_person(c, p, pid, url, tree_source=tree_source)
             except Exception as e:
                 log.warning("Parse/Speicher-Fehler %s: %s", pid, e)
                 # Mark done so we don't retry an unparseable page endlessly,
@@ -498,6 +672,7 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
         label = {"up": "Vorfahren ⬆", "down": "Nachkommen ⬇"}[direction]
         print(f"\n=== Phase {ph_idx+1}/{len(phases)}: {label} ===")
         processed = 0
+        _phase_start = time.time()
         while processed < max_pages:
             row = c.execute("SELECT id, depth FROM wt_frontier WHERE done=0 AND "
                             "direction=? ORDER BY depth LIMIT 1", (direction,)
@@ -527,7 +702,13 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 total = c.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
                 openf = c.execute("SELECT COUNT(*) FROM wt_frontier WHERE done=0 "
                                   "AND direction=?", (direction,)).fetchone()[0]
-                print(f"  +{processed}  | Personen: {total} | offen({direction}): {openf}")
+                elapsed = time.time() - _phase_start
+                rate = processed / elapsed if elapsed > 0 else 0
+                eta_s = (openf / rate) if rate > 0 else 0
+                eta_str = (f"{int(eta_s//3600)}h{int((eta_s%3600)//60)}m"
+                           if eta_s > 60 else f"{int(eta_s)}s")
+                print(f"  +{processed}  | Personen: {total} | offen({direction}): {openf}"
+                      f" | {rate:.2f}/s | ETA ~{eta_str}")
         c.commit()
         if processed >= max_pages:
             print(f"Seiten-Limit ({max_pages}) erreicht – erneut starten zum Fortsetzen.")
@@ -619,35 +800,218 @@ def matricula_report(db_path: Path = DB_PATH):
     c.close()
 
 
+# ── list-sites subcommand ─────────────────────────────────────────────────────
+
+def list_sites():
+    """Scan all webtrees_*.db files in the script directory and print a summary."""
+    dbs = list(SCRIPT_DIR.glob("webtrees_*.db"))
+    # Also include legacy webtrees_crawl.db
+    legacy = SCRIPT_DIR / "webtrees_crawl.db"
+    if legacy.exists() and legacy not in dbs:
+        dbs.append(legacy)
+    if not dbs:
+        print("Keine webtrees-Datenbanken gefunden in:", SCRIPT_DIR)
+        return
+    print(f"{'DB':<40} {'Personen':>9} {'Letzte Abfrage':<22} {'Offen':>6}")
+    print("-" * 82)
+    for db_file in sorted(dbs):
+        try:
+            conn = sqlite3.connect(str(db_file))
+            person_count = conn.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
+            last_fetch = conn.execute(
+                "SELECT MAX(fetched_at) FROM wt_persons").fetchone()[0] or "-"
+            open_frontier = conn.execute(
+                "SELECT COUNT(*) FROM wt_frontier WHERE done=0").fetchone()[0]
+            conn.close()
+            print(f"{db_file.name:<40} {person_count:>9} {last_fetch:<22} {open_frontier:>6}")
+        except Exception:
+            print(f"{db_file.name:<40} {'—':>9} {'(noch leer / kein crawl)':22} {'—':>6}")
+
+
+# ── profiles subcommand ───────────────────────────────────────────────────────
+
+def list_profiles():
+    """List all saved profiles from webtrees_profiles.json."""
+    profiles = _load_profiles()
+    if not profiles:
+        print("Keine gespeicherten Profile gefunden.")
+        print(f"Profile-Datei: {PROFILES_FILE}")
+        return
+    for name, cfg in profiles.items():
+        print(f"\n[{name}]")
+        for k, v in cfg.items():
+            print(f"  {k}: {v}")
+
+
 def main(argv):
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd")
+
     d = sub.add_parser("dump");  d.add_argument("url")
+
     cr = sub.add_parser("crawl")
-    cr.add_argument("url")
-    cr.add_argument("--mode", choices=["up", "down", "both"], default="both",
+    cr.add_argument("url", nargs="?", default=None,
+                    help="Seed-URL der Start-Person (kann auch im Profil stehen)")
+    cr.add_argument("--mode", choices=["up", "down", "both"], default=None,
                     help="up=Vorfahren, down=Nachkommen, both=erst auf- dann abwärts")
-    cr.add_argument("--max", type=int, default=300,
+    cr.add_argument("--max", type=int, default=None,
                     help="Max. Seiten pro Lauf (Default 300, schonend)")
-    cr.add_argument("--delay", type=float, default=4.0,
+    cr.add_argument("--delay", type=float, default=None,
                     help="Mindestpause zw. Anfragen in s (Default 4.0 + Jitter)")
-    cr.add_argument("--place", default="",
+    cr.add_argument("--place", default=None,
                     help="Nachkommen nur im Ort weiterverfolgen (Komma-Liste, "
                          "z.B. 'Osnabrück,Hagen,Oesede,Ostercappeln')")
-    cr.add_argument("--year-min", type=int, default=0)
-    cr.add_argument("--year-max", type=int, default=0)
-    mr = sub.add_parser("matricula", help="Matricula-Belege + reparierte URLs ausgeben")
+    cr.add_argument("--year-min", type=int, default=None)
+    cr.add_argument("--year-max", type=int, default=None)
+    cr.add_argument("--db", default=None,
+                    help="Pfad zur SQLite-DB (überschreibt den automatischen Namen)")
+    cr.add_argument("--auth", default=None,
+                    help="HTTP Basic Auth als 'user:pass'")
+    cr.add_argument("--cookies", default=None,
+                    help="Pfad zu einer Cookie-JSON-Datei (Cookie Editor Format)")
+    cr.add_argument("--login-url", default=None,
+                    help="URL des webtrees-Login-Formulars für form-based Login")
+    cr.add_argument("--login-user", default=None,
+                    help="Benutzername für form-based Login")
+    cr.add_argument("--login-pass", default=None,
+                    help="Passwort für form-based Login")
+    cr.add_argument("--profile", default=None,
+                    help="Gespeichertes Profil laden (CLI-Args überschreiben)")
+    cr.add_argument("--save-profile", default=None, metavar="NAME",
+                    help="Aktuelle CLI-Args als Profil speichern")
+
+    sub.add_parser("matricula", help="Matricula-Belege + reparierte URLs ausgeben")
+    sub.add_parser("profiles", help="Alle gespeicherten Profile auflisten")
+    sub.add_parser("list-sites", help="Alle lokalen webtrees-DBs auflisten")
+
     args = ap.parse_args(argv[1:])
 
     if args.cmd == "dump":
         dump(args.url)
+
     elif args.cmd == "crawl":
-        places = [s.strip() for s in args.place.split(",") if s.strip()]
-        crawl(args.url, max_pages=args.max, delay=args.delay, mode=args.mode,
-              place_filter=places, year_min=args.year_min, year_max=args.year_max)
+        # Start with defaults
+        cfg = {
+            "seed_url":   None,
+            "mode":       "both",
+            "max":        300,
+            "delay":      4.0,
+            "place":      "",
+            "year_min":   0,
+            "year_max":   0,
+            "db":         None,
+            "auth":       None,
+            "cookies":    None,
+            "login_url":  None,
+            "login_user": None,
+            "login_pass": None,
+        }
+
+        # Load profile if requested
+        if args.profile:
+            profiles = _load_profiles()
+            if args.profile not in profiles:
+                print(f"Profil '{args.profile}' nicht gefunden. Verfügbar: "
+                      f"{list(profiles.keys())}")
+                sys.exit(1)
+            prof = profiles[args.profile]
+            # Profile key "seed_url" maps to positional url
+            if "seed_url" in prof:
+                cfg["seed_url"] = prof["seed_url"]
+            for k in ("mode", "max", "delay", "place", "year_min", "year_max",
+                      "db", "auth", "cookies", "login_url", "login_user", "login_pass"):
+                if k in prof and prof[k] is not None:
+                    cfg[k] = prof[k]
+            # Backward compat: anverwandte profile uses webtrees_crawl.db
+            if args.profile == "anverwandte" and cfg.get("db") is None:
+                legacy = SCRIPT_DIR / "webtrees_crawl.db"
+                if legacy.exists():
+                    cfg["db"] = str(legacy)
+
+        # CLI args override profile (only if explicitly provided)
+        if args.url is not None:
+            cfg["seed_url"] = args.url
+        if args.mode is not None:
+            cfg["mode"] = args.mode
+        if args.max is not None:
+            cfg["max"] = args.max
+        if args.delay is not None:
+            cfg["delay"] = args.delay
+        if args.place is not None:
+            cfg["place"] = args.place
+        if args.year_min is not None:
+            cfg["year_min"] = args.year_min
+        if args.year_max is not None:
+            cfg["year_max"] = args.year_max
+        if args.db is not None:
+            cfg["db"] = args.db
+        if args.auth is not None:
+            cfg["auth"] = args.auth
+        if args.cookies is not None:
+            cfg["cookies"] = args.cookies
+        if args.login_url is not None:
+            cfg["login_url"] = args.login_url
+        if args.login_user is not None:
+            cfg["login_user"] = args.login_user
+        if args.login_pass is not None:
+            cfg["login_pass"] = args.login_pass
+
+        if not cfg["seed_url"]:
+            print("Fehler: Seed-URL fehlt (als Argument oder im Profil angeben).")
+            sys.exit(1)
+
+        # Resolve DB path
+        if cfg["db"]:
+            db_path = Path(cfg["db"])
+        else:
+            db_path = _db_path_for_url(cfg["seed_url"])
+
+        # Save profile if requested
+        if args.save_profile:
+            profiles = _load_profiles()
+            profiles[args.save_profile] = {
+                "seed_url":   cfg["seed_url"],
+                "mode":       cfg["mode"],
+                "delay":      cfg["delay"],
+                "max":        cfg["max"],
+                "place":      cfg["place"],
+                "year_min":   cfg["year_min"],
+                "year_max":   cfg["year_max"],
+                "db":         str(db_path),
+                "auth":       cfg["auth"],
+                "cookies":    cfg["cookies"],
+                "login_url":  cfg["login_url"],
+                "login_user": cfg["login_user"],
+                "login_pass": cfg["login_pass"],
+            }
+            _save_profiles(profiles)
+            print(f"Profil '{args.save_profile}' gespeichert in {PROFILES_FILE}")
+
+        places = [s.strip() for s in (cfg["place"] or "").split(",") if s.strip()]
+        crawl(cfg["seed_url"],
+              max_pages=cfg["max"],
+              delay=cfg["delay"],
+              mode=cfg["mode"],
+              place_filter=places,
+              year_min=cfg["year_min"],
+              year_max=cfg["year_max"],
+              db_path=db_path,
+              auth=cfg["auth"],
+              cookies=cfg["cookies"],
+              login_url=cfg["login_url"],
+              login_user=cfg["login_user"],
+              login_pass=cfg["login_pass"])
+
     elif args.cmd == "matricula":
         matricula_report()
+
+    elif args.cmd == "profiles":
+        list_profiles()
+
+    elif args.cmd == "list-sites":
+        list_sites()
+
     else:
         print(__doc__)
 
