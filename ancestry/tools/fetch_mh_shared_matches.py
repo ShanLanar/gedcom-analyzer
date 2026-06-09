@@ -425,16 +425,21 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                     """Parst ein MH-GraphQL-Match-Item (REST oder dna_shared_matches)."""
                     if not isinstance(item, dict):
                         return None
-                    # MH GraphQL: { shared_member: {guid, display_name, ...},
-                    #               shared_dna, shared_segments, ... }
+                    # MH GraphQL item shape:
+                    # { shared_member: { id: "user-XXX", name, gender, ... },
+                    #   shared_dna: 123.4, shared_segments: 5, ... }
                     member = item.get("shared_member") or {}
+                    # ID: "user-OYYV65..." → als GUID verwenden (MH nutzt kein D-Format hier)
                     g = (member.get("guid") or member.get("dna_kit_id") or
+                         member.get("id") or          # "user-OYYV65..."
                          item.get("guid") or item.get("matchGuid") or
                          item.get("relativeGuid") or item.get("id") or "")
                     if isinstance(g, str):
                         g = g.upper()
                     cm_val = float(item.get("shared_dna") or
                                    item.get("sharedDna") or item.get("sharedCm") or
+                                   item.get("shared_dna_cm") or
+                                   item.get("shared_centimorgans") or
                                    item.get("shared_dna_percentage") or
                                    member.get("shared_dna") or 0)
                     if not g or not cm_val:
@@ -510,7 +515,7 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             print(f"    [DBG] GraphQL shared_matches Items: {len(items)}")
                             if items:
                                 import json as _dbg_json
-                                print(f"    [DBG] Erstes Item: {_dbg_json.dumps(items[0], ensure_ascii=False)[:600]}")
+                                print(f"    [DBG] Erstes Item: {_dbg_json.dumps(items[0], ensure_ascii=False)[:2000]}")
                         for item in items:
                             sm = _parse_mh_item(item)
                             if sm:
