@@ -92,6 +92,49 @@ class Scraper:
                      min_cm: float = 0.0, skip_existing: bool = True):
         self._launch("_run_shared", test_guid, min_cm, skip_existing)
 
+    def start_all_phases(self, test_guid: str,
+                         filter_by: str = "ALL", sort_by: str = "RELATIONSHIP",
+                         only_new: bool = False, names_min_cm: float = 0.0,
+                         shared_min_cm: float = 20.0, ped_gens: int = 5,
+                         on_phase_change=None):
+        """Führt alle Phasen sequentiell aus (wie webtrees-Crawler):
+        1 → Matches  2 → Namen/Baum  3 → Vorfahren+Orte  4 → Shared Matches
+        on_phase_change(phase_idx, phase_name, status)  –  status: 'running'|'done'|'error'
+        """
+        self._launch("_run_all_phases", test_guid, filter_by, sort_by, only_new,
+                     names_min_cm, shared_min_cm, ped_gens, on_phase_change)
+
+    def _run_all_phases(self, test_guid: str,
+                        filter_by: str, sort_by: str, only_new: bool,
+                        names_min_cm: float, shared_min_cm: float,
+                        ped_gens: int, on_phase_change):
+        """Sequentieller Phasen-Lauf mit Callback nach jeder Phase."""
+        cb = on_phase_change or (lambda *a: None)
+        PHASES = [
+            (1, "Matches herunterladen",    "_run_matches",
+             (test_guid, filter_by, sort_by, only_new, False)),
+            (2, "Namen & Stammbaum laden",  "_run_fetch_names",
+             (test_guid, names_min_cm)),
+            (3, "Vorfahren & Orte laden",   "_run_fetch_ancestors",
+             (test_guid, names_min_cm)),
+            (4, "Shared Matches laden",     "_run_shared",
+             (test_guid, shared_min_cm, True)),
+        ]
+        for phase_idx, phase_name, method, args in PHASES:
+            if self._stop.is_set():
+                break
+            cb(phase_idx, phase_name, "running")
+            self._on_status(f"Phase {phase_idx}/4: {phase_name} …")
+            try:
+                getattr(self, method)(*args)
+                cb(phase_idx, phase_name, "done")
+            except Exception as exc:
+                log.error("Phase %d Fehler: %s", phase_idx, exc)
+                cb(phase_idx, phase_name, "error")
+                # Phasen-Fehler stoppen nicht den Gesamt-Lauf (nur loggen)
+        self._on_status("Alle Phasen abgeschlossen." if not self._stop.is_set()
+                        else "Phasen-Lauf abgebrochen.")
+
     def stop(self):
         self._stop.set()
         log.info("Stoppanfrage gesendet.")

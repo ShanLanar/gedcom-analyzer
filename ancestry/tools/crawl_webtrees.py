@@ -505,6 +505,17 @@ def _db(path: Path) -> sqlite3.Connection:
             depth INTEGER DEFAULT 0, done INTEGER DEFAULT 0,
             PRIMARY KEY (id, direction)
         );
+        -- Speichert Seed-Person + Meta pro Crawl-Site (für Resume + Anzeige)
+        CREATE TABLE IF NOT EXISTS wt_crawl_meta (
+            tree_source TEXT PRIMARY KEY,
+            seed_id     TEXT NOT NULL,
+            seed_url    TEXT NOT NULL,
+            base_url    TEXT,
+            tree_name   TEXT,
+            mode        TEXT DEFAULT 'both',
+            started_at  TEXT,
+            last_run    TEXT
+        );
     """)
     c.commit()
 
@@ -597,8 +608,9 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
         parsed_host = parse.urlparse(base).hostname or ""
         tree_source = f"{parsed_host}/{tree}" if parsed_host else tree
 
-    print(f"tree_source: {tree_source}")
-    print(f"DB: {db_path}")
+    print(f"tree_source : {tree_source}")
+    print(f"Seed-ID     : {seed_id or '(aus URL nicht erkannt)'}")
+    print(f"DB          : {db_path}")
 
     f = Fetcher(base, delay=delay,
                 auth=auth,
@@ -608,6 +620,25 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 login_pass=login_pass)
     c = _db(db_path)
     seed_id = (_IND_RE.search(seed_url) or [None, ""])[1]
+
+    # Seed-Person + Meta persistieren (für Resume-Erkennung und Viewer-Verknüpfung)
+    if seed_id:
+        c.execute("""
+            INSERT INTO wt_crawl_meta
+                (tree_source, seed_id, seed_url, base_url, tree_name, mode,
+                 started_at, last_run)
+            VALUES (?,?,?,?,?,?,
+                    COALESCE((SELECT started_at FROM wt_crawl_meta WHERE tree_source=?),
+                             datetime('now')),
+                    datetime('now'))
+            ON CONFLICT(tree_source) DO UPDATE SET
+                seed_id  = excluded.seed_id,
+                seed_url = excluded.seed_url,
+                mode     = excluded.mode,
+                last_run = excluded.last_run
+        """, (tree_source, seed_id, seed_url, base, tree, mode,
+              tree_source))
+        c.commit()
 
     def enqueue(pid, direction, depth):
         c.execute("INSERT OR IGNORE INTO wt_frontier (id,direction,depth,done) "
@@ -812,20 +843,26 @@ def list_sites():
     if not dbs:
         print("Keine webtrees-Datenbanken gefunden in:", SCRIPT_DIR)
         return
-    print(f"{'DB':<40} {'Personen':>9} {'Letzte Abfrage':<22} {'Offen':>6}")
-    print("-" * 82)
+    print(f"{'DB':<38} {'Personen':>9} {'Seed-ID':<14} {'Offen':>6}  {'Letzter Lauf'}")
+    print("-" * 90)
     for db_file in sorted(dbs):
         try:
             conn = sqlite3.connect(str(db_file))
             person_count = conn.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
-            last_fetch = conn.execute(
-                "SELECT MAX(fetched_at) FROM wt_persons").fetchone()[0] or "-"
             open_frontier = conn.execute(
                 "SELECT COUNT(*) FROM wt_frontier WHERE done=0").fetchone()[0]
+            try:
+                meta = conn.execute(
+                    "SELECT seed_id, last_run FROM wt_crawl_meta ORDER BY last_run DESC LIMIT 1"
+                ).fetchone()
+                seed_id  = meta[0] if meta else "—"
+                last_run = (meta[1] or "—")[:19] if meta else "—"
+            except Exception:
+                seed_id = last_run = "—"
             conn.close()
-            print(f"{db_file.name:<40} {person_count:>9} {last_fetch:<22} {open_frontier:>6}")
+            print(f"{db_file.name:<38} {person_count:>9} {seed_id:<14} {open_frontier:>6}  {last_run}")
         except Exception:
-            print(f"{db_file.name:<40} {'—':>9} {'(noch leer / kein crawl)':22} {'—':>6}")
+            print(f"{db_file.name:<38} {'—':>9} {'—':<14} {'—':>6}  (noch leer / kein crawl)")
 
 
 # ── profiles subcommand ───────────────────────────────────────────────────────
