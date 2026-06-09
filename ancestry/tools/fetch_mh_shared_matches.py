@@ -440,27 +440,80 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 time.sleep(wait_total * 0.3)
 
-                # ── Shared-Matches-Limit prüfen ──────────────────────────────────
-                # WICHTIG: MyHeritage liefert für nicht-bezahlte/Basic-Accounts nur
-                # die ersten 10 Shared Matches als Vorschau. Der Rest ("Review all
-                # shared DNA matches") liegt hinter einer Paywall (reason=167) — der
-                # Redux-State enthält `viewableSections.shared_matches:false` und
-                # `reviewAllSharedMatchesPaywallUrl`. Server-seitiges Pagination per
-                # offset>0 wird daher mit "Unexpected error" abgewiesen, und es gibt
-                # keinen Scroll-/Klick-Mechanismus, der mehr nachlädt. Wir erkennen
-                # das und melden es klar, statt sinnlos zu scrollen.
+                # ── Pagination: gezielt "Show more DNA Matches" klicken ──────────
+                # MH lädt weitere Shared Matches per Klick auf EINEN bestimmten Button
+                # ("Show more DNA Matches" / "Mehr DNA-Matches anzeigen"). Andere
+                # "Show more"-Buttons (z.B. "Search all records") navigieren weg und
+                # zerstören den Kontext — daher GENAU diesen Button-Text matchen und
+                # nur EINEN pro Iteration klicken. Jeder Klick feuert einen korrekt
+                # signierten GraphQL-Request → _on_resp fängt ihn ab.
                 _SM_URL_KEY = "dna_single_match_get_shared_matches"
-                _is_paywalled = False
+
+                def _count_sm_responses() -> int:
+                    return sum(1 for ru, _ in intercepted if _SM_URL_KEY in ru)
+
+                # Klickt GENAU den Shared-DNA-Matches-"Mehr"-Button (kein <a href>,
+                # das wegnavigiert). Gibt zurück: [clicked(bool), buttonText|null]
+                _JS_CLICK_MORE = """
+() => {
+    const rx = /^(show more dna match|mehr dna[- ]?match|weitere dna[- ]?match)/i;
+    const els = document.querySelectorAll('button, [role="button"], span, div, a');
+    for (const el of els) {
+        const txt = (el.innerText || el.textContent || '').trim();
+        if (!txt || txt.length > 40) continue;
+        if (!rx.test(txt)) continue;
+        // <a> mit echtem href = Navigation → überspringen
+        if (el.tagName === 'A') {
+            const href = el.getAttribute('href') || '';
+            if (href && href !== '#' && !href.startsWith('javascript')) continue;
+        }
+        const r = el.getBoundingClientRect();
+        if (r.width <= 0 || r.height <= 0) continue;
+        try { el.scrollIntoView({block:'center'}); el.click(); return [true, txt]; }
+        catch(e) { return [false, '__ERR_' + String(e)]; }
+    }
+    return [false, null];
+}
+"""
                 try:
-                    _html_probe = page.content()
-                    if ('reviewAllSharedMatchesPaywallUrl' in _html_probe or
-                            '"shared_matches":false' in _html_probe or
-                            'AdvancedDnaFeatures.DnaSingleMatch.SharedMatches' in _html_probe):
-                        _is_paywalled = True
-                except Exception:
-                    pass
-                if debug:
-                    print(f"    [DBG] Shared-Matches Paywall erkannt: {_is_paywalled}")
+                    _expected = 0
+                    for _ru, _rb in intercepted:
+                        if _SM_URL_KEY in _ru and _rb:
+                            _mm = re.search(r'"dna_shared_matches"\s*:\s*\{\s*"count"\s*:\s*(\d+)', _rb)
+                            if _mm:
+                                _expected = int(_mm.group(1)); break
+
+                    _stall = 0
+                    _last_resp_count = _count_sm_responses()
+                    _max_iters = max(4, (_expected // 10) + 8) if _expected else 30
+                    for _i in range(_max_iters):
+                        try:
+                            _res = page.evaluate(_JS_CLICK_MORE)
+                        except Exception as _ce:
+                            if debug:
+                                print(f"    [DBG] Klick-Iter {_i+1} Fehler: {_ce}")
+                            break
+                        _clicked = bool(_res[0]) if isinstance(_res, list) else False
+                        _btn_txt = _res[1] if isinstance(_res, list) and len(_res) > 1 else None
+                        time.sleep(max(1.5, pause * 0.6))
+                        _now = _count_sm_responses()
+                        if debug:
+                            print(f"    [DBG] Iter {_i+1}: clicked={_clicked} "
+                                  f"({_btn_txt!r}) → SM-Antworten={_now}"
+                                  f"/~{(_expected or 0)//10 + 1}")
+                        if _now > _last_resp_count:
+                            _last_resp_count = _now
+                            _stall = 0
+                        elif not _clicked:
+                            # kein Button mehr gefunden → fertig
+                            break
+                        else:
+                            _stall += 1
+                            if _stall >= 3:
+                                break
+                except Exception as _se:
+                    if debug:
+                        print(f"    [DBG] Klick-Pagination-Fehler: {_se}")
 
                 page.remove_listener("response", _on_resp)
                 page.unroute("**/web-family-graphql/**", _route_capture)
@@ -617,11 +670,10 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 if debug:
                     print(f"    [DBG] {_pages_seen} SM-Seiten verarbeitet, "
                           f"{len(shared)}/{total_sm_count} Matches eindeutig")
-                # Klare Meldung, wenn MH nur die Vorschau (paywalled) liefert
-                if total_sm_count > len(shared) and (_is_paywalled or len(shared) <= 10):
-                    print(f"    ⚠  Nur {len(shared)} von {total_sm_count} Shared Matches "
-                          f"zugänglich — Rest hinter MyHeritage-Paywall "
-                          f"(Abo erforderlich für 'Alle gemeinsamen DNA-Matches').")
+                # Hinweis, wenn nicht alle geladen wurden
+                if total_sm_count > len(shared):
+                    print(f"    ⚠  {len(shared)} von {total_sm_count} Shared Matches geladen "
+                          f"(weitere konnten nicht per 'Show more' nachgeladen werden).")
 
                 # Fallback: alle anderen JSON-Antworten durchsuchen
                 if not shared:
