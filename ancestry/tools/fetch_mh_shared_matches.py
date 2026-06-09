@@ -452,29 +452,6 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 def _count_sm_responses() -> int:
                     return sum(1 for ru, _ in intercepted if _SM_URL_KEY in ru)
 
-                # Klickt GENAU den Shared-DNA-Matches-"Mehr"-Button (kein <a href>,
-                # das wegnavigiert). Gibt zurück: [clicked(bool), buttonText|null]
-                _JS_CLICK_MORE = """
-() => {
-    const rx = /^(show more dna match|mehr dna[- ]?match|weitere dna[- ]?match)/i;
-    const els = document.querySelectorAll('button, [role="button"], span, div, a');
-    for (const el of els) {
-        const txt = (el.innerText || el.textContent || '').trim();
-        if (!txt || txt.length > 40) continue;
-        if (!rx.test(txt)) continue;
-        // <a> mit echtem href = Navigation → überspringen
-        if (el.tagName === 'A') {
-            const href = el.getAttribute('href') || '';
-            if (href && href !== '#' && !href.startsWith('javascript')) continue;
-        }
-        const r = el.getBoundingClientRect();
-        if (r.width <= 0 || r.height <= 0) continue;
-        try { el.scrollIntoView({block:'center'}); el.click(); return [true, txt]; }
-        catch(e) { return [false, '__ERR_' + String(e)]; }
-    }
-    return [false, null];
-}
-"""
                 try:
                     _expected = 0
                     for _ru, _rb in intercepted:
@@ -483,30 +460,51 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                             if _mm:
                                 _expected = int(_mm.group(1)); break
 
+                    # Echter Playwright-Klick (echte Maus-Events → React-Handler feuert).
+                    # Button-Text matchen, <a href>-Navigationslinks ausschließen.
+                    _btn_re = re.compile(r"show more dna match|mehr dna[- ]?match|"
+                                         r"weitere dna[- ]?match", re.I)
                     _stall = 0
                     _last_resp_count = _count_sm_responses()
                     _max_iters = max(4, (_expected // 10) + 8) if _expected else 30
                     for _i in range(_max_iters):
+                        _clicked = False
                         try:
-                            _res = page.evaluate(_JS_CLICK_MORE)
+                            _loc = page.get_by_text(_btn_re)
+                            _n = _loc.count()
+                            # ersten klickbaren Treffer suchen, der KEIN Navigations-<a> ist
+                            for _j in range(_n):
+                                _el = _loc.nth(_j)
+                                try:
+                                    if not _el.is_visible():
+                                        continue
+                                except Exception:
+                                    continue
+                                # GraphQL-Antwort gezielt abwarten
+                                try:
+                                    with page.expect_response(
+                                            lambda r: _SM_URL_KEY in r.url,
+                                            timeout=8000):
+                                        _el.scroll_into_view_if_needed(timeout=3000)
+                                        _el.click(timeout=3000)
+                                    _clicked = True
+                                except PWTimeout:
+                                    # Klick hat keinen neuen SM-Request ausgelöst
+                                    _clicked = True  # Button war da, aber nichts kam
+                                break
                         except Exception as _ce:
                             if debug:
                                 print(f"    [DBG] Klick-Iter {_i+1} Fehler: {_ce}")
-                            break
-                        _clicked = bool(_res[0]) if isinstance(_res, list) else False
-                        _btn_txt = _res[1] if isinstance(_res, list) and len(_res) > 1 else None
-                        time.sleep(max(1.5, pause * 0.6))
+                        time.sleep(max(1.0, pause * 0.4))
                         _now = _count_sm_responses()
                         if debug:
-                            print(f"    [DBG] Iter {_i+1}: clicked={_clicked} "
-                                  f"({_btn_txt!r}) → SM-Antworten={_now}"
-                                  f"/~{(_expected or 0)//10 + 1}")
+                            print(f"    [DBG] Iter {_i+1}: clicked={_clicked} → "
+                                  f"SM-Antworten={_now}/~{(_expected or 0)//10 + 1}")
                         if _now > _last_resp_count:
                             _last_resp_count = _now
                             _stall = 0
                         elif not _clicked:
-                            # kein Button mehr gefunden → fertig
-                            break
+                            break  # kein Button mehr → fertig
                         else:
                             _stall += 1
                             if _stall >= 3:
