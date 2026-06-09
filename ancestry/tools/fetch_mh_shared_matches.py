@@ -596,29 +596,17 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
                 def _extract_gql_json(raw_body: str) -> str:
                     """Extrahiert das JSON aus multipart/form-data 'operations'-Feld."""
-                    if raw_body.lstrip().startswith("{"):
-                        return raw_body   # schon JSON
-                    # multipart: ---Boundary\r\nContent-Disposition: ...; name="operations"\r\n\r\n{...}\r\n
-                    # split by boundary line (------Xyz)
-                    lines = raw_body.replace("\r\n", "\n").split("\n")
-                    in_operations = False
-                    json_lines = []
-                    for line in lines:
-                        if line.startswith("--"):
-                            if json_lines:
-                                break
-                            in_operations = False
-                            continue
-                        if in_operations:
-                            if line.startswith("Content-"):
-                                continue  # noch Header
-                            if not line and not json_lines:
-                                continue  # Leerzeile nach Headern
-                            if line:
-                                json_lines.append(line)
-                        elif 'name="operations"' in line or "name='operations'" in line:
-                            in_operations = True
-                    return "\n".join(json_lines)
+                    stripped = raw_body.lstrip()
+                    if stripped.startswith("{"):
+                        return stripped   # schon JSON
+                    # multipart/form-data: name="operations" gefolgt von Leerzeile + JSON
+                    # Regex: nach name="operations" (beliebige Whitespace) → {JSON} bis nächste Boundary
+                    m = re.search(
+                        r'name=["\']operations["\'][^\r\n]*[\r\n]{1,4}[\r\n]*([\{\[].*?)[\r\n]+--',
+                        raw_body, re.DOTALL)
+                    if m:
+                        return m.group(1).strip()
+                    return ""
 
                 if debug:
                     print(f"    [DBG] SM route-body len={len(_sm_info.get('body',''))}"
