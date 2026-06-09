@@ -198,7 +198,7 @@ def _load_cookie_editor_json(path: str) -> list[dict]:
 def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
            headless: bool = True, pause: float = 2.0, skip_done: bool = True,
            profile_dir: str | None = None, cookies_path: str | None = None,
-           debug: bool = False):
+           debug: bool = False, extension_dir: str | None = None):
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -278,13 +278,37 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
         java_script_enabled=True,
     )
 
+    # ── Browser-Extension (z.B. Genealogy Assistant) vorbereiten ──────────────
+    # Erweiterungen brauchen einen persistenten Kontext und werden im alten
+    # Headless-Modus NICHT geladen → "--headless=new" verwenden.
+    _ext_args: list[str] = []
+    if extension_dir:
+        extension_dir = os.path.abspath(os.path.expanduser(extension_dir))
+        if not os.path.isdir(extension_dir):
+            print(f"⚠  Extension-Verzeichnis nicht gefunden: {extension_dir}")
+        else:
+            _ext_args = [
+                f"--disable-extensions-except={extension_dir}",
+                f"--load-extension={extension_dir}",
+            ]
+            if not profile_dir:
+                import tempfile
+                profile_dir = tempfile.mkdtemp(prefix="mh_ext_profile_")
+            print(f"✓ Lade Extension: {extension_dir}")
+
     total_imported = 0
     with sync_playwright() as pw:
         if profile_dir:
+            _args = list(_LAUNCH_ARGS) + _ext_args
+            # Mit Extension: neuer Headless-Modus (lädt Erweiterungen)
+            _launch_headless = headless
+            if _ext_args and headless:
+                _args.append("--headless=new")
+                _launch_headless = False
             ctx = pw.chromium.launch_persistent_context(
                 profile_dir,
-                headless=headless,
-                args=_LAUNCH_ARGS,
+                headless=_launch_headless,
+                args=_args,
                 **_CTX_OPTS,
             )
             page = ctx.pages[0] if ctx.pages else ctx.new_page()
@@ -919,16 +943,20 @@ if __name__ == "__main__":
                     help="Cookie-Editor-JSON-Export von myheritage.de (empfohlen bei Google-Login)")
     ap.add_argument("--debug", action="store_true",
                     help="Netzwerk-Requests und abgefangene API-Antworten ausgeben")
+    ap.add_argument("--extension", default="",
+                    help="Pfad zur entpackten Browser-Erweiterung (z.B. Genealogy "
+                         "Assistant) für 'Download CSV (all pages)'")
     args = ap.parse_args()
 
     scrape(
-        csv_path     = args.csv,
-        min_cm       = args.min_cm,
-        limit        = args.limit,
-        headless     = not args.visible,
-        pause        = args.pause,
-        skip_done    = not args.no_skip,
-        profile_dir  = args.profile_dir or None,
-        cookies_path = args.cookies or None,
-        debug        = args.debug,
+        csv_path      = args.csv,
+        min_cm        = args.min_cm,
+        limit         = args.limit,
+        headless      = not args.visible,
+        pause         = args.pause,
+        skip_done     = not args.no_skip,
+        profile_dir   = args.profile_dir or None,
+        cookies_path  = args.cookies or None,
+        debug         = args.debug,
+        extension_dir = args.extension or None,
     )
