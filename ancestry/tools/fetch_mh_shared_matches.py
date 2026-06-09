@@ -622,24 +622,24 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 if total_sm_count > PAGE_SIZE and _sm_info.get("body"):
                     import json as _pjson
                     _mp = _parse_multipart(_sm_info["body"])
-                    sm_url       = _sm_info["url"]
-                    sm_bearer    = _mp.get("bearer_token", "")
-                    sm_query     = _mp.get("query", "")
+                    sm_url   = _sm_info["url"]
+                    sm_query = _mp.get("query", "")
                     if debug:
                         print(f"    [DBG] mp fields: {list(_mp.keys())}"
-                              f" | bearer len={len(sm_bearer)}"
                               f" | query start={sm_query[:60]!r}")
 
                 if total_sm_count > PAGE_SIZE and sm_query:
-                    # Replay via FormData aus dem Browser-Kontext (hat Session-Cookies)
-                    # offset im query-String per Regex ersetzen
+                    # Replay via FormData aus dem Browser-Kontext (hat Session-Cookies).
+                    # Alle Felder des Original-Requests übernehmen, nur offset im query ersetzen.
+                    # fields: list of [name, value] pairs — JSON-serialisierbar
+                    sm_fields = [[k, v] for k, v in _mp.items() if k != "query"]
+
                     _JS_PAGINATE = """
-async ([url, bearer, query, offset]) => {
+async ([url, fields, query, offset]) => {
     try {
-        // offset-Wert im query ersetzen (z.B. offset:0 → offset:N)
         const q = query.replace(/(\\boffset\\s*:\\s*)\\d+/, '$1' + offset);
         const fd = new FormData();
-        if (bearer) fd.append('bearer_token', bearer);
+        for (const [k, v] of fields) fd.append(k, v);
         fd.append('query', q);
         const relUrl = url.replace(/^https?:\\/\\/[^\\/]+/, '');
         const r = await fetch(relUrl, {
@@ -655,7 +655,7 @@ async ([url, bearer, query, offset]) => {
                         offset = PAGE_SIZE
                         while offset < total_sm_count:
                             result = page.evaluate(
-                                _JS_PAGINATE, [sm_url, sm_bearer, sm_query, offset])
+                                _JS_PAGINATE, [sm_url, sm_fields, sm_query, offset])
                             if not result or result.startswith("__"):
                                 if debug:
                                     print(f"    [DBG] Pagination {offset}: {result!r}")
