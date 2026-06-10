@@ -81,6 +81,7 @@ class StatsTab(ttk.Frame):
             ("ped_loaded",   "st.ped_loaded"),
             ("ped_avg_depth","st.ped_depth"),
             ("ped_surnames", "st.ped_surn"),
+            ("gen_length",   "st.gen_length"),
         ]
         for i, (stat_key, t_key) in enumerate(ped_label_keys):
             sv_lbl = tk.StringVar(value=t(t_key))
@@ -185,7 +186,12 @@ class StatsTab(ttk.Frame):
         stats = self._state.db.get_statistics()
         for key, var in self._stat_vars.items():
             v = stats.get(key)
-            var.set(f"{v:.1f}" if isinstance(v, float) else str(v) if v is not None else "—")
+            if key == "gen_length":
+                var.set(f"{v:.1f} J." if isinstance(v, float) else "—")
+            elif isinstance(v, float):
+                var.set(f"{v:.1f}")
+            else:
+                var.set(str(v) if v is not None else "—")
         self._rel_tree.delete(*self._rel_tree.get_children())
         for rel, cnt in stats.get("relationship_breakdown", []):
             self._rel_tree.insert("", "end", values=(rel, cnt))

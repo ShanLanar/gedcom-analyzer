@@ -197,6 +197,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "st.ped_loaded":{"de": "Ahnentafeln geladen:",                 "en": "Pedigrees loaded:"},
     "st.ped_depth": {"de": "Ø Generationstiefe:",                  "en": "Avg. generation depth:"},
     "st.ped_surn":  {"de": "Unterschiedliche Nachnamen:",          "en": "Distinct surnames:"},
+    "st.gen_length":{"de": "Ø Generationsabstand:",               "en": "Avg. generation span:"},
     "st.ged_kz":    {"de": "GEDCOM-Brücke",                        "en": "GEDCOM Bridge"},
     "st.ged_pers":  {"de": "GEDCOM-Personen:",                     "en": "GEDCOM persons:"},
     "st.ged_linked":{"de": "Matches mit Treffer:",                  "en": "Matches with hits:"},

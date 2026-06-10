@@ -7,11 +7,16 @@ GEDCOM file that can be imported by FamilySearch, Gramps, MacFamilyTree etc.
 Each INDI record represents an ancestor shared by ≥N DNA matches.
 The DNA evidence (match count, total/median cM, Sosa path) is embedded as
 NOTE and _SOSA custom tag records so that standard parsers are not broken.
+
+Family structure is derived from Sosa-Stradonitz numbers: if ancestor A has
+Sosa 4 and ancestor B has Sosa 2, then B is the father of A — a FAM record
+is created with HUSB/WIFE and CHIL pointers, and the INDI records carry
+matching FAMS/FAMC back-references so the file passes GEDCOM validation.
 """
 
 import re
+from collections import defaultdict
 from pathlib import Path
-from typing import Optional
 
 
 def _ged_tag(level: int, tag: str, value: str = "") -> str:
@@ -57,10 +62,128 @@ def export_gedcom(groups: list, output_path: str,
     -------
     int – number of INDI records written
     """
-    lines = []
+    # ── Phase 1: Collect unique individuals and their DNA evidence ────────────
+    # Key: (name_lower, birth_year) → ensures same ancestor from multiple groups
+    # merges into one INDI.
+    indi_order: list[tuple] = []           # insertion-ordered unique keys
+    indi_meta: dict[tuple, dict] = {}      # key → {pid, label, birth_year, ...}
+    sosa_to_keys: dict[int, list[tuple]] = defaultdict(list)  # sosa → [key, ...]
 
-    # ── Header ────────────────────────────────────────────────────────────────
-    lines += [
+    indi_count = 0
+
+    def _register(label: str, birth_year: str, count: int,
+                  matches: list, sosas: set) -> tuple:
+        key = (_clean(label).lower(), _clean(birth_year))
+        if key not in indi_meta:
+            nonlocal indi_count
+            indi_count += 1
+            pid = f"@I{indi_count:05d}@"
+            parts = label.split()
+            given = " ".join(parts[:-1]) if len(parts) >= 2 else ""
+            surn  = parts[-1] if parts else ""
+            total_cm  = sum(float(m[4] or 0) for m in matches)
+            s_list    = sorted(float(m[4] or 0) for m in matches)
+            median_cm = s_list[len(s_list) // 2] if s_list else 0.0
+            match_names = [_clean(m[1]) for m in matches[:5] if m[1]]
+            indi_meta[key] = {
+                "pid":        pid,
+                "label":      _clean(label),
+                "birth_year": _clean(birth_year),
+                "given":      given,
+                "surn":       surn,
+                "count":      count,
+                "total_cm":   total_cm,
+                "median_cm":  median_cm,
+                "match_names": match_names,
+                "extra_matches": len(matches) - len(match_names),
+                "sosas":      set(sosas),
+                # FAMS/FAMC will be filled in phase 2
+                "fams": [],   # list of fam_ids where this person is spouse
+                "famc": [],   # list of fam_ids where this person is child
+            }
+            indi_order.append(key)
+        else:
+            # Merge additional DNA evidence
+            meta = indi_meta[key]
+            meta["count"]    += count
+            meta["total_cm"] += sum(float(m[4] or 0) for m in matches)
+            meta["sosas"].update(sosas)
+        for s in sosas:
+            if key not in sosa_to_keys[s]:
+                sosa_to_keys[s].append(key)
+        return key
+
+    for group in groups:
+        label   = _clean(group.get("label", ""))
+        detail  = _clean(group.get("detail", ""))
+        count   = group.get("count", 0)
+        matches = group.get("matches", [])
+        if not label:
+            continue
+        birth_year = detail.lstrip("*").strip()
+        sosas: set[int] = set()
+        for m in matches:
+            path = m[2] if len(m) > 2 else ""
+            if path:
+                sosas.add(_sosa_from_path(path))
+        _register(label, birth_year, count, matches, sosas)
+
+    # ── Phase 2: Build family structure from Sosa arithmetic ─────────────────
+    # Sosa 4 → father is Sosa 2, mother is Sosa 3.
+    # Even sosa → father's side (Vater). Odd sosa (>1) → mother's side (Mutter).
+    fam_count = 0
+    # family key: (father_pid_or_"", mother_pid_or_"") → fam_id
+    fam_registry: dict[tuple, str] = {}
+    # child_pid → fam_id  (a child can only have one biological family here)
+    child_to_fam: dict[str, str] = {}
+    # fam_id → list of child_pids
+    fam_children: dict[str, list] = defaultdict(list)
+
+    all_sosas = set(sosa_to_keys.keys())
+
+    for child_key in indi_order:
+        meta = indi_meta[child_key]
+        child_pid = meta["pid"]
+
+        for sosa in list(meta["sosas"]):
+            if sosa <= 1:
+                continue
+            # Sosa rule: father of person S has sosa 2S, mother has sosa 2S+1
+            father_sosa = sosa * 2
+            mother_sosa = sosa * 2 + 1
+            # Look up father and mother among known ancestors
+            father_keys = sosa_to_keys.get(father_sosa, [])
+            mother_keys = sosa_to_keys.get(mother_sosa, [])
+            if not father_keys and not mother_keys:
+                continue
+            father_pid = indi_meta[father_keys[0]]["pid"] if father_keys else ""
+            mother_pid = indi_meta[mother_keys[0]]["pid"] if mother_keys else ""
+            fam_key = (father_pid, mother_pid)
+            if fam_key not in fam_registry:
+                fam_count += 1
+                fam_id = f"@F{fam_count:05d}@"
+                fam_registry[fam_key] = fam_id
+                # Add FAMS back-references to parents
+                if father_pid:
+                    f_key = next(k for k in indi_order if indi_meta[k]["pid"] == father_pid)
+                    if fam_id not in indi_meta[f_key]["fams"]:
+                        indi_meta[f_key]["fams"].append(fam_id)
+                if mother_pid:
+                    m_key = next(k for k in indi_order if indi_meta[k]["pid"] == mother_pid)
+                    if fam_id not in indi_meta[m_key]["fams"]:
+                        indi_meta[m_key]["fams"].append(fam_id)
+            else:
+                fam_id = fam_registry[fam_key]
+
+            # Each child can only be listed once per family
+            if child_pid not in fam_children[fam_id]:
+                fam_children[fam_id].append(child_pid)
+            if fam_id not in meta["famc"]:
+                meta["famc"].append(fam_id)
+            break  # one biological family per ancestor is enough
+
+    # ── Phase 3: Write GEDCOM lines ───────────────────────────────────────────
+    lines = [
         "0 HEAD",
         "1 SOUR AncestryDNATool",
         "2 NAME Ancestry DNA Tool",
@@ -73,49 +196,12 @@ def export_gedcom(groups: list, output_path: str,
         f"1 NAME {_clean(submitter_name)}",
     ]
 
-    indi_count = 0
-    # dedup by (name_lower, birth_year)
-    seen: dict[tuple, str] = {}
-    written_pids: set[str] = set()
-
-    def _indi_id(label: str, birth_year: str) -> tuple[str, bool]:
-        """Return (pid, is_new). is_new=False means this ancestor was already written."""
-        key = (_clean(label).lower(), _clean(birth_year))
-        if key not in seen:
-            nonlocal indi_count
-            indi_count += 1
-            seen[key] = f"@I{indi_count:05d}@"
-            return seen[key], True
-        return seen[key], False
-
-    # ── INDI records (one per unique ancestor) ─────────────────────────────
-    # We also track (label, birth_year) → pid for FAM generation below.
-    pid_map: dict[tuple, str] = {}
-
-    for group in groups:
-        label   = _clean(group.get("label", ""))
-        detail  = _clean(group.get("detail", ""))  # may be "*1800" or "1800"
-        count   = group.get("count", 0)
-        matches = group.get("matches", [])
-
-        if not label:
-            continue
-
-        birth_year = detail.lstrip("*").strip()
-        pid, is_new = _indi_id(label, birth_year)
-        pid_map[(label.lower(), birth_year)] = pid
-        if not is_new:
-            continue   # ancestor already written; skip duplicate block
-
-        # Split name into given/surname heuristically (last word = surname)
-        parts = label.split()
-        if len(parts) >= 2:
-            given = " ".join(parts[:-1])
-            surn  = parts[-1]
-        else:
-            given = ""
-            surn  = label
-
+    # INDI records
+    for key in indi_order:
+        meta = indi_meta[key]
+        pid   = meta["pid"]
+        given = _clean(meta["given"])
+        surn  = _clean(meta["surn"])
         full_name = f"{given} /{surn}/" if surn else given
 
         lines.append(f"0 {pid} INDI")
@@ -126,95 +212,46 @@ def export_gedcom(groups: list, output_path: str,
             if given:
                 lines.append(f"2 GIVN {given}")
 
-        if birth_year:
+        by = meta["birth_year"]
+        if by:
             lines.append("1 BIRT")
-            lines.append(f"2 DATE {birth_year}")
+            lines.append(f"2 DATE {by}")
 
-        # ── DNA evidence note ─────────────────────────────────────────────
-        total_cm  = sum(float(m[4] or 0) for m in matches)
-        median_cm = sorted(float(m[4] or 0) for m in matches)[len(matches) // 2] if matches else 0.0
+        # Family links (required for GEDCOM pedigree traversal)
+        for fam_id in meta["famc"]:
+            lines.append(f"1 FAMC {fam_id}")
+        for fam_id in meta["fams"]:
+            lines.append(f"1 FAMS {fam_id}")
 
-        lines.append(f"1 NOTE DNA-Beleg: {count} Matches · gesamt {total_cm:.0f} cM"
-                     f" · Median {median_cm:.0f} cM")
+        # DNA evidence
+        cnt  = meta["count"]
+        tcm  = meta["total_cm"]
+        mcm  = meta["median_cm"]
+        lines.append(f"1 NOTE DNA-Beleg: {cnt} Matches · gesamt {tcm:.0f} cM"
+                     f" · Median {mcm:.0f} cM")
 
-        # Collect unique Sosa numbers from ahnen_paths
-        sosas: list[int] = []
-        for m in matches:
-            path = m[2] if len(m) > 2 else ""
-            if path:
-                sosas.append(_sosa_from_path(path))
-        if sosas:
-            sosa_str = ",".join(str(s) for s in sorted(set(sosas))[:8])
+        # Sosa numbers
+        sosa_str = ",".join(str(s) for s in sorted(meta["sosas"])[:8])
+        if sosa_str:
             lines.append(f"1 _SOSA {sosa_str}")
 
-        # List up to 5 match names as a continuation note
-        match_names = [_clean(m[1]) for m in matches[:5] if m[1]]
+        # Match names
+        match_names = meta["match_names"]
         if match_names:
             joined = "; ".join(match_names)
-            if len(matches) > 5:
-                joined += f" (+{len(matches) - 5} weitere)"
+            if meta["extra_matches"] > 0:
+                joined += f" (+{meta['extra_matches']} weitere)"
             lines.append(f"1 NOTE Belegt durch: {joined}")
 
-    # ── FAM records: derive parent-child links from Sosa numbers ────────────
-    fam_count   = 0
-    fam_by_pair: dict[tuple, str] = {}   # (father_pid, mother_pid) → @Fxxx@
-
-    for group in groups:
-        label      = _clean(group.get("label", ""))
-        detail     = _clean(group.get("detail", ""))
-        birth_year = detail.lstrip("*").strip()
-        child_pid  = pid_map.get((label.lower(), birth_year))
-        if not child_pid:
-            continue
-
-        matches = group.get("matches", [])
-        # Collect Sosa numbers for this ancestor; derive parent's Sosa
-        sosas: set[int] = set()
-        for m in matches:
-            path = m[2] if len(m) > 2 else ""
-            if path:
-                sosas.add(_sosa_from_path(path))
-
-        # For each Sosa we can compute the father (sosa*2) and mother (sosa*2+1) → grandparent
-        # We want to find the PARENT of this person (sosa/2 → path without last char)
-        for sosa in sosas:
-            if sosa <= 1:
-                continue
-            parent_sosa = sosa // 2
-            # Find a group whose Sosa set includes parent_sosa
-            for pg in groups:
-                pm = pg.get("matches", [])
-                p_label     = _clean(pg.get("label", ""))
-                p_detail    = _clean(pg.get("detail", ""))
-                p_birth_yr  = p_detail.lstrip("*").strip()
-                p_pid       = pid_map.get((p_label.lower(), p_birth_yr))
-                if not p_pid or p_pid == child_pid:
-                    continue
-                p_sosas = set()
-                for pm_ in pm:
-                    ppath = pm_[2] if len(pm_) > 2 else ""
-                    if ppath:
-                        p_sosas.add(_sosa_from_path(ppath))
-                if parent_sosa not in p_sosas:
-                    continue
-                # p_pid is a parent of child_pid
-                # Determine sex from Sosa: even = male (Vater), odd = female (Mutter)
-                is_father = (sosa % 2 == 0)
-                fam_key   = (p_pid, "") if is_father else ("", p_pid)
-                fam_id_key = fam_key
-                if fam_id_key not in fam_by_pair:
-                    fam_count += 1
-                    fam_by_pair[fam_id_key] = f"@F{fam_count:05d}@"
-                fam_id = fam_by_pair[fam_id_key]
-                break
-
-    # Write FAM records
-    for (husb, wife), fam_id in fam_by_pair.items():
+    # FAM records
+    for (husb, wife), fam_id in fam_registry.items():
         lines.append(f"0 {fam_id} FAM")
         if husb:
             lines.append(f"1 HUSB {husb}")
         if wife:
             lines.append(f"1 WIFE {wife}")
+        for chil_pid in fam_children.get(fam_id, []):
+            lines.append(f"1 CHIL {chil_pid}")
 
     lines.append("0 TRLR")
 

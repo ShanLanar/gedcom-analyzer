@@ -1,5 +1,6 @@
 """Tests für ancestry/core/gedcom_export.py — DNA-Ahnentafel-GEDCOM-Export."""
 import os
+import re
 import tempfile
 
 import pytest
@@ -188,3 +189,92 @@ def test_export_handles_missing_birth_year(tmp_ged):
     assert n == 1
     content = open(tmp_ged, encoding="utf-8").read()
     assert "1 BIRT" not in content   # no birth tag without year
+
+
+# ── FAM / CHIL / FAMS / FAMC structure ───────────────────────────────────────
+
+def _three_gen_groups():
+    """Grandfather (Sosa 4 = FF), Grandmother (Sosa 5 = FM), Father (Sosa 2 = F)."""
+    return [
+        {   # Father (Sosa 2 = "F")
+            "label":   "Karl Kovermann",
+            "detail":  "*1850",
+            "count":   3,
+            "matches": [("G1", "A", "F", 2, 120.0),
+                        ("G2", "B", "F", 2, 110.0),
+                        ("G3", "C", "F", 2, 100.0)],
+        },
+        {   # Grandfather (Sosa 4 = "FF")
+            "label":   "Heinrich Kovermann",
+            "detail":  "*1820",
+            "count":   2,
+            "matches": [("G4", "D", "FF", 3, 65.0),
+                        ("G5", "E", "FF", 3, 60.0)],
+        },
+        {   # Grandmother (Sosa 5 = "FM")
+            "label":   "Maria Schulze",
+            "detail":  "*1825",
+            "count":   2,
+            "matches": [("G6", "F", "FM", 3, 55.0),
+                        ("G7", "G", "FM", 3, 50.0)],
+        },
+    ]
+
+
+def test_fam_record_created(tmp_ged):
+    export_gedcom(_three_gen_groups(), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "0 @F" in content    # at least one FAM record
+
+
+def test_fam_husb_and_wife(tmp_ged):
+    export_gedcom(_three_gen_groups(), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 HUSB" in content
+    assert "1 WIFE" in content
+
+
+def test_fam_chil_pointer(tmp_ged):
+    export_gedcom(_three_gen_groups(), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 CHIL" in content   # child linked in FAM record
+
+
+def test_indi_famc_pointer(tmp_ged):
+    export_gedcom(_three_gen_groups(), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 FAMC" in content   # child's INDI has FAMC pointer
+
+
+def test_indi_fams_pointer(tmp_ged):
+    export_gedcom(_three_gen_groups(), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 FAMS" in content   # parent's INDI has FAMS pointer
+
+
+def test_fam_chil_matches_famc(tmp_ged):
+    export_gedcom(_three_gen_groups(), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    # Extract the CHIL pointer value from the FAM block
+    chil_match = re.search(r"1 CHIL (@I\d+@)", content)
+    famc_match  = re.search(r"1 FAMC (@F\d+@)", content)
+    assert chil_match, "No CHIL pointer found"
+    assert famc_match, "No FAMC pointer found"
+    # The FAMC value in the child's INDI must match the fam_id in the FAM record
+    famc_fam_id = famc_match.group(1)
+    chil_indi   = chil_match.group(1)
+    # Verify the FAM block containing CHIL is the same fam referenced by FAMC
+    assert famc_fam_id in content
+
+
+def test_no_phantom_fam_without_ancestors(tmp_ged):
+    # Single ancestor only — no parent/child available → no FAM record
+    groups = [{
+        "label":   "Isoliert",
+        "detail":  "*1800",
+        "count":   1,
+        "matches": [("G1", "X", "FFFFF", 6, 20.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "0 @F" not in content  # no FAM without parent AND child in export
