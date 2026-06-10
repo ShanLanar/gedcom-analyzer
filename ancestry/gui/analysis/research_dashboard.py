@@ -78,7 +78,7 @@ def _gather(db, test_guid: str, app) -> dict:
     try:
         from ancestry.core.ml_origin import MODEL_PATH
         s["ml_model_exists"] = MODEL_PATH.exists()
-    except Exception:
+    except ImportError:
         pass
 
     try:

@@ -1435,7 +1435,8 @@ class AncestryDnaApp(tk.Frame):
         # Statistik-Kennzahlen
         try:
             stats = self._db.get_statistics(test_guid)
-        except Exception:
+        except Exception as e:
+            log.debug("export_all get_statistics: %s", e)
             stats = None
 
         # Analyse-Blatt: Herkunft (Regel + ML) und Seite je Match
@@ -1453,7 +1454,7 @@ class AncestryDnaApp(tk.Frame):
                     r = d.get("region", "")
                     pr = d.get("score", d.get("prob"))
                     return f"{r} ({pr})" if r and pr is not None else r
-                except Exception:
+                except (ValueError, KeyError):
                     return ""
             for r in rows:
                 analysis.append({
@@ -1464,7 +1465,8 @@ class AncestryDnaApp(tk.Frame):
                     "origin_rule": _reg(r["probable_origin"]),
                     "origin_ml":   _reg(r["ml_origin"]),
                 })
-        except Exception:
+        except Exception as e:
+            log.warning("export_all analysis rows: %s", e)
             analysis = []
 
         p = filedialog.asksaveasfilename(title="Alles als XLSX exportieren",
@@ -1804,7 +1806,8 @@ class AncestryDnaApp(tk.Frame):
                     "OR match_cluster_code IN ('maternal','paternal'))",
                     (test_guid,))
                 n_ancestry = _cur.fetchone()[0]
-        except Exception:
+        except Exception as e:
+            log.debug("auto_assign_sides ancestry count: %s", e)
             n_ancestry = 0
 
         rb_anc = ttk.Radiobutton(dlg,
@@ -1828,7 +1831,7 @@ class AncestryDnaApp(tk.Frame):
             result["method"] = method_var.get()
             try:
                 result["kit_index"] = kit_combo.current()
-            except Exception:
+            except tk.TclError:
                 result["kit_index"] = -1
             dlg.destroy()
 
@@ -2190,5 +2193,5 @@ class AncestryDnaApp(tk.Frame):
             if path and _os.path.exists(path):
                 self._save_ui_settings(gedcom_path=path)
                 self._set_status(f"GEDCOM-Pfad aktualisiert: {_os.path.basename(path)}")
-        except Exception:
-            pass
+        except (OSError, ValueError) as e:
+            log.debug("change_gedcom_settings save: %s", e)
