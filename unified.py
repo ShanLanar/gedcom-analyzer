@@ -10,11 +10,9 @@ Die drei Reiter teilen dasselbe Dark-Theme (cfg-Farben).
 GEDCOM-Pfad und Root-ID, die im Start-Tab gesetzt werden, werden live in
 beide Analyse-Reiter propagiert.
 
-Technische Besonderheit:
-  Zwei verschiedene `config`-Module (Root vs. ancestry/) existieren gleichnamig.
-  Lösung: Root-config + alle tasks./lib.-Module erst vollständig importieren
-  (eager), dann config aus dem Cache entfernen und ancestry-config laden.
-  So hat jedes Modul dauerhaft die richtige config-Referenz.
+Die drei Reiter teilen dasselbe Dark-Theme (cfg-Farben).
+GEDCOM-Pfad und Root-ID, die im Start-Tab gesetzt werden, werden live in
+beide Analyse-Reiter propagiert.
 """
 from __future__ import annotations
 
@@ -30,13 +28,12 @@ from tkinter import ttk
 log = logging.getLogger(__name__)
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
-ANC  = os.path.join(ROOT, "ancestry")
 
 
 # ── Import-Helfer ──────────────────────────────────────────────────────────────
 
 def _eager_import_analyzer():
-    """Lädt Root-config + alle tasks./lib.-Module, bevor config-Swap."""
+    """Lädt Root-config + alle tasks./lib.-Module."""
     if ROOT not in sys.path:
         sys.path.insert(0, ROOT)
     import config as _root_config          # noqa: F401
@@ -57,12 +54,8 @@ def _eager_import_analyzer():
 
 
 def _load_dna_app():
-    """Config-Swap: ancestry-config aktivieren, DNA-App laden."""
-    sys.modules.pop("config", None)
-    if ANC not in sys.path:
-        sys.path.insert(0, ANC)
-    import config as _anc_config           # noqa: F401
-    from gui.app import AncestryDnaApp
+    """DNA-App laden (ancestry.endpoints statt config — kein Swap mehr nötig)."""
+    from ancestry.gui.app import AncestryDnaApp
     return AncestryDnaApp
 
 
@@ -79,7 +72,7 @@ def _error_tab(parent: tk.Frame, title: str, exc: Exception) -> None:
 
 def _apply_notebook_style(root: tk.Tk) -> None:
     """Färbt Notebook-Reiter im Dark-Theme ein."""
-    # Farben direkt — kein import config hier, da ancestry/config.py im path sein kann
+    # Farben direkt (vor config-Import, der tiefer im main-Block erfolgt)
     BG    = "#1e1e2e"
     BG2   = "#2a2a3e"
     BG3   = "#232336"
@@ -144,19 +137,7 @@ def main():
         log.exception("DNA-App-Import fehlgeschlagen")
         _dna_exc = exc
 
-    # Root-config wieder in den Cache (für StartPage + AhnenApp)
-    # ANC wurde von _load_dna_app an sys.path[0] gesetzt → ROOT erzwingen
-    sys.modules.pop("config", None)
-    try:
-        sys.path.remove(ANC)
-    except ValueError:
-        pass
-    if ROOT not in sys.path:
-        sys.path.insert(0, ROOT)
-    else:
-        sys.path.remove(ROOT)
-        sys.path.insert(0, ROOT)
-    import config as cfg  # noqa: F811  — Root-config
+    import config as cfg  # Root-config (Farben, Pfade)
 
     # ── Tk-Fenster ─────────────────────────────────────────────────────────────
     root = tk.Tk()

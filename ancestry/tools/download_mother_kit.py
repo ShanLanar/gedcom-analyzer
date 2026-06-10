@@ -26,16 +26,12 @@ import os
 import sys
 import time
 
-# ancestry/ in Pfad
-_HERE = os.path.dirname(os.path.abspath(__file__))
-_ANCS = os.path.dirname(_HERE)
-sys.path.insert(0, _ANCS)  # TODO(M2): entfällt mit ancestry/config.py-Umbenennung
-
-from core.auth import AncestryAuth
-from core.api  import AncestryApiClient
-from core.database import Database
-from core.scraper   import Scraper
-from models import DnaKit
+from ancestry.core.auth import AncestryAuth
+from ancestry.core.api  import AncestryApiClient
+from ancestry.core.database import Database
+from ancestry.core.scraper  import Scraper
+from ancestry.models import DnaKit
+from ancestry.paths import DB_PATH, DATA_DIR
 
 logging.basicConfig(
     level=logging.INFO,
@@ -44,8 +40,8 @@ logging.basicConfig(
 )
 log = logging.getLogger("download_mother")
 
-COOKIE_FILE = os.path.join(_HERE, "..", "data", "mother_cookies.json")
-DB_FILE     = os.path.join(_HERE, "..", "ancestry_dna.db")
+COOKIE_FILE = str(DATA_DIR / "mother_cookies.json")
+DB_FILE     = str(DB_PATH)
 
 
 def _progress(fetched, total, label):

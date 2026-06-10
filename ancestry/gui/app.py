@@ -18,14 +18,14 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 from urllib.parse import quote
 
-import config as cfg
-from core.auth import AncestryAuth
-from core.api import AncestryApiClient
-from core.database import Database
-from core.scraper import Scraper, DownloadResult
-from core.export import export_csv, export_shared_csv, export_xlsx
-from core.cluster import build_clusters, suggest_grandparent_lines
-from models import DnaKit, DnaMatch, SharedMatch
+from ancestry.paths import DB_PATH
+from ancestry.core.auth import AncestryAuth
+from ancestry.core.api import AncestryApiClient
+from ancestry.core.database import Database
+from ancestry.core.scraper import Scraper, DownloadResult
+from ancestry.core.export import export_csv, export_shared_csv, export_xlsx
+from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
+from ancestry.models import DnaKit, DnaMatch, SharedMatch
 
 log = logging.getLogger(__name__)
 
@@ -333,7 +333,7 @@ class AncestryDnaApp(tk.Frame):
         self._auth    : Optional[AncestryAuth]      = None
         self._client  : Optional[AncestryApiClient] = None
         self._scraper : Optional[Scraper]           = None
-        self._db      : Database                    = Database(cfg.DB_FILE)
+        self._db      : Database                    = Database(str(DB_PATH))
         self._kit_map : dict[str, str]              = {}
         self._matches_kit_guid_map: dict[str, str]  = {}
         self._matches : list[DnaMatch]              = []
@@ -5921,7 +5921,7 @@ class AncestryDnaApp(tk.Frame):
         messagebox.showinfo("Über",
             "Ancestry DNA Tool v2\n\n"
             "Features: Matches + Shared Matches + Leeds-Clustering\n"
-            "Datenbank: " + cfg.DB_FILE)
+            "Datenbank: " + str(DB_PATH))
 
     # ── Persistente Einstellungen ──────────────────────────────────────────────
 

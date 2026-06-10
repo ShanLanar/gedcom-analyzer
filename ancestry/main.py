@@ -13,8 +13,9 @@ Verwendung:
 import argparse
 import sys
 
-import config as cfg
-from utils import setup_logging, get_logger
+from ancestry.paths import DB_PATH, LOG_DIR
+from ancestry.endpoints import LOG_LEVEL
+from ancestry.utils import setup_logging, get_logger
 
 
 def run_gui(gedcom_path: str = ""):
@@ -56,7 +57,7 @@ def run_cli(args: argparse.Namespace):
         sys.exit(1)
 
     client = AncestryApiClient(auth.get_session())
-    db     = Database(cfg.DB_FILE)
+    db     = Database(str(DB_PATH))
 
     guid = args.guid
     if not guid and auth.uid:
@@ -101,13 +102,13 @@ def main():
                         default="ALL")
     parser.add_argument("--sort",        choices=["RELATIONSHIP", "SHARED_CM"],
                         default="RELATIONSHIP")
-    parser.add_argument("--log-level",   default=cfg.LOG_LEVEL,
+    parser.add_argument("--log-level",   default=LOG_LEVEL,
                         choices=["DEBUG", "INFO", "WARNING", "ERROR"])
     parser.add_argument("--gedcom",      default="",
                         help="GEDCOM-Datei, die automatisch als Stammbaum vorbelegt wird")
 
     args = parser.parse_args()
-    setup_logging(cfg.LOG_FILE, args.log_level)
+    setup_logging(str(LOG_DIR / "ancestry_dna.log"), args.log_level)
 
     if args.cli:
         run_cli(args)
