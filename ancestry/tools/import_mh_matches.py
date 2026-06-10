@@ -22,24 +22,18 @@ ANCESTRY_DIR = SCRIPT_DIR.parent
 DB_PATH   = ANCESTRY_DIR / "ancestry_dna.db"
 
 from ancestry.paths import SNAPSHOT_DIR
-JSON_FILE = SNAPSHOT_DIR / "mh_all_matches.json"
-if not JSON_FILE.exists() and (SCRIPT_DIR / "mh_all_matches.json").exists():
-    JSON_FILE = SCRIPT_DIR / "mh_all_matches.json"   # Alt-Lage vor data/-Umzug
-if len(sys.argv) > 1:
-    JSON_FILE = Path(sys.argv[1])
+_DEFAULT_JSON = SNAPSHOT_DIR / "mh_all_matches.json"
+if not _DEFAULT_JSON.exists() and (SCRIPT_DIR / "mh_all_matches.json").exists():
+    _DEFAULT_JSON = SCRIPT_DIR / "mh_all_matches.json"   # Alt-Lage vor data/-Umzug
+# JSON_FILE: module attribute so callers can override before calling run()
+JSON_FILE: Path = _DEFAULT_JSON
 
 MH_SITE_KIT_ID  = "OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ"
 MH_INTERNAL_KIT = "dnakit-9F9E6C0C-5EF0-4A73-9F85-1F1C8219B3A2"
 KIT_GUID        = MH_INTERNAL_KIT   # Primärschlüssel in dna_kits
 KIT_NAME        = "MyHeritage (Shan)"
 
-# ── Datenbank direkt öffnen (ohne Models-Klassen) ─────────────────────────────
-conn = sqlite3.connect(str(DB_PATH))
-conn.row_factory = sqlite3.Row
-conn.execute("PRAGMA journal_mode=WAL")
-conn.execute("PRAGMA foreign_keys=OFF")
-
-def init_schema():
+def init_schema(conn):
     """Schema initialisieren (alle Migrationen) über Database-Klasse."""
     try:
         from ancestry.core.database import Database
@@ -48,9 +42,9 @@ def init_schema():
         print("Schema initialisiert (via Database-Klasse)")
     except Exception as e:
         print(f"Hinweis: Database-Klasse nicht geladen ({e}), manuelles Schema-Setup")
-        _manual_schema()
+        _manual_schema(conn)
 
-def _manual_schema():
+def _manual_schema(conn):
     """Minimales Schema-Setup falls Database-Klasse nicht verfügbar."""
     conn.executescript("""
         CREATE TABLE IF NOT EXISTS schema_version (version INTEGER NOT NULL);
@@ -243,13 +237,19 @@ def save_relationships(cur, match_guid: str, m: dict):
 # ── Haupt-Import ───────────────────────────────────────────────────────────────
 
 def run():
-    if not JSON_FILE.exists():
-        print(f"Fehler: {JSON_FILE} nicht gefunden.")
+    jf = JSON_FILE
+    if not jf.exists():
+        print(f"Fehler: {jf} nicht gefunden.")
         print("Bitte zuerst download_all_matches.js im Browser ausführen.")
         sys.exit(1)
 
-    print(f"Lese {JSON_FILE} …")
-    raw = json.loads(JSON_FILE.read_text(encoding="utf-8"))
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.execute("PRAGMA foreign_keys=OFF")
+
+    print(f"Lese {jf} …")
+    raw = json.loads(jf.read_text(encoding="utf-8"))
 
     meta    = raw.get("meta", {})
     matches = raw.get("matches", [])
@@ -258,7 +258,7 @@ def run():
     print(f"  Matches: {total} (in Datei: {len(matches)})")
     print()
 
-    init_schema()
+    init_schema(conn)
 
     # Kit registrieren
     conn.execute("""
@@ -353,4 +353,6 @@ def run():
 
 
 if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        JSON_FILE = Path(sys.argv[1])
     run()

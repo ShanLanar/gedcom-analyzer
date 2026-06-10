@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import logging
 import tkinter as tk
 from tkinter import ttk
 from typing import Callable, Optional
 
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
+
+log = logging.getLogger(__name__)
 
 
 class StatsTab(ttk.Frame):
@@ -226,7 +229,8 @@ class StatsTab(ttk.Frame):
                     endo_known = cur.fetchone()[0]
             else:
                 side_known = endo_known = 0
-        except Exception:
+        except Exception as e:
+            log.debug("stats side/endo count: %s", e)
             side_known = endo_known = 0
 
         gedcom_linked = stats.get("gedcom_linked", 0) or 0
@@ -262,8 +266,8 @@ class StatsTab(ttk.Frame):
         if tg:
             try:
                 data = self._state.db.get_kit_ethnicity(tg)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("get_kit_ethnicity: %s", e)
         placeholder = "Keine Daten — im Download-Tab »Herkunft laden« klicken"
         if not data:
             c.configure(height=22)
@@ -316,8 +320,8 @@ class StatsTab(ttk.Frame):
         if tg:
             try:
                 data = self._state.db.get_kit_traits(tg)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("get_kit_traits: %s", e)
         placeholder = "Keine Traits-Daten — im Download-Tab »Herkunft laden« klicken"
         if not data:
             c.configure(height=22)

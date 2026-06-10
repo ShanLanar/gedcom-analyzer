@@ -138,8 +138,8 @@ class MatchesTab(ttk.Frame):
             try:
                 if hasattr(self, "_match_count_var"):
                     self._match_count_var.set(f"⚠ Fehler: {exc}")
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("match_count_var update: %s", e)
 
     # ── Aufbau ───────────────────────────────────────────────────────────────
 
@@ -736,8 +736,8 @@ class MatchesTab(ttk.Frame):
                             all_kits,
                         ).fetchall()
                     overlap_guids = {r[0] for r in rows}
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("overlap_guids: %s", e)
         self._match_count_var.set(f"{len(self._matches)} Match(es)")
         self._tree.delete(*self._tree.get_children())
         # Apply pat/mat chip filter
@@ -755,8 +755,8 @@ class MatchesTab(ttk.Frame):
                 tg = self._get_test_guid()
                 if tg:
                     bridge_hits = self._state.db.get_bridge_hit_counts(tg)
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("bridge_hit_counts: %s", e)
         for m in self._matches:
             endo = getattr(m, "endogamy_cluster", "") or ""
             tags = []

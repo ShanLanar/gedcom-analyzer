@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, Optional
@@ -9,6 +10,8 @@ from typing import Callable, Optional
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
+
+log = logging.getLogger(__name__)
 
 
 class ClusterTab(ttk.Frame):
@@ -230,8 +233,8 @@ class ClusterTab(ttk.Frame):
                         all_guids,
                     ).fetchall()
                 side_map = {r["match_guid"]: (r["paternal_maternal"] or "") for r in rows}
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("cluster side_map: %s", e)
         self._cluster_side_colors = {}
 
         # Dichte berechnen
@@ -305,8 +308,8 @@ class ClusterTab(ttk.Frame):
             try:
                 guid_match = {m.match_guid: m
                               for m in self._state.db.get_matches(test_guid)}
-            except Exception:
-                pass
+            except Exception as e:
+                log.debug("cluster guid_match: %s", e)
 
         self._member_tree.delete(*self._member_tree.get_children())
         self._member_tree.tag_configure("row", background=color)
