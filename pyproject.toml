@@ -28,6 +28,7 @@ packages = [
     "ancestry.core.db",
     "ancestry.core.db.repos",
     "ancestry.gui",
+    "ancestry.gui.widgets",
     "ancestry.models",
     "ancestry.tools",
     "ancestry.utils",
