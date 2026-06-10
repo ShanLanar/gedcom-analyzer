@@ -1,0 +1,1 @@
+ALTER TABLE matches ADD COLUMN linked_in_tree INTEGER DEFAULT 0

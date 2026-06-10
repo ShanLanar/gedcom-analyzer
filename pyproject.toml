@@ -25,6 +25,8 @@ all      = ["gedcom-analyzer[viewer,scraping,vision,dev]"]
 packages = [
     "ancestry",
     "ancestry.core",
+    "ancestry.core.db",
+    "ancestry.core.db.repos",
     "ancestry.gui",
     "ancestry.models",
     "ancestry.tools",

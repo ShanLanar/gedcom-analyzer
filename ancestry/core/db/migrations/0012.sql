@@ -1,0 +1,2 @@
+ALTER TABLE matches ADD COLUMN research_flags INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE matches ADD COLUMN paternal_maternal TEXT DEFAULT ''

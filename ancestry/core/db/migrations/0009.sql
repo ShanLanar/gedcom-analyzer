@@ -1,0 +1,1 @@
+ALTER TABLE matches ADD COLUMN name_attempts INTEGER DEFAULT 0
