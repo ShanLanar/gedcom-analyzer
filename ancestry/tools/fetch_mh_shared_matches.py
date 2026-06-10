@@ -265,7 +265,7 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
     # Dateiname: Andreas_Kovermann_D44D71405...  → D-44D71405-...
     test_guid = ""
     fname = os.path.basename(csv_path)
-    m = re.search(r"_(D[0-9A-F]{8,})[_\.]", fname, re.I)
+    m = re.search(r"[\s_](D[-0-9A-F]{8,})", fname, re.I)
     if m:
         raw = m.group(1)
         # D44D71405... → D-44D71405-0D71-...  (bereits mit Bindestrichen in DB)
@@ -292,10 +292,16 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
     if skip_done:
         try:
             with db._cursor() as cur:
-                rows = cur.execute(
-                    "SELECT match_guid_a FROM shared_matches_fetched WHERE test_guid=?",
-                    (test_guid,)
-                ).fetchall()
+                if test_guid:
+                    rows = cur.execute(
+                        "SELECT match_guid_a FROM shared_matches_fetched WHERE test_guid=?",
+                        (test_guid,)
+                    ).fetchall()
+                else:
+                    # test_guid noch unbekannt → alle verarbeiteten GUIDs laden
+                    rows = cur.execute(
+                        "SELECT match_guid_a FROM shared_matches_fetched"
+                    ).fetchall()
                 done_guids = {r[0] for r in rows}
             print(f"{len(done_guids)} Matches bereits verarbeitet (--skip-done aktiv).")
         except Exception:
