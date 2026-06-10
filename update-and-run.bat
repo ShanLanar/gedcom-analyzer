@@ -123,9 +123,16 @@ if not exist "%REPO_DIR%\ancestry\data" mkdir "%REPO_DIR%\ancestry\data"
 
 REM --- Dependencies installieren ------------------------------------------------
 echo Installiere/aktualisiere Abhaengigkeiten ...
-%PYTHON% -m pip install -r "%REPO_DIR%\requirements.txt" --quiet --upgrade --disable-pip-version-check
-%PYTHON% -m pip install -r "%REPO_DIR%\ancestry\requirements.txt" --quiet --upgrade --disable-pip-version-check
-if %errorlevel% neq 0 (
+pushd "%REPO_DIR%" >nul
+%PYTHON% -m pip install -e ".[viewer,scraping,vision,dev]" --quiet --upgrade --disable-pip-version-check
+set "PIP_RC=%errorlevel%"
+REM Optionale ML-Abhaengigkeiten (scikit-learn fuer Herkunfts-Inferenz).
+REM Kein Abbruch bei Fehler – ancestry/core/ml_origin.py ist ohne sklearn deaktiviert.
+if exist "%REPO_DIR%\ancestry\requirements.txt" (
+    %PYTHON% -m pip install -r "%REPO_DIR%\ancestry\requirements.txt" --quiet --upgrade --disable-pip-version-check >nul 2>&1
+)
+popd >nul
+if %PIP_RC% neq 0 (
     echo [FEHLER] pip install fehlgeschlagen.
     pause & exit /b 1
 )
