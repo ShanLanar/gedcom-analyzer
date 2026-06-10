@@ -503,7 +503,7 @@ class MatchesTab(ttk.Frame):
                    command=self._on_endogamy_transfer).pack(side="right", padx=4)
         lw.append((_sv_endo_btn, "md.ged_endogamy"))
 
-        # Zeile 2: Status + Bulk-Abgleich-Button
+        # Zeile 2: Status + Re-run + Bulk-Abgleich-Button
         tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=(2, 4))
         self._ged_link_status = tk.StringVar(value=t("md.ged_none"))
         ttk.Label(tb, textvariable=self._ged_link_status,
@@ -512,6 +512,12 @@ class MatchesTab(ttk.Frame):
         ttk.Button(tb, textvariable=_sv_all,
                    command=self._on_gedcom_match_all).pack(side="right")
         lw.append((_sv_all, "md.ged_run_all"))
+        _sv_rerun = tk.StringVar(value=t("md.ged_rerun"))
+        self._ged_rerun_btn = ttk.Button(
+            tb, textvariable=_sv_rerun,
+            command=self._rerun_gedcom_for_selected, state="disabled")
+        self._ged_rerun_btn.pack(side="right", padx=(0, 4))
+        lw.append((_sv_rerun, "md.ged_rerun"))
 
         cols = ("gen", "sosa", "path", "ped_name", "ped_year", "icon",
                 "ged_name", "ged_year", "score", "method")
@@ -542,6 +548,7 @@ class MatchesTab(ttk.Frame):
     def load_gedcom_link_panel(self, match: "DnaMatch"):
         """Füllt den GEDCOM-Treffer-Tab für den ausgewählten Match."""
         self._ged_link_tree.delete(*self._ged_link_tree.get_children())
+        self._ged_rerun_btn.configure(state="normal")
         ged = self._get_gedcom()
         if not ged:
             self._ged_link_status.set(self._state.t("md.ged_none"))
@@ -617,6 +624,11 @@ class MatchesTab(ttk.Frame):
                                         if ged_year else ""))
             import webbrowser
             webbrowser.open(url)
+
+    def _rerun_gedcom_for_selected(self):
+        """Re-runs GEDCOM matching for the currently selected match on demand."""
+        if self._selected_match:
+            self.load_gedcom_link_panel(self._selected_match)
 
     def _build_ancestors_panel(self, parent):
         """Sub-Tab 4: Gemeinsame Vorfahren (aus Ancestry match_ancestors-Tabelle)."""

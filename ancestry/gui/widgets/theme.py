@@ -321,6 +321,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     # GEDCOM link panel buttons
     "md.ged_origin":    {"de": "🗺 Herkunft ableiten",        "en": "🗺 Infer origins"},
     "md.ged_endogamy":  {"de": "🧬 Endogamie übertragen",     "en": "🧬 Transfer endogamy"},
+    "md.ged_rerun":     {"de": "↺ Nochmals abgleichen",       "en": "↺ Re-run match"},
 }
 
 

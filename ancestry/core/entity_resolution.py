@@ -420,21 +420,25 @@ def _merge_entities(db: sqlite3.Connection, keep: int, drop: int, reason: str = 
     ).fetchall()
 
     for a in assignments:
-        try:
+        # Check whether `keep` already owns this source+role combination.
+        # If so, just deactivate the duplicate on `drop`.
+        # If not, re-point the existing row to `keep` (avoids UNIQUE conflicts).
+        already_kept = db.execute(
+            """SELECT assignment_id FROM entity_assignments
+               WHERE entity_id=? AND source_table=? AND source_row_id=? AND person_role=?""",
+            (keep, a["source_table"], a["source_row_id"], a["person_role"]),
+        ).fetchone()
+        if already_kept:
             db.execute(
-                """INSERT INTO entity_assignments
-                   (entity_id, source_table, source_row_id, person_role,
-                    confidence, assigned_by, is_active)
-                   VALUES (?,?,?,?,?,?,1)""",
-                (keep, a["source_table"], a["source_row_id"], a["person_role"],
-                 a["confidence"], f"merge:{reason}"),
+                "UPDATE entity_assignments SET is_active=0 WHERE assignment_id=?",
+                (a["assignment_id"],),
             )
-        except sqlite3.IntegrityError:
-            pass  # keep hat diesen Source bereits
+        else:
+            db.execute(
+                "UPDATE entity_assignments SET entity_id=?, assigned_by=? WHERE assignment_id=?",
+                (keep, f"merge:{reason}", a["assignment_id"]),
+            )
 
-    db.execute(
-        "UPDATE entity_assignments SET is_active=0 WHERE entity_id=?", (drop,)
-    )
     db.execute(
         "UPDATE entities SET merged_into=? WHERE entity_id=?", (keep, drop)
     )
