@@ -13,7 +13,7 @@ from ._persons import _person_from_indi
 log = logging.getLogger(__name__)
 
 
-def load_gedcom_full(gedcom_path: str):
+def load_gedcom_full(gedcom_path: str) -> tuple[list, dict, dict]:
     """Lädt GEDCOM → (people, individuals, families).
     people = Person-Objekte für den Abgleich; individuals/families = Rohdaten
     für die Ahnenlinien-Berechnung (Sosa)."""
@@ -78,7 +78,7 @@ def render_kinship(path: str) -> str:
 
 
 def mrca_on_direct_line(iid: str, individuals: dict, families: dict,
-                        amap: dict, max_up: int = 14):
+                        amap: dict, max_up: int = 14) -> tuple[str | None, str | None]:
     """Klettert von einer (Seitenlinien-)Person im GEDCOM nach oben, bis sie auf
     die direkte Ahnenlinie (amap) der Wurzelperson trifft = gemeinsamer Vorfahr.
     Liefert (mrca_iid, pfad) oder (None, None)."""

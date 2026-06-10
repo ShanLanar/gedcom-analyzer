@@ -30,7 +30,8 @@ class _MatchesMixin:
             return []
         try:
             data = r.json()
-        except Exception:
+        except ValueError as e:
+            log.debug("get_dna_kits JSON parse: %s", e)
             return []
         kits = []
         for item in (data if isinstance(data, list) else data.get("kits", [])):
@@ -54,8 +55,8 @@ class _MatchesMixin:
                     guid = item.get("testGuid") or item.get("guid")
                     if guid:
                         return guid
-            except Exception:
-                pass
+            except ValueError as e:
+                log.debug("detect_kit_from_uid JSON parse: %s", e)
         return None
 
     def get_match_count(self, test_guid: str) -> int:
@@ -67,8 +68,8 @@ class _MatchesMixin:
                 if isinstance(data, (int, float)):
                     return int(data)
                 return int(data.get("count") or data.get("totalCount") or 0)
-            except Exception:
-                pass
+            except (ValueError, AttributeError) as e:
+                log.debug("get_match_count JSON parse: %s", e)
         return 0
 
     def iter_matches(
@@ -240,7 +241,8 @@ class _MatchesMixin:
 
             try:
                 data = r.json()
-            except Exception:
+            except ValueError as e:
+                log.debug("iter_shared_matches JSON parse: %s", e)
                 return
 
             if total_pages is None:

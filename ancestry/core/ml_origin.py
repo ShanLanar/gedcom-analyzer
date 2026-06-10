@@ -175,7 +175,7 @@ def load() -> bool:
         return False
 
 
-def predict_region(surname: str, birth_year=None, top: int = 3):
+def predict_region(surname: str, birth_year=None, top: int = 3) -> list[tuple[str, float]]:
     """Top-k (Region, Wahrscheinlichkeit) für einen Nachnamen."""
     if not load():
         return []

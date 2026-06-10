@@ -69,7 +69,7 @@ def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
     try:
         csrf = session.cookies.get("_dnamatches-matchlistui-x-csrf-token",
                                    domain="www.ancestry.com")
-    except Exception:
+    except (AttributeError, TypeError):
         csrf = None
     if not csrf:
         csrf = (session.cookies.get("_csrf")
@@ -127,7 +127,8 @@ class _ApiSessionMixin:
             pad = parts[1] + "=" * (4 - len(parts[1]) % 4)
             payload = _j.loads(_b64.urlsafe_b64decode(pad))
             return int(payload.get("exp", 0)) - int(time.time())
-        except Exception:
+        except (ValueError, AttributeError) as e:
+            log.debug("_jwt_remaining decode: %s", e)
             return 0
 
     def _refresh_jwt(self, test_guid: str) -> None:

@@ -39,7 +39,7 @@ def merge_person_list(persons: list, thresh: float = 0.72) -> list:
     return groups
 
 
-def find_root_candidate(people: list, name_query: str):
+def find_root_candidate(people: list, name_query: str) -> tuple:
     """Findet die wahrscheinlichste Wurzelperson per Namenssuche. (ref, score)."""
     if not name_query:
         return None, 0.0

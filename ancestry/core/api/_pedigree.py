@@ -81,7 +81,8 @@ class _PedigreeMixin:
             return []
         try:
             data = r.json()
-        except Exception:
+        except ValueError as e:
+            log.debug("%s JSON parse: %s", self.__class__.__name__, e)
             return []
 
         if not getattr(self, "_logged_ca_sample", False):
@@ -126,7 +127,8 @@ class _PedigreeMixin:
             return []
         try:
             data = r.json()
-        except Exception:
+        except ValueError as e:
+            log.debug("get_compare_tree_data JSON parse: %s", e)
             return []
 
         if not getattr(self, "_logged_ctd_sample", False):
@@ -161,7 +163,8 @@ class _PedigreeMixin:
             return None
         try:
             trees = (r.json() or {}).get("trees") or []
-        except Exception:
+        except ValueError as e:
+            log.debug("get_tree_id_for_match JSON parse: %s", e)
             return None
         # bevorzugt den verknüpften Baum mit Person-Verknüpfung
         linked = [t for t in trees if t.get("personId")]
@@ -204,7 +207,7 @@ class _PedigreeMixin:
     def _pid(g):
         try:
             return (g or {}).get("v", "").split(":")[0]
-        except Exception:
+        except (AttributeError, TypeError):
             return ""
 
     def _fetch_pedigree_persons(self, tree_id: str, focus_pid: str,
@@ -219,7 +222,8 @@ class _PedigreeMixin:
             return {}
         try:
             data = r.json()
-        except Exception:
+        except ValueError as e:
+            log.debug("_fetch_pedigree_persons JSON parse: %s", e)
             return {}
         out = {}
         for p in (data.get("Persons") or []):
