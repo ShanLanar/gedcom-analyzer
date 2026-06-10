@@ -17,7 +17,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -29,11 +28,8 @@ except ImportError:
     print("Flask nicht installiert:  pip install flask")
     sys.exit(1)
 
-ROOT     = Path(__file__).resolve().parent.parent.parent
-DB_PATH  = ROOT / "ancestry_dna.db"
+from ancestry.paths import DB_PATH
 
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 try:
     from ancestry.core.entity_resolution import (
         _assign, _get_or_create_entity, _merge_entities, _entity_for_source,

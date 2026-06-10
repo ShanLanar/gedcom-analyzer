@@ -5,28 +5,16 @@ Testet Kölner Phonetik, Levenshtein, Scoring-Funktion, GEDCOM-Import
 und Match-Abgleich (ohne echte API-Verbindung).
 """
 import os
-import sys
 import tempfile
-import types
 import pytest
 
-# ── ancestry/ in sys.path (ohne core/__init__.py zu triggern) ───────────────
-_ANCESTRY = os.path.join(os.path.dirname(os.path.dirname(__file__)), "ancestry")
-if _ANCESTRY not in sys.path:
-    sys.path.append(_ANCESTRY)
-if "core" not in sys.modules:
-    _stub = types.ModuleType("core")
-    _stub.__path__ = [os.path.join(_ANCESTRY, "core")]
-    _stub.__package__ = "core"
-    sys.modules["core"] = _stub
-
-from core.bridge import (
+from ancestry.core.bridge import (
     _koelner, _levenshtein, _norm, _parse_name_from_indi,
     compute_link_score, import_gedcom_persons,
     run_match_for_match, ensure_tables, get_gedcom_person_count,
     MIN_LINK_SCORE,
 )
-from core.database import Database
+from ancestry.core.database import Database
 
 
 # ── Fixtures ─────────────────────────────────────────────────────────────────

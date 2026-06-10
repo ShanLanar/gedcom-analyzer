@@ -3691,11 +3691,9 @@ class AncestryDnaApp(tk.Frame):
         def _worker():
             try:
                 from core import bridge as _bridge
-                import sys as _sys, os as _os, importlib.util as _ilu
-                # GEDCOM-Endogamie aus dem Haupt-Analyzer laden (tasks/endogamy.py)
+                import os as _os, importlib.util as _ilu
+                # GEDCOM-Endogamie aus dem Haupt-Analyzer (tasks ist installiert)
                 _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-                if _root not in _sys.path:
-                    _sys.path.insert(0, _root)
                 from tasks.endogamy import compute_endogamy_with_detailed_places
                 from lib.places import load_location_data
                 # Root-config direkt laden (nicht über sys.modules["config"],

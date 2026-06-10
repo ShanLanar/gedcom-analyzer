@@ -28,8 +28,6 @@ DATA_DIR     = ANCESTRY_DIR / "data"
 OUR_KIT = "CM8449775"
 KIT_NAME = "GEDmatch (Andreas Kovermann)"
 
-sys.path.insert(0, str(ANCESTRY_DIR))
-sys.path.insert(0, str(ANCESTRY_DIR / "core"))
 
 
 def _float(v, default=0.0) -> float:
@@ -210,7 +208,7 @@ def parse_rows(path: Path) -> list[dict]:
 
 def init_schema():
     try:
-        from database import Database
+        from ancestry.core.database import Database
         db = Database(str(DB_PATH))
         db.close()
         print("Schema initialisiert (v15)")

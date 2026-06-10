@@ -66,8 +66,6 @@ DEFAULT_ARCHIVE = Path(os.environ.get(
 ))
 
 # Kölner Phonetik aus tasks.names (bereits im Projekt vorhanden)
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
 try:
     from tasks.names import koelner_phonetik as _kp, _levenshtein as _lev
 except ImportError:
@@ -189,7 +187,7 @@ def _open_parish_db() -> sqlite3.Connection:
 
 def _open_main_db():
     """Öffnet die Haupt-ancestry.db für source_matrikula_entries."""
-    main_db_path = ROOT / "ancestry_dna.db"
+    from ancestry.paths import DB_PATH as main_db_path
     if not main_db_path.exists():
         # Fallback: neben PARISH_DB
         main_db_path = PARISH_DB.parent / "matricula_entries.db"
@@ -727,11 +725,7 @@ def scan_kirchspiel(
     main_db   = _open_main_db()
 
     # Pfarrei-Auflösung mit Disambiguierung
-    try:
-        from tools.fetch_matricula_books import _resolve_parishes  # type: ignore[import]
-    except ImportError:
-        sys.path.insert(0, str(ROOT / "ancestry"))
-        from tools.fetch_matricula_books import _resolve_parishes  # type: ignore[import]
+    from ancestry.tools.fetch_matricula_books import _resolve_parishes
 
     resolved = _resolve_parishes(parish_db, parish_id)
     if not resolved:

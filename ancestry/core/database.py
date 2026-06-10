@@ -8,7 +8,7 @@ import logging
 from contextlib import contextmanager
 from typing import Generator, Optional
 
-from models import DnaKit, DnaMatch, SharedMatch
+from ancestry.models import DnaKit, DnaMatch, SharedMatch
 
 log = logging.getLogger(__name__)
 

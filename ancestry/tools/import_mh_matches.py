@@ -15,15 +15,16 @@ import sqlite3
 from pathlib import Path
 from datetime import datetime, timezone
 
-# Suchpfad für ancestry-Module
 SCRIPT_DIR = Path(__file__).resolve().parent
 ANCESTRY_DIR = SCRIPT_DIR.parent
-sys.path.insert(0, str(ANCESTRY_DIR))
-sys.path.insert(0, str(ANCESTRY_DIR / "core"))
 
 # ── Konfiguration ──────────────────────────────────────────────────────────────
 DB_PATH   = ANCESTRY_DIR / "ancestry_dna.db"
-JSON_FILE = SCRIPT_DIR / "mh_all_matches.json"
+
+from ancestry.paths import SNAPSHOT_DIR
+JSON_FILE = SNAPSHOT_DIR / "mh_all_matches.json"
+if not JSON_FILE.exists() and (SCRIPT_DIR / "mh_all_matches.json").exists():
+    JSON_FILE = SCRIPT_DIR / "mh_all_matches.json"   # Alt-Lage vor data/-Umzug
 if len(sys.argv) > 1:
     JSON_FILE = Path(sys.argv[1])
 
@@ -41,7 +42,7 @@ conn.execute("PRAGMA foreign_keys=OFF")
 def init_schema():
     """Schema initialisieren (alle Migrationen) über Database-Klasse."""
     try:
-        from database import Database
+        from ancestry.core.database import Database
         db = Database(str(DB_PATH))
         db.close()
         print("Schema initialisiert (via Database-Klasse)")

@@ -25,8 +25,6 @@ from datetime import datetime, timezone
 
 SCRIPT_DIR   = Path(__file__).resolve().parent
 ANCESTRY_DIR = SCRIPT_DIR.parent
-sys.path.insert(0, str(ANCESTRY_DIR))
-sys.path.insert(0, str(ANCESTRY_DIR / "core"))
 
 DB_PATH = ANCESTRY_DIR / "ancestry_dna.db"
 
@@ -50,7 +48,7 @@ def _str(v, default="") -> str:
 def init_schema(conn):
     """Schema via Database-Klasse initialisieren (alle Migrationen)."""
     try:
-        from database import Database
+        from ancestry.core.database import Database
         Database(str(DB_PATH)).close()
         print("Schema initialisiert (via Database-Klasse)")
     except Exception as e:

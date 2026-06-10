@@ -10,18 +10,11 @@ Jahresabweichungen, "genannt"-Namen usw.).
 
 import os
 import re
-import sys
 import unicodedata
 import logging
 from difflib import SequenceMatcher
 
 log = logging.getLogger(__name__)
-
-# Root des Repos in den Pfad, um den vorhandenen GEDCOM-Parser zu nutzen.
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
-
 
 # ── Normalisierung ──────────────────────────────────────────────────────────
 

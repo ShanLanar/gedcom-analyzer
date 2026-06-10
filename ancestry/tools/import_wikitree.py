@@ -18,8 +18,6 @@ import argparse
 from pathlib import Path
 
 ANCESTRY_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ANCESTRY_DIR))
-sys.path.insert(0, str(ANCESTRY_DIR / "core"))
 DB_PATH = ANCESTRY_DIR / "ancestry_dna.db"
 SOURCE = "wikitree"
 
@@ -45,9 +43,9 @@ def map_profile(pr: dict) -> dict:
 
 
 def run(key: str, depth: int, do_link: bool):
-    from core import wikitree
-    from core import bridge
-    from database import Database
+    from ancestry.core import wikitree
+    from ancestry.core import bridge
+    from ancestry.core.database import Database
 
     print(f"Lade WikiTree-Ahnen von {key} (Tiefe {depth}) …")
     anc = wikitree.get_ancestors(key, depth=depth)

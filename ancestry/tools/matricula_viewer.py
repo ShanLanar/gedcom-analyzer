@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import os
 import sqlite3
 import sys
 from pathlib import Path
@@ -31,18 +30,12 @@ except ImportError:
     print("Flask nicht installiert:  pip install flask")
     sys.exit(1)
 
-ROOT          = Path(__file__).resolve().parent.parent.parent
-PARISH_DB     = ROOT / "ancestry" / "tools" / "matricula_parishes.db"
-MAIN_DB_PATH  = ROOT / "ancestry_dna.db"
-FALLBACK_DB   = PARISH_DB.parent / "matricula_entries.db"
-DEFAULT_ARCHIVE = Path(os.environ.get(
-    "MATRICULA_ARCHIVE",
-    os.path.expanduser("~/matricula_images"),
-))
+from ancestry.paths import DB_PATH as MAIN_DB_PATH, MATRICULA_ARCHIVE as DEFAULT_ARCHIVE
 
-# Kölner Phonetik aus tasks.names (bereits im Projekt vorhanden)
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+PARISH_DB   = Path(__file__).resolve().parent / "matricula_parishes.db"
+FALLBACK_DB = PARISH_DB.parent / "matricula_entries.db"
+
+# Kölner Phonetik aus tasks.names (Paket ist installiert, s. pyproject.toml)
 try:
     from tasks.names import koelner_phonetik as _kp, _levenshtein as _lev
 except ImportError:

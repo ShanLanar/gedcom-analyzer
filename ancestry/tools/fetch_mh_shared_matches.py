@@ -42,10 +42,9 @@ if sys.platform == "win32":
         pass
 
 ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.join(ROOT, "ancestry"))
 
-from core.database import Database as AncestryDatabase
-from models.match import SharedMatch
+from ancestry.core.database import Database as AncestryDatabase
+from ancestry.models.match import SharedMatch
 
 
 def _parse_cm(val: str) -> float:

@@ -18,7 +18,6 @@ Minimaler Link-Score: 0.45
 import json
 import os
 import re
-import sys
 import unicodedata
 import logging
 from collections import defaultdict
@@ -26,11 +25,6 @@ from difflib import SequenceMatcher
 from typing import Optional
 
 log = logging.getLogger(__name__)
-
-# Root des Repos in den Pfad, damit lib.gedcom / treematch erreichbar sind
-_ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-if _ROOT not in sys.path:
-    sys.path.insert(0, _ROOT)
 
 MIN_LINK_SCORE = 0.45
 

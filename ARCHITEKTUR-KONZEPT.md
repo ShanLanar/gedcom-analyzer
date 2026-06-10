@@ -149,6 +149,13 @@ Aufwand: S ≈ ½ Sitzung · M ≈ 1–2 Sitzungen · L ≈ mehrere Sitzungen, t
   `sys.path`-Hacks löschen**.
 - Akzeptanz: `python -c "from ancestry.core import database"` aus beliebigem
   Arbeitsverzeichnis; `grep -r "sys.path.insert" ancestry/` → 0 Treffer.
+- *Befund aus der Umsetzung (W0):* Zwei Tools (`download_mother_kit.py`,
+  `discover_endpoint.py`) hängen an der `import config`-Kette von
+  `core/auth|api|scraper` und behalten ihren Hack mit `TODO(M2)`-Marker —
+  sie fallen erst mit der Config-Umbenennung in M2. Zusätzlich nötig war
+  `ancestry/__init__.py` (war bisher Namespace-Paket) und ein **lazy**
+  `ancestry/core/__init__.py` (PEP 562), da die bisherigen Eager-Re-Exports
+  auth/api/scraper — und damit config — bei jedem Core-Import mitzogen.
 
 ### M2 — Config-Kollision auflösen (S/M) 🔴
 

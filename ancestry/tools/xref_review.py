@@ -19,8 +19,6 @@ import argparse
 from pathlib import Path
 
 ANCESTRY_DIR = Path(__file__).resolve().parent.parent
-sys.path.insert(0, str(ANCESTRY_DIR))
-sys.path.insert(0, str(ANCESTRY_DIR / "core"))
 DB_PATH = ANCESTRY_DIR / "ancestry_dna.db"
 
 
@@ -41,8 +39,8 @@ def show(r):
 
 
 def main():
-    from database import Database
-    from core import bridge
+    from ancestry.core.database import Database
+    from ancestry.core import bridge
     ap = argparse.ArgumentParser()
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--lo", type=float, default=0.72)

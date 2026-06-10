@@ -33,8 +33,8 @@ import pytest
 
 openpyxl = pytest.importorskip("openpyxl")
 
-from core.export import export_csv, export_shared_csv, export_xlsx
-from models import DnaKit, DnaMatch, SharedMatch
+from ancestry.core.export import export_csv, export_shared_csv, export_xlsx
+from ancestry.models import DnaKit, DnaMatch, SharedMatch
 
 
 # ---------------------------------------------------------------------------
@@ -424,14 +424,14 @@ def test_dnamatch_shared_cm_defaults_to_zero():
 
 def test_dnamatch_derive_relationship_875_contains_cousin():
     """875 cM → relationship label contains 'Cousin'."""
-    from models.match import derive_relationship
+    from ancestry.models.match import derive_relationship
     label = derive_relationship(875)
     assert "Cousin" in label
 
 
 def test_dnamatch_derive_relationship_3500_contains_eltern_or_kind():
     """3500 cM → relationship label contains 'Elternteil' or 'Kind'."""
-    from models.match import derive_relationship
+    from ancestry.models.match import derive_relationship
     label = derive_relationship(3500)
     assert "Elternteil" in label or "Kind" in label
 

@@ -35,21 +35,15 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
-import sys
 from pathlib import Path
 from typing import Optional
 
-ROOT = Path(__file__).resolve().parent.parent.parent
-
-if str(ROOT) not in sys.path:
-    sys.path.insert(0, str(ROOT))
+from ancestry.paths import DB_PATH
 
 try:
     from tasks.names import koelner_phonetik as _kp, _levenshtein as _lev
 except ImportError:
     _kp = _lev = None  # type: ignore[assignment]
-
-DB_PATH = ROOT / "ancestry_dna.db"
 
 
 # ── DB-Zugriff ─────────────────────────────────────────────────────────────────
