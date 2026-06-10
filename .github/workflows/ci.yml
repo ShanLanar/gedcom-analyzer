@@ -1,0 +1,35 @@
+name: CI
+
+on:
+  push:
+    branches: [main, "claude/**"]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+
+      - name: Abhängigkeiten installieren
+        run: pip install -e ".[viewer,scraping,vision,dev]" --no-warn-script-location
+
+      - name: Lint (ruff)
+        run: ruff check .
+
+      - name: Tests
+        run: python -m pytest tests/ -q --tb=short --ignore=tests/test_stress_integration.py
+
+      - name: Stress-Tests (zeitkritisch, eigener Schritt)
+        run: python -m pytest tests/test_stress_integration.py -q --tb=short -x
+
+      - name: Coverage (ancestry/core)
+        run: python -m pytest tests/ -q --tb=short --cov=ancestry.core --cov-report=term-missing:skip-covered
+        continue-on-error: true
