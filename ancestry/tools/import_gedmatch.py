@@ -158,11 +158,11 @@ def run(path: Path, kit_guid: str):
     conn.commit()
     conn.close()
 
-    print(f"\nImport abgeschlossen:")
+    print("\nImport abgeschlossen:")
     print(f"  Gespeichert:  {saved}")
     print(f"  Uebersprungen:{skipped}")
     print(f"  Datenbank:    {DB_PATH}")
-    print(f"\n  Top-Testdienste:")
+    print("\n  Top-Testdienste:")
     for comp, n in sorted(companies.items(), key=lambda x: -x[1])[:12]:
         print(f"    {n:5d}  {comp}")
 

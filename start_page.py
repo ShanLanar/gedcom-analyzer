@@ -686,7 +686,8 @@ class StartPage(tk.Frame):
         self._log_msg("Starte Matricula-Scraper (benötigt Internet) …", tag="info")
 
         def _run():
-            import subprocess, sys as _sys
+            import subprocess
+            import sys as _sys
             script = os.path.join(_ROOT, "ancestry", "tools",
                                   "scrape_matricula_osnabrueck.py")
             proc = subprocess.Popen(
@@ -704,7 +705,8 @@ class StartPage(tk.Frame):
         threading.Thread(target=_run, daemon=True).start()
 
     def _open_viewer(self):
-        import subprocess, sys as _sys
+        import subprocess
+        import sys as _sys
         subprocess.Popen([_sys.executable, os.path.join(_ROOT, "viewer.py")],
                          cwd=_ROOT)
 

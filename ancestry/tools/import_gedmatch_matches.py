@@ -312,7 +312,7 @@ def run(input_file: Path):
 
     conn.close()
 
-    print(f"\nImport abgeschlossen:")
+    print("\nImport abgeschlossen:")
     print(f"  Gespeichert:  {saved}")
     print(f"  Übersprungen: {skipped}")
     print(f"  Datenbank:    {DB_PATH}")

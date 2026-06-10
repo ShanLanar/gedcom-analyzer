@@ -35,7 +35,9 @@ SITE_KIT   = "OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ"
 URL        = f"https://www.myheritage.com/dna/matches/{SITE_KIT}"
 
 # Playwright Chromium-Profil-Pfad (Standard-Orte)
-import os, sys, platform
+import os
+import sys
+import platform
 def default_profile():
     s = platform.system()
     if s == "Windows":

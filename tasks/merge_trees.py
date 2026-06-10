@@ -231,7 +231,7 @@ def merge_gedcoms(file_a, file_b, output_path, progress_cb=None):
             lf.write(f"# Merge log: {file_a}  +  {file_b}\n")
             lf.write(f"# Ergebnis:   {output_path}\n")
             lf.write(f"# Gemergte Duplikate: {len(merge_log_pairs)}\n")
-            lf.write(f"# Format: <A-ID>\\t<B-ID-renumbered>\\t<A-Name>\\t<B-Name>\n")
+            lf.write("# Format: <A-ID>\\t<B-ID-renumbered>\\t<A-Name>\\t<B-Name>\n")
             for pid_a, pid_b, na, nb in merge_log_pairs:
                 lf.write(f"{pid_a}\t{pid_b}\t{na}\t{nb}\n")
         p(f"Merge-Log: {log_path}", tag="ok")

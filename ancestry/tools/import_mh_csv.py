@@ -164,7 +164,7 @@ def run(path: Path, kit_override: str = ""):
     conn.commit()
     conn.close()
 
-    print(f"\nImport abgeschlossen:")
+    print("\nImport abgeschlossen:")
     print(f"  Gespeichert:   {saved}")
     print(f"  Uebersprungen: {skipped}")
     print(f"  Datenbank:     {DB_PATH}")

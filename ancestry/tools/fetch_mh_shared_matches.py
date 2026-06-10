@@ -1112,7 +1112,7 @@ async ([url, bodyStr]) => {
 
     print(f"\n✅  {total_imported} Shared Matches importiert "
           f"({len(to_do)} Match-Seiten verarbeitet)")
-    print(f"    DB: ancestry_dna.db")
+    print("    DB: ancestry_dna.db")
 
 
 if __name__ == "__main__":

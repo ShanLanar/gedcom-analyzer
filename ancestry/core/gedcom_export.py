@@ -52,7 +52,7 @@ def export_gedcom(groups: list, output_path: str, submitter_name: str = "Ancestr
         "2 VERS 5.5.1",
         "2 FORM LINEAGE-LINKED",
         "1 CHAR UTF-8",
-        f"1 SUBM @SUBM1@",
+        "1 SUBM @SUBM1@",
         "0 @SUBM1@ SUBM",
         f"1 NAME {_clean(submitter_name)}",
     ]

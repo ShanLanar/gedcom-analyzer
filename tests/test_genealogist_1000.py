@@ -780,7 +780,7 @@ def test_marriage_migration_classification_categories(from_country, to_country, 
 def test_migration_status_robust(seed):
     """Migrationsstatus-Bestimmung crasht nie."""
     from lib.helpers import safe_determine_migration_status
-    iid, p = _indi(f"@M{seed}@", f"Hans /Müller/", "M", 1850 + seed)
+    iid, p = _indi(f"@M{seed}@", "Hans /Müller/", "M", 1850 + seed)
     if seed % 3 == 0:
         p["MIGRATED"] = True
     if seed % 5 == 0:
@@ -1094,13 +1094,13 @@ def test_endogamy_graphml_min_count_filter(min_count, tmp_path):
     indiv, fams = {}, {}
     # 5 Ehen Müller×Schmidt, 2 Ehen Bauer×Koch
     for i in range(5):
-        h_iid, h = _indi(f"@H{i}@", f"X /Müller/", "M", 1820+i, fams=[f"@F{i}@"])
-        w_iid, w = _indi(f"@W{i}@", f"Y /Schmidt/", "F", 1822+i, fams=[f"@F{i}@"])
+        h_iid, h = _indi(f"@H{i}@", "X /Müller/", "M", 1820+i, fams=[f"@F{i}@"])
+        w_iid, w = _indi(f"@W{i}@", "Y /Schmidt/", "F", 1822+i, fams=[f"@F{i}@"])
         indiv[h_iid] = h; indiv[w_iid] = w
         fams[f"@F{i}@"] = _fam(f"@F{i}@", h_iid, w_iid, [], 1850+i)[1]
     for i in range(5, 7):
-        h_iid, h = _indi(f"@H{i}@", f"X /Bauer/", "M", 1820+i, fams=[f"@F{i}@"])
-        w_iid, w = _indi(f"@W{i}@", f"Y /Koch/", "F", 1822+i, fams=[f"@F{i}@"])
+        h_iid, h = _indi(f"@H{i}@", "X /Bauer/", "M", 1820+i, fams=[f"@F{i}@"])
+        w_iid, w = _indi(f"@W{i}@", "Y /Koch/", "F", 1822+i, fams=[f"@F{i}@"])
         indiv[h_iid] = h; indiv[w_iid] = w
         fams[f"@F{i}@"] = _fam(f"@F{i}@", h_iid, w_iid, [], 1850+i)[1]
     out = tmp_path / "endog.graphml"
@@ -1588,7 +1588,7 @@ def test_deep_tree_kinship_consistency(n_generations, branching):
                                    [f"@P{gen}@"])[1]
     # Φ(P0, P_{n-1}) = (1/2)^(n-1) × 1/2
     # Beispiel: n=3 → Φ(Enkel, Großvater) = (1/2)^2 × 1/2 = 1/8 ✓
-    phi = _kinship_coefficient(f"@P0@", f"@P{n_generations-1}@", indiv, fams)
+    phi = _kinship_coefficient("@P0@", f"@P{n_generations-1}@", indiv, fams)
     expected = (0.5 ** (n_generations - 1)) * 0.5
     assert abs(phi - expected) < 1e-9
 

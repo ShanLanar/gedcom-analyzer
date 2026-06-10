@@ -81,7 +81,7 @@ def main():
 
     OUT_FILE.write_text("\n".join(out_lines), encoding="utf-8")
     print(f"\n✓ {len(out_lines)-1} Zeilen gespeichert nach: {OUT_FILE}")
-    print(f"\nJetzt importieren mit:")
+    print("\nJetzt importieren mit:")
     print(f"  python import_gedmatch_matches.py {OUT_FILE}")
 
 
