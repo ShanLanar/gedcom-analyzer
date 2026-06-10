@@ -171,6 +171,9 @@ class AncestryDnaApp(tk.Frame):
         am.add_command(label=self._t("mn.auto_sides"),  command=self._auto_assign_sides)
         am.add_command(label=self._t("mn.endo_score"),  command=self._show_endogamy_analysis)
         am.add_command(label=self._t("mn.pop_stats"),   command=self._show_population_stats)
+        am.add_separator()
+        am.add_command(label=self._t("mn.dashboard"),   command=self._show_research_dashboard)
+        am.add_command(label=self._t("mn.copilot_cl"),  command=self._copilot_explain_cluster)
         mb.add_cascade(label=self._t("mn.analysis"), menu=am)
         for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
@@ -180,7 +183,8 @@ class AncestryDnaApp(tk.Frame):
                          (18,"mn.mrca"),(19,"mn.net_graph"),
                          (21,"mn.exp_ged"),(22,"mn.imp_mta"),
                          (24,"mn.ped_gaps"),(25,"mn.auto_sides"),(26,"mn.endo_score"),
-                         (27,"mn.pop_stats")]:
+                         (27,"mn.pop_stats"),
+                         (29,"mn.dashboard"),(30,"mn.copilot_cl")]:
             self._lang_menus.append((am, idx, key))
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
@@ -1633,6 +1637,85 @@ class AncestryDnaApp(tk.Frame):
     def _show_population_stats(self):
         from ancestry.gui.analysis.population import show_population_stats
         show_population_stats(self)
+
+    def _show_research_dashboard(self):
+        from ancestry.gui.analysis.research_dashboard import show_research_dashboard
+        show_research_dashboard(self)
+
+    def _copilot_explain_cluster(self):
+        """Öffnet ein Popup das den ausgewählten Cluster via Claude erklärt."""
+        from tkinter import messagebox, scrolledtext
+        from ancestry.core.ai_copilot import (availability_hint, cluster_prompt,
+                                               explain_async, is_available)
+
+        clusters = getattr(self, "_clusters", {}) or {}
+        if not clusters:
+            messagebox.showinfo("Cluster erklären",
+                                "Bitte zuerst im Cluster-Tab Clustering durchführen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("🤖 Cluster-Copilot")
+        win.geometry("620x440")
+
+        top = ttk.Frame(win)
+        top.pack(fill="x", padx=10, pady=8)
+        ttk.Label(top, text="Cluster:").pack(side="left")
+        opts = [f"#{cid}  ({len(members)} Mitglieder)"
+                for cid, members in sorted(clusters.items())]
+        sel = tk.StringVar(value=opts[0] if opts else "")
+        cb = ttk.Combobox(top, textvariable=sel, values=opts, width=28, state="readonly")
+        cb.pack(side="left", padx=6)
+
+        btn_var = tk.StringVar(value="🤖 Erklären")
+        btn = ttk.Button(top, textvariable=btn_var,
+                         state="normal" if is_available() else "disabled")
+        btn.pack(side="left", padx=6)
+
+        txt = scrolledtext.ScrolledText(win, wrap="word", font=("Segoe UI", 9),
+                                        state="disabled", bg="#fafafa")
+        txt.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+
+        hint = availability_hint()
+        if hint:
+            txt.configure(state="normal")
+            txt.insert("end", hint)
+            txt.configure(state="disabled")
+
+        def _explain():
+            raw = sel.get()
+            try:
+                cid = int(raw.split("#")[1].split()[0])
+            except (IndexError, ValueError):
+                return
+            members = clusters.get(cid, [])
+            prompt = cluster_prompt(cid, members)
+            if not prompt:
+                return
+            btn.configure(state="disabled")
+            btn_var.set("⏳ Claude denkt …")
+            txt.configure(state="normal")
+            txt.delete("1.0", "end")
+
+            def _chunk(t: str) -> None:
+                win.after(0, lambda c=t: _append(c))
+
+            def _done(_: str) -> None:
+                win.after(0, _finish)
+
+            def _append(t: str) -> None:
+                txt.configure(state="normal")
+                txt.insert("end", t)
+                txt.see("end")
+
+            def _finish() -> None:
+                txt.configure(state="disabled")
+                btn.configure(state="normal")
+                btn_var.set("🤖 Erklären")
+
+            explain_async(prompt, on_chunk=_chunk, on_done=_done)
+
+        btn.configure(command=_explain)
 
     def _run_gedmatch_bridge(self):
         """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches (Name+cM-Ähnlichkeit)."""

@@ -255,6 +255,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mn.endo_score":{"de": "Endogamie-Score-Analyse …",            "en": "Endogamy score analysis …"},
     "mn.cl_timeline":{"de": "Cluster-Zeitachse …",                 "en": "Cluster timeline …"},
     "mn.pop_stats":  {"de": "Bevölkerungsstatistiken …",           "en": "Population statistics …"},
+    "mn.dashboard":  {"de": "🏅 Forschungs-Dashboard …",          "en": "🏅 Research dashboard …"},
+    "mn.copilot_cl": {"de": "🤖 Cluster erklären (Copilot) …",    "en": "🤖 Explain cluster (copilot) …"},
     # Quick-filter chips
     "mf.chip_star": {"de": "★ Markierte",    "en": "★ Starred"},
     "mf.chip_tree": {"de": "🌳 Mit Baum",    "en": "🌳 With tree"},
