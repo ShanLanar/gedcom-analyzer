@@ -457,6 +457,9 @@ class AhnenApp(tk.Frame):
         self._status_lbl = tk.Label(hdr, text="Bereit", bg=cfg.BG2, fg=cfg.FG_DIM,
                                      font=cfg.FONT_MAIN)
         self._status_lbl.pack(side="right", padx=12)
+        self._ged_info_lbl = tk.Label(hdr, text="", bg=cfg.BG2, fg=cfg.FG_DIM,
+                                       font=("Segoe UI", 8))
+        self._ged_info_lbl.pack(side="right", padx=4)
 
         # Hauptbereich
         main = tk.Frame(self, bg=cfg.BG)
@@ -502,52 +505,17 @@ class AhnenApp(tk.Frame):
 
         self._build_task_list(inner)
 
-        # Rechte Seite: Pfad + Log + Fortschritt
+        # Rechte Seite: Log + Fortschritt (Pfad/ID werden vom Start-Reiter gesetzt)
         right = tk.Frame(main, bg=cfg.BG)
         right.pack(side="left", fill="both", expand=True)
 
-        path_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
-        path_frame.pack(fill="x")
-        tk.Label(path_frame, text="Stammbaumdatei:", bg=cfg.BG2, fg=cfg.FG_DIM,
-                 font=cfg.FONT_MONO).pack(side="left", padx=8)
-        self._path_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["gedfile"])
-        tk.Entry(path_frame, textvariable=self._path_var, bg=cfg.BG3, fg=cfg.FG,
-                 font=cfg.FONT_MONO, relief="flat", width=48).pack(
-            side="left", padx=4)
-        tk.Button(path_frame, text="Durchsuchen…", bg=cfg.BG3, fg=cfg.FG,
-                  font=cfg.FONT_MAIN, relief="flat",
-                  command=self._browse_gedcom).pack(side="left", padx=4)
-
-        # Zuletzt geöffnete Dateien + Ancestry-Vorschlag
-        recent_frame = tk.Frame(right, bg=cfg.BG2, pady=2)
-        recent_frame.pack(fill="x")
-        tk.Label(recent_frame, text="Zuletzt:", bg=cfg.BG2, fg=cfg.FG_DIM,
-                 font=("Segoe UI", 8)).pack(side="left", padx=8)
-        self._recent_var = tk.StringVar(value="")
-        self._recent_menu = ttk.Combobox(
-            recent_frame, textvariable=self._recent_var,
-            state="readonly", width=55, font=("Segoe UI", 8))
-        self._recent_menu.pack(side="left", padx=4)
-        self._recent_menu.bind("<<ComboboxSelected>>", self._on_recent_select)
-        self._refresh_recent()
-        # Ancestry-Export im Download-Ordner suchen und vorschlagen
-        self.after(600, self._suggest_ancestry_export)
-
-        # Root-/Exclude-ID
-        ids_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
-        ids_frame.pack(fill="x")
-        tk.Label(ids_frame, text="Root-ID:", bg=cfg.BG2, fg=cfg.FG_DIM,
-                 font=cfg.FONT_MONO).pack(side="left", padx=8)
+        # Pfad-/ID-Variablen (nur intern, keine Eingabefelder — Start-Reiter ist zuständig)
+        self._path_var    = tk.StringVar(value=cfg.DEFAULT_CONFIG["gedfile"])
         self._root_id_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["root_id"])
-        tk.Entry(ids_frame, textvariable=self._root_id_var, bg=cfg.BG3,
-                 fg=cfg.FG, font=cfg.FONT_MONO, relief="flat",
-                 width=12).pack(side="left", padx=4)
-        tk.Label(ids_frame, text="Exclude-ID:", bg=cfg.BG2, fg=cfg.FG_DIM,
-                 font=cfg.FONT_MONO).pack(side="left", padx=(16, 8))
         self._excl_id_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["exclude_id"])
-        tk.Entry(ids_frame, textvariable=self._excl_id_var, bg=cfg.BG3,
-                 fg=cfg.FG, font=cfg.FONT_MONO, relief="flat",
-                 width=12).pack(side="left", padx=4)
+        self._path_var.trace_add("write", lambda *_: self.after(0, self._update_ged_info))
+        self._root_id_var.trace_add("write", lambda *_: self.after(0, self._update_ged_info))
+        self.after(100, self._update_ged_info)
 
         self._log = scrolledtext.ScrolledText(
             right, bg="#13131f", fg=cfg.FG, font=cfg.FONT_MONO,
@@ -581,9 +549,6 @@ class AhnenApp(tk.Frame):
             font=cfg.FONT_HEAD, relief="flat", padx=16,
             command=self._stop, state="disabled")
         self._btn_stop.pack(side="left", padx=4)
-        tk.Button(footer, text="🧬 DNA-Matches", bg="#1F4E79", fg="#fff",
-                  font=cfg.FONT_MAIN, relief="flat", padx=10,
-                  command=self._open_dna_tool).pack(side="left", padx=8)
         tk.Button(footer, text="Log löschen", bg=cfg.BG3, fg=cfg.FG,
                   font=cfg.FONT_MAIN, relief="flat",
                   command=self._clear_log).pack(side="right", padx=8)
@@ -618,9 +583,23 @@ class AhnenApp(tk.Frame):
 
     # ── Datei-Auswahl ────────────────────────────────────────────────────────────────────────────
 
+    def _update_ged_info(self):
+        path = self._path_var.get()
+        root_id = self._root_id_var.get()
+        if path:
+            name = os.path.basename(path)
+            text = f"📄 {name}"
+            if root_id:
+                text += f"  ·  👤 {root_id}"
+            self._ged_info_lbl.configure(text=text, fg=cfg.FG)
+        else:
+            self._ged_info_lbl.configure(text="Keine GEDCOM-Datei geladen — bitte im Start-Reiter wählen",
+                                          fg=cfg.FG_DIM)
+
     def _refresh_recent(self):
         recent = cfg.get_recent_files()
-        self._recent_menu["values"] = recent
+        if hasattr(self, "_recent_menu"):
+            self._recent_menu["values"] = recent
         if recent and not self._recent_var.get():
             self._recent_var.set("")
 

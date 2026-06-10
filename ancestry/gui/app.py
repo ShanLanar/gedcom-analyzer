@@ -53,6 +53,14 @@ COLORS_DARK = {
     "cluster" : ["#3a2020","#1a3a2a","#1e1e3a","#2e2a10","#2a1a3a","#0a2230"],
 }
 
+# Theme aus config_user.json übernehmen
+try:
+    import config as _cfg_theme
+    if getattr(_cfg_theme, "THEME", "light") == "dark":
+        COLORS = dict(COLORS_DARK)
+except Exception:
+    pass
+
 TRANSLATIONS: dict[str, dict[str, str]] = {
     # Tabs
     "tab_login":    {"de": "  🔑 Login  ",        "en": "  🔑 Login  "},
@@ -4908,120 +4916,102 @@ class AncestryDnaApp(tk.Frame):
 
     def _build_tab_stats(self):
         f = self._tab_stats
+
+        # Refresh-Button oben rechts
+        top = ttk.Frame(f)
+        top.pack(fill="x", padx=14, pady=(8, 2))
         _sv = tk.StringVar(value=self._t("st.refresh"))
-        ttk.Button(f, textvariable=_sv,
-                   command=self._refresh_stats).pack(anchor="ne", padx=14, pady=8)
+        ttk.Button(top, textvariable=_sv,
+                   command=self._refresh_stats).pack(side="right")
         self._lang_widgets.append((_sv, "st.refresh"))
 
-        kz = ttk.LabelFrame(f, text=self._t("st.kz"), padding=10)
-        kz.pack(fill="x", padx=14, pady=4)
-        self._lang_widgets.append((kz, "st.kz"))
+        # 2-Spalten-Layout
+        body = ttk.Frame(f)
+        body.pack(fill="both", expand=True, padx=14, pady=4)
+        body.columnconfigure(0, weight=1)
+        body.columnconfigure(1, weight=1)
+
+        # ── Linke Spalte: alle Kennzahlen ─────────────────────────────────────
+        left = ttk.Frame(body)
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 6))
 
         self._stat_vars: dict[str, tk.StringVar] = {}
-        stat_label_keys = [
-            ("total",               "st.total"),
-            ("max_cm",              "st.max_cm"),
-            ("avg_cm",              "st.avg_cm"),
-            ("starred_count",       "st.starred"),
-            ("with_tree",           "st.with_tree"),
-            ("with_note",           "st.with_note"),
-            ("shared_total",        "st.shared_tot"),
-            ("shared_primary_count","st.shared_pri"),
-        ]
-        for i, (stat_key, t_key) in enumerate(stat_label_keys):
-            sv_lbl = tk.StringVar(value=self._t(t_key))
-            ttk.Label(kz, textvariable=sv_lbl, foreground="#555555").grid(
-                row=i // 4, column=(i % 4) * 2, sticky="e", padx=(14,4), pady=3)
-            self._lang_widgets.append((sv_lbl, t_key))
-            var = tk.StringVar(value="—")
-            ttk.Label(kz, textvariable=var, font=("Segoe UI", 10, "bold"),
-                      foreground=COLORS["primary"]).grid(
-                row=i // 4, column=(i % 4) * 2 + 1, sticky="w")
-            self._stat_vars[stat_key] = var
 
-        # Pedigree completeness section
-        pz = ttk.LabelFrame(f, text=self._t("st.ped_kz"), padding=10)
-        pz.pack(fill="x", padx=14, pady=4)
-        self._lang_widgets.append((pz, "st.ped_kz"))
-        ped_label_keys = [
-            ("ped_loaded", "st.ped_loaded"),
+        def _stat_section(parent, t_key, items):
+            lf = ttk.LabelFrame(parent, text=self._t(t_key), padding=6)
+            lf.pack(fill="x", pady=(0, 6))
+            self._lang_widgets.append((lf, t_key))
+            for i, (stat_key, label_key) in enumerate(items):
+                sv_lbl = tk.StringVar(value=self._t(label_key))
+                ttk.Label(lf, textvariable=sv_lbl,
+                          foreground=COLORS["text"]).grid(
+                    row=i // 2, column=(i % 2) * 2,
+                    sticky="e", padx=(8, 4), pady=2)
+                self._lang_widgets.append((sv_lbl, label_key))
+                var = tk.StringVar(value="—")
+                ttk.Label(lf, textvariable=var,
+                          font=("Segoe UI", 10, "bold"),
+                          foreground=COLORS["primary"]).grid(
+                    row=i // 2, column=(i % 2) * 2 + 1,
+                    sticky="w", padx=(0, 16), pady=2)
+                self._stat_vars[stat_key] = var
+
+        _stat_section(left, "st.kz", [
+            ("total",                "st.total"),
+            ("max_cm",               "st.max_cm"),
+            ("avg_cm",               "st.avg_cm"),
+            ("starred_count",        "st.starred"),
+            ("with_tree",            "st.with_tree"),
+            ("with_note",            "st.with_note"),
+            ("shared_total",         "st.shared_tot"),
+            ("shared_primary_count", "st.shared_pri"),
+        ])
+        _stat_section(left, "st.ped_kz", [
+            ("ped_loaded",    "st.ped_loaded"),
             ("ped_avg_depth", "st.ped_depth"),
-            ("ped_surnames", "st.ped_surn"),
-        ]
-        for i, (stat_key, t_key) in enumerate(ped_label_keys):
-            sv_lbl = tk.StringVar(value=self._t(t_key))
-            ttk.Label(pz, textvariable=sv_lbl, foreground="#555555").grid(
-                row=0, column=i*2, sticky="e", padx=(14,4), pady=3)
-            self._lang_widgets.append((sv_lbl, t_key))
-            var = tk.StringVar(value="—")
-            ttk.Label(pz, textvariable=var, font=("Segoe UI", 10, "bold"),
-                      foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
-            self._stat_vars[stat_key] = var
-
-        # GEDCOM bridge section
-        gz = ttk.LabelFrame(f, text=self._t("st.ged_kz"), padding=10)
-        gz.pack(fill="x", padx=14, pady=4)
-        self._lang_widgets.append((gz, "st.ged_kz"))
-        ged_label_keys = [
+            ("ped_surnames",  "st.ped_surn"),
+        ])
+        _stat_section(left, "st.ged_kz", [
             ("gedcom_persons", "st.ged_pers"),
             ("gedcom_linked",  "st.ged_linked"),
-        ]
-        for i, (stat_key, t_key) in enumerate(ged_label_keys):
-            sv_lbl = tk.StringVar(value=self._t(t_key))
-            ttk.Label(gz, textvariable=sv_lbl, foreground="#555555").grid(
-                row=0, column=i*2, sticky="e", padx=(14,4), pady=3)
-            self._lang_widgets.append((sv_lbl, t_key))
-            var = tk.StringVar(value="—")
-            ttk.Label(gz, textvariable=var, font=("Segoe UI", 10, "bold"),
-                      foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
-            self._stat_vars[stat_key] = var
-
-        # Seitenzuweisung section
-        sz = ttk.LabelFrame(f, text=self._t("st.side_kz"), padding=10)
-        sz.pack(fill="x", padx=14, pady=4)
-        self._lang_widgets.append((sz, "st.side_kz"))
-        side_label_keys = [
+        ])
+        _stat_section(left, "st.side_kz", [
             ("side_paternal", "st.side_pat"),
             ("side_maternal", "st.side_mat"),
             ("side_unset",    "st.side_open"),
-        ]
-        for i, (stat_key, t_key) in enumerate(side_label_keys):
-            sv_lbl = tk.StringVar(value=self._t(t_key))
-            ttk.Label(sz, textvariable=sv_lbl, foreground="#555555").grid(
-                row=0, column=i*2, sticky="e", padx=(14,4), pady=3)
-            self._lang_widgets.append((sv_lbl, t_key))
-            var = tk.StringVar(value="—")
-            ttk.Label(sz, textvariable=var, font=("Segoe UI", 10, "bold"),
-                      foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
-            self._stat_vars[stat_key] = var
+        ])
 
-        # Kits & Matches section
-        kf = ttk.LabelFrame(f, text=self._t("st.kit_kz"), padding=10)
-        kf.pack(fill="x", padx=14, pady=4)
+        # ── Rechte Spalte: Kits + Ringe + Verwandtschaftsverteilung ──────────
+        right = ttk.Frame(body)
+        right.grid(row=0, column=1, sticky="nsew", padx=(6, 0))
+
+        kf = ttk.LabelFrame(right, text=self._t("st.kit_kz"), padding=6)
+        kf.pack(fill="x", pady=(0, 6))
         self._lang_widgets.append((kf, "st.kit_kz"))
         self._kit_stat_tree = ttk.Treeview(kf, columns=("kit", "count"),
-                                            show="headings", height=4)
+                                            show="headings", height=3)
         self._kit_stat_tree.heading("kit",   text="Kit")
         self._kit_stat_tree.heading("count", text="Matches")
-        self._kit_stat_tree.column("kit",   width=280)
-        self._kit_stat_tree.column("count", width=80, anchor="e")
+        self._kit_stat_tree.column("kit",   width=200)
+        self._kit_stat_tree.column("count", width=70, anchor="e")
         self._kit_stat_tree.pack(fill="x")
 
-        # Progress ring section
-        ring_frame = ttk.Frame(f); ring_frame.pack(fill="x", padx=14, pady=4)
+        ring_frame = ttk.Frame(right)
+        ring_frame.pack(fill="x", pady=(0, 6))
         self._ring_canvas = tk.Canvas(ring_frame, height=90, bg=COLORS["bg"],
                                        highlightthickness=0)
         self._ring_canvas.pack(fill="x")
         self._stat_ring_data: dict = {}
 
-        rf = ttk.LabelFrame(f, text=self._t("st.rel_dist"), padding=10)
-        rf.pack(fill="both", expand=True, padx=14, pady=4)
+        rf = ttk.LabelFrame(right, text=self._t("st.rel_dist"), padding=6)
+        rf.pack(fill="both", expand=True)
         self._lang_widgets.append((rf, "st.rel_dist"))
-        self._rel_tree = ttk.Treeview(rf, columns=("rel","count"), show="headings", height=10)
+        self._rel_tree = ttk.Treeview(rf, columns=("rel", "count"),
+                                       show="headings", height=10)
         self._rel_tree.heading("rel",   text=self._t("st.rel"))
         self._rel_tree.heading("count", text=self._t("st.count"))
-        self._rel_tree.column("rel",    width=300)
-        self._rel_tree.column("count",  width=80, anchor="e")
+        self._rel_tree.column("rel",    width=220)
+        self._rel_tree.column("count",  width=70, anchor="e")
         self._rel_tree.pack(fill="both", expand=True)
         self._lang_headings.append((self._rel_tree, "rel",   "st.rel"))
         self._lang_headings.append((self._rel_tree, "count", "st.count"))

@@ -423,22 +423,27 @@ class StartPage(tk.Frame):
         sb.pack(fill="x", pady=(0, 8))
 
         self._stat_labels: dict[str, tk.Label] = {}
-        for key, text in [
-            ("db_size",  "ancestry_dna.db:"),
+        # 2-spaltige kompakte Anzeige
+        stat_items = [
+            ("db_size",  "Datenbank:"),
             ("kits",     "DNA-Kits:"),
             ("matches",  "Matches:"),
-            ("mkm",      "Verknüpfungen:"),
-            ("shared",   "Shared Matches:"),
-            ("gedcom",   "GEDCOM-Personen:"),
-            ("parishes", "Matricula-Orte:"),
-        ]:
-            row = tk.Frame(sb, bg=P["bg2"])
-            row.pack(fill="x", pady=1)
-            tk.Label(row, text=text, bg=P["bg2"], fg=P["dim"],
-                     font=cfg.FONT_MONO, width=20, anchor="w").pack(side="left")
-            lbl = tk.Label(row, text="—", bg=P["bg2"], fg=P["fg"],
-                            font=cfg.FONT_MONO, anchor="w")
-            lbl.pack(side="left")
+            ("mkm",      "Verknüpft:"),
+            ("shared",   "Shared:"),
+            ("gedcom",   "GEDCOM:"),
+            ("parishes", "Kirchspiele:"),
+        ]
+        grid = tk.Frame(sb, bg=P["bg2"])
+        grid.pack(fill="x")
+        for i, (key, text) in enumerate(stat_items):
+            col = (i % 2) * 2
+            row_idx = i // 2
+            tk.Label(grid, text=text, bg=P["bg2"], fg=P["dim"],
+                     font=("Segoe UI", 8), anchor="w", width=12).grid(
+                row=row_idx, column=col, sticky="w", padx=(4, 2), pady=1)
+            lbl = tk.Label(grid, text="—", bg=P["bg2"], fg=P["fg"],
+                            font=("Segoe UI", 8, "bold"), anchor="w")
+            lbl.grid(row=row_idx, column=col + 1, sticky="w", padx=(0, 14), pady=1)
             self._stat_labels[key] = lbl
 
         tk.Button(sb, text="↺ Aktualisieren",
