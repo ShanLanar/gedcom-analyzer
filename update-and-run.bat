@@ -124,7 +124,7 @@ if not exist "%REPO_DIR%\ancestry\data" mkdir "%REPO_DIR%\ancestry\data"
 REM --- Dependencies installieren ------------------------------------------------
 echo Installiere/aktualisiere Abhaengigkeiten ...
 pushd "%REPO_DIR%" >nul
-%PYTHON% -m pip install -e ".[viewer,scraping,vision,dev]" --quiet --upgrade --disable-pip-version-check
+%PYTHON% -m pip install -e ".[viewer,scraping,vision,dev]" --quiet --upgrade --disable-pip-version-check --no-warn-script-location
 set "PIP_RC=%errorlevel%"
 REM Optionale ML-Abhaengigkeiten (scikit-learn fuer Herkunfts-Inferenz).
 REM Kein Abbruch bei Fehler – ancestry/core/ml_origin.py ist ohne sklearn deaktiviert.
