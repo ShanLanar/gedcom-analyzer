@@ -92,6 +92,10 @@ class Database:
 
     def upsert_kit(self, *a, **kw):             return self._kits.upsert_kit(*a, **kw)
     def get_kits(self, *a, **kw):               return self._kits.get_kits(*a, **kw)
+    def save_kit_ethnicity(self, *a, **kw):     return self._kits.save_kit_ethnicity(*a, **kw)
+    def get_kit_ethnicity(self, *a, **kw):      return self._kits.get_kit_ethnicity(*a, **kw)
+    def save_kit_traits(self, *a, **kw):        return self._kits.save_kit_traits(*a, **kw)
+    def get_kit_traits(self, *a, **kw):         return self._kits.get_kit_traits(*a, **kw)
 
     # ── Matches ───────────────────────────────────────────────────────────────
 

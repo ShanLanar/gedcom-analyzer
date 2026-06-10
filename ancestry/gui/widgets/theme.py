@@ -312,6 +312,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "st.with_tree_pct": {"de": "Mit Baum %:", "en": "With tree %:"},
     "st.side_pct":      {"de": "Seite bekannt %:", "en": "Side known %:"},
     "st.endo_pct":      {"de": "Cluster bekannt %:", "en": "Cluster known %:"},
+    "st.ethnicity":     {"de": "Ethnizität / Herkunft", "en": "Ethnicity / Origins"},
+    "st.traits":        {"de": "DNA-Traits (phänotypische Merkmale)", "en": "DNA Traits"},
     # Matches tab — kit bar
     "mf.kit":           {"de": "Kit:",              "en": "Kit:"},
     "mf.sides":         {"de": "⚡ Seiten ableiten","en": "⚡ Assign sides"},

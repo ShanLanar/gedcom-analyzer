@@ -1,4 +1,6 @@
 from __future__ import annotations
+
+import json
 from typing import TYPE_CHECKING
 
 from ancestry.models import DnaKit
@@ -26,3 +28,39 @@ class KitsRepo:
             return [DnaKit(guid=r["guid"], name=r["name"], test_type=r["test_type"],
                            created_date=r["created_date"], is_owner=bool(r["is_owner"]))
                     for r in cur.fetchall()]
+
+    def save_kit_ethnicity(self, test_guid: str, data: list) -> None:
+        with self._db._cursor() as cur:
+            cur.execute(
+                "UPDATE dna_kits SET ethnicity_json = ? WHERE guid = ?",
+                (json.dumps(data, ensure_ascii=False), test_guid),
+            )
+
+    def get_kit_ethnicity(self, test_guid: str) -> list:
+        try:
+            with self._db._cursor() as cur:
+                cur.execute("SELECT ethnicity_json FROM dna_kits WHERE guid = ?", (test_guid,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    return json.loads(row[0])
+        except Exception:
+            pass
+        return []
+
+    def save_kit_traits(self, test_guid: str, data: list) -> None:
+        with self._db._cursor() as cur:
+            cur.execute(
+                "UPDATE dna_kits SET traits_json = ? WHERE guid = ?",
+                (json.dumps(data, ensure_ascii=False), test_guid),
+            )
+
+    def get_kit_traits(self, test_guid: str) -> list:
+        try:
+            with self._db._cursor() as cur:
+                cur.execute("SELECT traits_json FROM dna_kits WHERE guid = ?", (test_guid,))
+                row = cur.fetchone()
+                if row and row[0]:
+                    return json.loads(row[0])
+        except Exception:
+            pass
+        return []

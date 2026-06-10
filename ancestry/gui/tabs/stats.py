@@ -149,17 +149,34 @@ class StatsTab(ttk.Frame):
         self._ring_canvas.pack(fill="x")
 
         rf = ttk.LabelFrame(self, text=t("st.rel_dist"), padding=10)
-        rf.pack(fill="both", expand=True, padx=14, pady=4)
+        rf.pack(fill="x", padx=14, pady=4)
         lw.append((rf, "st.rel_dist"))
         self._rel_tree = ttk.Treeview(rf, columns=("rel", "count"),
-                                      show="headings", height=10)
+                                      show="headings", height=6)
         self._rel_tree.heading("rel",   text=t("st.rel"))
         self._rel_tree.heading("count", text=t("st.count"))
         self._rel_tree.column("rel",   width=300)
         self._rel_tree.column("count", width=80, anchor="e")
-        self._rel_tree.pack(fill="both", expand=True)
+        self._rel_tree.pack(fill="x")
         lh.append((self._rel_tree, "rel",   "st.rel"))
         lh.append((self._rel_tree, "count", "st.count"))
+
+        # Ethnizität / Herkunft
+        ef = ttk.LabelFrame(self, text=t("st.ethnicity"), padding=6)
+        ef.pack(fill="x", padx=14, pady=4)
+        lw.append((ef, "st.ethnicity"))
+        self._eth_canvas = tk.Canvas(ef, height=1, bg=COLORS["bg"],
+                                     highlightthickness=0)
+        self._eth_canvas.pack(fill="x", expand=True)
+
+        # Traits-Panel
+        tf = ttk.LabelFrame(self, text=t("st.traits"), padding=6)
+        tf.pack(fill="x", padx=14, pady=(0, 8))
+        lw.append((tf, "st.traits"))
+        self._traits_canvas = tk.Canvas(tf, height=1, bg=COLORS["bg"],
+                                        highlightthickness=0)
+        self._traits_canvas.pack(fill="x", expand=True)
+
         self.refresh()
 
     # ── Daten ────────────────────────────────────────────────────────────────
@@ -176,6 +193,8 @@ class StatsTab(ttk.Frame):
         for kit_name, cnt in stats.get("kit_breakdown", []):
             self._kit_stat_tree.insert("", "end", values=(kit_name, cnt))
         self._draw_rings(stats)
+        self.after(50, self._draw_ethnicity)
+        self.after(60, self._draw_traits)
 
     def _draw_rings(self, stats: dict):
         c = self._ring_canvas
@@ -224,3 +243,100 @@ class StatsTab(ttk.Frame):
                           font=("Segoe UI", 10, "bold"), fill=COLORS["text"])
             c.create_text(cx, cy + 8,      text=label_cnt, font=("Segoe UI", 7), fill="#777777")
             c.create_text(cx, cy + R + 12, text=title,     font=("Segoe UI", 8), fill=COLORS["text"])
+
+    # ── Ethnizität-Balken ─────────────────────────────────────────────────────
+
+    _SRC_COLOR = {"ancestry": "#1a73e8", "myheritage": "#e87b1a"}
+
+    def _draw_ethnicity(self):
+        c = self._eth_canvas
+        c.delete("all")
+        tg = self._get_test_guid()
+        data: list[dict] = []
+        if tg:
+            try:
+                data = self._state.db.get_kit_ethnicity(tg)
+            except Exception:
+                pass
+        placeholder = "Keine Daten — im Download-Tab »Herkunft laden« klicken"
+        if not data:
+            c.configure(height=22)
+            c.create_text(8, 11, text=placeholder, anchor="w",
+                          fill="#999999", font=("Segoe UI", 8, "italic"))
+            return
+
+        LINE = 20
+        BAR_X, BAR_W, PCT_X = 170, 200, 378
+        total_rows = len(data)
+        c.configure(height=max(total_rows * LINE + 8, 28))
+
+        # Group header colours
+        shown_sources: set[str] = set()
+        y = 4
+        for item in data:
+            src = item.get("source", "ancestry")
+            color = self._SRC_COLOR.get(src, "#555555")
+            lbl   = (item.get("label") or "")[:24]
+            pct   = item.get("pct", 0)
+            bar_w = max(2, int(pct / 100 * BAR_W))
+
+            if src not in shown_sources:
+                src_label = "Ancestry" if src == "ancestry" else "MyHeritage"
+                c.create_text(BAR_X - 8, y + LINE // 2, text=f"— {src_label} —",
+                              anchor="e", font=("Segoe UI", 7, "bold"), fill=color)
+                shown_sources.add(src)
+
+            # label
+            c.create_text(BAR_X - 8, y + LINE // 2, text=lbl,
+                          anchor="e", font=("Segoe UI", 8), fill=COLORS.get("text", "#222222"))
+            # background track
+            c.create_rectangle(BAR_X, y + 4, BAR_X + BAR_W, y + LINE - 4,
+                                fill="#e8e8e8", outline="")
+            # filled bar
+            c.create_rectangle(BAR_X, y + 4, BAR_X + bar_w, y + LINE - 4,
+                                fill=color, outline="")
+            # percentage text
+            c.create_text(PCT_X, y + LINE // 2, text=f"{pct:.0f}%",
+                          anchor="w", font=("Segoe UI", 8), fill="#555555")
+            y += LINE
+
+    # ── Traits-Panel ─────────────────────────────────────────────────────────
+
+    def _draw_traits(self):
+        c = self._traits_canvas
+        c.delete("all")
+        tg = self._get_test_guid()
+        data: list[dict] = []
+        if tg:
+            try:
+                data = self._state.db.get_kit_traits(tg)
+            except Exception:
+                pass
+        placeholder = "Keine Traits-Daten — im Download-Tab »Herkunft laden« klicken"
+        if not data:
+            c.configure(height=22)
+            c.create_text(8, 11, text=placeholder, anchor="w",
+                          fill="#999999", font=("Segoe UI", 8, "italic"))
+            return
+
+        # Two-column layout: name | result
+        COLS = 2
+        COL_W = 220
+        LINE  = 18
+        rows_per_col = -(-len(data) // COLS)   # ceil division
+        c.configure(height=max(rows_per_col * LINE + 8, 28))
+
+        for idx, item in enumerate(data):
+            col  = idx // rows_per_col
+            row  = idx %  rows_per_col
+            x    = 8 + col * COL_W
+            y    = 4 + row * LINE
+            name    = (item.get("name") or "")[:22]
+            result  = (item.get("result") or "—")[:22]
+            pct_txt = (f"  {item['pct']:.0f}%" if "pct" in item else "")
+            c.create_text(x, y + LINE // 2, text=name + ":", anchor="w",
+                          font=("Segoe UI", 8), fill="#555555")
+            c.create_text(x + 115, y + LINE // 2,
+                          text=result + pct_txt, anchor="w",
+                          font=("Segoe UI", 8, "bold"),
+                          fill=COLORS.get("primary", "#1a73e8"))

@@ -288,29 +288,49 @@ class DownloadTab(ttk.Frame):
         ttk.Button(seg_row, text="⬆ Segmente importieren",
                    command=self._import_segments).pack(side="left", padx=(12, 0))
 
-        # ── Fortschritt ───────────────────────────────────────────────────────
+        # ── Bereich D: Herkunft / Ethnizität + Traits ────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=21, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
+        ttk.Label(f, text="D · Herkunft / Ethnizität & Traits",
+                  font=("Segoe UI", 9, "bold"),
+                  foreground=COLORS["primary"]).grid(
+            row=22, column=0, columnspan=4, sticky="w", padx=14, pady=(4, 2))
+        ttk.Label(f, text=(
+            "Lädt die Ethnizitäts-Auswertung (Ancestry + MyHeritage) und die Ancestry "
+            "DNA-Traits einmalig.\nErgebnis wird im Statistik-Tab dauerhaft angezeigt."
+        ), foreground="#555555").grid(row=23, column=0, columnspan=4, sticky="w", padx=14)
+        eth_row = ttk.Frame(f)
+        eth_row.grid(row=23, column=0, columnspan=4, sticky="w", padx=14, pady=(24, 4))
+        self._eth_btn = ttk.Button(eth_row, text="▶ Herkunft & Traits laden",
+                                   command=self._fetch_ethnicity_traits)
+        self._eth_btn.pack(side="left")
+        self._eth_status_var = tk.StringVar(value="—")
+        ttk.Label(eth_row, textvariable=self._eth_status_var,
+                  foreground="#555555").pack(side="left", padx=12)
+
+        # ── Fortschritt ───────────────────────────────────────────────────────
+        ttk.Separator(f, orient="horizontal").grid(
+            row=24, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
         _sv = tk.StringVar(value=t("dl.progress"))
-        ttk.Label(f, textvariable=_sv).grid(row=22, column=0, sticky="e", **p)
+        ttk.Label(f, textvariable=_sv).grid(row=25, column=0, sticky="e", **p)
         lw.append((_sv, "dl.progress"))
         self._progress_var = tk.DoubleVar()
         ttk.Progressbar(f, variable=self._progress_var, maximum=100,
-                        length=380).grid(row=22, column=1, sticky="w", **p)
+                        length=380).grid(row=25, column=1, sticky="w", **p)
         self._progress_lbl = tk.StringVar(value="—")
-        ttk.Label(f, textvariable=self._progress_lbl).grid(row=22, column=2, sticky="w", **p)
+        ttk.Label(f, textvariable=self._progress_lbl).grid(row=25, column=2, sticky="w", **p)
 
         self._pause_sv = tk.StringVar(value=t("dl.pause"))
         self._pause_btn = ttk.Button(f, textvariable=self._pause_sv,
                                      command=self._toggle_pause, state="disabled")
-        self._pause_btn.grid(row=22, column=3, sticky="w", **p)
+        self._pause_btn.grid(row=25, column=3, sticky="w", **p)
         lw.append((self._pause_sv, "dl.pause"))
 
         self._eta_var = tk.StringVar(value="")
         ttk.Label(f, textvariable=self._eta_var, foreground="#777777").grid(
-            row=22, column=4, sticky="w", **p)
+            row=25, column=4, sticky="w", **p)
 
-        dash = ttk.Frame(f); dash.grid(row=22, column=5, sticky="w", padx=8)
+        dash = ttk.Frame(f); dash.grid(row=25, column=5, sticky="w", padx=8)
         self._dash_vars: dict[str, tk.StringVar] = {}
         for i, (key, _icon) in enumerate([("dl.dash_mat", "🧬"), ("dl.dash_tree", "🌳"),
                                            ("dl.dash_sh", "👥"), ("dl.dash_err", "❌")]):
@@ -328,10 +348,10 @@ class DownloadTab(ttk.Frame):
         # ── Log ───────────────────────────────────────────────────────────────
         _sv = tk.StringVar(value=t("dl.log"))
         ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
-            row=23, column=0, sticky="ne", padx=14, pady=(10, 4))
+            row=26, column=0, sticky="ne", padx=14, pady=(10, 4))
         lw.append((_sv, "dl.log"))
         lf = ttk.Frame(f)
-        lf.grid(row=23, column=1, columnspan=3, sticky="nsew", padx=14, pady=4)
+        lf.grid(row=26, column=1, columnspan=3, sticky="nsew", padx=14, pady=4)
         self._log_text = tk.Text(lf, height=12, width=72, font=("Consolas", 9),
                                  bg="#1E1E2E", fg="#A0D0FF", state="disabled", relief="flat")
         sc = ttk.Scrollbar(lf, command=self._log_text.yview)
@@ -340,7 +360,7 @@ class DownloadTab(ttk.Frame):
         sc.pack(side="right", fill="y")
 
         f.columnconfigure(1, weight=1)
-        f.rowconfigure(23, weight=1)
+        f.rowconfigure(26, weight=1)
         install_gui_log_handler(self._log_text)
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -665,6 +685,56 @@ class DownloadTab(ttk.Frame):
         )
         if path:
             self._seg_file_var.set(path)
+
+    def _fetch_ethnicity_traits(self):
+        import threading
+        test_guid = self._state.current_test_guid
+        if not test_guid:
+            messagebox.showwarning("Herkunft", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+        client = self._state.client
+        if not client:
+            messagebox.showwarning("Herkunft", "Bitte zuerst bei Ancestry einloggen (Login-Tab).")
+            return
+        self._eth_btn.configure(state="disabled")
+        self._eth_status_var.set("⏳ Lädt …")
+
+        def _worker():
+            from ancestry.tools.fetch_ethnicity import fetch_all_ethnicity, fetch_ancestry_traits
+            try:
+                mh_kit = ""
+                try:
+                    from ancestry.tools.download_myheritage import KIT_GUID
+                    mh_kit = KIT_GUID
+                except ImportError:
+                    pass
+
+                eth  = fetch_all_ethnicity(
+                    test_guid=test_guid,
+                    mh_kit_guid=mh_kit,
+                    ancestry_session=client._s,
+                )
+                traits = fetch_ancestry_traits(client._s, test_guid)
+
+                if eth:
+                    self._state.db.save_kit_ethnicity(test_guid, eth)
+                if traits:
+                    self._state.db.save_kit_traits(test_guid, traits)
+
+                n_eth    = len(eth)
+                n_traits = len(traits)
+                if n_eth or n_traits:
+                    msg = f"✓ {n_eth} Herkunfts-Regionen, {n_traits} Traits gespeichert"
+                else:
+                    msg = "⚠ Keine Daten — Sitzung abgelaufen oder Parsing fehlgeschlagen"
+                self.after(0, lambda m=msg: self._eth_status_var.set(m))
+                self.after(0, lambda: self._set_status(msg))
+            except Exception as e:
+                self.after(0, lambda err=e: self._eth_status_var.set(f"❌ {err}"))
+            finally:
+                self.after(0, lambda: self._eth_btn.configure(state="normal"))
+
+        threading.Thread(target=_worker, daemon=True, name="eth-fetch").start()
 
     def _import_segments(self):
         import threading
