@@ -219,6 +219,13 @@ def export_gedcom(groups: list, output_path: str,
             if given:
                 lines.append(f"2 GIVN {given}")
 
+        # SEX von Sosa-Parität ableiten: gerade=männlich, ungerade=weiblich
+        sosas_non_self = {s for s in meta["sosas"] if s >= 2}
+        if sosas_non_self:
+            inferred_sexes = {"M" if s % 2 == 0 else "F" for s in sosas_non_self}
+            if len(inferred_sexes) == 1:
+                lines.append(f"1 SEX {inferred_sexes.pop()}")
+
         by = meta["birth_year"]
         bp = meta.get("birth_place", "")
         if by or bp:

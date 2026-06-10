@@ -220,6 +220,45 @@ def test_export_indi_references_sour(tmp_ged):
     assert "2 QUAY 3" in content
 
 
+def test_export_sex_tag_male_from_even_sosa(tmp_ged):
+    # Ahnen-Pfad "FF" → Sosa 4 (gerade) → SEX M
+    groups = [{
+        "label":   "Johann Kovermann",
+        "detail":  "*1800",
+        "count":   1,
+        "matches": [("G1", "Match A", "FF", 4, 80.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 SEX M" in content
+
+
+def test_export_sex_tag_female_from_odd_sosa(tmp_ged):
+    # Ahnen-Pfad "FM" → Sosa 5 (ungerade) → SEX F
+    groups = [{
+        "label":   "Anna Weber",
+        "detail":  "*1805",
+        "count":   1,
+        "matches": [("G1", "Match A", "FM", 4, 75.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 SEX F" in content
+
+
+def test_export_no_sex_tag_for_sosa_one(tmp_ged):
+    # Sosa 1 = Proband selbst → kein SEX-Tag
+    groups = [{
+        "label":   "Selbst",
+        "detail":  "*1970",
+        "count":   1,
+        "matches": [("G1", "Eigen", "", 0, 3500.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 SEX" not in content
+
+
 def test_export_handles_missing_birth_year(tmp_ged):
     groups = [{
         "label":   "Unbekannt Nachname",

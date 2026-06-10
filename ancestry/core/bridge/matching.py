@@ -117,6 +117,8 @@ def run_match_for_match(db, test_guid: str, match_guid: str) -> list[dict]:
                 ped.get("surname", ""),
                 ped.get("birth_year"),
                 ged,
+                ped_place=ped.get("birth_place", ""),
+                ged_place=ged.get("birth_place", ""),
             )
             if score > best_score:
                 best_score, best_method, best_ged = score, method, ged

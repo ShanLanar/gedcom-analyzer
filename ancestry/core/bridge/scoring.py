@@ -5,7 +5,7 @@ scoring.py — Link-Scoring zwischen Ahnentafel-Einträgen und GEDCOM-Personen.
 import os
 from difflib import SequenceMatcher
 
-from ._text import _norm, _koelner, _levenshtein
+from ._text import _norm, _koelner, _levenshtein, _place_sim
 
 # Per Umgebungsvariable übersteuerbar (z. B. 0.55 bei stark endogamen Daten,
 # 0.35 für explorative Läufe mit anschließender manueller Prüfung).
@@ -18,7 +18,8 @@ except ValueError:
 # ── Scoring ────────────────────────────────────────────────────────────────────
 
 def compute_link_score(ped_given: str, ped_surname: str, ped_year,
-                       ged_row: dict) -> tuple[float, str]:
+                       ged_row: dict,
+                       ped_place: str = "", ged_place: str = "") -> tuple[float, str]:
     """Berechnet einen Übereinstimmungs-Score zwischen einem Ahnen aus
     einer DNA-Match-Ahnentafel und einer GEDCOM-Person.
     Gibt (total_score, methode) zurück. Score 0.0 = kein Treffer."""
@@ -78,5 +79,12 @@ def compute_link_score(ped_given: str, ped_surname: str, ped_year,
             # Jahresdifferenz zu groß + kein sehr hoher Namens-Score → verwerfen
             return 0.0, "none"
 
-    total = min(1.0, round(name_score + year_bonus, 3))
+    # ── Ortsbonus +0.08 ──
+    place_bonus = 0.0
+    if ped_place and ged_place:
+        sim = _place_sim(ped_place, ged_place)
+        if sim >= 0.5:
+            place_bonus = round(0.08 * sim, 3)
+
+    total = min(1.0, round(name_score + year_bonus + place_bonus, 3))
     return total, method
