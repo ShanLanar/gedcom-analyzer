@@ -83,8 +83,16 @@ def derive_paternal(self_rows: list[dict], base2_rows: list[dict]) -> list[dict]
     """
     Derive the paternal component by subtracting maternal (base2) from self.
 
-    Returns list of dicts: population, self_score, base2_score, paternal_estimate.
-    Paternal estimate is clamped to [0, 100].
+    Uses the linear approximation: paternal ≈ 2 × self − maternal.
+    This assumes each population component is the average of both parents.
+    The approximation breaks down when a population component is present in
+    only one parent (e.g. an exclusively paternal African component will be
+    underestimated). Results should be treated as exploratory estimates.
+
+    Returns list of dicts with keys:
+      population, era, self_score, base2_score, paternal_estimate, method.
+    ``method`` is always ``"subtraction_approximation"`` as a reminder of the
+    derivation approach.
     """
     base2_map = {r["population"]: r["score"] for r in base2_rows}
     result = []
@@ -92,8 +100,6 @@ def derive_paternal(self_rows: list[dict], base2_rows: list[dict]) -> list[dict]
         pop = r["population"]
         s = r["score"]
         b2 = base2_map.get(pop, 0.0)
-        # Simple subtraction model: paternal ≈ 2 * self - maternal
-        # clamped to [0, 200] then normalized later
         paternal_est = max(0.0, 2 * s - b2)
         result.append({
             "population": pop,
@@ -101,6 +107,7 @@ def derive_paternal(self_rows: list[dict], base2_rows: list[dict]) -> list[dict]
             "self_score": s,
             "base2_score": b2,
             "paternal_estimate": paternal_est,
+            "method": "subtraction_approximation",
         })
     # Normalize paternal estimates to sum 100
     total = sum(r["paternal_estimate"] for r in result)

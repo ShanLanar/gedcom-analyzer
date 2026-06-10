@@ -264,6 +264,15 @@ def export_gedcom(groups: list, output_path: str,
                 joined += f" (+{meta['extra_matches']} weitere)"
             lines.append(f"1 NOTE Belegt durch: {joined}")
 
+    # Build pid → birth_year lookup for consistency checks
+    pid_year: dict[str, int] = {}
+    for key in indi_order:
+        meta = indi_meta[key]
+        try:
+            pid_year[meta["pid"]] = int(meta["birth_year"])
+        except (ValueError, TypeError):
+            pass
+
     # FAM records
     for (husb, wife), fam_id in fam_registry.items():
         lines.append(f"0 {fam_id} FAM")
@@ -273,6 +282,20 @@ def export_gedcom(groups: list, output_path: str,
             lines.append(f"1 WIFE {wife}")
         for chil_pid in fam_children.get(fam_id, []):
             lines.append(f"1 CHIL {chil_pid}")
+        # Genealogische Konsistenzprüfung: Kind muss mind. 13 Jahre nach Elternteil geboren sein
+        child_years = [pid_year[p] for p in fam_children.get(fam_id, []) if p in pid_year]
+        parent_years = [pid_year[p] for p in (husb, wife) if p and p in pid_year]
+        for c_yr in child_years:
+            for p_yr in parent_years:
+                if c_yr - p_yr < 13:
+                    lines.append(
+                        f"1 NOTE Warnung: Geburtsjahr-Unstimmigkeit "
+                        f"(Kind {c_yr}, Elternteil {p_yr})"
+                    )
+                    break
+            else:
+                continue
+            break
 
     lines.append("0 TRLR")
 

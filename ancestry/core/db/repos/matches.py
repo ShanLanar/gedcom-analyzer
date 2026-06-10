@@ -343,7 +343,8 @@ class MatchesRepo:
                     (test_guid,),
                 ).fetchall()
             return {r[0]: r[1] for r in rows}
-        except Exception:
+        except Exception as e:
+            log.debug("get_bridge_hit_counts %s: %s", test_guid, e)
             return {}
 
     def get_unfetched_match_guids(self, test_guid: str,

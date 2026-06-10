@@ -20,7 +20,7 @@ class PedigreeRepo:
                 "ORDER BY shared_cm DESC", (test_guid, min_cm))
             return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]
 
-    def save_match_pedigree(self, test_guid: str, match_guid: str, ancestors: list):
+    def save_match_pedigree(self, test_guid: str, match_guid: str, ancestors: list) -> None:
         with self._db._cursor() as cur:
             cur.execute("DELETE FROM match_pedigree WHERE test_guid=? AND match_guid=?",
                         (test_guid, match_guid))
@@ -82,7 +82,7 @@ class PedigreeRepo:
             return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]
 
     def save_match_ancestors(self, test_guid: str, match_guid: str,
-                             ancestors: list, birthplaces: list):
+                             ancestors: list, birthplaces: list) -> None:
         with self._db._cursor() as cur:
             cur.execute("DELETE FROM match_ancestors WHERE test_guid=? AND match_guid=?",
                         (test_guid, match_guid))

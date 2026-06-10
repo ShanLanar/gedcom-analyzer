@@ -259,6 +259,33 @@ def test_export_no_sex_tag_for_sosa_one(tmp_ged):
     assert "1 SEX" not in content
 
 
+def test_export_fam_consistency_warning_when_child_older_than_parent(tmp_ged):
+    # Sosa 4 ("FF") ist der Vater von Sosa 2 ("F").
+    # Sosa-4-Person geb. 1830, Sosa-2-Person geb. 1820 → Kind älter als Elternteil → Warnung
+    groups = [
+        {"label": "Großvater Spät", "detail": "*1830", "count": 1,
+         "matches": [("G1", "Match", "FF", 4, 120.0)]},   # Sosa 4 = Elternteil
+        {"label": "Vater Früh",     "detail": "*1820", "count": 1,
+         "matches": [("G1", "Match", "F",  2, 200.0)]},   # Sosa 2 = Kind
+    ]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "Geburtsjahr-Unstimmigkeit" in content
+
+
+def test_export_fam_no_warning_for_consistent_years(tmp_ged):
+    # Sosa 4 geb. 1800, Sosa 2 geb. 1830 → normal, kein Warning
+    groups = [
+        {"label": "Großvater Alt", "detail": "*1800", "count": 1,
+         "matches": [("G1", "Match", "FF", 4, 120.0)]},
+        {"label": "Vater Jung",    "detail": "*1830", "count": 1,
+         "matches": [("G1", "Match", "F",  2, 200.0)]},
+    ]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "Geburtsjahr-Unstimmigkeit" not in content
+
+
 def test_export_handles_missing_birth_year(tmp_ged):
     groups = [{
         "label":   "Unbekannt Nachname",

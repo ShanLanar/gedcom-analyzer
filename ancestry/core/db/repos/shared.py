@@ -12,7 +12,7 @@ class SharedRepo:
     def __init__(self, db: "Database"):
         self._db = db
 
-    def upsert_shared_match(self, sm: SharedMatch):
+    def upsert_shared_match(self, sm: SharedMatch) -> None:
         d = sm.to_dict()
         with self._db._cursor() as cur:
             cur.execute("""
@@ -41,7 +41,7 @@ class SharedRepo:
         self.register_shared_stubs(items)
         return len(items)
 
-    def register_shared_stubs(self, items: list[SharedMatch]):
+    def register_shared_stubs(self, items: list[SharedMatch]) -> None:
         if not items:
             return
         with self._db._cursor() as cur:

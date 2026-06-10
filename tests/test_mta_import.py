@@ -173,3 +173,10 @@ class TestDerivePaternal:
         assert "self_score" in r
         assert "base2_score" in r
         assert "paternal_estimate" in r
+
+    def test_result_contains_method_key(self):
+        result = derive_paternal(
+            self._rows(("Pop_A", 50.0)),
+            self._rows(("Pop_A", 30.0)),
+        )
+        assert result[0]["method"] == "subtraction_approximation"
