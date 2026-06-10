@@ -8,11 +8,11 @@ Genealogie-Suite — vereintes Hauptfenster (3 Reiter)
 
 Die drei Reiter teilen dasselbe Dark-Theme (cfg-Farben).
 GEDCOM-Pfad und Root-ID, die im Start-Tab gesetzt werden, werden live in
-beide Analyse-Reiter propagiert.
+beiden Analyse-Reiter propagiert.
 
 Die drei Reiter teilen dasselbe Dark-Theme (cfg-Farben).
 GEDCOM-Pfad und Root-ID, die im Start-Tab gesetzt werden, werden live in
-beide Analyse-Reiter propagiert.
+beiden Analyse-Reiter propagiert.
 """
 from __future__ import annotations
 
@@ -27,10 +27,16 @@ from tkinter import ttk
 
 log = logging.getLogger(__name__)
 
-ROOT = os.path.dirname(os.path.abspath(__file__))
+ROOT         = os.path.dirname(os.path.abspath(__file__))
+ANCESTRY_DIR = os.path.join(ROOT, "ancestry")
+
+# ancestry/ muss früh im Suchpfad sein, damit lazy-Imports in app.py
+# (from core.treematch import …) ohne vollständigen ancestry.-Präfix finden.
+if ANCESTRY_DIR not in sys.path:
+    sys.path.insert(0, ANCESTRY_DIR)
 
 
-# ── Import-Helfer ──────────────────────────────────────────────────────────────
+# ── Import-Helfer ───────────────────────────────────────────────────────────────
 
 def _eager_import_analyzer():
     """Lädt Root-config + alle tasks./lib.-Module."""
@@ -59,7 +65,7 @@ def _load_dna_app():
     return AncestryDnaApp
 
 
-# ── Reiter-Fehlerplatzhalter ───────────────────────────────────────────────────
+# ── Reiter-Fehlerplatzhalter ────────────────────────────────────────────────────────
 
 def _error_tab(parent: tk.Frame, title: str, exc: Exception) -> None:
     msg = f"⚠  {title}\n\n{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
@@ -68,7 +74,7 @@ def _error_tab(parent: tk.Frame, title: str, exc: Exception) -> None:
              bg="#1e1e2e").pack(fill="both", expand=True, padx=20, pady=20)
 
 
-# ── Dark-Theme für ttk.Notebook ───────────────────────────────────────────────
+# ── Dark-Theme für ttk.Notebook ─────────────────────────────────────────────
 
 def _apply_notebook_style(root: tk.Tk) -> None:
     """Färbt Notebook-Reiter im Dark-Theme ein."""
@@ -115,10 +121,10 @@ def _apply_notebook_style(root: tk.Tk) -> None:
     root.option_add("*highlightThickness", "0")
 
 
-# ── Hauptfunktion ──────────────────────────────────────────────────────────────
+# ── Hauptfunktion ───────────────────────────────────────────────────────────────
 
 def main():
-    # ── Imports ────────────────────────────────────────────────────────────────
+    # ── Imports ──────────────────────────────────────────────────────────────────
     AhnenApp = None
     _ahnen_exc: Exception = RuntimeError("not loaded")
     try:
@@ -139,7 +145,7 @@ def main():
 
     import config as cfg  # Root-config (Farben, Pfade)
 
-    # ── Tk-Fenster ─────────────────────────────────────────────────────────────
+    # ── Tk-Fenster ─────────────────────────────────────────────────────────────────
     root = tk.Tk()
     root.title("Genealogie-Suite")
     root.geometry("1380x880")
@@ -147,7 +153,7 @@ def main():
 
     _apply_notebook_style(root)
 
-    # ── Notebook mit 3 Reitern ─────────────────────────────────────────────────
+    # ── Notebook mit 3 Reitern ────────────────────────────────────────────────────────
     nb = ttk.Notebook(root)
     nb.pack(fill="both", expand=True)
 
@@ -186,7 +192,7 @@ def main():
         _error_tab(tab_start, "Start-Seite konnte nicht geladen werden", exc)
         start_obj = None
 
-    # ── Stammbaum-Reiter ──────────────────────────────────────────────────────
+    # ── Stammbaum-Reiter ──────────────────────────────────────────────────────────
     if AhnenApp is None:
         _error_tab(tab_ged, "GEDCOM-Analyzer konnte nicht geladen werden", _ahnen_exc)
     else:
@@ -206,7 +212,7 @@ def main():
             log.exception("AhnenApp-Init fehlgeschlagen")
             _error_tab(tab_ged, "GEDCOM-Analyzer-Fehler beim Start", exc)
 
-    # ── DNA-Reiter ────────────────────────────────────────────────────────────
+    # ── DNA-Reiter ────────────────────────────────────────────────────────────────
     if AncestryDnaApp is None:
         _error_tab(tab_dna, "DNA-Tool konnte nicht geladen werden", _dna_exc)
     else:
@@ -228,7 +234,7 @@ def main():
                 pass
     nb.bind("<<NotebookTabChanged>>", _on_tab_change)
 
-    # ── Fenster schließen ─────────────────────────────────────────────────────
+    # ── Fenster schließen ───────────────────────────────────────────────────────────────
     def _on_close():
         if dna_obj is not None:
             try:
