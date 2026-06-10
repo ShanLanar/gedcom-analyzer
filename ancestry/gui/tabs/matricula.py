@@ -181,7 +181,16 @@ class MatriculaTab(ttk.Frame):
         if self.is_running():
             return
         if not os.environ.get("ANTHROPIC_API_KEY"):
-            self._log_line("⚠ ANTHROPIC_API_KEY nicht gesetzt — Transkription wird fehlschlagen.")
+            if not messagebox.askyesno(
+                "API-Key fehlt",
+                "ANTHROPIC_API_KEY ist nicht gesetzt.\n\n"
+                "Ohne diesen Schlüssel kann Claude Vision die Kirchenbuch-Seiten nicht "
+                "transkribieren — der Scan wird nach dem ersten Bild fehlschlagen.\n\n"
+                "Trotzdem starten? (Sinnvoll nur bei --dry-run oder Re-Transkription "
+                "von bereits vorhandenen Bildern.)"
+            ):
+                return
+            self._log_line("⚠ ANTHROPIC_API_KEY nicht gesetzt — Scan ohne Transkription.")
 
         cmd = [sys.executable, "-u", "-m", "ancestry.tools.scan_matricula_kirchspiel",
                "--parish", parish_id]

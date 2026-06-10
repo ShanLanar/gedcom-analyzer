@@ -281,6 +281,20 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.fs_link":   {"de": "🔍 FamilySearch …",                    "en": "🔍 FamilySearch …"},
     "md.tab_gedcom":{"de": "🌳 GEDCOM-Treffer",                   "en": "🌳 GEDCOM Hits"},
     "md.tab_ancestors":{"de": "👨‍👩‍👧 Gemeinsame Vorfahren",           "en": "👨‍👩‍👧 Common Ancestors"},
+    "md.tab_kirchenbuch":{"de": "⛪ Kirchenbücher",                 "en": "⛪ Church Records"},
+    "md.kb_min_gen": {"de": "ab Generation:",                       "en": "from generation:"},
+    "md.kb_reload":  {"de": "↻ Suchen",                             "en": "↻ Search"},
+    "md.kb_no_ped":  {"de": "Keine Ahnentafel für diesen Match.\n"
+                            "Erst Schritt C (Ahnentafeln laden) ausführen.",
+                      "en": "No pedigree for this match.\n"
+                            "Run step C (load pedigrees) first."},
+    "md.kb_no_db":   {"de": "Keine Kirchenbuch-Daten in der Datenbank.\n"
+                            "Zuerst Matricula-Scan starten (⛪ Matricula-Tab).",
+                      "en": "No church record data in database.\n"
+                            "Start a Matricula scan first (⛪ Matricula tab)."},
+    "md.kb_no_hits": {"de": "Keine Treffer für die Nachnamen aus der Ahnentafel.",
+                      "en": "No matches for surnames from the pedigree."},
+    "md.kb_surnames":{"de": "Gesuchte Nachnamen:",                  "en": "Surnames searched:"},
     "md.anc_none":  {"de": "Keine gemeinsamen Vorfahren von Ancestry heruntergeladen.",
                      "en": "No common ancestors downloaded from Ancestry."},
     "md.ged_none":  {"de": "Kein GEDCOM geladen – Analyse → Eigenen Baum abgleichen",

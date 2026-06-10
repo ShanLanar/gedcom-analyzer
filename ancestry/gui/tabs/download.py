@@ -268,6 +268,26 @@ class DownloadTab(ttk.Frame):
                                                command=self.stop_download, state="disabled")
         self._all_phases_stop_btn.pack(side="left", padx=4)
 
+        # ── Bereich C: DNA-Segmente importieren ──────────────────────────────
+        ttk.Separator(f, orient="horizontal").grid(
+            row=19, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
+        ttk.Label(f, text="C · DNA-Segmente (für Triangulation)",
+                  font=("Segoe UI", 9, "bold"), foreground=COLORS["primary"]).grid(
+            row=20, column=0, columnspan=2, sticky="w", padx=14, pady=(4, 2))
+        seg_row = ttk.Frame(f); seg_row.grid(row=20, column=0, columnspan=4,
+                                              sticky="w", padx=14, pady=(24, 4))
+        ttk.Label(seg_row, text="Segment-CSV:").pack(side="left")
+        self._seg_file_var = tk.StringVar()
+        ttk.Entry(seg_row, textvariable=self._seg_file_var, width=38).pack(
+            side="left", padx=4)
+        ttk.Button(seg_row, text="…", width=3,
+                   command=self._choose_seg_file).pack(side="left")
+        ttk.Label(seg_row,
+            text="(GEDmatch Segment Search, MyHeritage Shared-Segments oder FTDNA)",
+            foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=8)
+        ttk.Button(seg_row, text="⬆ Segmente importieren",
+                   command=self._import_segments).pack(side="left", padx=(12, 0))
+
         # ── Fortschritt ───────────────────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=21, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
@@ -636,3 +656,43 @@ class DownloadTab(ttk.Frame):
             if result.success:
                 messagebox.showinfo("Alle Phasen fertig", result.message)
         self.after(0, _u)
+
+    def _choose_seg_file(self):
+        from tkinter.filedialog import askopenfilename
+        path = askopenfilename(
+            title="Segment-CSV wählen",
+            filetypes=[("CSV-Dateien", "*.csv"), ("Alle Dateien", "*.*")],
+        )
+        if path:
+            self._seg_file_var.set(path)
+
+    def _import_segments(self):
+        import threading
+        from pathlib import Path
+        path = self._seg_file_var.get().strip()
+        if not path:
+            messagebox.showwarning("Segment-Import", "Bitte zuerst eine CSV-Datei wählen.")
+            return
+        kit_guid = self.get_kit_guid()
+        if not kit_guid:
+            messagebox.showwarning("Segment-Import", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+        self._set_status("Segmente werden importiert …")
+
+        def _worker():
+            try:
+                from ancestry.tools.import_segments import run as seg_run
+                result = seg_run(Path(path), kit_guid=kit_guid,
+                                 db_file=self._state.db.db_file)
+                n   = result["imported"]
+                unr = len(result["unresolved"])
+                msg = (f"Segmente importiert: {n}"
+                       + (f"  ·  {unr} Namen nicht aufgelöst" if unr else ""))
+                self.after(0, lambda: self._set_status(msg))
+                self.after(0, lambda: messagebox.showinfo("Segment-Import", msg))
+            except Exception as e:
+                self.after(0, lambda err=e: self._set_status(f"Fehler: {err}"))
+                self.after(0, lambda err=e: messagebox.showerror("Segment-Import",
+                                                                   str(err)))
+
+        threading.Thread(target=_worker, daemon=True, name="seg-import").start()
