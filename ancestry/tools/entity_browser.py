@@ -69,6 +69,9 @@ _SOURCE_ICONS = {
     "persons":                   ("👤", "b-anv",    "Person"),
 }
 
+# All raw data sources are read-only — only entity assignments are writable
+_READONLY_SOURCES = frozenset(_SOURCE_ICONS.keys())
+
 def _source_icon(source_table: str) -> tuple[str, str, str]:
     return _SOURCE_ICONS.get(source_table, ("📄", "b-other", source_table))
 
@@ -449,7 +452,7 @@ def bulk_confirm():
                 "UPDATE entity_candidates SET status='confirmed', reviewed_at=datetime('now') WHERE candidate_id=?",
                 (cand["candidate_id"],),
             )
-            if _assign and _get_or_create_entity:
+            if _assign and _get_or_create_entity and _merge_entities and _entity_for_source:
                 _do_confirm(
                     db,
                     cand["source_table_a"], cand["source_row_id_a"], cand["person_role_a"],
@@ -605,13 +608,21 @@ _TMPL_ENTITY = """\
 </div>
 
 {% if sources %}
-<h2>Zugewiesene Quellen ({{ sources|length }})</h2>
+<h2>Zugewiesene Quellen ({{ sources|length }})
+  <span class="muted" style="font-weight:normal;font-size:.75rem">
+    · 🔒 Quelldaten read-only — nur Entity-Label und Kandidaten-Entscheidungen sind editierbar
+  </span>
+</h2>
 {% for s in sources %}
 <div class="card">
   <div class="card-hd">
     <div>
       <div class="card-title">
         <span class="badge {{ s.badge_cls }}">{{ s.icon }} {{ s.badge_label }}</span>
+        {% if s.assignment.source_table in _readonly_sources %}
+        <span class="badge b-other" title="Quelldaten werden nicht durch dieses Tool verändert"
+              style="font-size:.65rem;opacity:.7">🔒 read-only</span>
+        {% endif %}
         &nbsp;{{ s.detail.title if s.detail else s.assignment.source_row_id }}
       </div>
       {% if s.detail %}<div class="card-sub">{{ s.detail.subtitle }}</div>{% endif %}
@@ -894,10 +905,13 @@ document.addEventListener('keydown', e => {
 </body></html>
 """
 
-# Jinja2-Kontext: _source_icon als globale Funktion verfügbar machen
+# Jinja2-Kontext: helper functions und Konstanten verfügbar machen
 @app.context_processor
 def _inject_helpers():
-    return {"_source_icon": _source_icon}
+    return {
+        "_source_icon":      _source_icon,
+        "_readonly_sources": _READONLY_SOURCES,
+    }
 
 
 # ── CLI ─────────────────────────────────────────────────────────────────────────

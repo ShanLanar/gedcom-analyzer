@@ -49,6 +49,7 @@ except ImportError:
     _kp = _lev = None  # type: ignore[assignment]
 
 app = Flask(__name__)
+app.config.setdefault("ARCHIVE_DIR", DEFAULT_ARCHIVE)
 
 
 # ── DB ─────────────────────────────────────────────────────────────────────────
@@ -179,20 +180,34 @@ def book_view(book_id):
     if not book:
         abort(404)
     pages = pdb.execute("""
-        SELECT s.page_nr, s.status, s.entry_count, s.image_path,
-               COALESCE((SELECT COUNT(*) FROM source_matrikula_entries e
-                         WHERE e.book_id=s.book_id AND e.page_nr=s.page_nr
-                           AND e.corrected_by='human'), 0) AS n_corrected
+        SELECT s.page_nr, s.status, s.entry_count, s.image_path
         FROM   matricula_page_scans s
         WHERE  s.book_id=?
         ORDER  BY s.page_nr
     """, (book_id,)).fetchall()
+
+    # correction counts live in the main DB, not the parish catalog
+    mdb = _main_db()
+    corrected: dict[int, int] = {}
+    try:
+        for row in mdb.execute(
+            """SELECT page_nr, COUNT(*) FROM source_matrikula_entries
+               WHERE book_id=? AND corrected_by='human' GROUP BY page_nr""",
+            (book_id,),
+        ).fetchall():
+            corrected[row[0]] = row[1]
+    except Exception:
+        pass
+
+    pages_enriched = [{**dict(p), "n_corrected": corrected.get(p["page_nr"], 0)}
+                      for p in pages]
+
     parish_id = "/".join(book_id.split("/")[:-1])
     parish    = pdb.execute(
         "SELECT * FROM parishes WHERE id=?", (parish_id,)
     ).fetchone()
     return render_template_string(
-        _BASE + _TMPL_BOOK, book=book, pages=pages, parish=parish
+        _BASE + _TMPL_BOOK, book=book, pages=pages_enriched, parish=parish
     )
 
 
@@ -370,7 +385,7 @@ def search():
                OR  lower(e.mother_name)  LIKE lower(?)
             LIMIT  200
         """, (f"%{q}%",) * 4).fetchall()
-        results = [dict(r) for r in rows]
+        results = [{**dict(r), "dist": 0} for r in rows]
 
     return render_template_string(_BASE + _TMPL_SEARCH, q=q, code=code, results=results)
 
@@ -743,7 +758,7 @@ details textarea{
         <span class="typ">{{ e.get('entry_type', '') }}</span>
         <span>
           {% if e.get('corrected_by') == 'human' %}
-          <span class="badge b-human">✎ manuell</span>&nbsp;
+          <span class="badge b-human">✎ OCR-Korrektur</span>&nbsp;
           {% endif %}
           {{ e.get('event_date') or '' }}
         </span>
@@ -794,8 +809,11 @@ details textarea{
     {% endfor %}
     </div>
     <div class="save-bar">
-      <button id="saveBtn" onclick="saveCorrections()">✓ Korrekturen speichern</button>
+      <button id="saveBtn" onclick="saveCorrections()">✓ OCR-Korrektur speichern</button>
       <span id="saveStatus"></span>
+      <span style="font-size:.72rem;color:var(--muted);margin-left:auto">
+        ✎ Nur Transkription editierbar — Scans sind Quelldaten (read-only)
+      </span>
     </div>
     {% else %}
     <div class="no-ent">Keine Einträge — Seite noch nicht transkribiert oder leer.</div>
