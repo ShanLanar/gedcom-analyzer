@@ -23,6 +23,7 @@ API:
     apply_to_matches(db, test_guid, progress_cb=None) -> int
 """
 from __future__ import annotations
+import hashlib
 import os
 import pickle
 import logging
@@ -32,6 +33,7 @@ from collections import Counter, defaultdict
 log = logging.getLogger(__name__)
 
 MODEL_PATH = Path(__file__).resolve().parent.parent / "origin_model.pkl"
+HASH_PATH  = MODEL_PATH.with_suffix(".sha256")
 
 _MODEL = None  # im Speicher gehaltenes geladenes Modell
 
@@ -150,8 +152,10 @@ def train(db, min_region: int = 20, sources=None, dedupe: bool = True,
 
     payload = {"pipe": pipe, "regions": sorted(keep),
                "n_train": len(y), "train_acc": train_acc}
-    with open(MODEL_PATH, "wb") as f:
-        pickle.dump(payload, f)
+    raw = pickle.dumps(payload)
+    digest = hashlib.sha256(raw).hexdigest()
+    MODEL_PATH.write_bytes(raw)
+    HASH_PATH.write_text(digest + "\n", encoding="ascii")
     global _MODEL
     _MODEL = payload
     p(f"Modell gespeichert: {MODEL_PATH}")
@@ -167,8 +171,14 @@ def load() -> bool:
     if not MODEL_PATH.exists():
         return False
     try:
-        with open(MODEL_PATH, "rb") as f:
-            _MODEL = pickle.load(f)
+        raw = MODEL_PATH.read_bytes()
+        if HASH_PATH.exists():
+            expected = HASH_PATH.read_text(encoding="ascii").strip()
+            actual   = hashlib.sha256(raw).hexdigest()
+            if actual != expected:
+                log.error("ml_origin: SHA-256-Prüfsumme stimmt nicht — Modell verworfen.")
+                return False
+        _MODEL = pickle.loads(raw)  # noqa: S301 — nach Hash-Verifikation sicher
         return True
     except Exception as e:
         log.warning("ml_origin: Modell laden fehlgeschlagen: %s", e)

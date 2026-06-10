@@ -31,5 +31,4 @@ jobs:
         run: python -m pytest tests/test_stress_integration.py -q --tb=short -x
 
       - name: Coverage (ancestry/core)
-        run: python -m pytest tests/ -q --tb=short --cov=ancestry.core --cov-report=term-missing:skip-covered
-        continue-on-error: true
+        run: python -m pytest tests/ -q --tb=short --cov=ancestry.core --cov-report=term-missing:skip-covered --cov-fail-under=25

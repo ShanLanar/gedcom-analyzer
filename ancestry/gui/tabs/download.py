@@ -606,7 +606,16 @@ class DownloadTab(ttk.Frame):
             self._set_status(("✅ " if result.success else "⚠️ ") + result.message)
             self._on_refresh_matches()
             self._on_refresh_stats()
-            if result.success:
+            if result.session_expired:
+                messagebox.showwarning(
+                    "Cookies abgelaufen",
+                    "Die Ancestry-Sitzung ist abgelaufen (HTTP 401/403).\n\n"
+                    "Bitte:\n"
+                    "1. ancestry.com im Browser öffnen und einloggen\n"
+                    "2. Cookies neu exportieren (cookies.txt)\n"
+                    "3. Download erneut starten",
+                )
+            elif result.success:
                 messagebox.showinfo("Fertig", result.message)
         self.after(0, _u)
 
@@ -616,7 +625,13 @@ class DownloadTab(ttk.Frame):
             self._shared_stop_btn.configure(state="disabled")
             self._set_status(("✅ " if result.success else "⚠️ ") + result.message)
             self._on_refresh_stats()
-            if result.success:
+            if result.session_expired:
+                messagebox.showwarning(
+                    "Cookies abgelaufen",
+                    "Die Ancestry-Sitzung ist abgelaufen (HTTP 401/403).\n\n"
+                    "Bitte Cookies neu exportieren und erneut starten.",
+                )
+            elif result.success:
                 messagebox.showinfo("Shared Matches fertig", result.message)
         self.after(0, _u)
 

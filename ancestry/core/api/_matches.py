@@ -128,6 +128,7 @@ class _MatchesMixin:
                     _page_jwt_refreshed = True
                     continue  # selbe Seite nochmal
                 log.error("HTTP %s – Cookies auch nach JWT-Erneuerung abgelaufen.", r.status_code)
+                self._session_expired = True
                 break
             if r.status_code in (301, 302, 303, 307, 308):
                 loc = r.headers.get("Location", "(kein Location-Header)")

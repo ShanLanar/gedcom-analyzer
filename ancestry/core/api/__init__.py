@@ -51,6 +51,7 @@ class AncestryApiClient(
     def __init__(self, session):
         self._s = session
         self._detail_blocked = False   # True wenn Namen-API 401/403 lieferte
+        self._session_expired = False  # True nach 401/403 auch nach JWT-Erneuerung
         self._csrf_mode = None         # gecachte CSRF-Form sobald eine 200 lieferte
         self._http_lock = __import__("threading").Lock()  # serialisiert HTTP bei Parallelität
         self._last_jwt_refresh: float = time.time()

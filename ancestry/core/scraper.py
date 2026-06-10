@@ -26,11 +26,12 @@ MATCH_BATCH_SIZE   = 500  # Matches pro DB-Commit (Ancestry liefert PAGE_SIZE=50
 
 class DownloadResult:
     def __init__(self):
-        self.fetched : int  = 0
-        self.new     : int  = 0
-        self.errors  : int  = 0
-        self.success : bool = True
-        self.message : str  = ""
+        self.fetched         : int  = 0
+        self.new             : int  = 0
+        self.errors          : int  = 0
+        self.success         : bool = True
+        self.message         : str  = ""
+        self.session_expired : bool = False
 
 
 class Scraper:
@@ -210,11 +211,17 @@ class Scraper:
                 self._db.bulk_upsert(batch)
                 result.new += len(batch)
 
-            if not result.message:
+            if getattr(self._client, "_session_expired", False):
+                result.session_expired = True
+                result.success = False
+                result.message = (f"Sitzung abgelaufen nach {result.fetched} Matches. "
+                                  "Bitte Cookies neu exportieren.")
+            elif not result.message:
                 result.message = (f"Abgebrochen nach {result.fetched} Matches."
                                   if self._stop.is_set()
                                   else f"Fertig: {result.fetched} Matches gespeichert.")
-            result.success = not self._stop.is_set()
+            if not result.session_expired:
+                result.success = not self._stop.is_set()
         except Exception as e:
             log.exception("Fehler im Match-Download")
             result.success = False
