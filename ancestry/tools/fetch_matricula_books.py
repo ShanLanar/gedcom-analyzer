@@ -38,6 +38,8 @@ if sys.platform == "win32":
 ROOT    = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 DB_PATH = os.path.join(ROOT, "ancestry", "tools", "matricula_parishes.db")
 
+_MATRICULA_BASE = "https://data.matricula-online.eu"
+
 _YEAR_RANGE_RE = re.compile(r"(\d{4})\s*[-–—]\s*(\d{4})")
 _SINGLE_YEAR   = re.compile(r"\b(1[0-9]{3}|20\d{2})\b")
 
@@ -139,21 +141,96 @@ def find_kirchenbuch_by_village(
 ) -> list[sqlite3.Row]:
     """
     Wie find_kirchenbuch, aber löst den Ortsnamen über parish_villages auf.
-    Gibt [] zurück wenn der Ort keiner Pfarrei zugeordnet ist.
+    Gibt alle passenden Bücher zurück (ein Ort kann bei Grenzfällen in mehreren
+    Pfarreien liegen — z.B. nach Abpfarrung; Caller entscheidet).
+    parish_id in parish_villages ist die volle kanonische ID.
     """
-    row = db.execute(
-        "SELECT parish_id FROM parish_villages WHERE lower(village) = lower(?)",
-        (village.strip(),),
-    ).fetchone()
-    if not row:
-        # Fallback: direkt als parish_id versuchen
-        row = db.execute(
-            "SELECT id AS parish_id FROM parishes WHERE lower(id) = lower(?)",
+    parish_ids = [
+        row[0]
+        for row in db.execute(
+            "SELECT DISTINCT parish_id FROM parish_villages WHERE lower(village) = lower(?)",
             (village.strip(),),
+        ).fetchall()
+    ]
+    if not parish_ids:
+        # Fallback: Slug oder volle ID direkt versuchen
+        row = db.execute(
+            "SELECT id FROM parishes WHERE lower(slug) = lower(?) OR lower(id) = lower(?)",
+            (village.strip(), village.strip()),
         ).fetchone()
-    if not row:
-        return []
-    return find_kirchenbuch(db, row["parish_id"], year, book_type)
+        if row:
+            parish_ids = [row["id"]]
+
+    results = []
+    for pid in parish_ids:
+        results.extend(find_kirchenbuch(db, pid, year, book_type))
+    return results
+
+
+# ── Pfarrei-Auflösung mit Disambiguierung ─────────────────────────────────────
+
+def _resolve_parishes(
+    db: sqlite3.Connection,
+    parish_filter: str | None,
+) -> list[sqlite3.Row]:
+    """
+    Löst einen Parish-Filter auf. Akzeptiert:
+      - None              → alle Pfarreien
+      - Vollständige ID   → "deutschland/osnabrueck/ostercappeln"
+      - Slug (eindeutig)  → "ostercappeln"
+      - Slug (mehrdeutig) → zeigt alle Treffer und bricht ab
+
+    Bricht mit exit(1) ab wenn ein Slug auf mehrere Pfarreien passt,
+    damit nie stillschweigend das falsche Kirchspiel gescannt wird.
+    """
+    if parish_filter is None:
+        return db.execute("SELECT id, slug, name, url FROM parishes ORDER BY name").fetchall()
+
+    # Exakter Match auf volle ID
+    rows = db.execute(
+        "SELECT id, slug, name, url FROM parishes WHERE id = ?",
+        (parish_filter,),
+    ).fetchall()
+    if rows:
+        return rows
+
+    # Slug-Match (Spalte slug oder letzter Teil der ID)
+    rows = db.execute(
+        "SELECT id, slug, name, url FROM parishes WHERE slug = ? OR id LIKE ?",
+        (parish_filter, f"%/{parish_filter}"),
+    ).fetchall()
+
+    if len(rows) == 1:
+        return rows
+
+    if len(rows) > 1:
+        print(f"⚠ '{parish_filter}' ist mehrdeutig — {len(rows)} Pfarreien gefunden:")
+        print()
+        for r in rows:
+            print(f"  {r['id']:<55} {r['name']}")
+        print()
+        print("Bitte die vollständige ID angeben, z.B.:")
+        print(f"  --parish {rows[0]['id']}")
+        sys.exit(1)
+
+    # Teilstring-Suche als Fallback
+    rows = db.execute(
+        "SELECT id, slug, name, url FROM parishes WHERE id LIKE ? OR name LIKE ?",
+        (f"%{parish_filter}%", f"%{parish_filter}%"),
+    ).fetchall()
+    if len(rows) == 1:
+        return rows
+    if len(rows) > 1:
+        print(f"⚠ '{parish_filter}' passt auf {len(rows)} Pfarreien:")
+        print()
+        for r in rows:
+            print(f"  {r['id']:<55} {r['name']}")
+        print()
+        print("Bitte präziser angeben.")
+        sys.exit(1)
+
+    print(f"⚠ Keine Pfarrei gefunden für '{parish_filter}'.")
+    return []
 
 
 # ── Scraping ───────────────────────────────────────────────────────────────────
@@ -179,12 +256,7 @@ def scrape_books(
     db.row_factory = sqlite3.Row
     _init_books_table(db)
 
-    where  = " WHERE id = ?" if parish_filter else ""
-    params = [parish_filter] if parish_filter else []
-    parishes = db.execute(
-        f"SELECT id, name, url FROM parishes{where} ORDER BY name", params
-    ).fetchall()
-
+    parishes = _resolve_parishes(db, parish_filter)
     if not parishes:
         print("Keine Pfarreien in DB. Bitte erst scrape_matricula_osnabrueck.py ausführen.")
         sys.exit(1)
@@ -205,10 +277,11 @@ def scrape_books(
         page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
 
         for i, parish in enumerate(parishes, 1):
-            pid  = parish["id"]
-            name = parish["name"]
-            url  = (parish["url"]
-                    or f"https://data.matricula-online.eu/de/deutschland/osnabrueck/{pid}/")
+            pid   = parish["id"]    # deutschland/osnabrueck/ostercappeln
+            slug  = pid.split("/")[-1]  # ostercappeln (nur für URL-Pattern)
+            name  = parish["name"]
+            # Fallback-URL aus kanonischer parish_id: /de/deutschland/osnabrueck/ostercappeln/
+            url   = parish["url"] or f"{_MATRICULA_BASE}/de/{pid}/"
 
             print(f"  [{i:3d}/{len(parishes)}] {name:<45}", end=" ", flush=True)
 
@@ -219,10 +292,10 @@ def scrape_books(
                     page.goto(url, wait_until="domcontentloaded", timeout=20_000)
                 time.sleep(pause * 0.4)
 
-                # Links die auf Kirchenbücher dieser Pfarrei zeigen:
-                # .../osnabrueck/<parish-id>/<book-id>/
+                # Buch-Links: .../de/<diocese>/<parish-slug>/<book-sub-id>/
+                # sub_id kommt direkt von Matricula — wir übernehmen ihn as-is
                 book_pattern = re.compile(
-                    rf"/de/deutschland/osnabrueck/{re.escape(pid)}/([^/?#]+)/?$"
+                    rf"/de/{re.escape(pid)}/([^/?#]+)/?$"
                 )
                 books_found: list[dict] = []
                 seen: set[str] = set()
@@ -232,23 +305,24 @@ def scrape_books(
                     m     = book_pattern.search(href)
                     if not m:
                         continue
-                    sub_id = m.group(1)
+                    sub_id = m.group(1)   # Matricula-Buchname, z.B. "TauBu-1697-1820"
                     if sub_id in seen:
                         continue
                     seen.add(sub_id)
 
                     label    = (link.inner_text() or "").strip()
                     full_url = (
-                        f"https://data.matricula-online.eu{href}"
+                        f"{_MATRICULA_BASE}{href}"
                         if href.startswith("/") else href
                     )
 
-                    # Typ + Jahre aus Label und Sub-ID ableiten
+                    # Buchtyp aus Matricula-Label + Sub-ID ableiten
                     hint      = f"{label} {sub_id}"
                     book_type = _detect_type(hint)
                     year_from, year_to = _extract_years(hint)
 
                     books_found.append({
+                        # book_id = vollständiger Matricula-Pfad ohne /de/-Präfix
                         "book_id":   f"{pid}/{sub_id}",
                         "parish_id": pid,
                         "book_type": book_type,

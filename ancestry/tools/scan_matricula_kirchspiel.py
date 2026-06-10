@@ -601,15 +601,22 @@ def scan_kirchspiel(
     parish_db = _open_parish_db()
     main_db   = _open_main_db()
 
-    # Pfarrei prüfen
-    parish = parish_db.execute(
-        "SELECT * FROM parishes WHERE id=?", (parish_id,)
-    ).fetchone()
-    if not parish:
-        print(f"⚠ Pfarrei '{parish_id}' nicht in DB. Bekannte Pfarreien:")
-        for row in parish_db.execute("SELECT id, name FROM parishes ORDER BY name").fetchall():
-            print(f"  {row['id']:<35} {row['name']}")
+    # Pfarrei-Auflösung mit Disambiguierung
+    try:
+        from tools.fetch_matricula_books import _resolve_parishes  # type: ignore[import]
+    except ImportError:
+        sys.path.insert(0, str(ROOT / "ancestry"))
+        from tools.fetch_matricula_books import _resolve_parishes  # type: ignore[import]
+
+    resolved = _resolve_parishes(parish_db, parish_id)
+    if not resolved:
         sys.exit(1)
+    if len(resolved) > 1:
+        # _resolve_parishes hat schon eine Liste ausgegeben und exit(1) aufgerufen
+        sys.exit(1)
+    parish = resolved[0]
+    # Kanonische parish_id für alle weiteren Abfragen
+    parish_id = parish["id"]  # z.B. "deutschland/osnabrueck/ostercappeln-st-lambertus"
 
     print(f"Kirchspiel: {parish['name']} ({parish_id})")
     if dry_run:
