@@ -250,7 +250,8 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
            headless: bool = True, pause: float = 2.0, skip_done: bool = True,
            profile_dir: str | None = None, cookies_path: str | None = None,
            debug: bool = False, extension_dir: str | None = None,
-           wait_login: bool = False, cdp_url: str | None = None):
+           wait_login: bool = False, cdp_url: str | None = None,
+           repair_threshold: int = 0):
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -296,8 +297,34 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 rows = cur.execute(
                     "SELECT match_guid_a FROM shared_matches_fetched"
                 ).fetchall()
-                done_guids = {r[0] for r in rows}
-            print(f"{len(done_guids)} Matches bereits verarbeitet (--skip-done aktiv).")
+                all_fetched = {r[0] for r in rows}
+
+            if repair_threshold > 0:
+                # Reparatur-Modus: Matches mit ≤ N Shared Matches werden erneut geladen.
+                # Hintergrund: Ohne funktionierende "Download CSV"-Extension liefert der
+                # GraphQL-Intercept nur die erste Seite (10 Ergebnisse). Diese Matches
+                # brauchen einen erneuten Lauf mit aktiver Extension.
+                try:
+                    with db._cursor() as cur:
+                        count_rows = cur.execute(
+                            "SELECT match_guid_a, COUNT(*) FROM shared_matches "
+                            "GROUP BY match_guid_a"
+                        ).fetchall()
+                    count_map = {r[0]: r[1] for r in count_rows}
+                    # Nur überspringen wenn Anzahl > Schwelle (ausreichend Daten vorhanden)
+                    done_guids = {g for g in all_fetched
+                                  if count_map.get(g, 0) > repair_threshold}
+                    repair_count = len(all_fetched) - len(done_guids)
+                    print(f"{len(all_fetched)} Matches bereits verarbeitet; "
+                          f"{repair_count} davon haben ≤{repair_threshold} Shared Matches "
+                          f"→ werden erneut geladen (--repair-threshold {repair_threshold}).")
+                except Exception as _re:
+                    done_guids = all_fetched
+                    print(f"Repair-Threshold-Abfrage fehlgeschlagen ({_re}), "
+                          f"verwende Standard --skip-done.")
+            else:
+                done_guids = all_fetched
+                print(f"{len(done_guids)} Matches bereits verarbeitet (--skip-done aktiv).")
         except Exception:
             pass
 
@@ -307,7 +334,7 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
     to_do = [m for m in matches if m["guid"] not in done_guids]
     print(f"\n{len(matches)} Matches ≥ {min_cm} cM geladen, "
-          f"{len(to_do)} noch nicht verarbeitet.\n")
+          f"{len(to_do)} noch nicht/unvollständig verarbeitet.\n")
 
     if not to_do:
         print("Nichts zu tun.")
@@ -1150,19 +1177,25 @@ if __name__ == "__main__":
                     help="An ein laufendes Chrome anhängen (Remote-Debugging). "
                          "Nutzt dessen bereits installierte/verifizierte Erweiterung "
                          "und Session. Standard-URL: http://127.0.0.1:9222")
+    ap.add_argument("--repair-threshold", type=int, default=0, metavar="N",
+                    help="Reparatur-Modus: Matches die bereits verarbeitet wurden, "
+                         "aber ≤ N Shared Matches in der DB haben, werden erneut geladen. "
+                         "Sinnvoll wenn bei einem Lauf nur die erste Seite (10 Ergebnisse) "
+                         "abgefangen wurde (Extension fehlte). Empfehlung: --repair-threshold 10")
     args = ap.parse_args()
 
     scrape(
-        csv_path      = args.csv,
-        min_cm        = args.min_cm,
-        limit         = args.limit,
-        headless      = not args.visible,
-        pause         = args.pause,
-        skip_done     = not args.no_skip,
-        profile_dir   = args.profile_dir or None,
-        cookies_path  = args.cookies or None,
-        debug         = args.debug,
-        extension_dir = args.extension or args.extension_id or None,
-        wait_login    = args.wait_login,
-        cdp_url       = args.cdp or None,
+        csv_path          = args.csv,
+        min_cm            = args.min_cm,
+        limit             = args.limit,
+        headless          = not args.visible,
+        pause             = args.pause,
+        skip_done         = not args.no_skip,
+        profile_dir       = args.profile_dir or None,
+        cookies_path      = args.cookies or None,
+        debug             = args.debug,
+        extension_dir     = args.extension or args.extension_id or None,
+        wait_login        = args.wait_login,
+        cdp_url           = args.cdp or None,
+        repair_threshold  = args.repair_threshold,
     )
