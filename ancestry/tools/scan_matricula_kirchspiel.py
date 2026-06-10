@@ -479,39 +479,31 @@ def _scan_book(
 
 def _detect_page_count(page) -> int | None:
     """
-    Versucht die Gesamtseitenanzahl aus dem Viewer zu lesen.
-    Matricula zeigt typischerweise "1 / 245" oder ähnliches.
+    Liest die Gesamtseitenanzahl aus dem Matricula-Viewer.
+    URL-Schema: .../D1_001_1/?pg=1  → Viewer zeigt z.B. "1 / 248"
     """
-    text = page.inner_text("body")
-
-    # "X / Y" — häufigste Form
-    m = re.search(r"\b(\d+)\s*/\s*(\d+)\b", text)
-    if m:
-        return int(m.group(2))
-
-    # Pagination-Input mit max
+    # Direkt aus DOM — Matricula rendert die Seitenzahl in einem
+    # Pagination-Element (Input-Feld oder Text-Span)
     try:
-        val = page.evaluate("""
+        result = page.evaluate("""
         () => {
+            // Input[max] — häufigste Form
             const inp = document.querySelector('input[max]');
-            return inp ? inp.getAttribute('max') : null;
+            if (inp && inp.max) return parseInt(inp.max);
+            // Span/div mit "X / Y"-Format
+            const all = document.body.innerText;
+            const m = all.match(/\\b(\\d+)\\s*\\/\\s*(\\d+)\\b/);
+            if (m) return parseInt(m[2]);
+            // Anzahl ?pg=-Links (Thumbnailleiste)
+            const pgs = document.querySelectorAll('a[href*="?pg="]');
+            if (pgs.length > 1) return pgs.length;
+            return null;
         }
         """)
-        if val:
-            return int(val)
+        if result:
+            return int(result)
     except Exception:
         pass
-
-    # Anzahl thumbnail-links als Fallback
-    try:
-        count = page.evaluate("""
-        () => document.querySelectorAll('a[href*="?pg="], a[data-page]').length
-        """)
-        if count and count > 1:
-            return count
-    except Exception:
-        pass
-
     return None
 
 
@@ -522,70 +514,76 @@ def _load_page_image(
     pause: float,
 ) -> tuple[str | None, bytes | None]:
     """
-    Navigiert zu Seite page_nr und gibt (image_url, image_bytes) zurück.
-    Versucht zuerst URL-Parameter, dann Viewer-Navigation.
+    Lädt Seite page_nr aus dem Matricula-Viewer und gibt (image_url, image_bytes) zurück.
+
+    Matricula URL-Schema: .../D1_001_1/?pg=1
+    Strategie:
+      1. ?pg=N laden, Bild-Response aus Netzwerk abfangen
+      2. Fallback: Screenshot des Viewer-Bereichs (für Kachel-Viewer)
     """
     captured: list[str] = []
 
-    def on_response(response):
-        url = response.url.lower()
-        if any(url.endswith(ext) for ext in [".jpg", ".jpeg", ".png", ".webp"]):
-            # Nur volle Bilder, keine Thumbnails oder Icons
-            if response.status == 200:
-                try:
-                    size = int(response.headers.get("content-length", "0"))
-                    if size > 50_000:  # >50 KB → wahrscheinlich Kirchenbuch-Seite
-                        captured.append(response.url)
-                except Exception:
-                    pass
+    def on_response(resp):
+        url = resp.url
+        # Große Bilder aus dem Matricula-Media-Server abfangen
+        if resp.status != 200:
+            return
+        ct = resp.headers.get("content-type", "")
+        is_image = ct.startswith("image/") or any(
+            url.lower().endswith(ext) for ext in (".jpg", ".jpeg", ".png", ".webp")
+        )
+        if not is_image:
+            return
+        try:
+            size = int(resp.headers.get("content-length", "0"))
+        except ValueError:
+            size = 0
+        # >30 KB → Kirchenbuch-Seite, kein Icon/Thumbnail
+        if size == 0 or size > 30_000:
+            captured.append(url)
 
     page.on("response", on_response)
 
-    # Strategie 1: URL-Parameter ?pg=N
+    # Matricula-Seite direkt per ?pg=N aufrufen
     page_url = f"{book_url.rstrip('/')}/?pg={page_nr}"
     try:
-        page.goto(page_url, wait_until="networkidle", timeout=20_000)
+        page.goto(page_url, wait_until="networkidle", timeout=25_000)
     except Exception:
-        page.goto(page_url, wait_until="domcontentloaded", timeout=20_000)
-    time.sleep(pause * 0.6)
-
-    # Wenn keine Bilder über ?pg= kamen: Strategie 2 – Seite direkt als Pfad
-    if not captured:
-        alt_url = f"{book_url.rstrip('/')}/{page_nr}/"
-        try:
-            page.goto(alt_url, wait_until="networkidle", timeout=15_000)
-        except Exception:
-            pass
-        time.sleep(pause * 0.4)
+        page.goto(page_url, wait_until="domcontentloaded", timeout=25_000)
+    time.sleep(pause * 0.7)
 
     page.remove_listener("response", on_response)
 
-    if not captured:
-        # Letzter Versuch: img-Tags direkt im DOM
+    # Bestes Bild auswählen: letzter großer Response = aktuelle Seite
+    image_url = captured[-1] if captured else None
+
+    if image_url:
         try:
-            srcs = page.evaluate("""
-            () => Array.from(document.querySelectorAll('img'))
-                .map(i => i.naturalWidth > 300 ? i.src : '')
-                .filter(Boolean)
-            """)
-            captured = srcs
-        except Exception:
-            pass
+            resp = page.request.get(image_url, timeout=30_000)
+            if resp.ok:
+                return image_url, resp.body()
+        except Exception as e:
+            print(f"[Download {e}] ", end="")
 
-    if not captured:
-        return None, None
-
-    image_url = captured[-1]  # letztes großes Bild = aktuelle Seite
-
-    # Bild herunterladen
+    # Fallback: Screenshot des sichtbaren Viewer-Bereichs
+    # (für Kachel-Viewer / OpenSeadragon wo kein einzelnes Bild-Request kommt)
     try:
-        resp = page.request.get(image_url, timeout=30_000)
-        if resp.ok:
-            return image_url, resp.body()
+        viewer_el = (
+            page.query_selector(".openseadragon-container")
+            or page.query_selector("#viewer")
+            or page.query_selector("[class*=viewer]")
+            or page.query_selector("canvas")
+        )
+        if viewer_el:
+            screenshot = viewer_el.screenshot(type="jpeg", quality=90)
+        else:
+            screenshot = page.screenshot(type="jpeg", quality=90, full_page=False)
+        print("[Screenshot] ", end="", flush=True)
+        return page_url, screenshot
     except Exception as e:
-        print(f"[Download-Fehler: {e}] ", end="")
+        print(f"[Screenshot-Fehler: {e}] ", end="")
 
-    return image_url, None
+    return None, None
 
 
 # ── Haupt-Scan ─────────────────────────────────────────────────────────────────
