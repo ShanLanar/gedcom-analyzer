@@ -28,6 +28,8 @@ from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.models import DnaKit, DnaMatch, SharedMatch
 from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_style, translate
 from ancestry.gui.widgets.log_handler import install_gui_log_handler
+from ancestry.gui.state import AppState
+from ancestry.gui.tabs.stats import StatsTab
 
 log = logging.getLogger(__name__)
 
@@ -48,29 +50,34 @@ class AncestryDnaApp(tk.Frame):
             _root.minsize(960, 620)
         self.pack(fill="both", expand=True)
 
-        self._auth    : Optional[AncestryAuth]      = None
-        self._client  : Optional[AncestryApiClient] = None
-        self._scraper : Optional[Scraper]           = None
-        self._db      : Database                    = Database(str(DB_PATH))
-        self._kit_map : dict[str, str]              = {}
-        self._matches_kit_guid_map: dict[str, str]  = {}
-        self._matches : list[DnaMatch]              = []
-        self._current_test_guid : Optional[str]     = None
-        self._startup_gedcom_path: str              = gedcom_path
+        self._state = AppState(
+            db=Database(str(DB_PATH)),
+            startup_gedcom_path=gedcom_path,
+        )
 
-        self._lang: str = "de"
-        self._lang_headings:       list = []   # (tv, col, key) tuples
-        self._lang_nb_tabs:        list = []   # (frame, key) tuples
-        self._lang_widgets:        list = []   # (widget_or_sv, key[, suffix]) tuples
-        self._lang_menus:          list = []   # (menu, index, key) tuples
-        self._lang_inner_nb_tabs:  list = []   # (notebook, frame, key) tuples
-        self._dark_mode:           bool = False
-        self.configure(bg=self._active_colors()["bg"])
-        self._pause_event:         threading.Event = threading.Event()
-        self._pause_event.set()  # not paused initially
-        self._dl_counters = {"matches": 0, "trees": 0, "shared": 0, "errors": 0}
+        # Aliase für bestehenden Code — zeigen auf state-Felder (kein Copy)
+        self._db      = self._state.db
+        self._auth    = None  # wird über _state.auth gesetzt wenn nötig
+        self._client  = None
+        self._scraper = None
+        self._kit_map               = self._state.kit_map
+        self._matches_kit_guid_map  = self._state.matches_kit_guid_map
+        self._matches               = self._state.matches
+        self._lang_headings         = self._state.lang_headings
+        self._lang_nb_tabs          = self._state.lang_nb_tabs
+        self._lang_widgets          = self._state.lang_widgets
+        self._lang_menus            = self._state.lang_menus
+        self._lang_inner_nb_tabs    = self._state.lang_inner_nb_tabs
+        self._pause_event           = self._state.pause_event
+        self._dl_counters           = self._state.dl_counters
+
+        self._current_test_guid : Optional[str] = None
+        self._startup_gedcom_path: str          = gedcom_path
+        self._lang: str    = "de"
+        self._dark_mode:   bool  = False
         self._dl_t0: float = 0.0
         self._dl_total: int = 1
+        self.configure(bg=self._active_colors()["bg"])
 
         self._build_style()
         self._build_menu()
@@ -196,24 +203,30 @@ class AncestryDnaApp(tk.Frame):
         self._nb = ttk.Notebook(self)
         self._nb.pack(fill="both", expand=True, padx=8, pady=8)
 
-        tabs = [
+        simple_tabs = [
             ("_tab_login",    "tab_login"),
             ("_tab_download", "tab_download"),
             ("_tab_matches",  "tab_matches"),
             ("_tab_cluster",  "tab_cluster"),
-            ("_tab_stats",    "tab_stats"),
         ]
-        for attr, key in tabs:
+        for attr, key in simple_tabs:
             frame = ttk.Frame(self._nb)
             setattr(self, attr, frame)
             self._nb.add(frame, text=self._t(key))
             self._lang_nb_tabs.append((frame, key))
 
+        # Stats-Tab als eigenständige Klasse
+        self._stats_tab = StatsTab(
+            self._nb, self._state,
+            get_test_guid=lambda: self._current_test_guid or self._get_kit_guid(),
+        )
+        self._nb.add(self._stats_tab, text=self._t("tab_stats"))
+        self._lang_nb_tabs.append((self._stats_tab, "tab_stats"))
+
         self._build_tab_login()
         self._build_tab_download()
         self._build_tab_matches()
         self._build_tab_cluster()
-        self._build_tab_stats()
 
         self._status_var = tk.StringVar(value="Bereit.")
         ttk.Label(self, textvariable=self._status_var,
@@ -4574,194 +4587,8 @@ class AncestryDnaApp(tk.Frame):
     # TAB 5: STATISTIKEN
     # ─────────────────────────────────────────────────────────────────────────
 
-    def _build_tab_stats(self):
-        f = self._tab_stats
-        _sv = tk.StringVar(value=self._t("st.refresh"))
-        ttk.Button(f, textvariable=_sv,
-                   command=self._refresh_stats).pack(anchor="ne", padx=14, pady=8)
-        self._lang_widgets.append((_sv, "st.refresh"))
-
-        kz = ttk.LabelFrame(f, text=self._t("st.kz"), padding=10)
-        kz.pack(fill="x", padx=14, pady=4)
-        self._lang_widgets.append((kz, "st.kz"))
-
-        self._stat_vars: dict[str, tk.StringVar] = {}
-        stat_label_keys = [
-            ("total",               "st.total"),
-            ("max_cm",              "st.max_cm"),
-            ("avg_cm",              "st.avg_cm"),
-            ("starred_count",       "st.starred"),
-            ("with_tree",           "st.with_tree"),
-            ("with_note",           "st.with_note"),
-            ("shared_total",        "st.shared_tot"),
-            ("shared_primary_count","st.shared_pri"),
-        ]
-        for i, (stat_key, t_key) in enumerate(stat_label_keys):
-            sv_lbl = tk.StringVar(value=self._t(t_key))
-            ttk.Label(kz, textvariable=sv_lbl, foreground="#555555").grid(
-                row=i // 4, column=(i % 4) * 2, sticky="e", padx=(14,4), pady=3)
-            self._lang_widgets.append((sv_lbl, t_key))
-            var = tk.StringVar(value="—")
-            ttk.Label(kz, textvariable=var, font=("Segoe UI", 10, "bold"),
-                      foreground=COLORS["primary"]).grid(
-                row=i // 4, column=(i % 4) * 2 + 1, sticky="w")
-            self._stat_vars[stat_key] = var
-
-        # Pedigree completeness section
-        pz = ttk.LabelFrame(f, text=self._t("st.ped_kz"), padding=10)
-        pz.pack(fill="x", padx=14, pady=4)
-        self._lang_widgets.append((pz, "st.ped_kz"))
-        ped_label_keys = [
-            ("ped_loaded", "st.ped_loaded"),
-            ("ped_avg_depth", "st.ped_depth"),
-            ("ped_surnames", "st.ped_surn"),
-        ]
-        for i, (stat_key, t_key) in enumerate(ped_label_keys):
-            sv_lbl = tk.StringVar(value=self._t(t_key))
-            ttk.Label(pz, textvariable=sv_lbl, foreground="#555555").grid(
-                row=0, column=i*2, sticky="e", padx=(14,4), pady=3)
-            self._lang_widgets.append((sv_lbl, t_key))
-            var = tk.StringVar(value="—")
-            ttk.Label(pz, textvariable=var, font=("Segoe UI", 10, "bold"),
-                      foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
-            self._stat_vars[stat_key] = var
-
-        # GEDCOM bridge section
-        gz = ttk.LabelFrame(f, text=self._t("st.ged_kz"), padding=10)
-        gz.pack(fill="x", padx=14, pady=4)
-        self._lang_widgets.append((gz, "st.ged_kz"))
-        ged_label_keys = [
-            ("gedcom_persons", "st.ged_pers"),
-            ("gedcom_linked",  "st.ged_linked"),
-        ]
-        for i, (stat_key, t_key) in enumerate(ged_label_keys):
-            sv_lbl = tk.StringVar(value=self._t(t_key))
-            ttk.Label(gz, textvariable=sv_lbl, foreground="#555555").grid(
-                row=0, column=i*2, sticky="e", padx=(14,4), pady=3)
-            self._lang_widgets.append((sv_lbl, t_key))
-            var = tk.StringVar(value="—")
-            ttk.Label(gz, textvariable=var, font=("Segoe UI", 10, "bold"),
-                      foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
-            self._stat_vars[stat_key] = var
-
-        # Seitenzuweisung section
-        sz = ttk.LabelFrame(f, text=self._t("st.side_kz"), padding=10)
-        sz.pack(fill="x", padx=14, pady=4)
-        self._lang_widgets.append((sz, "st.side_kz"))
-        side_label_keys = [
-            ("side_paternal", "st.side_pat"),
-            ("side_maternal", "st.side_mat"),
-            ("side_unset",    "st.side_open"),
-        ]
-        for i, (stat_key, t_key) in enumerate(side_label_keys):
-            sv_lbl = tk.StringVar(value=self._t(t_key))
-            ttk.Label(sz, textvariable=sv_lbl, foreground="#555555").grid(
-                row=0, column=i*2, sticky="e", padx=(14,4), pady=3)
-            self._lang_widgets.append((sv_lbl, t_key))
-            var = tk.StringVar(value="—")
-            ttk.Label(sz, textvariable=var, font=("Segoe UI", 10, "bold"),
-                      foreground=COLORS["primary"]).grid(row=0, column=i*2+1, sticky="w")
-            self._stat_vars[stat_key] = var
-
-        # Kits & Matches section
-        kf = ttk.LabelFrame(f, text=self._t("st.kit_kz"), padding=10)
-        kf.pack(fill="x", padx=14, pady=4)
-        self._lang_widgets.append((kf, "st.kit_kz"))
-        self._kit_stat_tree = ttk.Treeview(kf, columns=("kit", "count"),
-                                            show="headings", height=4)
-        self._kit_stat_tree.heading("kit",   text="Kit")
-        self._kit_stat_tree.heading("count", text="Matches")
-        self._kit_stat_tree.column("kit",   width=280)
-        self._kit_stat_tree.column("count", width=80, anchor="e")
-        self._kit_stat_tree.pack(fill="x")
-
-        # Progress ring section
-        ring_frame = ttk.Frame(f); ring_frame.pack(fill="x", padx=14, pady=4)
-        self._ring_canvas = tk.Canvas(ring_frame, height=90, bg=COLORS["bg"],
-                                       highlightthickness=0)
-        self._ring_canvas.pack(fill="x")
-        self._stat_ring_data: dict = {}
-
-        rf = ttk.LabelFrame(f, text=self._t("st.rel_dist"), padding=10)
-        rf.pack(fill="both", expand=True, padx=14, pady=4)
-        self._lang_widgets.append((rf, "st.rel_dist"))
-        self._rel_tree = ttk.Treeview(rf, columns=("rel","count"), show="headings", height=10)
-        self._rel_tree.heading("rel",   text=self._t("st.rel"))
-        self._rel_tree.heading("count", text=self._t("st.count"))
-        self._rel_tree.column("rel",    width=300)
-        self._rel_tree.column("count",  width=80, anchor="e")
-        self._rel_tree.pack(fill="both", expand=True)
-        self._lang_headings.append((self._rel_tree, "rel",   "st.rel"))
-        self._lang_headings.append((self._rel_tree, "count", "st.count"))
-        self._refresh_stats()
-
     def _refresh_stats(self):
-        stats = self._db.get_statistics()
-        for key, var in self._stat_vars.items():
-            v = stats.get(key)
-            var.set(f"{v:.1f}" if isinstance(v, float) else str(v) if v is not None else "—")
-        self._rel_tree.delete(*self._rel_tree.get_children())
-        for rel, cnt in stats.get("relationship_breakdown", []):
-            self._rel_tree.insert("", "end", values=(rel, cnt))
-        self._kit_stat_tree.delete(*self._kit_stat_tree.get_children())
-        for kit_name, cnt in stats.get("kit_breakdown", []):
-            self._kit_stat_tree.insert("", "end", values=(kit_name, cnt))
-        self._draw_stat_rings(stats)
-
-    def _draw_stat_rings(self, stats: dict):
-        """Draw three progress-ring indicators on the statistics canvas."""
-        c = self._ring_canvas
-        c.delete("all")
-        total = stats.get("total") or 0
-        if total == 0:
-            c.create_text(20, 45, text="—", anchor="w", fill="#888888",
-                          font=("Segoe UI", 10))
-            return
-        with_tree   = stats.get("with_tree", 0) or 0
-        ped_loaded  = stats.get("ped_loaded", 0) or 0
-        # Attempt to get side-known count from DB
-        try:
-            tg = self._current_test_guid or self._get_kit_guid()
-            if tg:
-                with self._db._cursor() as cur:
-                    cur.execute(
-                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
-                        "AND paternal_maternal != '' AND paternal_maternal IS NOT NULL", (tg,))
-                    side_known = cur.fetchone()[0]
-                    cur.execute(
-                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
-                        "AND endogamy_cluster != '' AND endogamy_cluster IS NOT NULL", (tg,))
-                    endo_known = cur.fetchone()[0]
-            else:
-                side_known = endo_known = 0
-        except Exception:
-            side_known = endo_known = 0
-
-        gedcom_linked = stats.get("gedcom_linked", 0) or 0
-        rings = [
-            (with_tree / total,    f"{with_tree}/{total}",      "Mit Baum",      COLORS["accent"]),
-            (ped_loaded / max(with_tree, 1), f"{ped_loaded}/{with_tree}", "Ahnentafel", COLORS["success"]),
-            (side_known / total,   f"{side_known}/{total}",     "Seite bekannt", "#8B4513"),
-            (gedcom_linked / total, f"{gedcom_linked}/{total}", "GEDCOM-Treffer", COLORS["primary"]),
-        ]
-        R = 35; cx_start = 55
-        for i, (pct, label_cnt, title, color) in enumerate(rings):
-            cx = cx_start + i * 160
-            cy = 45
-            # Background arc
-            c.create_arc(cx-R, cy-R, cx+R, cy+R, start=90, extent=360,
-                          style="arc", outline=COLORS["light"], width=8)
-            # Progress arc
-            extent = max(1, min(360, int(pct * 360)))
-            c.create_arc(cx-R, cy-R, cx+R, cy+R, start=90, extent=-extent,
-                          style="arc", outline=color, width=8)
-            # Center text
-            c.create_text(cx, cy - 6, text=f"{pct*100:.0f}%",
-                          font=("Segoe UI", 10, "bold"), fill=COLORS["text"])
-            c.create_text(cx, cy + 8, text=label_cnt,
-                          font=("Segoe UI", 7), fill="#777777")
-            c.create_text(cx, cy + R + 12, text=title,
-                          font=("Segoe UI", 8), fill=COLORS["text"])
+        self._stats_tab.refresh()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Export
