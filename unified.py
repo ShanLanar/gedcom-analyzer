@@ -30,10 +30,13 @@ log = logging.getLogger(__name__)
 ROOT         = os.path.dirname(os.path.abspath(__file__))
 ANCESTRY_DIR = os.path.join(ROOT, "ancestry")
 
-# ancestry/ muss früh im Suchpfad sein, damit lazy-Imports in app.py
-# (from core.treematch import …) ohne vollständigen ancestry.-Präfix finden.
+# ROOT zuerst (damit 'from main import AhnenApp' die Wurzel-main.py findet,
+# nicht ancestry/main.py). ANCESTRY_DIR ans Ende, damit lazy-Imports in
+# app.py (from core.treematch import …) das core-Paket finden.
+if ROOT not in sys.path:
+    sys.path.insert(0, ROOT)
 if ANCESTRY_DIR not in sys.path:
-    sys.path.insert(0, ANCESTRY_DIR)
+    sys.path.append(ANCESTRY_DIR)
 
 
 # ── Import-Helfer ───────────────────────────────────────────────────────────────
@@ -124,7 +127,7 @@ def _apply_notebook_style(root: tk.Tk) -> None:
 # ── Hauptfunktion ───────────────────────────────────────────────────────────────
 
 def main():
-    # ── Imports ──────────────────────────────────────────────────────────────────
+    # ── Imports ─────────────────────────────────────────────────────────────────
     AhnenApp = None
     _ahnen_exc: Exception = RuntimeError("not loaded")
     try:
