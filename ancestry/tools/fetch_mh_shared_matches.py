@@ -292,16 +292,11 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
     if skip_done:
         try:
             with db._cursor() as cur:
-                if test_guid:
-                    rows = cur.execute(
-                        "SELECT match_guid_a FROM shared_matches_fetched WHERE test_guid=?",
-                        (test_guid,)
-                    ).fetchall()
-                else:
-                    # test_guid noch unbekannt → alle verarbeiteten GUIDs laden
-                    rows = cur.execute(
-                        "SELECT match_guid_a FROM shared_matches_fetched"
-                    ).fetchall()
+                # Alle verarbeiteten match_guid_a laden (test_guid-unabhängig,
+                # da MH-GUID D-... und Ancestry-GUID verschieden sind)
+                rows = cur.execute(
+                    "SELECT match_guid_a FROM shared_matches_fetched"
+                ).fetchall()
                 done_guids = {r[0] for r in rows}
             print(f"{len(done_guids)} Matches bereits verarbeitet (--skip-done aktiv).")
         except Exception:
