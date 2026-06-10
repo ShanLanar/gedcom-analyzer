@@ -16,7 +16,7 @@ except ImportError:
     import requests as cfr
     CURL_AVAILABLE = False
 
-import config as cfg
+import ancestry.endpoints as cfg
 
 log = logging.getLogger(__name__)
 

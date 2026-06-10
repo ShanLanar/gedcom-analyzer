@@ -10,10 +10,10 @@ import threading
 import time as _time
 from typing import Callable, Optional
 
-from core.api import AncestryApiClient
-from core.database import Database
-from models import DnaMatch, SharedMatch
-import config as cfg
+from ancestry.core.api import AncestryApiClient
+from ancestry.core.database import Database
+from ancestry.models import DnaMatch, SharedMatch
+import ancestry.endpoints as cfg
 
 log = logging.getLogger(__name__)
 

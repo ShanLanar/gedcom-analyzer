@@ -17,8 +17,8 @@ try:
 except ImportError:
     import requests as cfr
 
-import config as cfg
-from models import DnaKit, DnaMatch, SharedMatch
+import ancestry.endpoints as cfg
+from ancestry.models import DnaKit, DnaMatch, SharedMatch
 
 log = logging.getLogger(__name__)
 
