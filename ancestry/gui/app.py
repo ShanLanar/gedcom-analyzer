@@ -2292,9 +2292,9 @@ class AncestryDnaApp(tk.Frame):
     def shutdown(self):
         """Aufräumen ohne Fenster zu zerstören – für die eingebettete Nutzung."""
         try: self._save_settings()
-        except Exception: pass
+        except Exception as e: log.debug("shutdown _save_settings: %s", e)
         try: self._db.close()
-        except Exception: pass
+        except Exception as e: log.debug("shutdown _db.close: %s", e)
 
     def _set_gedcom(self, path: str):
         """Setzt den GEDCOM-Pfad von außen (z.B. aus dem Start-Tab)."""

@@ -7,7 +7,7 @@ cm_to_mrca, cluster_confidence.
 """
 
 
-def endogamy_flag(total_cm: float, num_segments: int, longest: float):
+def endogamy_flag(total_cm: float, num_segments: int, longest: float) -> tuple[str, float]:
     """Schätzt aus Segmentdaten, ob Endogamie/mehrere Linien vorliegen.
     Viele kleine Segmente bei moderater Gesamt-cM = mehrere geteilte Ahnenlinien.
     Ein großes längstes Segment = jüngerer gemeinsamer Vorfahr (eine klare Linie).
@@ -36,7 +36,7 @@ def endogamy_flag(total_cm: float, num_segments: int, longest: float):
     return label, round(score, 2)
 
 
-def longest_to_generation(longest: float):
+def longest_to_generation(longest: float) -> int:
     """Grobe Generation des gemeinsamen Vorfahren aus dem längsten Segment
     (endogamie-robuster als Gesamt-cM). Wurzel=Gen 1."""
     l = longest or 0
@@ -48,7 +48,7 @@ def longest_to_generation(longest: float):
 
 def cluster_confidence(size: int, density: float, median_cm: float = 0.0,
                        conv_frac: float = None, endogamy_score: float = 0.0,
-                       n_confirmed: int = 0):
+                       n_confirmed: int = 0) -> dict:
     """Bewertet einen Cluster. Liefert dict mit:
       realness  – P(Cluster ist echt, kein Zufall) 0..1 (Größe × Dichte)
       cohesion  – Dichte (eine Linie vs. mehrere verschmolzen)
@@ -139,7 +139,7 @@ ENDOGAMY_FACTORS: dict[str, float] = {
 
 
 def cm_to_mrca(cm: float, endogamy_factor: float = 1.0,
-               population: str = ""):
+               population: str = "") -> tuple[str, int]:
     """Schätzt aus geteilten cM die Beziehung und die Pedigree-Generation des
     gemeinsamen Vorfahren (Wurzel=Gen 1). Basiert auf Shared-cM-Project-Mittelwerten.
 
