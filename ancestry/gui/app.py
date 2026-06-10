@@ -668,7 +668,7 @@ class AncestryDnaApp(tk.Frame):
         self._update_kit_combo()
         self._current_test_guid = guid
         self._save_settings()
-        self._set_status(f"Kit-GUID gespeichert.")
+        self._set_status("Kit-GUID gespeichert.")
 
     def _set_login_status(self, msg, success=True):
         self._login_status_var.set(msg)
@@ -1575,7 +1575,8 @@ class AncestryDnaApp(tk.Frame):
                 return
 
             # Collect all members (deduplicated) and their cluster assignments
-            import math, random
+            import math
+            import random
             random.seed(42)
             W = canvas.winfo_width() or 980
             H = canvas.winfo_height() or 650
@@ -2654,7 +2655,8 @@ class AncestryDnaApp(tk.Frame):
         return os.path.join(d, "ui_settings.json")
 
     def _load_ui_settings(self) -> dict:
-        import json, os
+        import json
+        import os
         try:
             with open(self._settings_path(), encoding="utf-8") as f:
                 data = json.load(f)
@@ -2770,7 +2772,7 @@ class AncestryDnaApp(tk.Frame):
                                             build_ancestor_map, find_root_candidate)
                 people, individuals, families = load_gedcom_full(path)
             except Exception as e:
-                self.after(0, lambda: messagebox.showerror(
+                self.after(0, lambda e=e: messagebox.showerror(
                     "GEDCOM-Fehler", f"Konnte GEDCOM nicht laden:\n{e}"))
                 return
             if not people:
@@ -3535,7 +3537,7 @@ class AncestryDnaApp(tk.Frame):
                 self.after(0, lambda: self._fill_ged_link_tree(rows, match))
             except Exception as exc:
                 log.warning("bridge: %s", exc)
-                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="bridge").start()
@@ -3662,7 +3664,7 @@ class AncestryDnaApp(tk.Frame):
                     self.after(0, lambda: self._load_gedcom_link_panel(self._selected_match))
             except Exception as exc:
                 log.warning("bridge bulk: %s", exc)
-                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="bridge-bulk").start()
@@ -3691,7 +3693,8 @@ class AncestryDnaApp(tk.Frame):
         def _worker():
             try:
                 from core import bridge as _bridge
-                import os as _os, importlib.util as _ilu
+                import os as _os
+                import importlib.util as _ilu
                 # GEDCOM-Endogamie aus dem Haupt-Analyzer (tasks ist installiert)
                 _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
                 from tasks.endogamy import compute_endogamy_with_detailed_places
@@ -3716,7 +3719,7 @@ class AncestryDnaApp(tk.Frame):
                 self.after(0, self._refresh_match_table)
             except Exception as exc:
                 log.warning("endogamy-transfer: %s", exc)
-                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="endo-transfer").start()
@@ -3813,7 +3816,7 @@ class AncestryDnaApp(tk.Frame):
                 log.warning("ml-origin: %s", exc)
                 msg = str(exc).split("\n")[0]
                 self.after(0, lambda: self._ged_link_status.set(f"ML-Fehler: {msg}"))
-                self.after(0, lambda: messagebox.showwarning("ML-Herkunft", str(exc)))
+                self.after(0, lambda exc=exc: messagebox.showwarning("ML-Herkunft", str(exc)))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="ml-origin").start()
@@ -3844,7 +3847,7 @@ class AncestryDnaApp(tk.Frame):
                 self.after(0, lambda: self._show_wikitree_results(mname, results))
             except Exception as exc:
                 log.warning("wikitree-extend: %s", exc)
-                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="wikitree").start()
@@ -3910,7 +3913,7 @@ class AncestryDnaApp(tk.Frame):
                 self.after(0, self._refresh_match_table)
             except Exception as exc:
                 log.warning("origin-inference: %s", exc)
-                self.after(0, lambda: self._ged_link_status.set(f"Fehler: {exc}"))
+                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="origin-infer").start()
@@ -5220,7 +5223,9 @@ class AncestryDnaApp(tk.Frame):
         if not path:
             return
 
-        import json, csv, re
+        import json
+        import csv
+        import re
 
         # Muster die KEIN echter Name sind
         NOISE_PATTERNS = [
@@ -5471,7 +5476,7 @@ class AncestryDnaApp(tk.Frame):
                 self.after(0, lambda m=msg: messagebox.showinfo("GEDmatch-Brücke", m))
                 self.after(50, self._refresh_match_table)
             except Exception as e:
-                self.after(0, lambda: messagebox.showerror("Fehler", str(e)))
+                self.after(0, lambda e=e: messagebox.showerror("Fehler", str(e)))
         threading.Thread(target=_do, daemon=True).start()
 
     def _auto_assign_sides(self):
@@ -5545,7 +5550,7 @@ class AncestryDnaApp(tk.Frame):
             n_ancestry = 0
 
         rb_anc = ttk.Radiobutton(dlg,
-            text=f"Ancestry-Schätzung importieren (Tag 8 / Cluster-Code):",
+            text="Ancestry-Schätzung importieren (Tag 8 / Cluster-Code):",
             variable=method_var, value="ancestry")
         rb_anc.grid(row=5, column=0, columnspan=2, sticky="w", padx=14, pady=(4,2))
         ttk.Label(dlg, text=f"{n_ancestry} Matches mit Ancestry-Seitenzuweisung gefunden",
@@ -5927,7 +5932,8 @@ class AncestryDnaApp(tk.Frame):
 
     def _load_settings(self):
         """Lädt gespeicherte Einstellungen (Cookie-Pfad, Kit-GUID)."""
-        import json, os
+        import json
+        import os
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             '..', 'settings.json')
         try:
@@ -5961,7 +5967,8 @@ class AncestryDnaApp(tk.Frame):
 
     def _save_settings(self):
         """Speichert aktuelle Einstellungen."""
-        import json, os
+        import json
+        import os
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)),
                             '..', 'settings.json')
         s = {

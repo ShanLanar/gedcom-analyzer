@@ -39,5 +39,26 @@ packages = [
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint]
+select = ["E", "F", "W"]
+ignore = [
+    # Bestehender Legacy-Stil (schrittweise bereinigt, kein CI-Gate)
+    "E501",   # line-too-long (app.py hat ~300 Zeilen > 100)
+    "E701",   # multiple-statements-on-one-line-colon
+    "E702",   # multiple-statements-on-one-line-semicolon
+    "E402",   # module-import-not-at-top-of-file (lazy imports bewusst eingesetzt)
+    "F401",   # unused-import (viele Re-Exports und lazy-Import-Pattern)
+    "F841",   # local variable assigned but never used
+    "E741",   # ambiguous-variable-name (l, O, I – in Genealogiedaten üblich)
+    "E731",   # lambda-assignment
+    "E722",   # bare-except (bewusst in Scraper-Fallbacks)
+    "F811",   # redefined-while-unused (lazy inner imports in GUI-Methoden)
+]
+
+[tool.ruff.lint.per-file-ignores]
+# Tests dürfen assert-Rewrite-Pattern und mehr Freiheiten nutzen
+"tests/*" = ["F811", "E401"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
+markers = ["gui: Tests die tkinter/Display benötigen (unter CI mit xvfb oder skip)"]
