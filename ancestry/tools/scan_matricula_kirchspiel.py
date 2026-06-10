@@ -189,7 +189,7 @@ def _open_parish_db() -> sqlite3.Connection:
 
 def _open_main_db():
     """Öffnet die Haupt-ancestry.db für source_matrikula_entries."""
-    main_db_path = ROOT / "ancestry.db"
+    main_db_path = ROOT / "ancestry_dna.db"
     if not main_db_path.exists():
         # Fallback: neben PARISH_DB
         main_db_path = PARISH_DB.parent / "matricula_entries.db"

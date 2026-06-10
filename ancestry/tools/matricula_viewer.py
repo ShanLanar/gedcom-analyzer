@@ -33,7 +33,7 @@ except ImportError:
 
 ROOT          = Path(__file__).resolve().parent.parent.parent
 PARISH_DB     = ROOT / "ancestry" / "tools" / "matricula_parishes.db"
-MAIN_DB_PATH  = ROOT / "ancestry.db"
+MAIN_DB_PATH  = ROOT / "ancestry_dna.db"
 FALLBACK_DB   = PARISH_DB.parent / "matricula_entries.db"
 DEFAULT_ARCHIVE = Path(os.environ.get(
     "MATRICULA_ARCHIVE",
