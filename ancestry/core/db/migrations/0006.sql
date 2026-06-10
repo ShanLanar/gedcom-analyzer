@@ -1,0 +1,4 @@
+ALTER TABLE matches ADD COLUMN tree_status TEXT DEFAULT '';
+ALTER TABLE matches ADD COLUMN has_common_ancestor INTEGER DEFAULT 0;
+ALTER TABLE matches ADD COLUMN match_ucdmid TEXT DEFAULT '';
+ALTER TABLE matches ADD COLUMN gender TEXT DEFAULT ''

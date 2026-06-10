@@ -6,7 +6,7 @@ import csv
 import logging
 from typing import Optional
 
-from models import DnaMatch, SharedMatch
+from ancestry.models import DnaMatch, SharedMatch
 
 log = logging.getLogger(__name__)
 
