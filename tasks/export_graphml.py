@@ -244,7 +244,7 @@ def export_graphml(
         if output_dir and not os.path.exists(output_dir):
             os.makedirs(output_dir, exist_ok=True)
 
-        p(f"  Einrücken und Serialisieren …")
+        p("  Einrücken und Serialisieren …")
         _indent(root_elem)
 
         tree = ET.ElementTree(root_elem)

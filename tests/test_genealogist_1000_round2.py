@@ -104,7 +104,7 @@ def test_relationship_label_basic(root_gens, target_gens, is_ancestor, expected_
         if expected_substr:
             assert expected_substr.lower() in result.lower()
     except (TypeError, KeyError):
-        pytest.skip(f"Signature mismatch — relationship_label needs different args")
+        pytest.skip("Signature mismatch — relationship_label needs different args")
 
 
 @pytest.mark.parametrize("gen", range(1, 11))
@@ -987,7 +987,7 @@ def test_gedcom_roundtrip_robust_random(seed, tmp_path):
 @pytest.mark.parametrize("year_offset", range(20))
 def test_emigration_wave_1880s(year_offset):
     """Auswanderungswelle 1880er — emig-Events werden korrekt erfasst."""
-    iid, p = _indi("@A@", f"Hans /Auswanderer/", "M",
+    iid, p = _indi("@A@", "Hans /Auswanderer/", "M",
                      1850 + year_offset // 2,
                      em=1880 + year_offset, ep="Hamburg",
                      im=1881 + year_offset, ip="New York")
@@ -1214,18 +1214,18 @@ def test_endogamy_bigraph_two_surname_clusters(size_a, size_b):
         h_iid = f"@A{i}@"
         w_iid = f"@B{i}@"
         f_id = f"@FA{i}@"
-        indiv[h_iid] = _indi(h_iid, f"V /Müller/", "M",
+        indiv[h_iid] = _indi(h_iid, "V /Müller/", "M",
                               1820 + i, fams=[f_id])[1]
-        indiv[w_iid] = _indi(w_iid, f"M /Schmidt/", "F",
+        indiv[w_iid] = _indi(w_iid, "M /Schmidt/", "F",
                               1822 + i, fams=[f_id])[1]
         fams[f_id] = _fam(f_id, h_iid, w_iid, [], 1850 + i)[1]
     for i in range(size_b):
         h_iid = f"@C{i}@"
         w_iid = f"@D{i}@"
         f_id = f"@FB{i}@"
-        indiv[h_iid] = _indi(h_iid, f"V /Bauer/", "M",
+        indiv[h_iid] = _indi(h_iid, "V /Bauer/", "M",
                               1820 + i, fams=[f_id])[1]
-        indiv[w_iid] = _indi(w_iid, f"M /Koch/", "F",
+        indiv[w_iid] = _indi(w_iid, "M /Koch/", "F",
                               1822 + i, fams=[f_id])[1]
         fams[f_id] = _fam(f_id, h_iid, w_iid, [], 1850 + i)[1]
     rows = analyze_endogamy_bigraph(indiv, fams)
@@ -1506,7 +1506,7 @@ def test_mrca_no_crash_random(seed):
     indiv = {}
     for i in range(seed + 2):
         indiv[f"@I{i}@"] = _indi(f"@I{i}@", f"P{i}", "M", 1800 + i)[1]
-    a = f"@I0@"
+    a = "@I0@"
     b = f"@I{seed + 1}@"
     result = find_mrca(a, b, indiv, {})
     assert isinstance(result, dict)

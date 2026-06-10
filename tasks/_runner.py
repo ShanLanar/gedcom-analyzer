@@ -1238,7 +1238,8 @@ def run_dna_overview(progress_cb=None, stop_event=None):
     Nur sinnvoll wenn ancestry/ancestry_dna.db existiert."""
     _set_stop_event(stop_event)
     p = progress_cb or (lambda m, **kw: None)
-    import os, sys
+    import os
+    import sys
 
     ancestry_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "ancestry")

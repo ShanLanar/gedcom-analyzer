@@ -235,7 +235,7 @@ def analyze_reproductive_span(individuals, families, progress_cb=None) -> list:
                 "",
                 "",
                 "",
-                f"Ø Spanne",
+                "Ø Spanne",
                 f"{sum(sp)/len(sp):.1f}",
             ])
 

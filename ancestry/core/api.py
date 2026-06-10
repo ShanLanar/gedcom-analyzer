@@ -122,7 +122,8 @@ class AncestryApiClient:
 
     def _jwt_remaining(self) -> int:
         """Verbleibende Gültigkeit des SecureATT JWT in Sekunden (negativ = abgelaufen)."""
-        import base64 as _b64, json as _j
+        import base64 as _b64
+        import json as _j
         try:
             jwt = self._s.cookies.get("SecureATT", domain="www.ancestry.com") or ""
             if not jwt:

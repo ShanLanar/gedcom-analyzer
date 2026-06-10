@@ -346,7 +346,7 @@ def run():
     conn.close()
 
     print()
-    print(f"Import abgeschlossen:")
+    print("Import abgeschlossen:")
     print(f"  Gespeichert:  {saved}")
     print(f"  Übersprungen: {skipped}")
     print(f"  Datenbank:    {DB_PATH}")

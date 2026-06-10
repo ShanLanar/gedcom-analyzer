@@ -55,7 +55,9 @@ def _status(msg):
 
 def _check_jwt(session) -> int:
     """Gibt verbleibende Sekunden des SecureATT JWT zurück (negativ = abgelaufen)."""
-    import base64, json as _json, time as _time
+    import base64
+    import json as _json
+    import time as _time
     try:
         jwt = session.cookies.get("SecureATT", domain="www.ancestry.com") or ""
         if not jwt:

@@ -7,7 +7,8 @@ via download_all_matches.js verfügbar ist.
 Aufruf:
   python process_indexeddb_cache.py [pfad/zu/mh_indexeddb_dna.json]
 """
-import json, sys
+import json
+import sys
 from pathlib import Path
 
 SCRIPT_DIR  = Path(__file__).resolve().parent

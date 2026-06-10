@@ -935,7 +935,7 @@ def test_duplicate_detection_idempotent(seed):
     """Doubletten-Erkennung liefert konsistente Ergebnisse."""
     from tasks.anomalies import detect_duplicates
     indiv = dict(
-        _indi(f"@I{i}@", f"Hans /Müller/", "M", 1850 + (i % 3))
+        _indi(f"@I{i}@", "Hans /Müller/", "M", 1850 + (i % 3))
         for i in range(seed + 2)
     )
     rows1 = detect_duplicates(indiv)
@@ -952,7 +952,7 @@ def test_demographic_returns_per_epoch_per_sex(seed):
         for ep_year in [1750, 1820, 1870, 1920, 1980]:
             for i in range(2):
                 iid = f"@{sex}{ep_year}{i}@"
-                indiv[iid] = _indi(iid, f"P /T/", sex, ep_year + i,
+                indiv[iid] = _indi(iid, "P /T/", sex, ep_year + i,
                                     dy=ep_year + i + 60)[1]
     rows = analyze_demographic_statistics(indiv, {}, {})
     epochs_seen = {(r[0], r[1]) for r in rows}

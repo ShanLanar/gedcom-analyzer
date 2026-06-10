@@ -2,7 +2,10 @@
 """
 Phase 15: fgTokenDna aus window.promotionalBannerSystemData testen.
 """
-import json, re, sys, time
+import json
+import re
+import sys
+import time
 from pathlib import Path
 import requests
 
@@ -115,7 +118,7 @@ def probe(label, url, query=QUERY_MIN):
             except:
                 print(f"  {body[:200]!r}")
         else:
-            print(f"  (leerer Body)")
+            print("  (leerer Body)")
     except Exception as e:
         print(f"❌ {label}: {e}")
     print()
@@ -150,7 +153,7 @@ if fg_dna_tok:
             try: d=resp.json(); print(f"  {json.dumps(d)[:400]}")
             except: print(f"  {resp.text[:200]!r}")
         else:
-            print(f"  (leerer Body)")
+            print("  (leerer Body)")
     except Exception as e:
         print(f"❌ {e}")
 print()
