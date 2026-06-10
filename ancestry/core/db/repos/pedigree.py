@@ -151,6 +151,10 @@ class PedigreeRepo:
                 label, detail = name, (f"*{yr}" if yr else "")
             g = groups.setdefault(key, {"label": label, "detail": detail,
                                         "_seen": set(), "matches": []})
+            if mode == "person" and not g.get("birth_place"):
+                bp = (r["birth_place"] or "").strip()
+                if bp:
+                    g["birth_place"] = bp
             if r["match_guid"] in g["_seen"]:
                 continue
             g["_seen"].add(r["match_guid"])

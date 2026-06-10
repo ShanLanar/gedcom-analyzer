@@ -178,6 +178,32 @@ def test_export_match_names_in_note(tmp_ged):
     assert "Elsa Müller" in content or "Franz Mayer" in content
 
 
+def test_export_birth_place_written_as_plac(tmp_ged):
+    groups = [{
+        "label":       "Heinrich Finkeldey",
+        "detail":      "*1832",
+        "count":       1,
+        "birth_place": "Osnabrück",
+        "matches":     [("G1", "Match A", "FF", 4, 75.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "2 PLAC Osnabrück" in content
+    assert "1 BIRT" in content
+
+
+def test_export_no_plac_when_birth_place_absent(tmp_ged):
+    groups = [{
+        "label":   "Anna Müller",
+        "detail":  "*1850",
+        "count":   1,
+        "matches": [("G1", "Match B", "MF", 4, 60.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "PLAC" not in content
+
+
 def test_export_handles_missing_birth_year(tmp_ged):
     groups = [{
         "label":   "Unbekannt Nachname",

@@ -72,7 +72,7 @@ def export_gedcom(groups: list, output_path: str,
     indi_count = 0
 
     def _register(label: str, birth_year: str, count: int,
-                  matches: list, sosas: set) -> tuple:
+                  matches: list, sosas: set, birth_place: str = "") -> tuple:
         key = (_clean(label).lower(), _clean(birth_year))
         if key not in indi_meta:
             nonlocal indi_count
@@ -89,6 +89,7 @@ def export_gedcom(groups: list, output_path: str,
                 "pid":        pid,
                 "label":      _clean(label),
                 "birth_year": _clean(birth_year),
+                "birth_place": _clean(birth_place),
                 "given":      given,
                 "surn":       surn,
                 "count":      count,
@@ -120,13 +121,14 @@ def export_gedcom(groups: list, output_path: str,
         matches = group.get("matches", [])
         if not label:
             continue
-        birth_year = detail.lstrip("*").strip()
+        birth_year  = detail.lstrip("*").strip()
+        birth_place = _clean(group.get("birth_place", ""))
         sosas: set[int] = set()
         for m in matches:
             path = m[2] if len(m) > 2 else ""
             if path:
                 sosas.add(_sosa_from_path(path))
-        _register(label, birth_year, count, matches, sosas)
+        _register(label, birth_year, count, matches, sosas, birth_place)
 
     # ── Phase 2: Build family structure from Sosa arithmetic ─────────────────
     # Sosa 4 → father is Sosa 2, mother is Sosa 3.
@@ -213,9 +215,13 @@ def export_gedcom(groups: list, output_path: str,
                 lines.append(f"2 GIVN {given}")
 
         by = meta["birth_year"]
-        if by:
+        bp = meta.get("birth_place", "")
+        if by or bp:
             lines.append("1 BIRT")
-            lines.append(f"2 DATE {by}")
+            if by:
+                lines.append(f"2 DATE {by}")
+            if bp:
+                lines.append(f"2 PLAC {bp}")
 
         # Family links (required for GEDCOM pedigree traversal)
         for fam_id in meta["famc"]:
