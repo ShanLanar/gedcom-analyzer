@@ -33,6 +33,23 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "tab_matches":  {"de": "  🧬 Matches  ",       "en": "  🧬 Matches  "},
     "tab_cluster":  {"de": "  🌳 Cluster  ",       "en": "  🌳 Cluster  "},
     "tab_stats":    {"de": "  📊 Statistiken  ",   "en": "  📊 Statistics  "},
+    "tab_matricula":{"de": "  ⛪ Matricula  ",      "en": "  ⛪ Matricula  "},
+    # Matricula-Tab
+    "mat.next":     {"de": "Nächste Pfarrei:",      "en": "Next parish:"},
+    "mat.booktype": {"de": "Buchtyp:",              "en": "Book type:"},
+    "mat.autonext": {"de": "automatisch mit nächster Pfarrei fortfahren",
+                     "en": "continue with next parish automatically"},
+    "mat.start":    {"de": "▶ Scan starten",        "en": "▶ Start scan"},
+    "mat.stop":     {"de": "⏹ Stopp",               "en": "⏹ Stop"},
+    "mat.refresh":  {"de": "↻ Status",              "en": "↻ Status"},
+    "mat.overview": {"de": "Pfarreien-Übersicht (✓ = fertig, ausgegraut):",
+                     "en": "Parish overview (✓ = done, greyed out):"},
+    "mat.no_db":    {"de": "Keine Pfarrei-DB gefunden. Zuerst ausführen:\n"
+                           "  python ancestry/tools/scrape_matricula_osnabrueck.py\n"
+                           "  python ancestry/tools/fetch_matricula_books.py",
+                     "en": "No parish DB found. Run first:\n"
+                           "  python ancestry/tools/scrape_matricula_osnabrueck.py\n"
+                           "  python ancestry/tools/fetch_matricula_books.py"},
     # Main match table
     "m.name":    {"de": "Name / ID",   "en": "Name / ID"},
     "m.guid":    {"de": "GUID",        "en": "GUID"},

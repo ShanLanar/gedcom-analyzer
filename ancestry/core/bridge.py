@@ -26,7 +26,12 @@ from typing import Optional
 
 log = logging.getLogger(__name__)
 
-MIN_LINK_SCORE = 0.45
+# Per Umgebungsvariable übersteuerbar (z. B. 0.55 bei stark endogamen Daten,
+# 0.35 für explorative Läufe mit anschließender manueller Prüfung).
+try:
+    MIN_LINK_SCORE = float(os.environ.get("ANCESTRY_MIN_LINK_SCORE", "0.45"))
+except ValueError:
+    MIN_LINK_SCORE = 0.45
 
 
 # ── Normalisierung (standalone, kein Import aus treematch nötig) ──────────────

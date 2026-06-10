@@ -182,6 +182,12 @@ def _open_parish_db() -> sqlite3.Connection:
         db.commit()
     except Exception:
         pass
+    # Migration: Seitenanzahl pro Buch persistieren (Basis für Fertig-Status)
+    try:
+        db.execute("ALTER TABLE kirchenbuecher ADD COLUMN total_pages INTEGER")
+        db.commit()
+    except Exception:
+        pass
     return db
 
 
@@ -443,6 +449,9 @@ def _scan_book(
     if total_pages is None:
         print("  ⚠ Konnte Seitenanzahl nicht ermitteln — überspringe Buch")
         return 0, 0
+    with parish_db:
+        parish_db.execute("UPDATE kirchenbuecher SET total_pages=? WHERE book_id=?",
+                          (total_pages, book_id))
 
     # ── Seiten bestimmen ─────────────────────────────────────────────────────
     if retranscribe:

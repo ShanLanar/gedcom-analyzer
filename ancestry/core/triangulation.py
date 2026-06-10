@@ -18,6 +18,13 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from ancestry.core.database import Database
 
+X_CHROMOSOME = 23
+
+
+def chromosome_label(chrom: int) -> str:
+    """23 → 'X' (Konvention aus import_segments.py), sonst die Nummer."""
+    return "X" if chrom == X_CHROMOSOME else str(chrom)
+
 
 def build_triangulation_groups(
     db: "Database",
@@ -90,6 +97,7 @@ def build_triangulation_groups(
                 region_end   = max(s["end_location"]   for s in members)
             tgs.append({
                 "chromosome":   chrom,
+                "chromosome_label": chromosome_label(chrom),
                 "region_start": region_start,
                 "region_end":   region_end,
                 "members": [
