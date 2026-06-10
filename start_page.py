@@ -55,7 +55,7 @@ P = {
     "orange": cfg.ORANGE,
 }
 
-# ── Hilfe-Texte (Woher bekomme ich was?) ─────────────────────────────────────
+# ── Hilfe-Texte (Woher bekomme ich was?) ─────────────────────────────
 _HELP_TEXTS = {
     "gedfile": (
         "GEDCOM-Datei (.ged oder .ftm)\n"
@@ -183,10 +183,10 @@ _HELP_TEXTS = {
 }
 
 
-# ── DB-Statistiken ─────────────────────────────────────────────────────────────
+# ── DB-Statistiken ────────────────────────────────────────────────────────
 
 def _db_stats() -> dict:
-    stats = {"matches": 0, "shared": 0, "gedcom": 0, "kits": 0, "db_size": ""}
+    stats = {"matches": 0, "shared": 0, "gedcom": 0, "kits": 0, "db_size": "", "mkm": 0}
     if not os.path.exists(_ANCESTRY_DB):
         return stats
     try:
@@ -194,10 +194,11 @@ def _db_stats() -> dict:
         stats["db_size"] = f"{sz / 1_048_576:.1f} MB"
         con = sqlite3.connect(_ANCESTRY_DB, timeout=3)
         for tbl, key in [
-            ("dna_matches",    "matches"),
-            ("shared_matches", "shared"),
-            ("gedcom_persons", "gedcom"),
-            ("dna_kits",       "kits"),
+            ("matches",              "matches"),
+            ("shared_matches",       "shared"),
+            ("gedcom_persons",       "gedcom"),
+            ("dna_kits",             "kits"),
+            ("match_kit_membership", "mkm"),
         ]:
             try:
                 stats[key] = con.execute(f"SELECT COUNT(*) FROM {tbl}").fetchone()[0]
@@ -220,7 +221,7 @@ def _parish_count() -> int:
         return 0
 
 
-# ── Hilfe-Popup ───────────────────────────────────────────────────────────────
+# ── Hilfe-Popup ─────────────────────────────────────────────────────
 
 def _show_help_popup(parent: tk.Widget, key: str, title: str):
     """Öffnet ein kleines Info-Fenster mit dem Hilfetext."""
@@ -270,15 +271,20 @@ class StartPage(tk.Frame):
         self._build()
         self.after(200, self._refresh_status)
 
-    # ── UI-Aufbau ──────────────────────────────────────────────────────────────
+    # ── UI-Aufbau ────────────────────────────────────────────────────────
 
     def _build(self):
         # Titelzeile
         hdr = tk.Frame(self, bg=P["bg2"], pady=8)
         hdr.pack(fill="x")
-        tk.Label(hdr, text="🏠  Genealogie-Suite — Einstellungen & Start",
-                 bg=P["bg2"], fg=P["acc"], font=cfg.FONT_HEAD).pack(side="left", padx=14)
-        self._status_lbl = tk.Label(hdr, text="", bg=P["bg2"],
+        lhdr = tk.Frame(hdr, bg=P["bg2"])
+        lhdr.pack(side="left", padx=14)
+        tk.Label(lhdr, text="\U0001f3e0  Genealogie-Suite — Einstellungen & Start",
+                 bg=P["bg2"], fg=P["acc"], font=cfg.FONT_HEAD).pack(anchor="w")
+        tk.Label(lhdr,
+                 text="① GEDCOM-Datei wählen & laden   →   ② DNA-Kits einrichten   →   ③ Reiter wechseln & analysieren",
+                 bg=P["bg2"], fg=P["dim"], font=("Segoe UI", 8)).pack(anchor="w")
+        self._status_lbl = tk.Label(hdr, text="Bereit", bg=P["bg2"],
                                      fg=P["dim"], font=("Segoe UI", 8))
         self._status_lbl.pack(side="right", padx=12)
 
@@ -309,10 +315,13 @@ class StartPage(tk.Frame):
         for tag, col in [("ok", P["green"]), ("err", P["red"]),
                           ("warn", P["yellow"]), ("info", P["acc"])]:
             self._log.tag_configure(tag, foreground=col)
+        self._log_msg(
+            "Willkommen! Schritt 1: GEDCOM-Datei wählen und '▶ GEDCOM laden & analysieren' klicken.",
+            tag="info")
 
     def _build_left(self, parent):
-        # ── GEDCOM ──────────────────────────────────────────────────────────
-        self._section(parent, "📄  GEDCOM — Stammbaumdatei  (wird von BEIDEN Werkzeugen benötigt)")
+        # ── GEDCOM ───────────────────────────────────────────────────────────
+        self._section(parent, "\U0001f4c4  GEDCOM — Stammbaumdatei  (wird von BEIDEN Werkzeugen benötigt)")
         box = tk.Frame(parent, bg=P["bg2"], padx=10, pady=8)
         box.pack(fill="x", pady=(0, 8))
 
@@ -352,6 +361,7 @@ class StartPage(tk.Frame):
         self._var("exclude_id", cfg.DEFAULT_CONFIG.get("exclude_id", ""))
         tk.Entry(r2, textvariable=self._vars["exclude_id"], bg=P["bg3"], fg=P["fg"],
                  font=cfg.FONT_MONO, relief="flat", width=14).pack(side="left", padx=4)
+        self._help_btn(r2, "root_id", "Root-ID / Exclude-ID — Was ist das?")
 
         # Buttons
         br = tk.Frame(box, bg=P["bg2"])
@@ -361,13 +371,14 @@ class StartPage(tk.Frame):
             bg=P["acc"], fg="#fff", font=cfg.FONT_HEAD, relief="flat", padx=12,
             command=self._load_gedcom)
         self._btn_load_ged.pack(side="left")
-        tk.Button(br, text="↺ Pfad merken  (kein Reload)",
-                  bg=P["bg3"], fg=P["dim"], font=cfg.FONT_MAIN, relief="flat", padx=8,
-                  command=self._apply_paths).pack(side="left", padx=8)
+        self._btn_save = tk.Button(br, text="↺ Pfad merken  (kein Reload)",
+                                    bg=P["bg3"], fg=P["dim"], font=cfg.FONT_MAIN,
+                                    relief="flat", padx=8, command=self._apply_paths)
+        self._btn_save.pack(side="left", padx=8)
 
-        # ── DNA-Quellen ──────────────────────────────────────────────────────
+        # ── DNA-Quellen ──────────────────────────────────────────────────
         self._section(parent,
-                       "🧬  DNA-Quellen  (optional — nur für den DNA-Match-Analyzer)")
+                       "\U0001f9ec  DNA-Quellen  (optional — nur für den DNA-Match-Analyzer)")
         dna = tk.Frame(parent, bg=P["bg2"], padx=10, pady=8)
         dna.pack(fill="x", pady=(0, 8))
 
@@ -406,8 +417,8 @@ class StartPage(tk.Frame):
             side="left", padx=8)
 
     def _build_right(self, parent):
-        # ── Datenbank-Status ─────────────────────────────────────────────────
-        self._section(parent, "📊  Datenbank-Status")
+        # ── Datenbank-Status ─────────────────────────────────────────
+        self._section(parent, "\U0001f4ca  Datenbank-Status")
         sb = tk.Frame(parent, bg=P["bg2"], padx=10, pady=8)
         sb.pack(fill="x", pady=(0, 8))
 
@@ -416,6 +427,7 @@ class StartPage(tk.Frame):
             ("db_size",  "ancestry_dna.db:"),
             ("kits",     "DNA-Kits:"),
             ("matches",  "Matches:"),
+            ("mkm",      "Verknüpfungen:"),
             ("shared",   "Shared Matches:"),
             ("gedcom",   "GEDCOM-Personen:"),
             ("parishes", "Matricula-Orte:"),
@@ -433,15 +445,15 @@ class StartPage(tk.Frame):
                   bg=P["bg3"], fg=P["dim"], font=cfg.FONT_MAIN, relief="flat",
                   command=self._refresh_status).pack(anchor="w", pady=(6, 0))
 
-        # ── Tools / Schnellzugriff ────────────────────────────────────────────
-        self._section(parent, "🔧  Tools & Schnellzugriff")
+        # ── Tools / Schnellzugriff ────────────────────────────────────
+        self._section(parent, "\U0001f527  Tools & Schnellzugriff")
         tb = tk.Frame(parent, bg=P["bg2"], padx=10, pady=8)
         tb.pack(fill="x", pady=(0, 8))
 
         for txt, bg, cmd, hkey, htitle in [
-            ("🏘 Matricula laden",   "#5d4037", self._run_matricula,
+            ("\U0001f3d8 Matricula laden",   "#5d4037", self._run_matricula,
              "matricula",    "Matricula — Kirchenbuch-Pfarreien"),
-            ("📊 Datenviewer",       "#2e7d32", self._open_viewer,
+            ("\U0001f4ca Datenviewer",       "#2e7d32", self._open_viewer,
              None, None),
             ("① Erste Schritte",     P["bg3"],  self._open_welcome,
              None, None),
@@ -457,8 +469,8 @@ class StartPage(tk.Frame):
             if hkey:
                 self._help_btn(row, hkey, htitle)
 
-        # ── Kurzübersicht Pfade ───────────────────────────────────────────────
-        self._section(parent, "📁  Verzeichnisse")
+        # ── Kurzübersicht Pfade ────────────────────────────────────────
+        self._section(parent, "\U0001f4c1  Verzeichnisse")
         pb = tk.Frame(parent, bg=P["bg2"], padx=10, pady=6)
         pb.pack(fill="x")
         for label, path in [
@@ -473,14 +485,19 @@ class StartPage(tk.Frame):
                      font=("Segoe UI", 8), width=16, anchor="w").pack(side="left")
             exists = os.path.exists(path)
             color  = P["fg"] if exists else P["red"]
-            short  = os.path.basename(path) if path else "—"
+            if not path:
+                short = "—"
+            elif len(path) <= 52:
+                short = path
+            else:
+                short = "…" + path[-51:]
             tk.Label(row, text=short, bg=P["bg2"], fg=color,
                      font=("Segoe UI", 8), anchor="w").pack(side="left")
             if not exists:
                 tk.Label(row, text="⚠ fehlt", bg=P["bg2"], fg=P["yellow"],
                          font=("Segoe UI", 8)).pack(side="left", padx=4)
 
-    # ── Widget-Helfer ─────────────────────────────────────────────────────────
+    # ── Widget-Helfer ──────────────────────────────────────────────────
 
     def _section(self, parent, title: str):
         tk.Label(parent, text=title, bg=P["bg"], fg=P["acc"],
@@ -521,7 +538,7 @@ class StartPage(tk.Frame):
             self._log.configure(state="disabled")
         self.after(0, _do)
 
-    # ── Datei-Auswahl ──────────────────────────────────────────────────────────
+    # ── Datei-Auswahl ──────────────────────────────────────────────────
 
     def _refresh_recent(self):
         self._recent_cb["values"] = cfg.get_recent_files()
@@ -556,7 +573,7 @@ class StartPage(tk.Frame):
         if path:
             self._vars[key].set(path)
 
-    # ── Synchronisation ───────────────────────────────────────────────────────
+    # ── Synchronisation ─────────────────────────────────────────────
 
     def _notify_gedcom_change(self):
         if self._on_gedcom_change:
@@ -587,13 +604,21 @@ class StartPage(tk.Frame):
         self._refresh_recent()
         self._notify_gedcom_change()
         self._log_msg("Pfade gespeichert.", tag="ok")
+        if hasattr(self, "_btn_save"):
+            self._btn_save.configure(bg=P["green"], fg="#000")
+            self.after(1500, lambda: self._btn_save.configure(bg=P["bg3"], fg=P["dim"]))
 
-    # ── Aktionen ──────────────────────────────────────────────────────────────
+    # ── Aktionen ──────────────────────────────────────────────────────
 
     def _load_gedcom(self):
         self._apply_paths()
         ged = self._vars["gedfile"].get().strip()
-        if not ged or not os.path.exists(ged):
+        if not ged:
+            self._log_msg(
+                "Bitte zuerst eine GEDCOM-Datei wählen (…-Button oder 'Zuletzt'-Liste).",
+                tag="warn")
+            return
+        if not os.path.exists(ged):
             self._log_msg(f"Datei nicht gefunden: {ged}", tag="err")
             return
         self._btn_load_ged.configure(state="disabled", text="… läuft")
@@ -670,16 +695,41 @@ class StartPage(tk.Frame):
         threading.Thread(target=_run, daemon=True).start()
 
     def _refresh_status(self):
-        stats = _db_stats()
-        pc    = _parish_count()
-        self._stat_labels["db_size"] .configure(
-            text=stats["db_size"] or "— (nicht angelegt)")
-        self._stat_labels["kits"]    .configure(text=str(stats["kits"]))
-        self._stat_labels["matches"] .configure(text=f"{stats['matches']:,}")
-        self._stat_labels["shared"]  .configure(text=f"{stats['shared']:,}")
-        self._stat_labels["gedcom"]  .configure(text=f"{stats['gedcom']:,}")
+        stats     = _db_stats()
+        pc        = _parish_count()
+        has_db    = bool(stats["db_size"])
+        n_matches = stats["matches"]
+        n_mkm     = stats.get("mkm", 0)
+
+        self._stat_labels["db_size"].configure(
+            text=stats["db_size"] or "— (nicht angelegt)",
+            fg=P["green"] if has_db else P["red"])
+        self._stat_labels["kits"].configure(
+            text=str(stats["kits"]) if stats["kits"] else "— (noch keine Kits)",
+            fg=P["green"] if stats["kits"] > 0 else P["dim"])
+        self._stat_labels["matches"].configure(
+            text=f"{n_matches:,}" if n_matches else "— (keine Matches)",
+            fg=P["green"] if n_matches > 0 else P["dim"])
+
+        mkm_lbl = self._stat_labels.get("mkm")
+        if mkm_lbl:
+            if n_matches > 0:
+                pct      = n_mkm * 100 // n_matches
+                mkm_text = f"{n_mkm:,}  ({pct} % verknüpft)"
+                mkm_col  = P["green"] if pct >= 90 else (P["yellow"] if pct > 0 else P["red"])
+            else:
+                mkm_text, mkm_col = "—", P["dim"]
+            mkm_lbl.configure(text=mkm_text, fg=mkm_col)
+
+        self._stat_labels["shared"].configure(
+            text=f"{stats['shared']:,}" if stats["shared"] else "—",
+            fg=P["green"] if stats["shared"] > 0 else P["dim"])
+        self._stat_labels["gedcom"].configure(
+            text=f"{stats['gedcom']:,}" if stats["gedcom"] else "—",
+            fg=P["green"] if stats["gedcom"] > 0 else P["dim"])
         self._stat_labels["parishes"].configure(
-            text=f"{pc} Orte" if pc else "—  (Matricula-Scraper noch nicht gelaufen)")
+            text=f"{pc} Orte" if pc else "—  (Matricula-Scraper noch nicht gelaufen)",
+            fg=P["green"] if pc > 0 else P["dim"])
         self._status_lbl.configure(text=f"Stand: {time.strftime('%H:%M:%S')}")
 
     def _run_matricula(self):
@@ -711,20 +761,32 @@ class StartPage(tk.Frame):
                          cwd=_ROOT)
 
     def _open_welcome(self):
-        # Im eingebetteten Modus: AhnenApp aus dem Geschwister-Tab suchen
-        for widget in self.winfo_toplevel().winfo_children():
-            if hasattr(widget, "_open_welcome"):
-                widget._open_welcome(); return
-        from tkinter import messagebox
-        messagebox.showinfo("Erste Schritte",
-                            "Starten Sie die Suite über unified.py.")
+        target = self._find_widget("_open_welcome")
+        if target:
+            target._open_welcome()
+        else:
+            from tkinter import messagebox
+            messagebox.showinfo("Erste Schritte",
+                                "Starten Sie die Suite über unified.py.")
 
     def _open_help(self):
-        for widget in self.winfo_toplevel().winfo_children():
-            if hasattr(widget, "_open_help"):
-                widget._open_help(); return
+        target = self._find_widget("_open_help")
+        if target:
+            target._open_help()
 
-    # ── API für unified.py ────────────────────────────────────────────────────
+    def _find_widget(self, attr: str):
+        """Sucht rekursiv das erste Widget mit einem bestimmten Attribut (außer self)."""
+        def _search(w):
+            for child in w.winfo_children():
+                if hasattr(child, attr) and child is not self:
+                    return child
+                found = _search(child)
+                if found:
+                    return found
+            return None
+        return _search(self.winfo_toplevel())
+
+    # ── API für unified.py ──────────────────────────────────────────────
 
     def get_gedcom_path(self) -> str:
         return self._vars.get("gedfile", tk.StringVar()).get()
