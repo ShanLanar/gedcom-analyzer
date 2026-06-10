@@ -119,12 +119,53 @@ def pair_relationship(cm: float) -> str:
     return "entfernt"
 
 
-def cm_to_mrca(cm: float):
+# Endogamie-Korrekturfaktoren nach Population/Region.
+# Werte > 1.0: geteilte cM liegen ÜBER dem Erwartungswert für Nicht-Endogamie,
+# d.h. die echte Verwandtschaft ist entfernter als die Tabelle zeigt.
+# Quellen: Behar et al. 2013 (Ashkenazi), Ancestry cM-Auswertungen 2020.
+ENDOGAMY_FACTORS: dict[str, float] = {
+    "ashkenazi":    1.7,  # AJ-Gemeinschaft sehr endogam
+    "jewish":       1.5,
+    "mennonite":    1.6,
+    "amish":        1.8,
+    "icelandic":    1.3,
+    "finn":         1.2,
+    "finnish":      1.2,
+    "sardinian":    1.4,
+    "german":       1.05, # geringe Endogamie im deutschen Raum
+    "osnabrück":    1.10, # niedersächsische Kleinbauern-Bevölkerung
+    "ostwestfalen": 1.10,
+}
+
+
+def cm_to_mrca(cm: float, endogamy_factor: float = 1.0,
+               population: str = ""):
     """Schätzt aus geteilten cM die Beziehung und die Pedigree-Generation des
     gemeinsamen Vorfahren (Wurzel=Gen 1). Basiert auf Shared-cM-Project-Mittelwerten.
-    ACHTUNG: Endogamie erhöht cM → echte Verwandtschaft eher ENTFERNTER (= tiefer).
-    Liefert (label, gen). gen = erwartete Generation des gemeinsamen Vorfahren."""
-    c = cm or 0
+
+    Parameters
+    ----------
+    cm:
+        Geteilte cM.
+    endogamy_factor:
+        Korrekturfaktor > 1.0 für endogame Populationen. Teilt die cM vor dem
+        Tabellen-Lookup (Endogamie erhöht cM, echte Verwandtschaft ist entfernter).
+    population:
+        Optionaler Populations-/Regions-Name für automatischen Faktor-Lookup
+        (``ENDOGAMY_FACTORS``). Wird ignoriert, wenn endogamy_factor != 1.0.
+
+    Returns
+    -------
+    (label, gen) — gen = erwartete Generation des gemeinsamen Vorfahren.
+    """
+    if endogamy_factor == 1.0 and population:
+        key = population.lower().strip()
+        for k, v in ENDOGAMY_FACTORS.items():
+            if k in key or key in k:
+                endogamy_factor = v
+                break
+
+    c = (cm or 0) / max(endogamy_factor, 0.5)
     table = [
         (1300, "Großeltern-/Onkel-/Tante-Ebene", 2),
         (575,  "1. Cousin (gem. Großeltern)",     3),

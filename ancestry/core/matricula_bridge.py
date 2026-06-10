@@ -47,14 +47,40 @@ def find_matricula_for_names(
     surnames: list[str],
     max_results: int = 50,
 ) -> list[dict]:
-    """Gibt Kirchenbuch-Treffer für eine Liste von Nachnamen zurück."""
+    """Gibt Kirchenbuch-Treffer für eine Liste von Nachnamen zurück.
+
+    Suche-Strategie (zweigleisig, damit sowohl reine Nachnamen-Einträge
+    als auch vollständige Namen wie "Heinrich Kovermann" gefunden werden):
+      1. Kölner Phonetik: koeln_code IN (codes) — fängt Vollnamen ab,
+         deren LETZTES Wort dem Nachnamen phonetisch ähnelt.
+      2. Norm-LIKE: name_norm LIKE '%nachname%' — direkte Namenssuche.
+    exact_match = 1, wenn der normierte Nachname als Teilstring enthalten.
+    """
     if not surnames:
         return []
-    codes = list({_koelner(s) for s in surnames if _koelner(s)})
-    norms = {_norm(s) for s in surnames}
-    if not codes:
+    norms = [_norm(s) for s in surnames if _norm(s)]
+    if not norms:
         return []
-    qmarks = ",".join("?" * len(codes))
+
+    # Kölner Codes für Nachnamen UND typische Vollnamen-Endungen
+    codes: set[str] = set()
+    for s in surnames:
+        c = _koelner(s)
+        if c:
+            codes.add(c)
+        # Falls name_index Vollnamen hält: letztes Wort ist oft Nachname
+        # → zusätzlich Code für "Vorname Nachname"-Variante nicht nötig,
+        # aber wir decken den Fall über LIKE ab.
+
+    # Kölner-Code Treffer: exakt (name_index-Einträge ohne Vornamen) ODER
+    # Suffix (name_index hat "Vorname Nachname" → Code endet mit Nachname-Code).
+    codes_list = list(codes)
+    exact_code_q  = ",".join("?" * len(codes_list)) if codes_list else "NULL"
+    suffix_parts  = " OR ".join("ni.koeln_code LIKE ?" for _ in codes_list)
+    suffix_args   = [f"%{c}" for c in codes_list]
+    like_name_q   = " OR ".join("ni.name_norm LIKE ?" for _ in norms)
+    like_name_args = [f"%{n}%" for n in norms]
+
     try:
         with db._cursor() as cur:
             rows = cur.execute(f"""
@@ -65,15 +91,18 @@ def find_matricula_for_names(
                     e.person_name,  e.person2_name,
                     e.father_name,  e.mother_name,
                     e.village,      e.notes,
-                    CASE WHEN ni.name_norm IN ({','.join('?' for _ in norms)})
+                    CASE WHEN {like_name_q}
                          THEN 1 ELSE 0 END AS exact_match
                 FROM name_index ni
                 LEFT JOIN source_matrikula_entries e
                        ON e.entry_id = ni.entry_id
-                WHERE ni.koeln_code IN ({qmarks})
+                WHERE ni.koeln_code IN ({exact_code_q})
+                   OR ({suffix_parts})
+                   OR ({like_name_q})
                 ORDER BY exact_match DESC, e.event_year ASC
                 LIMIT ?
-            """, (*norms, *codes, max_results)).fetchall()
+            """, (*like_name_args, *codes_list, *suffix_args, *like_name_args, max_results)
+            ).fetchall()
             return [dict(r) for r in rows]
     except Exception:
         return []

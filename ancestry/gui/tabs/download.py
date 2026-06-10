@@ -288,6 +288,20 @@ class DownloadTab(ttk.Frame):
         ttk.Button(seg_row, text="⬆ Segmente importieren",
                    command=self._import_segments).pack(side="left", padx=(12, 0))
 
+        # FTDNA match import on the same row (second line)
+        ftdna_row = ttk.Frame(f)
+        ftdna_row.grid(row=20, column=0, columnspan=4, sticky="w", padx=14, pady=(50, 2))
+        ttk.Label(ftdna_row, text="FTDNA Matches:").pack(side="left")
+        self._ftdna_file_var = tk.StringVar()
+        ttk.Entry(ftdna_row, textvariable=self._ftdna_file_var, width=38).pack(
+            side="left", padx=4)
+        ttk.Button(ftdna_row, text="…", width=3,
+                   command=self._choose_ftdna_file).pack(side="left")
+        ttk.Label(ftdna_row, text="(FTDNA Family Finder matches.csv)",
+                  foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=8)
+        ttk.Button(ftdna_row, text="⬆ FTDNA Matches importieren",
+                   command=self._import_ftdna_matches).pack(side="left", padx=(12, 0))
+
         # ── Bereich D: Herkunft / Ethnizität + Traits ────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=21, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
@@ -685,6 +699,42 @@ class DownloadTab(ttk.Frame):
         )
         if path:
             self._seg_file_var.set(path)
+
+    def _choose_ftdna_file(self):
+        from tkinter.filedialog import askopenfilename
+        path = askopenfilename(
+            title="FTDNA matches.csv wählen",
+            filetypes=[("CSV-Dateien", "*.csv"), ("Alle Dateien", "*.*")],
+        )
+        if path:
+            self._ftdna_file_var.set(path)
+
+    def _import_ftdna_matches(self):
+        import threading
+        from pathlib import Path
+        path = self._ftdna_file_var.get().strip()
+        if not path:
+            messagebox.showwarning("FTDNA Import", "Bitte zuerst eine FTDNA matches.csv wählen.")
+            return
+        kit_guid = self.get_kit_guid() or "FTDNA_DEFAULT"
+        self._set_status("FTDNA Matches werden importiert …")
+
+        def _worker():
+            try:
+                from ancestry.tools.import_ftdna_matches import run as ftdna_run
+                result = ftdna_run(Path(path), kit_guid=kit_guid,
+                                   db_file=self._state.db.db_file)
+                n = result["imported"]
+                s = result["skipped"]
+                msg = f"FTDNA: {n} Matches importiert, {s} übersprungen (<7 cM)"
+                self.after(0, lambda: self._set_status(msg))
+                self.after(0, lambda: messagebox.showinfo("FTDNA Import", msg))
+                self.after(50, self._on_refresh_matches)
+            except Exception as e:
+                self.after(0, lambda err=e: self._set_status(f"Fehler: {err}"))
+                self.after(0, lambda err=e: messagebox.showerror("FTDNA Import", str(err)))
+
+        threading.Thread(target=_worker, daemon=True, name="ftdna-import").start()
 
     def _fetch_ethnicity_traits(self):
         import threading
