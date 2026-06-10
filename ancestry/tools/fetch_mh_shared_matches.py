@@ -251,7 +251,7 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
            profile_dir: str | None = None, cookies_path: str | None = None,
            debug: bool = False, extension_dir: str | None = None,
            wait_login: bool = False, cdp_url: str | None = None,
-           repair_threshold: int = 0):
+           repair_threshold: int = 0, max_per_run: int = 0):
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
     except ImportError:
@@ -333,8 +333,14 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
         matches = matches[:limit]
 
     to_do = [m for m in matches if m["guid"] not in done_guids]
+    _run_limit = min(max_per_run, len(to_do)) if max_per_run else len(to_do)
     print(f"\n{len(matches)} Matches ≥ {min_cm} cM geladen, "
-          f"{len(to_do)} noch nicht/unvollständig verarbeitet.\n")
+          f"{len(to_do)} noch nicht/unvollständig verarbeitet.")
+    if max_per_run and len(to_do) > max_per_run:
+        _days_left = -(-len(to_do) // max_per_run)  # ceiling division
+        print(f"--max-per-run {max_per_run}: dieser Lauf verarbeitet "
+              f"{max_per_run} von {len(to_do)} → noch ca. {_days_left - 1} weitere Läufe nötig.")
+    print()
 
     if not to_do:
         print("Nichts zu tun.")
@@ -546,7 +552,16 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
             time.sleep(60)
 
         # ── Matches verarbeiten ───────────────────────────────────────────────
+        processed_this_run = 0
+        _stopped_early = False
         for i, match in enumerate(to_do, 1):
+            if max_per_run and processed_this_run >= max_per_run:
+                _stopped_early = True
+                remaining_after = len(to_do) - i + 1
+                print(f"\n⏹  --max-per-run {max_per_run} erreicht. "
+                      f"{remaining_after} Matches verbleiben → morgen erneut starten.")
+                break
+
             url      = match["url"]
             guid_a   = match["guid"]
             name     = match["name"]
@@ -639,8 +654,12 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
                 # Sperre auch mitten im Lauf erkennen → sofort abbrechen
                 if _check_lockout(page):
-                    print("\n🛑 MyHeritage-Sperre erkannt — Abbruch, um die Sperre "
-                          "nicht zu verlängern. Bitte ~24 h warten.")
+                    _remaining = len(to_do) - i
+                    print(f"\n🛑 MyHeritage-Sperre erkannt nach {processed_this_run} "
+                          f"verarbeiteten Matches. Bitte ~24 h warten.\n"
+                          f"   Noch ausstehend: {_remaining} Matches "
+                          f"→ morgen erneut mit --skip-done starten.")
+                    _stopped_early = True
                     break
 
                 page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
@@ -1120,9 +1139,16 @@ async ([url, bodyStr]) => {
                             (test_guid, match_guid_a, fetched_at)
                             VALUES (?, ?, ?)
                         """, (test_guid, guid_a, fetched))
+                    processed_this_run += 1
                 except Exception:
                     pass
 
+            except KeyboardInterrupt:
+                _remaining = len(to_do) - i
+                print(f"\n⚠  Abgebrochen nach {processed_this_run} Matches. "
+                      f"{_remaining} verbleiben → mit --skip-done fortsetzen.")
+                _stopped_early = True
+                break
             except Exception as e:
                 print(f"⚠ {e}")
 
@@ -1137,8 +1163,16 @@ async ([url, bodyStr]) => {
         else:
             ctx.close()
 
-    print(f"\n✅  {total_imported} Shared Matches importiert "
-          f"({len(to_do)} Match-Seiten verarbeitet)")
+    _remaining_total = len(to_do) - processed_this_run
+    if _stopped_early and _remaining_total > 0:
+        print(f"\n✅  {total_imported} Shared Matches importiert "
+              f"({processed_this_run} Match-Seiten verarbeitet).")
+        print(f"   Noch ausstehend: {_remaining_total} Matches.")
+        print("   Morgen erneut starten mit: --skip-done"
+              + (f" --repair-threshold {repair_threshold}" if repair_threshold else ""))
+    else:
+        print(f"\n✅  {total_imported} Shared Matches importiert "
+              f"({processed_this_run} Match-Seiten verarbeitet).")
     print("    DB: ancestry_dna.db")
 
 
@@ -1182,6 +1216,10 @@ if __name__ == "__main__":
                          "aber ≤ N Shared Matches in der DB haben, werden erneut geladen. "
                          "Sinnvoll wenn bei einem Lauf nur die erste Seite (10 Ergebnisse) "
                          "abgefangen wurde (Extension fehlte). Empfehlung: --repair-threshold 10")
+    ap.add_argument("--max-per-run", type=int, default=0, metavar="N",
+                    help="Tages-Limit: nach N erfolgreich verarbeiteten Matches stoppen. "
+                         "Verhindert Sperren durch Daily-Limits. Morgen --skip-done nutzen "
+                         "um dort weiterzumachen. Empfehlung: --max-per-run 50 (oder 100)")
     args = ap.parse_args()
 
     scrape(
@@ -1198,4 +1236,5 @@ if __name__ == "__main__":
         wait_login        = args.wait_login,
         cdp_url           = args.cdp or None,
         repair_threshold  = args.repair_threshold,
+        max_per_run       = args.max_per_run,
     )
