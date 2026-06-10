@@ -204,6 +204,22 @@ def test_export_no_plac_when_birth_place_absent(tmp_ged):
     assert "PLAC" not in content
 
 
+def test_export_sour_record_in_header(tmp_ged):
+    export_gedcom(_make_groups(1), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "0 @S001@ SOUR" in content
+    assert "1 TITL AncestryDNA" in content
+    assert "1 AUTH Ancestry.com" in content
+
+
+def test_export_indi_references_sour(tmp_ged):
+    export_gedcom(_make_groups(1, matches_per=3), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 SOUR @S001@" in content
+    assert "2 PAGE" in content
+    assert "2 QUAY 3" in content
+
+
 def test_export_handles_missing_birth_year(tmp_ged):
     groups = [{
         "label":   "Unbekannt Nachname",

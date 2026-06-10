@@ -189,6 +189,7 @@ def export_gedcom(groups: list, output_path: str,
         "0 HEAD",
         "1 SOUR AncestryDNATool",
         "2 NAME Ancestry DNA Tool",
+        "2 VERS 1.0",
         "1 GEDC",
         "2 VERS 5.5.1",
         "2 FORM LINEAGE-LINKED",
@@ -196,6 +197,10 @@ def export_gedcom(groups: list, output_path: str,
         "1 SUBM @SUBM1@",
         "0 @SUBM1@ SUBM",
         f"1 NAME {_clean(submitter_name)}",
+        "0 @S001@ SOUR",
+        "1 TITL AncestryDNA – Genetische Analyse",
+        "1 AUTH Ancestry.com Operations Inc.",
+        "1 PUBL Erstellt mit AncestryDNATool (DNA-Genealogie-Analyse)",
     ]
 
     # INDI records
@@ -235,6 +240,9 @@ def export_gedcom(groups: list, output_path: str,
         mcm  = meta["median_cm"]
         lines.append(f"1 NOTE DNA-Beleg: {cnt} Matches · gesamt {tcm:.0f} cM"
                      f" · Median {mcm:.0f} cM")
+        lines.append("1 SOUR @S001@")
+        lines.append(f"2 PAGE {cnt} DNA-Matches · gesamt {tcm:.0f} cM · Median {mcm:.0f} cM")
+        lines.append("2 QUAY 3")
 
         # Sosa numbers
         sosa_str = ",".join(str(s) for s in sorted(meta["sosas"])[:8])

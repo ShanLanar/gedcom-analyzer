@@ -34,9 +34,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import logging
 import sqlite3
 from pathlib import Path
 from typing import Optional
+
+log = logging.getLogger(__name__)
 
 from ancestry.paths import DB_PATH
 
@@ -660,8 +663,8 @@ def _build_name_cache(db: sqlite3.Connection) -> None:
                     (row["wt_id"], "source_webtrees", 0, name, name.lower(), _kp(name), "wt_person"),
                 )
         db.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        log.warning("Webtrees-Import in name_index fehlgeschlagen: %s", e)
 
 
 # ── Haupt-Lauf ─────────────────────────────────────────────────────────────────
@@ -748,8 +751,8 @@ def _print_summary(db: sqlite3.Connection) -> None:
         print()
         for row in by_src:
             print(f"  {row['source_table']:<35} {row['n']:>6,}")
-    except Exception:
-        pass
+    except Exception as e:
+        log.debug("Entity-Statistik-Anzeige: %s", e)
 
 
 # ── CLI ────────────────────────────────────────────────────────────────────────

@@ -1,8 +1,11 @@
 from __future__ import annotations
+import logging
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ancestry.core.database import Database
+
+log = logging.getLogger(__name__)
 
 
 class StatsRepo:
@@ -73,7 +76,8 @@ class StatsRepo:
                     SELECT COUNT(DISTINCT match_guid) FROM gedcom_links {where}
                 """, params)
                 r["gedcom_linked"] = cur.fetchone()[0]
-            except Exception:
+            except Exception as e:
+                log.debug("gedcom_persons/gedcom_linked nicht verfügbar: %s", e)
                 r["gedcom_persons"] = 0
                 r["gedcom_linked"] = 0
 
@@ -97,7 +101,8 @@ class StatsRepo:
                 """)
                 r["kit_breakdown"] = [(row[0] or row[1][:16], row[2])
                                       for row in cur.fetchall()]
-            except Exception:
+            except Exception as e:
+                log.debug("kit_breakdown nicht verfügbar: %s", e)
                 r["kit_breakdown"] = []
 
             # ── Generation length (avg years per generation in match pedigrees) ──
@@ -124,7 +129,8 @@ class StatsRepo:
                 """, params)
                 row = cur.fetchone()
                 r["gen_length"] = round(row[0], 1) if row and row[0] else None
-            except Exception:
+            except Exception as e:
+                log.debug("gen_length-Berechnung: %s", e)
                 r["gen_length"] = None
 
         return r
