@@ -113,7 +113,8 @@ class MatchesTab(ttk.Frame):
             return
         try:
             db_kits = self._state.db.get_kits()
-        except Exception:
+        except Exception as e:
+            log.debug("update_kit_combo get_kits: %s", e)
             db_kits = []
         combined: dict[str, str] = {}
         # Sentinel für plattformübergreifende Ansicht
@@ -590,7 +591,7 @@ class MatchesTab(ttk.Frame):
             f"{hits} Treffer von {len(rows)} Vorfahren  ·  {match.display_name}")
         try:
             from core.bridge import path_to_sosa
-        except Exception:
+        except ImportError:
             path_to_sosa = lambda p: ""  # noqa: E731
         for r in rows:
             tag = "strong" if r["icon"] == "✓" else ("weak" if not r["icon"] else "")
@@ -662,7 +663,8 @@ class MatchesTab(ttk.Frame):
         self._anc_tree.delete(*self._anc_tree.get_children())
         try:
             rows = self._state.db.get_ancestors_for_match(match.match_guid)
-        except Exception:
+        except Exception as e:
+            log.debug("get_ancestors_for_match %s: %s", match.match_guid[:8], e)
             rows = []
         if not rows:
             self._anc_status_var.set(self._state.t("md.anc_none"))
@@ -689,7 +691,8 @@ class MatchesTab(ttk.Frame):
 
         try:
             rels = self._state.db.get_distinct_relationships()
-        except Exception:
+        except Exception as e:
+            log.debug("get_distinct_relationships: %s", e)
             rels = []
         if hasattr(self, "_rel_combo"):
             self._rel_combo["values"] = ["(alle)"] + rels
@@ -998,7 +1001,8 @@ class MatchesTab(ttk.Frame):
                 summary = self._state.db.get_pedigree_summary_for_match(tg, guid)
                 self.after(0, lambda s=summary: self._detail_fields["Ahnentafel"].set(
                     s if s else "—"))
-            except Exception:
+            except Exception as e:
+                log.debug("_load_ped %s: %s", guid[:8], e)
                 self.after(0, lambda: self._detail_fields["Ahnentafel"].set("—"))
         import threading as _thr
         _thr.Thread(target=_load_ped, daemon=True, name="ped-summary").start()
@@ -1022,7 +1026,8 @@ class MatchesTab(ttk.Frame):
                 else:
                     label = "—"
                 self.after(0, lambda lb=label: self._detail_fields["Herkunft"].set(lb))
-            except Exception:
+            except Exception as e:
+                log.debug("_load_origin %s: %s", guid[:8], e)
                 self.after(0, lambda: self._detail_fields["Herkunft"].set("—"))
         _thr.Thread(target=_load_origin, daemon=True, name="origin-load").start()
 
@@ -1048,7 +1053,8 @@ class MatchesTab(ttk.Frame):
                 else:
                     label = "—"
                 self.after(0, lambda lb=label: self._detail_fields["Herkunft (ML)"].set(lb))
-            except Exception:
+            except Exception as e:
+                log.debug("_load_ml_origin %s: %s", guid[:8], e)
                 self.after(0, lambda: self._detail_fields["Herkunft (ML)"].set("—"))
         _thr.Thread(target=_load_ml_origin, daemon=True, name="ml-origin-load").start()
 
@@ -1154,7 +1160,7 @@ class MatchesTab(ttk.Frame):
         try:
             from core.shared_cm import summary_line
             return summary_line(cm, top=3) if cm and cm > 0 else "—"
-        except Exception:
+        except ImportError:
             return "—"
 
     def _update_rel_prob(self, cm: float):
@@ -1170,7 +1176,7 @@ class MatchesTab(ttk.Frame):
             from core.shared_cm import relationship_probabilities
             probs = relationship_probabilities(cm, top=3)
             scored = [(p["probability"], p["labels"][0]) for p in probs]
-        except Exception:
+        except ImportError:
             scored = []
         if not scored:
             return
