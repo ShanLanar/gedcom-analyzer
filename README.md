@@ -1,38 +1,75 @@
-# gedcom-analyzer
+# gedcom-analyzer / Genealogie-Suite
 
-Tkinter-GUI für umfassende Genealogie-Analyse einer GEDCOM-Datei.
-Lädt einen Stammbaum, berechnet Verwandtschaften, Endogamie, Migration,
-Demografie, Wright's F, Namensvarianten und einiges mehr, und exportiert
-die Ergebnisse als Excel-Mappe mit ≈ 30 Sheets plus JSON-Zusammenfassung.
+Zwei Welten unter einem Dach (gemeinsamer Start: `python unified.py`):
+
+1. **GEDCOM-Analyse** (`main.py`, `tasks/`, `lib/`) — Tkinter-GUI für
+   umfassende Auswertung einer GEDCOM-Datei: Verwandtschaften, Endogamie,
+   Migration, Demografie, Wright's F, Namensvarianten u. v. m.; Export als
+   Excel-Mappe mit ≈ 30 Sheets plus JSON-Zusammenfassung.
+2. **DNA & Quellen** (`ancestry/`) — Ancestry-/MyHeritage-/GEDmatch-Matches,
+   Webtrees-/Anverwandte-Crawler, Matricula-Kirchenbuch-Erschließung
+   (Claude-Vision-Transkription) und eine Entity-Resolution-Schicht, die
+   DNA-Matches, Baum-Personen und Kirchenbucheinträge verknüpft. Dazu zwei
+   Flask-Viewer: Matricula-Viewer (Port 5000) und Entity-Browser (Port 5001).
+
+Architektur, Schichtenregeln und Refactoring-Fahrplan: **ARCHITEKTUR-KONZEPT.md**.
 
 ## Auf einen Blick
 
 | | |
 |---|---|
-| **Eingabe** | `family.ged` (GEDCOM 5.5) |
-| **Ausgaben** | `genealogy_analysis_complete.xlsx`, `genealogy_results.json` |
-| **GUI** | Tkinter, Dark Theme |
+| **Eingabe** | `family.ged` (GEDCOM 5.5), DNA-Match-Exporte, Matricula-Scans |
+| **Ausgaben** | `genealogy_analysis_complete.xlsx`, JSON, SQLite (`ancestry_dna.db`) |
+| **GUI** | Tkinter (Suite + Analyzer + DNA-Tool), Flask (2 Viewer) |
 | **Sprache** | Python ≥ 3.10 |
-| **Dependencies** | nur `openpyxl` |
+| **Dependencies** | `pyproject.toml`; Extras: `[viewer]` `[scraping]` `[vision]` `[dev]` |
 | **Plattform** | Windows (Launcher `.bat`); läuft aber überall, wo Tk verfügbar ist |
 
-## Installation & Start (Windows)
+## Installation & Start
+
+```cmd
+git clone https://github.com/ShanLanar/gedcom-analyzer.git
+cd gedcom-analyzer
+pip install -e .[viewer,scraping,vision,dev]
+python unified.py          :: Suite (Start + Stammbaum + DNA)
+python main.py             :: nur GEDCOM-Analyzer
+```
+
+Der Editable-Install (`-e`) macht die Pakete `ancestry`, `tasks` und `lib`
+überall importierbar — alle Werkzeuge unter `ancestry/tools/` laufen damit
+ohne Pfad-Tricks aus jedem Arbeitsverzeichnis. Wer nur den GEDCOM-Analyzer
+braucht: `pip install -e .` (ohne Extras) genügt.
+
+Windows-Launcher wie gehabt:
 
 ```cmd
 update-and-run.bat
 ```
 
-Der Launcher klont (oder aktualisiert) das Repo nach `C:\gedcom-analyzer`,
-installiert Abhängigkeiten und startet `main.py`. Beim Folgekontakt holt
-er nur Updates per `git pull --ff-only`.
+## Laufzeitdaten (`data/`)
 
-Manuell:
+Alles Generierte liegt unter `data/` (gitignored, Pfade zentral in
+`ancestry/paths.py`, per Umgebungsvariablen übersteuerbar):
 
-```cmd
-git clone https://github.com/ShanLanar/gedcom-analyzer.git
-cd gedcom-analyzer
-pip install -r requirements.txt
-python main.py
+```
+data/snapshots/   manuelle Roh-Exporte (z. B. MyHeritage-JSON)
+data/exports/     erzeugte Berichte/GEDCOMs
+data/logs/        Werkzeug-Logs
+data/cache/       Zwischenstände
+```
+
+Die SQLite-Hauptdatenbank `ancestry_dna.db` bleibt im Repo-Root
+(`ANCESTRY_DB` zum Übersteuern); Kirchenbuch-Scans liegen unter
+`~/matricula_images` (`MATRICULA_ARCHIVE`).
+
+## Quellen-Pipeline (Reihenfolge)
+
+```
+Matricula : scrape_matricula_osnabrueck → fetch_matricula_books → scan_matricula_kirchspiel
+Bäume     : crawl_webtrees → import_webtrees   ·   GEDCOM-Import
+DNA       : Ancestry-Download (GUI) · import_mh_matches · import_gedmatch_matches
+Verknüpfen: python -m ancestry.core.entity_resolution --mode candidates
+Review    : python ancestry/tools/entity_browser.py   (+ matricula_viewer.py)
 ```
 
 ## Verzeichnislayout
@@ -40,6 +77,15 @@ python main.py
 ```
 gedcom-analyzer/
 ├── main.py             GUI + Task-Registry + Threading
+├── unified.py          Suite-Fenster (Start + Stammbaum + DNA)
+├── pyproject.toml      Paket-Definition + Extras
+├── ancestry/           DNA-Tool, Quellen-Adapter, Entity-Resolution, Viewer
+│   ├── core/           Domänenlogik (database, bridge, entity_resolution …)
+│   ├── gui/            DNA-Tkinter-App
+│   ├── models/         DnaKit / DnaMatch / SharedMatch
+│   ├── tools/          CLI-Werkzeuge (Importer, Crawler, Viewer)
+│   └── paths.py        zentrale Pfade (DATA_DIR, DB_PATH, Archiv)
+├── data/               Laufzeitdaten (gitignored)
 ├── config.py           Pfade, Symbole, GUI-Farben, Overrides
 ├── lib/
 │   ├── gedcom.py       Parser, Symbol-Erkennung, Datums-Helfer

@@ -1,2 +1,11 @@
-openpyxl>=3.1,<4
-curl_cffi>=0.7.0
+# Abhängigkeiten sind in pyproject.toml deklariert (PEP 621).
+# Installation für Entwicklung/Vollbetrieb:
+#
+#     pip install -e .[viewer,scraping,vision,dev]
+#
+# Nur Kern (GEDCOM-Analyse + Ancestry-Download, ohne Flask-Viewer,
+# Playwright-Crawler und Claude-Vision-Transkription):
+#
+#     pip install -e .
+#
+-e .[viewer,scraping,vision,dev]

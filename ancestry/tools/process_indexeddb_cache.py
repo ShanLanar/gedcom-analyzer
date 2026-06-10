@@ -51,15 +51,15 @@ meta  = {"kit_id": "dnakit-9F9E6C0C-5EF0-4A73-9F85-1F1C8219B3A2",
          "sort": "indexeddb_cache",
          "source": "indexeddb"}
 
-out_file = SCRIPT_DIR / "mh_indexeddb_matches.json"
+from ancestry.paths import SNAPSHOT_DIR
+out_file = SNAPSHOT_DIR / "mh_indexeddb_matches.json"
 out_file.write_text(json.dumps({"meta": meta, "matches": match_list}, indent=2),
                     encoding="utf-8")
 print(f"Exportiert nach: {out_file}")
 
 # ── Direkt in die DB importieren ─────────────────────────────────────────────
-sys.path.insert(0, str(SCRIPT_DIR))
 try:
-    import import_mh_matches as imp
+    from ancestry.tools import import_mh_matches as imp
     imp.JSON_FILE = out_file
     imp.run()
 except Exception as e:

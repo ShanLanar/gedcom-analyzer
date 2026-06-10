@@ -47,6 +47,12 @@ JSON_PATH = os.path.join(ROOT, "ancestry", "tools", "matricula_parishes.json")
 # Bistums-Übersichtsseite (listet alle Pfarreien)
 DIOCESE_URL = "https://data.matricula-online.eu/de/deutschland/osnabrueck/"
 
+# Kanonischer Diözesen-Pfad (Land/Diözese) — Teil jeder parish_id und book_id.
+# Leitet sich aus der DIOCESE_URL ab: /de/<land>/<diözese>/ → <land>/<diözese>
+# Beispiel: "deutschland/osnabrueck"
+_m = re.search(r"/de/([^/]+/[^/]+)/?$", DIOCESE_URL.rstrip("/"))
+DIOCESE_PATH: str = _m.group(1) if _m else "deutschland/osnabrueck"
+
 # Regulärausdrücke für strukturierte Felder
 _ABPFARR_LINE = re.compile(
     r"(\d{4})\s+(.+)",          # "1667 Bohmte"  oder  "13. Jh. Venne"
@@ -76,7 +82,9 @@ def _init_db(path: str) -> sqlite3.Connection:
     db.row_factory = sqlite3.Row
     db.executescript("""
     CREATE TABLE IF NOT EXISTS parishes (
-        id            TEXT PRIMARY KEY,   -- URL-Slug
+        id            TEXT PRIMARY KEY,   -- kanonisch: deutschland/osnabrueck/ostercappeln
+        slug          TEXT NOT NULL DEFAULT '',  -- nur der Matricula-Slug
+        diocese       TEXT NOT NULL DEFAULT '',  -- z.B. deutschland/osnabrueck
         name          TEXT NOT NULL,
         confession    TEXT DEFAULT 'kath',
         founded_year  INTEGER,            -- Gründung / Ersterwähnung
@@ -204,8 +212,9 @@ def scrape(headless: bool = True, pause: float = 1.5):
         time.sleep(pause)
 
         # ── Pfarrei-Links sammeln ─────────────────────────────────────────
-        # URLs haben Format: .../de/deutschland/osnabrueck/<slug>/
-        pattern = re.compile(r"/de/deutschland/osnabrueck/([^/]+)/?$")
+        # URLs haben Format: .../de/<diocese_path>/<slug>/
+        _diocese_url_path = re.escape(f"/de/{DIOCESE_PATH}/")
+        pattern = re.compile(rf"{_diocese_url_path}([^/]+)/?$")
         link_elems = page.query_selector_all("a[href]")
         parish_links: list[dict] = []
         seen_slugs: set[str] = set()
@@ -222,7 +231,10 @@ def scrape(headless: bool = True, pause: float = 1.5):
             name = (el.inner_text() or "").strip() or slug.replace("-", " ").title()
             full_url = (f"https://data.matricula-online.eu{href}"
                         if href.startswith("/") else href)
-            parish_links.append({"slug": slug, "name": name, "url": full_url})
+            # Kanonische parish_id: deutschland/osnabrueck/ostercappeln
+            parish_id = f"{DIOCESE_PATH}/{slug}"
+            parish_links.append({"slug": slug, "parish_id": parish_id,
+                                  "name": name, "url": full_url})
 
         print(f"  {len(parish_links)} Pfarreien auf der Übersichtsseite gefunden.\n")
 
@@ -235,9 +247,10 @@ def scrape(headless: bool = True, pause: float = 1.5):
 
         # ── Detailseiten abrufen ──────────────────────────────────────────
         for i, entry in enumerate(parish_links, 1):
-            slug = entry["slug"]
-            name = entry["name"]
-            url  = entry["url"]
+            slug      = entry["slug"]
+            parish_id = entry["parish_id"]
+            name      = entry["name"]
+            url       = entry["url"]
             print(f"  [{i:3d}/{len(parish_links)}] {name:<45}", end=" ", flush=True)
 
             parsed = {"founded_text": "", "founded_year": None,
@@ -266,7 +279,9 @@ def scrape(headless: bool = True, pause: float = 1.5):
                 print(f"⚠ {e}")
 
             parishes.append({
-                "id":           slug,
+                "id":           parish_id,   # deutschland/osnabrueck/ostercappeln
+                "slug":         slug,
+                "diocese":      DIOCESE_PATH,
                 "name":         name,
                 "confession":   "kath",   # Diözesanarchiv Osnabrück
                 "founded_year": parsed["founded_year"],
@@ -280,26 +295,24 @@ def scrape(headless: bool = True, pause: float = 1.5):
         browser.close()
 
     # ── Abpfarrungs-IDs auflösen (zweiter Pass) ───────────────────────────────
-    slug_by_name: dict[str, str] = {}
+    # id_by_name bildet Namen auf volle parish_ids ab (deutschland/osnabrueck/...)
+    id_by_name: dict[str, str] = {}
     for p in parishes:
-        slug_by_name[p["name"].lower()] = p["id"]
-        # Auch kurze Namen ohne "St." etc.
+        id_by_name[p["name"].lower()] = p["id"]
         short = re.sub(r"^(st\.|sankt|heilig\w*)\s+", "", p["name"].lower())
-        slug_by_name[short] = p["id"]
+        id_by_name[short] = p["id"]
 
     for p in parishes:
         for abp in p["abpfarrungen"]:
             raw = abp["name"].lower().strip()
-            # Direkter Match
-            if raw in slug_by_name:
-                abp["child_id"] = slug_by_name[raw]
+            if raw in id_by_name:
+                abp["child_id"] = id_by_name[raw]
                 continue
-            # Partial-Match
             best = ""
-            for n, sid in slug_by_name.items():
+            for n, pid in id_by_name.items():
                 if raw in n or n in raw:
                     if not best or len(n) > len(best):
-                        best = sid
+                        best = pid
             abp["child_id"] = best
 
     # ── In DB schreiben ───────────────────────────────────────────────────────
@@ -311,9 +324,9 @@ def scrape(headless: bool = True, pause: float = 1.5):
         for p in parishes:
             db.execute("""
                 INSERT OR REPLACE INTO parishes
-                (id, name, confession, founded_year, url)
-                VALUES (:id, :name, :confession, :founded_year, :url)
-            """, {k: p[k] for k in ("id","name","confession","founded_year","url")})
+                (id, slug, diocese, name, confession, founded_year, url)
+                VALUES (:id, :slug, :diocese, :name, :confession, :founded_year, :url)
+            """, {k: p[k] for k in ("id","slug","diocese","name","confession","founded_year","url")})
 
             for abp in p["abpfarrungen"]:
                 db.execute("""

@@ -19,8 +19,6 @@ from pathlib import Path
 
 SCRIPT_DIR   = Path(__file__).resolve().parent
 ANCESTRY_DIR = SCRIPT_DIR.parent
-sys.path.insert(0, str(ANCESTRY_DIR))
-sys.path.insert(0, str(ANCESTRY_DIR / "core"))
 
 DB_PATH    = ANCESTRY_DIR / "ancestry_dna.db"
 CRAWL_DB   = SCRIPT_DIR / "webtrees_crawl.db"
@@ -52,8 +50,8 @@ def run(crawl_db: Path, do_link: bool):
     persons = load_wt_persons(crawl_db)
     print(f"{len(persons)} Personen aus {crawl_db.name} gelesen.")
 
-    from database import Database
-    from core import bridge
+    from ancestry.core.database import Database
+    from ancestry.core import bridge
     db = Database(str(DB_PATH))
     try:
         n = bridge.import_external_persons(db, persons, source=SOURCE)

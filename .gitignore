@@ -27,8 +27,21 @@ output/*.html
 .claude/
 
 # Ancestry-DNA-Tool Laufzeit-Daten
+ancestry.db
+ancestry_dna.db
+ancestry_dna.db-*
 ancestry/ancestry_dna.db
 ancestry/ancestry_dna.db-*
 ancestry/data/
 ancestry/tools/webtrees_crawl.db
 ancestry/tools/matricula_parishes.db
+
+# Zentrales Laufzeitdaten-Verzeichnis (s. ancestry/paths.py).
+# Hinweis: bereits getrackte Dateien (data/snapshots/mh_*.json) bleiben
+# trotz Ignore-Regel unter Versionskontrolle, bis sie explizit
+# enttrackt werden (geplant nach M2, s. ARCHITEKTUR-KONZEPT.md).
+data/
+
+# Editable-Install-Artefakte
+*.egg-info/
+build/

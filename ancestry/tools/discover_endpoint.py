@@ -10,7 +10,7 @@ Endpoint-Muster durch. Gibt aus welcher einen Namen liefert.
 """
 
 import sys, os, json, re
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))  # TODO(M2): entfällt mit ancestry/config.py-Umbenennung
 
 import config as cfg
 from core.auth import AncestryAuth

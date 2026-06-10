@@ -56,9 +56,7 @@ def main():
 
     # Regionsverteilung im GEDCOM (Ground Truth für das Modell)
     try:
-        sys.path.insert(0, str(ANCESTRY_DIR / "core"))
-        sys.path.insert(0, str(ANCESTRY_DIR))
-        from core.bridge import _extract_region
+        from ancestry.core.bridge import _extract_region
     except Exception:
         _extract_region = lambda s: (s or "").split(",")[-1].strip()
 

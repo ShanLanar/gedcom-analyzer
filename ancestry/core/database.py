@@ -8,7 +8,7 @@ import logging
 from contextlib import contextmanager
 from typing import Generator, Optional
 
-from models import DnaKit, DnaMatch, SharedMatch
+from ancestry.models import DnaKit, DnaMatch, SharedMatch
 
 log = logging.getLogger(__name__)
 
@@ -16,7 +16,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 20
+    SCHEMA_VERSION = 21
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -115,6 +115,8 @@ class Database:
                 self._migrate_v18_v19(cur)
             if current < 20:
                 self._migrate_v19_v20(cur)
+            if current < 21:
+                self._migrate_v20_v21(cur)
 
             if row:
                 cur.execute("UPDATE schema_version SET version=?", (self.SCHEMA_VERSION,))
@@ -1432,6 +1434,175 @@ class Database:
                 ON dna_segments(test_guid, match_guid);
             CREATE INDEX IF NOT EXISTS idx_dna_seg_chrom
                 ON dna_segments(chromosome);
+        """)
+
+    def _migrate_v20_v21(self, cur):
+        """Schema v21: Source-Container-Architektur + Entity-Resolution-Layer.
+
+        Jede Quelle behält ihre Rohdaten unveränderlich.
+        entity_assignments verknüpft Quelldatensätze mit Entitäten – rollback-fähig.
+
+        Schlüsselregel (Kirchenbuch als Goldstandard):
+          UNIQUE(source_table, source_row_id, person_role)
+
+          Taufe:  role='child'    → genau 1 Entity
+          Tod:    role='deceased' → genau 1 Entity
+          Heirat: role='groom'    → genau 1 Entity
+                  role='bride'    → genau 1 Entity
+          (Zur Hochzeit gehören zwei – aber jede Rolle bleibt einmalig belegt.)
+
+        Transitivität: Zeigen zwei Zuordnungen auf dieselbe source_matrikula_entries.entry_id,
+        sind die dahinterliegenden Entitäten zwingend identisch.
+        """
+        cur.executescript("""
+
+        -- ── Kanonische Entitäten ──────────────────────────────────────────────
+        -- Keine normalisierte Person-Tabelle, sondern nur ein Identifikator
+        -- auf den alle Quellen verweisen.  Inhalt kommt aus den Quellen.
+        CREATE TABLE IF NOT EXISTS entities (
+            entity_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            label       TEXT DEFAULT '',   -- Arbeitsbezeichnung (nicht normalisiert)
+            notes       TEXT DEFAULT '',
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+
+        -- ── Source-Container: webtrees ────────────────────────────────────────
+        -- Import via import_webtrees.py; Zeilen sind unveränderlich
+        CREATE TABLE IF NOT EXISTS source_webtrees (
+            wt_id           TEXT PRIMARY KEY,   -- webtrees XREF / @I123@
+            given_name      TEXT DEFAULT '',
+            surname         TEXT DEFAULT '',
+            gender          TEXT DEFAULT '',
+            birth_date      TEXT DEFAULT '',
+            birth_place     TEXT DEFAULT '',
+            death_date      TEXT DEFAULT '',
+            death_place     TEXT DEFAULT '',
+            father_wt_id    TEXT DEFAULT '',
+            mother_wt_id    TEXT DEFAULT '',
+            spouse_wt_ids   TEXT DEFAULT '',    -- kommasepariert
+            notes           TEXT DEFAULT '',
+            raw_json        TEXT DEFAULT '',    -- vollständiger GEDCOM-Record als JSON
+            imported_at     TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_swt_name
+            ON source_webtrees(surname, given_name);
+        CREATE INDEX IF NOT EXISTS idx_swt_birth
+            ON source_webtrees(birth_place, birth_date);
+
+        -- ── Source-Container: Matrikula-Kirchenbücher ─────────────────────────
+        -- Buchebene: welche Bücher existieren für welche Pfarrei + Jahresbereich
+        -- Eintragsebene: individuelle Kirchenbucheinträge (OCR / manuelle Transkription)
+        CREATE TABLE IF NOT EXISTS source_matrikula_books (
+            book_id     TEXT PRIMARY KEY,   -- "<parish_id>/<matricula_sub_id>"
+            parish_id   TEXT NOT NULL,
+            book_type   TEXT NOT NULL DEFAULT 'unbekannt',
+            year_from   INTEGER,
+            year_to     INTEGER,
+            label       TEXT DEFAULT '',
+            url         TEXT DEFAULT '',
+            synced_at   TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_smb_parish
+            ON source_matrikula_books(parish_id);
+        CREATE INDEX IF NOT EXISTS idx_smb_years
+            ON source_matrikula_books(year_from, year_to);
+
+        CREATE TABLE IF NOT EXISTS source_matrikula_entries (
+            entry_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            book_id     TEXT NOT NULL,          -- FK → source_matrikula_books
+            page_nr     INTEGER,
+            entry_type  TEXT NOT NULL,          -- 'Taufe' | 'Heirat' | 'Tod'
+            event_date  TEXT DEFAULT '',
+            event_year  INTEGER,
+            -- Personen im Eintrag (als-is aus Quelle, nicht normalisiert)
+            person_name TEXT DEFAULT '',        -- Täufling / Verstorbener / Bräutigam
+            person2_name TEXT DEFAULT '',       -- Braut (nur bei Heirat)
+            father_name TEXT DEFAULT '',
+            mother_name TEXT DEFAULT '',
+            village     TEXT DEFAULT '',
+            notes       TEXT DEFAULT '',
+            image_url   TEXT DEFAULT '',
+            created_at  TEXT DEFAULT (datetime('now'))
+        );
+        CREATE INDEX IF NOT EXISTS idx_sme_book
+            ON source_matrikula_entries(book_id);
+        CREATE INDEX IF NOT EXISTS idx_sme_year
+            ON source_matrikula_entries(event_year);
+        CREATE INDEX IF NOT EXISTS idx_sme_name
+            ON source_matrikula_entries(person_name);
+
+        -- ── Source-Container: Anverwandte ─────────────────────────────────────
+        -- Gecrawlte Verlinkungen; werden hier unveränderlich gespeichert
+        CREATE TABLE IF NOT EXISTS source_anverwandte (
+            anv_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+            profile_url TEXT DEFAULT '',
+            name_raw    TEXT DEFAULT '',
+            birth_year  INTEGER,
+            death_year  INTEGER,
+            relation    TEXT DEFAULT '',        -- angezeigte Verwandtschaftsbeziehung
+            linked_to   TEXT DEFAULT '',        -- Profil-URL der lebenden Person
+            extra_json  TEXT DEFAULT '',        -- alle weiteren Felder as-is
+            crawled_at  TEXT DEFAULT (datetime('now'))
+        );
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_sanv_url
+            ON source_anverwandte(profile_url)
+            WHERE profile_url != '';
+        CREATE INDEX IF NOT EXISTS idx_sanv_name
+            ON source_anverwandte(name_raw);
+
+        -- ── Entity-Resolution-Layer ───────────────────────────────────────────
+        -- Verknüpft Quelldatensätze mit Entitäten.
+        --
+        -- UNIQUE(source_table, source_row_id, person_role):
+        --   Jede physische Rolle in einem Quelldatensatz darf max. einer Entität
+        --   zugeordnet sein.  Rollback = is_active auf 0 setzen (Rohdaten bleiben).
+        --
+        -- person_role-Konventionen:
+        --   'person'   – webtrees, Anverwandte, DNA-Match (immer)
+        --   'child'    – Matrikula Taufeintrag
+        --   'deceased' – Matrikula Sterbeintrag
+        --   'groom'    – Matrikula Heiratseintrag (Bräutigam)
+        --   'bride'    – Matrikula Heiratseintrag (Braut)
+        CREATE TABLE IF NOT EXISTS entity_assignments (
+            assignment_id   INTEGER PRIMARY KEY AUTOINCREMENT,
+            entity_id       INTEGER NOT NULL,   -- FK → entities
+            source_table    TEXT NOT NULL,      -- 'source_webtrees' | 'source_matrikula_entries' | …
+            source_row_id   TEXT NOT NULL,      -- PK-Wert in source_table (als Text)
+            person_role     TEXT NOT NULL DEFAULT 'person',
+            confidence      REAL DEFAULT 1.0,
+            assigned_by     TEXT DEFAULT 'auto',    -- 'auto' | 'manual' | 'transitivity'
+            is_active       INTEGER DEFAULT 1,      -- 0 = zurückgerollt
+            created_at      TEXT DEFAULT (datetime('now')),
+            UNIQUE (source_table, source_row_id, person_role)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ea_entity
+            ON entity_assignments(entity_id);
+        CREATE INDEX IF NOT EXISTS idx_ea_source
+            ON entity_assignments(source_table, source_row_id);
+        CREATE INDEX IF NOT EXISTS idx_ea_active
+            ON entity_assignments(is_active);
+
+        -- ── Konfidenz-Kandidaten ──────────────────────────────────────────────
+        -- Noch nicht bestätigte Zuordnungskandidaten für manuelle Review.
+        -- Nach Bestätigung wandert der Eintrag nach entity_assignments.
+        CREATE TABLE IF NOT EXISTS entity_candidates (
+            candidate_id    INTEGER PRIMARY KEY AUTOINCREMENT,
+            source_table_a  TEXT NOT NULL,
+            source_row_id_a TEXT NOT NULL,
+            person_role_a   TEXT NOT NULL DEFAULT 'person',
+            source_table_b  TEXT NOT NULL,
+            source_row_id_b TEXT NOT NULL,
+            person_role_b   TEXT NOT NULL DEFAULT 'person',
+            confidence      REAL DEFAULT 0.0,
+            evidence        TEXT DEFAULT '',    -- JSON: welche Merkmale übereinstimmen
+            status          TEXT DEFAULT 'pending',  -- 'pending'|'confirmed'|'rejected'
+            reviewed_at     TEXT DEFAULT '',
+            created_at      TEXT DEFAULT (datetime('now')),
+            UNIQUE (source_table_a, source_row_id_a, person_role_a,
+                    source_table_b, source_row_id_b, person_role_b)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ec_status
+            ON entity_candidates(status);
         """)
 
     def bulk_upsert_segments(self, segments: list) -> int:

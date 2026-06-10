@@ -1,0 +1,41 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gedcom-analyzer"
+version = "0.1.0"
+description = "Genealogie-Suite: GEDCOM-Analyse, DNA-Match-Auswertung (Ancestry/MyHeritage/GEDmatch), Kirchenbuch-Erschließung (Matricula) und Entity-Resolution"
+requires-python = ">=3.10"
+dependencies = [
+    "openpyxl>=3.1,<4",
+    "curl_cffi>=0.7.0",
+]
+
+[project.optional-dependencies]
+viewer   = ["flask>=3.0"]
+scraping = ["playwright>=1.40"]
+vision   = ["anthropic>=0.40"]
+dev      = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
+all      = ["gedcom-analyzer[viewer,scraping,vision,dev]"]
+
+[tool.setuptools]
+# Hinweis: 'tasks' und 'lib' sind generische Top-Level-Namen — nur editable
+# in eine projekteigene virtuelle Umgebung installieren, nie systemweit.
+packages = [
+    "ancestry",
+    "ancestry.core",
+    "ancestry.gui",
+    "ancestry.models",
+    "ancestry.tools",
+    "ancestry.utils",
+    "tasks",
+    "lib",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

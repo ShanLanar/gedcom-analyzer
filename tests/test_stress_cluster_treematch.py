@@ -2,24 +2,11 @@
 Comprehensive pytest tests for ancestry/core/cluster.py and ancestry/core/treematch.py.
 Exactly 60 tests covering all specified functions.
 """
-import sys
-import os
-import types
-
-_ANCESTRY = '/home/user/gedcom-analyzer/ancestry'
-if _ANCESTRY not in sys.path:
-    sys.path.append(_ANCESTRY)
-
-if 'core' not in sys.modules:
-    _core_stub = types.ModuleType('core')
-    _core_stub.__path__ = [os.path.join(_ANCESTRY, 'core')]
-    _core_stub.__package__ = 'core'
-    sys.modules['core'] = _core_stub
 
 import pytest
 
-from core.cluster import build_clusters, cluster_summary, suggest_grandparent_lines
-from core.treematch import (
+from ancestry.core.cluster import build_clusters, cluster_summary, suggest_grandparent_lines
+from ancestry.core.treematch import (
     cm_to_mrca,
     cluster_confidence,
     pair_relationship,

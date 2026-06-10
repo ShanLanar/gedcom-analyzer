@@ -16,26 +16,14 @@ Implementation notes:
 - endogamy_cluster is NOT written by upsert_match; use set_endogamy_cluster().
 """
 
-import sys
 import os
-import types
 import time
 import tempfile
 
 import pytest
 
-_ANCESTRY = '/home/user/gedcom-analyzer/ancestry'
-if _ANCESTRY not in sys.path:
-    sys.path.append(_ANCESTRY)
-
-if 'core' not in sys.modules:
-    _core_stub = types.ModuleType('core')
-    _core_stub.__path__ = [os.path.join(_ANCESTRY, 'core')]
-    _core_stub.__package__ = 'core'
-    sys.modules['core'] = _core_stub
-
-from core.database import Database
-from models import DnaKit, DnaMatch, SharedMatch
+from ancestry.core.database import Database
+from ancestry.models import DnaKit, DnaMatch, SharedMatch
 
 
 # ---------------------------------------------------------------------------

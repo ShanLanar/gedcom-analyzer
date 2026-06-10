@@ -29,7 +29,7 @@ import time
 # ancestry/ in Pfad
 _HERE = os.path.dirname(os.path.abspath(__file__))
 _ANCS = os.path.dirname(_HERE)
-sys.path.insert(0, _ANCS)
+sys.path.insert(0, _ANCS)  # TODO(M2): entfällt mit ancestry/config.py-Umbenennung
 
 from core.auth import AncestryAuth
 from core.api  import AncestryApiClient

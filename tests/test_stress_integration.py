@@ -11,30 +11,16 @@ Exactly 35 tests spread across five categories:
 """
 
 import os
-import sys
-import types
 import tempfile
 import time
 
-_ANCESTRY = '/home/user/gedcom-analyzer/ancestry'
-if _ANCESTRY not in sys.path:
-    sys.path.append(_ANCESTRY)
-
-# Bypass core/__init__.py (imports auth.py which needs ancestry/config.py at
-# sys.path[0], conflicting with root config.py used by other test modules).
-if 'core' not in sys.modules:
-    _core_stub = types.ModuleType('core')
-    _core_stub.__path__ = [os.path.join(_ANCESTRY, 'core')]
-    _core_stub.__package__ = 'core'
-    sys.modules['core'] = _core_stub
-
 import pytest
 
-from core.database import Database
-from models import DnaMatch, SharedMatch, DnaKit
-from core.cluster import build_clusters, cluster_summary, suggest_grandparent_lines
-from core.treematch import cm_to_mrca, cluster_confidence, pair_relationship
-from core.export import export_csv, export_xlsx
+from ancestry.core.database import Database
+from ancestry.models import DnaMatch, SharedMatch, DnaKit
+from ancestry.core.cluster import build_clusters, cluster_summary, suggest_grandparent_lines
+from ancestry.core.treematch import cm_to_mrca, cluster_confidence, pair_relationship
+from ancestry.core.export import export_csv, export_xlsx
 
 
 # ---------------------------------------------------------------------------
