@@ -86,6 +86,20 @@ class Database:
         from ancestry.core.db.runner import run
         conn = self._get_conn()
         run(conn)
+        # Stellt sicher, dass match_kit_membership alle Matches kennt.
+        # Läuft nur wenn mkm leer aber matches befüllt (einmalige Reparatur).
+        try:
+            m_cnt   = conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+            mkm_cnt = conn.execute("SELECT COUNT(*) FROM match_kit_membership").fetchone()[0]
+            if m_cnt > 0 and mkm_cnt < m_cnt:
+                conn.execute(
+                    "INSERT OR IGNORE INTO match_kit_membership (match_guid, test_guid) "
+                    "SELECT match_guid, test_guid FROM matches"
+                )
+                conn.commit()
+                log.info("match_kit_membership repariert: %d Einträge ergänzt", m_cnt - mkm_cnt)
+        except Exception as e:
+            log.debug("mkm-Reparatur: %s", e)
         log.debug("DB initialisiert: %s (Schema v%d)", self.db_file, self.SCHEMA_VERSION)
 
     # ── Kits ──────────────────────────────────────────────────────────────────

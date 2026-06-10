@@ -741,7 +741,23 @@ class MatchesTab(ttk.Frame):
                     overlap_guids = {r[0] for r in rows}
             except Exception as e:
                 log.debug("overlap_guids: %s", e)
-        self._match_count_var.set(f"{len(self._matches)} Match(es)")
+        n = len(self._matches)
+        if n == 0:
+            try:
+                with self._state.db._cursor() as _dc:
+                    db_total = _dc.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+                    mkm_total = _dc.execute("SELECT COUNT(*) FROM match_kit_membership").fetchone()[0]
+                if db_total > 0:
+                    self._match_count_var.set(
+                        f"0 Match(es) — {db_total:,} in DB, {mkm_total:,} in kit-membership"
+                        f"  →  oben Kit auswählen oder 'Alle Plattformen' wählen")
+                else:
+                    self._match_count_var.set("0 Match(es) — DB leer, bitte Matches herunterladen")
+            except Exception as e:
+                log.debug("diagnostic count: %s", e)
+                self._match_count_var.set("0 Match(es)")
+        else:
+            self._match_count_var.set(f"{n:,} Match(es)")
         self._tree.delete(*self._tree.get_children())
         # Apply pat/mat chip filter
         if hasattr(self, "_chip_vars"):
