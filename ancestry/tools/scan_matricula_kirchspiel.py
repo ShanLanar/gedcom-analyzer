@@ -421,11 +421,28 @@ def _scan_book(
         print(f"  {len(done_pages)} bereits fertig, {remaining} verbleibend")
         page_range = list(range(1, total_pages + 1))
 
+    # Seiten mit manuellen Viewer-Korrekturen nie überschreiben
+    try:
+        corrected_pages = {
+            row[0]
+            for row in main_db.execute(
+                "SELECT DISTINCT page_nr FROM source_matrikula_entries "
+                "WHERE book_id=? AND corrected_by='human'",
+                (book_id,),
+            ).fetchall()
+        }
+    except Exception:
+        corrected_pages = set()
+    if corrected_pages:
+        print(f"  {len(corrected_pages)} manuell korrigierte Seiten werden übersprungen")
+
     scanned = 0
     new_entries = 0
 
     for page_nr in page_range:
         if page_nr in done_pages:
+            continue
+        if page_nr in corrected_pages:
             continue
 
         print(f"    Seite {page_nr:4d}/{total_pages} ", end="", flush=True)
