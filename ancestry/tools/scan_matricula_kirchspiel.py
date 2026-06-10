@@ -65,6 +65,14 @@ DEFAULT_ARCHIVE = Path(os.environ.get(
     os.path.expanduser("~/matricula_images"),
 ))
 
+# Kölner Phonetik aus tasks.names (bereits im Projekt vorhanden)
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+try:
+    from tasks.names import koelner_phonetik as _kp, _levenshtein as _lev
+except ImportError:
+    _kp = _lev = None  # type: ignore[assignment]
+
 # Matricula-Basis-URL
 BASE_URL = "https://data.matricula-online.eu"
 
@@ -203,11 +211,27 @@ def _open_main_db():
         village      TEXT DEFAULT '',
         notes        TEXT DEFAULT '',
         raw_json     TEXT DEFAULT '',
+        corrected_by TEXT DEFAULT '',
+        corrected_at TEXT DEFAULT '',
         created_at   TEXT DEFAULT (datetime('now'))
     );
     CREATE INDEX IF NOT EXISTS idx_sme_book  ON source_matrikula_entries(book_id);
     CREATE INDEX IF NOT EXISTS idx_sme_year  ON source_matrikula_entries(event_year);
     CREATE INDEX IF NOT EXISTS idx_sme_name  ON source_matrikula_entries(person_name);
+
+    CREATE TABLE IF NOT EXISTS name_index (
+        id          INTEGER PRIMARY KEY AUTOINCREMENT,
+        entry_id    INTEGER NOT NULL,
+        book_id     TEXT NOT NULL,
+        page_nr     INTEGER NOT NULL,
+        name_raw    TEXT NOT NULL,
+        name_norm   TEXT NOT NULL,
+        koeln_code  TEXT NOT NULL,
+        name_role   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_ni_koeln ON name_index(koeln_code);
+    CREATE INDEX IF NOT EXISTS idx_ni_book  ON name_index(book_id);
+    CREATE INDEX IF NOT EXISTS idx_ni_role  ON name_index(name_role);
     """)
     return db
 
@@ -269,6 +293,33 @@ def _transcribe_page(image_bytes: bytes, book_type: str, dry_run: bool) -> list[
         return []
 
 
+# ── Name-Index ─────────────────────────────────────────────────────────────────
+
+def _index_names(
+    db: sqlite3.Connection,
+    entry_id: int,
+    book_id: str,
+    page_nr: int,
+    names: list[tuple[str, str]],  # [(name_raw, role), …]
+) -> None:
+    """Schreibt Name → Kölner-Code Einträge in name_index."""
+    if _kp is None:
+        return
+    for name_raw, role in names:
+        if not name_raw or not name_raw.strip():
+            continue
+        db.execute(
+            """INSERT INTO name_index
+               (entry_id, book_id, page_nr, name_raw, name_norm, koeln_code, name_role)
+               VALUES (?,?,?,?,?,?,?)""",
+            (entry_id, book_id, page_nr,
+             name_raw,
+             name_raw.lower().strip(),
+             _kp(name_raw),
+             role),
+        )
+
+
 # ── Einträge speichern ─────────────────────────────────────────────────────────
 
 def _save_entries(
@@ -278,54 +329,66 @@ def _save_entries(
     book_type: str,
     entries: list[dict],
 ) -> int:
-    """Speichert transkribierte Einträge in source_matrikula_entries."""
+    """Speichert transkribierte Einträge in source_matrikula_entries + name_index."""
     if not entries:
         return 0
 
-    rows = []
-    for e in entries:
-        if book_type == "Taufe":
-            person  = e.get("kind_name", "")
-            person2 = ""
-            father  = e.get("vater_name", "")
-            mother  = e.get("mutter_name", "")
-        elif book_type == "Heirat":
-            person  = e.get("braeutigam_name", "")
-            person2 = e.get("braut_name", "")
-            father  = e.get("braeutigam_vater", "")
-            mother  = e.get("braut_vater", "")
-        else:  # Tod
-            person  = e.get("name", "")
-            person2 = ""
-            father  = e.get("eltern", "")
-            mother  = ""
-
-        year = e.get("jahr")
-        if isinstance(year, str):
-            m = re.search(r"\d{4}", year)
-            year = int(m.group()) if m else None
-
-        rows.append((
-            book_id, page_nr, book_type,
-            e.get("datum", ""), year,
-            person, person2, father, mother,
-            e.get("ort", "") or e.get("braeutigam_ort", ""),
-            e.get("anmerkungen", ""),
-            json.dumps(e, ensure_ascii=False),
-        ))
-
     with main_db:
-        main_db.executemany(
-            """
-            INSERT INTO source_matrikula_entries
-                (book_id, page_nr, entry_type, event_date, event_year,
-                 person_name, person2_name, father_name, mother_name,
-                 village, notes, raw_json)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
-            """,
-            rows,
-        )
-    return len(rows)
+        # Vorherige name_index-Einträge dieser Seite löschen (Idempotenz)
+        try:
+            main_db.execute(
+                "DELETE FROM name_index WHERE book_id=? AND page_nr=?",
+                (book_id, page_nr),
+            )
+        except Exception:
+            pass
+
+        for e in entries:
+            if book_type == "Taufe":
+                person  = e.get("kind_name", "")
+                person2 = ""
+                father  = e.get("vater_name", "")
+                mother  = e.get("mutter_name", "")
+            elif book_type == "Heirat":
+                person  = e.get("braeutigam_name", "")
+                person2 = e.get("braut_name", "")
+                father  = e.get("braeutigam_vater", "")
+                mother  = e.get("braut_vater", "")
+            else:  # Tod
+                person  = e.get("name", "")
+                person2 = ""
+                father  = e.get("eltern", "")
+                mother  = ""
+
+            year = e.get("jahr")
+            if isinstance(year, str):
+                m = re.search(r"\d{4}", year)
+                year = int(m.group()) if m else None
+
+            cur = main_db.execute(
+                """
+                INSERT INTO source_matrikula_entries
+                    (book_id, page_nr, entry_type, event_date, event_year,
+                     person_name, person2_name, father_name, mother_name,
+                     village, notes, raw_json)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (
+                    book_id, page_nr, book_type,
+                    e.get("datum", ""), year,
+                    person, person2, father, mother,
+                    e.get("ort", "") or e.get("braeutigam_ort", ""),
+                    e.get("anmerkungen", ""),
+                    json.dumps(e, ensure_ascii=False),
+                ),
+            )
+            _index_names(main_db, cur.lastrowid, book_id, page_nr, [
+                (person,  "person"),
+                (person2, "person2"),
+                (father,  "father"),
+                (mother,  "mother"),
+            ])
+    return len(entries)
 
 
 # ── Playwright-Seiten-Scanner ──────────────────────────────────────────────────

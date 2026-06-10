@@ -40,6 +40,14 @@ DEFAULT_ARCHIVE = Path(os.environ.get(
     os.path.expanduser("~/matricula_images"),
 ))
 
+# Kölner Phonetik aus tasks.names (bereits im Projekt vorhanden)
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+try:
+    from tasks.names import koelner_phonetik as _kp, _levenshtein as _lev
+except ImportError:
+    _kp = _lev = None  # type: ignore[assignment]
+
 app = Flask(__name__)
 
 
@@ -68,6 +76,48 @@ def _ensure_correction_cols(db: sqlite3.Connection) -> None:
                 f"ALTER TABLE source_matrikula_entries ADD COLUMN {col} TEXT DEFAULT ''"
             )
             db.commit()
+        except Exception:
+            pass
+    try:
+        db.executescript("""
+        CREATE TABLE IF NOT EXISTS name_index (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            entry_id    INTEGER NOT NULL,
+            book_id     TEXT NOT NULL,
+            page_nr     INTEGER NOT NULL,
+            name_raw    TEXT NOT NULL,
+            name_norm   TEXT NOT NULL,
+            koeln_code  TEXT NOT NULL,
+            name_role   TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_ni_koeln ON name_index(koeln_code);
+        CREATE INDEX IF NOT EXISTS idx_ni_book  ON name_index(book_id);
+        """)
+    except Exception:
+        pass
+
+
+def _index_names(
+    db: sqlite3.Connection,
+    entry_id: int,
+    book_id: str,
+    page_nr: int,
+    names: list[tuple[str, str]],
+) -> None:
+    """Schreibt Name → Kölner-Code in name_index (nur wenn Phonetik verfügbar)."""
+    if _kp is None:
+        return
+    for name_raw, role in names:
+        if not name_raw or not name_raw.strip():
+            continue
+        try:
+            db.execute(
+                """INSERT INTO name_index
+                   (entry_id, book_id, page_nr, name_raw, name_norm, koeln_code, name_role)
+                   VALUES (?,?,?,?,?,?,?)""",
+                (entry_id, book_id, page_nr,
+                 name_raw, name_raw.lower().strip(), _kp(name_raw), role),
+            )
         except Exception:
             pass
 
@@ -234,6 +284,13 @@ def save_correction(rest):
             "DELETE FROM source_matrikula_entries WHERE book_id=? AND page_nr=?",
             (book_id, page_nr),
         )
+        try:
+            mdb.execute(
+                "DELETE FROM name_index WHERE book_id=? AND page_nr=?",
+                (book_id, page_nr),
+            )
+        except Exception:
+            pass
         for e in data["entries"]:
             raw = e.get("raw_json") or json.dumps(
                 {k: v for k, v in e.items()
@@ -243,7 +300,7 @@ def save_correction(rest):
             yr = e.get("event_year")
             if isinstance(yr, str):
                 yr = int(yr) if yr.strip().isdigit() else None
-            mdb.execute("""
+            cur = mdb.execute("""
                 INSERT INTO source_matrikula_entries
                     (book_id, page_nr, entry_type, event_date, event_year,
                      person_name, person2_name, father_name, mother_name,
@@ -262,7 +319,60 @@ def save_correction(rest):
                 e.get("notes", ""),
                 raw,
             ))
+            _index_names(mdb, cur.lastrowid, book_id, page_nr, [
+                (e.get("person_name",  ""), "person"),
+                (e.get("person2_name", ""), "person2"),
+                (e.get("father_name",  ""), "father"),
+                (e.get("mother_name",  ""), "mother"),
+            ])
     return jsonify({"ok": True, "count": len(data["entries"])})
+
+
+@app.route("/search")
+def search():
+    q = request.args.get("q", "").strip()
+    if not q:
+        return render_template_string(_BASE + _TMPL_SEARCH, q="", code=None, results=[])
+
+    mdb = _main_db()
+
+    if _kp:
+        code = _kp(q)
+        rows = mdb.execute("""
+            SELECT ni.entry_id, ni.book_id, ni.page_nr,
+                   ni.name_raw, ni.name_role, ni.koeln_code,
+                   e.entry_type, e.event_date, e.event_year,
+                   e.corrected_by
+            FROM   name_index ni
+            JOIN   source_matrikula_entries e ON e.entry_id = ni.entry_id
+            WHERE  ni.koeln_code = ?
+            ORDER  BY ni.name_raw
+        """, (code,)).fetchall()
+
+        # Sort by Levenshtein-Distanz zum Suchbegriff
+        results = []
+        q_low = q.lower()
+        for r in rows:
+            dist = _lev(q_low, r["name_raw"].lower()) if _lev else 0
+            results.append({**dict(r), "dist": dist})
+        results.sort(key=lambda x: (x["dist"], x["name_raw"].lower()))
+    else:
+        # Fallback: einfaches LIKE ohne Phonetik
+        code = None
+        rows = mdb.execute("""
+            SELECT e.entry_id, e.book_id, e.page_nr,
+                   e.person_name AS name_raw, 'person' AS name_role,
+                   e.entry_type, e.event_date, e.event_year, e.corrected_by
+            FROM   source_matrikula_entries e
+            WHERE  lower(e.person_name) LIKE lower(?)
+               OR  lower(e.person2_name) LIKE lower(?)
+               OR  lower(e.father_name)  LIKE lower(?)
+               OR  lower(e.mother_name)  LIKE lower(?)
+            LIMIT  200
+        """, (f"%{q}%",) * 4).fetchall()
+        results = [dict(r) for r in rows]
+
+    return render_template_string(_BASE + _TMPL_SEARCH, q=q, code=code, results=results)
 
 
 # ── Templates ──────────────────────────────────────────────────────────────────
@@ -309,7 +419,20 @@ table.data tr:hover td{background:#ede5d8}
 # ── Index ──────────────────────────────────────────────────────────────────────
 
 _TMPL_INDEX = """\
-<nav class="crumb">Matricula Viewer</nav>
+<nav class="crumb">Matricula Viewer
+  <span class="spacer" style="flex:1"></span>
+  <form action="/search" method="get" style="display:flex;gap:.35rem">
+    <input name="q" placeholder="Name suchen …" style="
+      border:1px solid #c9a880;border-radius:3px;padding:.15rem .45rem;
+      background:rgba(255,255,255,.18);color:#fff;font-family:inherit;font-size:.85rem;width:180px"
+      autocomplete="off">
+    <button type="submit" style="
+      background:rgba(255,255,255,.22);border:1px solid #c9a880;border-radius:3px;
+      color:#fff;padding:.15rem .6rem;cursor:pointer;font-family:inherit;font-size:.85rem">
+      ⌕
+    </button>
+  </form>
+</nav>
 <div class="wrap">
 <h1>Pfarreien</h1>
 {% if not parishes %}
@@ -330,6 +453,77 @@ _TMPL_INDEX = """\
 {% endfor %}
 </tbody>
 </table>
+{% endif %}
+</div>
+</body></html>
+"""
+
+# ── Search results ──────────────────────────────────────────────────────────────
+
+_ROLE_LABEL = {
+    "person":  "Person",
+    "person2": "Person 2",
+    "father":  "Vater",
+    "mother":  "Mutter",
+}
+
+_TMPL_SEARCH = """\
+<nav class="crumb">
+  <a href="/">Pfarreien</a><span class="sep">›</span>
+  Suche
+  <span class="spacer" style="flex:1"></span>
+  <form action="/search" method="get" style="display:flex;gap:.35rem">
+    <input name="q" value="{{ q | e }}" placeholder="Name …" style="
+      border:1px solid #c9a880;border-radius:3px;padding:.15rem .45rem;
+      background:rgba(255,255,255,.18);color:#fff;font-family:inherit;font-size:.85rem;width:180px"
+      autocomplete="off">
+    <button type="submit" style="
+      background:rgba(255,255,255,.22);border:1px solid #c9a880;border-radius:3px;
+      color:#fff;padding:.15rem .6rem;cursor:pointer;font-family:inherit;font-size:.85rem">
+      ⌕
+    </button>
+  </form>
+</nav>
+<div class="wrap">
+{% if q %}
+<h1>
+  „{{ q | e }}"
+  {% if code %}<span class="muted" style="font-size:.9rem;font-weight:normal">
+    · Kölner Code <code>{{ code }}</code></span>{% endif %}
+</h1>
+{% if results %}
+<p class="muted" style="margin-bottom:.6rem">{{ results | length }} Treffer</p>
+<table class="data">
+<thead>
+  <tr>
+    <th>Name</th><th>Rolle</th><th>Typ</th>
+    <th>Datum</th><th>Kirchenbuch</th><th>Seite</th>
+  </tr>
+</thead>
+<tbody>
+{% for r in results %}
+<tr>
+  <td>
+    <a href="/view/{{ r.book_id }}/{{ r.page_nr }}">{{ r.name_raw }}</a>
+    {% if r.get('corrected_by') == 'human' %}<span class="badge b-human">✎</span>{% endif %}
+    {% if r.get('dist', 99) > 0 %}
+      <span class="muted" style="font-size:.75rem">(Δ{{ r.dist }})</span>
+    {% endif %}
+  </td>
+  <td class="muted">{{ r.name_role }}</td>
+  <td>{{ r.entry_type }}</td>
+  <td>{{ r.event_date or (r.event_year | string if r.event_year else '?') }}</td>
+  <td style="font-size:.8rem;font-family:monospace">{{ r.book_id.split('/')[-1] }}</td>
+  <td><a href="/view/{{ r.book_id }}/{{ r.page_nr }}">{{ r.page_nr }}</a></td>
+</tr>
+{% endfor %}
+</tbody>
+</table>
+{% else %}
+<p class="muted">Keine Treffer{% if not code %} — Phonetik nicht verfügbar, LIKE-Suche verwendet{% endif %}.</p>
+{% endif %}
+{% else %}
+<p class="muted">Bitte einen Namen eingeben.</p>
 {% endif %}
 </div>
 </body></html>
