@@ -254,6 +254,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
                      "en": "Auto-assign sides (mother kit)…"},
     "mn.endo_score":{"de": "Endogamie-Score-Analyse …",            "en": "Endogamy score analysis …"},
     "mn.cl_timeline":{"de": "Cluster-Zeitachse …",                 "en": "Cluster timeline …"},
+    "mn.pop_stats":  {"de": "Bevölkerungsstatistiken …",           "en": "Population statistics …"},
     # Quick-filter chips
     "mf.chip_star": {"de": "★ Markierte",    "en": "★ Starred"},
     "mf.chip_tree": {"de": "🌳 Mit Baum",    "en": "🌳 With tree"},

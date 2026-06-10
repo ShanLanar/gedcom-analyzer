@@ -170,6 +170,7 @@ class AncestryDnaApp(tk.Frame):
         am.add_command(label=self._t("mn.ped_gaps"),    command=self._show_pedigree_gaps)
         am.add_command(label=self._t("mn.auto_sides"),  command=self._auto_assign_sides)
         am.add_command(label=self._t("mn.endo_score"),  command=self._show_endogamy_analysis)
+        am.add_command(label=self._t("mn.pop_stats"),   command=self._show_population_stats)
         mb.add_cascade(label=self._t("mn.analysis"), menu=am)
         for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
@@ -178,7 +179,8 @@ class AncestryDnaApp(tk.Frame):
                          (14,"mn.chg_ged"),(16,"mn.surnames"),(17,"mn.places"),
                          (18,"mn.mrca"),(19,"mn.net_graph"),
                          (21,"mn.exp_ged"),(22,"mn.imp_mta"),
-                         (24,"mn.ped_gaps"),(25,"mn.auto_sides"),(26,"mn.endo_score")]:
+                         (24,"mn.ped_gaps"),(25,"mn.auto_sides"),(26,"mn.endo_score"),
+                         (27,"mn.pop_stats")]:
             self._lang_menus.append((am, idx, key))
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
@@ -1627,6 +1629,10 @@ class AncestryDnaApp(tk.Frame):
     def _show_endogamy_analysis(self):
         from ancestry.gui.analysis.mrca import show_endogamy_analysis
         show_endogamy_analysis(self)
+
+    def _show_population_stats(self):
+        from ancestry.gui.analysis.population import show_population_stats
+        show_population_stats(self)
 
     def _run_gedmatch_bridge(self):
         """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches (Name+cM-Ähnlichkeit)."""
