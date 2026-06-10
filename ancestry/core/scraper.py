@@ -172,6 +172,10 @@ class Scraper:
         total_est  = max(existing, 100)
         STOP_AFTER = 3
 
+        # Reset session-expired flag at the start of each new download
+        if hasattr(self._client, "_session_expired"):
+            self._client._session_expired = False
+
         consecutive_known_pages = 0
         batch: list[DnaMatch] = []
         try:

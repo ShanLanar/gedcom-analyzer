@@ -168,6 +168,7 @@ class AncestryDnaApp(tk.Frame):
         am.add_command(label=self._t("mn.imp_mta"),     command=self._import_mta)
         am.add_separator()
         am.add_command(label=self._t("mn.ped_gaps"),    command=self._show_pedigree_gaps)
+        am.add_command(label=self._t("mn.ped_chart"),  command=self._show_pedigree_chart)
         am.add_command(label=self._t("mn.auto_sides"),  command=self._auto_assign_sides)
         am.add_command(label=self._t("mn.endo_score"),  command=self._show_endogamy_analysis)
         am.add_command(label=self._t("mn.pop_stats"),   command=self._show_population_stats)
@@ -182,9 +183,9 @@ class AncestryDnaApp(tk.Frame):
                          (14,"mn.chg_ged"),(16,"mn.surnames"),(17,"mn.places"),
                          (18,"mn.mrca"),(19,"mn.net_graph"),
                          (21,"mn.exp_ged"),(22,"mn.imp_mta"),
-                         (24,"mn.ped_gaps"),(25,"mn.auto_sides"),(26,"mn.endo_score"),
-                         (27,"mn.pop_stats"),
-                         (29,"mn.dashboard"),(30,"mn.copilot_cl")]:
+                         (24,"mn.ped_gaps"),(25,"mn.ped_chart"),(26,"mn.auto_sides"),
+                         (27,"mn.endo_score"),(28,"mn.pop_stats"),
+                         (30,"mn.dashboard"),(31,"mn.copilot_cl")]:
             self._lang_menus.append((am, idx, key))
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
@@ -1631,6 +1632,10 @@ class AncestryDnaApp(tk.Frame):
     def _show_pedigree_gaps(self):
         from ancestry.gui.analysis.pedigree import show_pedigree_gaps
         show_pedigree_gaps(self)
+
+    def _show_pedigree_chart(self):
+        from ancestry.gui.analysis.pedigree_chart import show_pedigree_chart
+        show_pedigree_chart(self)
 
     def _show_endogamy_analysis(self):
         from ancestry.gui.analysis.mrca import show_endogamy_analysis

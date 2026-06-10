@@ -250,6 +250,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mn.exp_ged":   {"de": "Vorfahren als GEDCOM exportieren …",   "en": "Export ancestors as GEDCOM …"},
     "mn.imp_mta":   {"de": "MyTrueAncestry CSV importieren …",     "en": "Import MyTrueAncestry CSV …"},
     "mn.ped_gaps":  {"de": "Ahnentafel-Lücken analysieren …",      "en": "Pedigree gap analysis …"},
+    "mn.ped_chart": {"de": "🌳 Ahnentafel-Diagramm …",            "en": "🌳 Pedigree chart …"},
     "mn.auto_sides":{"de": "Seiten automatisch zuweisen (Mutter-Kit)…",
                      "en": "Auto-assign sides (mother kit)…"},
     "mn.endo_score":{"de": "Endogamie-Score-Analyse …",            "en": "Endogamy score analysis …"},
