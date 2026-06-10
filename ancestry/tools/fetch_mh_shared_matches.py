@@ -261,6 +261,15 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
 
     db = AncestryDatabase()
 
+    # Sicherstellen, dass repair_attempted-Spalte existiert (einmalige Live-Migration)
+    try:
+        with db._cursor() as cur:
+            cur.execute(
+                "ALTER TABLE shared_matches_fetched ADD COLUMN repair_attempted INTEGER DEFAULT 0"
+            )
+    except Exception:
+        pass  # Spalte existiert bereits
+
     # Test-GUID aus CSV-Dateiname oder DB ermitteln
     # Dateiname: Andreas_Kovermann_D44D71405...  → D-44D71405-...
     test_guid = ""
@@ -300,24 +309,34 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
                 all_fetched = {r[0] for r in rows}
 
             if repair_threshold > 0:
-                # Reparatur-Modus: Matches mit ≤ N Shared Matches werden erneut geladen.
-                # Hintergrund: Ohne funktionierende "Download CSV"-Extension liefert der
-                # GraphQL-Intercept nur die erste Seite (10 Ergebnisse). Diese Matches
-                # brauchen einen erneuten Lauf mit aktiver Extension.
+                # Reparatur-Modus (einmalig pro Match):
+                # Nur Matches mit ≤ N Shared Matches UND repair_attempted = 0 werden
+                # erneut geladen. Nach dem Reparatur-Lauf wird repair_attempted = 1 gesetzt
+                # → bei künftigen Läufen niemals mehr angerührt, auch wenn der Zähler
+                # weiterhin ≤ N ist (genuine sparse match).
                 try:
                     with db._cursor() as cur:
                         count_rows = cur.execute(
-                            "SELECT match_guid_a, COUNT(*) FROM shared_matches "
-                            "GROUP BY match_guid_a"
+                            "SELECT smf.match_guid_a, smf.repair_attempted, "
+                            "COUNT(sm.match_guid_b) AS cnt "
+                            "FROM shared_matches_fetched smf "
+                            "LEFT JOIN shared_matches sm "
+                            "  ON sm.match_guid_a = smf.match_guid_a "
+                            "GROUP BY smf.match_guid_a, smf.repair_attempted"
                         ).fetchall()
-                    count_map = {r[0]: r[1] for r in count_rows}
-                    # Nur überspringen wenn Anzahl > Schwelle (ausreichend Daten vorhanden)
-                    done_guids = {g for g in all_fetched
-                                  if count_map.get(g, 0) > repair_threshold}
+                    # Bereits repariert oder ausreichend Daten → überspringen
+                    done_guids = {
+                        r[0] for r in count_rows
+                        if r[1] == 1          # repair_attempted = 1 → schon repariert
+                        or r[2] > repair_threshold  # genügend Shared Matches vorhanden
+                    }
                     repair_count = len(all_fetched) - len(done_guids)
+                    already_repaired = sum(1 for r in count_rows if r[1] == 1)
                     print(f"{len(all_fetched)} Matches bereits verarbeitet; "
                           f"{repair_count} davon haben ≤{repair_threshold} Shared Matches "
-                          f"→ werden erneut geladen (--repair-threshold {repair_threshold}).")
+                          f"und wurden noch nicht repariert "
+                          f"→ werden einmalig erneut geladen.\n"
+                          f"   ({already_repaired} bereits repariert – werden übersprungen.)")
                 except Exception as _re:
                     done_guids = all_fetched
                     print(f"Repair-Threshold-Abfrage fehlgeschlagen ({_re}), "
@@ -1131,14 +1150,20 @@ async ([url, bodyStr]) => {
                 else:
                     print("○ 0 Shared")
 
-                # Als verarbeitet markieren
+                # Als verarbeitet markieren; repair_attempted=1 wenn dies ein Reparatur-Lauf
+                # war → dieser Match wird bei künftigen --repair-threshold-Läufen
+                # dauerhaft übersprungen (auch wenn der Zähler weiterhin ≤ Schwelle ist).
+                _is_repair = repair_threshold > 0
                 try:
                     with db._cursor() as cur:
                         cur.execute("""
-                            INSERT OR REPLACE INTO shared_matches_fetched
-                            (test_guid, match_guid_a, fetched_at)
-                            VALUES (?, ?, ?)
-                        """, (test_guid, guid_a, fetched))
+                            INSERT INTO shared_matches_fetched
+                              (test_guid, match_guid_a, fetched_at, repair_attempted)
+                            VALUES (?, ?, ?, ?)
+                            ON CONFLICT(test_guid, match_guid_a) DO UPDATE SET
+                              fetched_at       = excluded.fetched_at,
+                              repair_attempted = MAX(repair_attempted, excluded.repair_attempted)
+                        """, (test_guid, guid_a, fetched, 1 if _is_repair else 0))
                     processed_this_run += 1
                 except Exception:
                     pass
