@@ -151,6 +151,7 @@ class AncestryDnaApp(tk.Frame):
         am.add_separator()
         am.add_command(label=self._t("mn.own_tree"),    command=self._match_own_tree)
         am.add_command(label=self._t("mn.sh_cluster"),  command=self._show_shared_clusters)
+        am.add_command(label=self._t("mn.seg_triang"),  command=self._show_triangulation)
         am.add_separator()
         am.add_command(label=self._t("mn.reset_sh"),    command=self._reset_shared_matches)
         am.add_command(label=self._t("mn.reset_nm"),    command=self._reset_name_attempts)
@@ -172,11 +173,12 @@ class AncestryDnaApp(tk.Frame):
         mb.add_cascade(label=self._t("mn.analysis"), menu=am)
         for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
-                         (9,"mn.reset_sh"),(10,"mn.reset_nm"),(12,"mn.refresh_lk"),
-                         (13,"mn.chg_ged"),(15,"mn.surnames"),(16,"mn.places"),
-                         (17,"mn.mrca"),(18,"mn.net_graph"),
-                         (20,"mn.exp_ged"),(21,"mn.imp_mta"),
-                         (23,"mn.ped_gaps"),(24,"mn.auto_sides"),(25,"mn.endo_score")]:
+                         (8,"mn.seg_triang"),
+                         (10,"mn.reset_sh"),(11,"mn.reset_nm"),(13,"mn.refresh_lk"),
+                         (14,"mn.chg_ged"),(16,"mn.surnames"),(17,"mn.places"),
+                         (18,"mn.mrca"),(19,"mn.net_graph"),
+                         (21,"mn.exp_ged"),(22,"mn.imp_mta"),
+                         (24,"mn.ped_gaps"),(25,"mn.auto_sides"),(26,"mn.endo_score")]:
             self._lang_menus.append((am, idx, key))
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
@@ -1304,6 +1306,111 @@ class AncestryDnaApp(tk.Frame):
             if not found:
                 detail.insert("end", "  (keine geteilten Vorfahren – ggf. erst "
                                      "Ahnentafeln für diese Matches laden)\n")
+        tv.bind("<<TreeviewSelect>>", on_sel)
+        reload()
+
+    def _show_triangulation(self):
+        """Segment-Triangulation: TGs aus DNA-Segmenten + Shared-Match-Bestätigung."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Segment-Triangulation")
+        win.geometry("860x620")
+
+        top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10, 4))
+        ttk.Label(top, text="Min. Segment:", style="Bold.TLabel").pack(side="left")
+        min_cm_var = tk.StringVar(value="7")
+        ttk.Entry(top, textvariable=min_cm_var, width=5).pack(side="left", padx=4)
+        ttk.Label(top, text="cM    Min. Überlappung:").pack(side="left")
+        min_ov_var = tk.StringVar(value="5")
+        ttk.Entry(top, textvariable=min_ov_var, width=5).pack(side="left", padx=4)
+        ttk.Label(top, text="cM").pack(side="left")
+
+        info = ttk.Label(win, text="", style="Bold.TLabel")
+        info.pack(anchor="w", padx=10, pady=(4, 2))
+
+        pane = ttk.PanedWindow(win, orient="vertical"); pane.pack(fill="both", expand=True, padx=10, pady=6)
+        tframe = ttk.Frame(pane); pane.add(tframe, weight=2)
+        bframe = ttk.Frame(pane); pane.add(bframe, weight=3)
+
+        cols = ("chrom", "region", "members", "avg_cm")
+        tv = ttk.Treeview(tframe, columns=cols, show="headings", selectmode="browse")
+        for col, lbl, w, anchor in [
+            ("chrom",   "Chr",           60,  "center"),
+            ("region",  "Region (Mbp)",  200, "w"),
+            ("members", "Mitglieder",     80, "center"),
+            ("avg_cm",  "Ø cM",          80,  "center"),
+        ]:
+            tv.heading(col, text=lbl); tv.column(col, width=w, anchor=anchor)
+        tv.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(tframe, orient="vertical", command=tv.yview); sb.pack(side="right", fill="y")
+        tv.configure(yscrollcommand=sb.set)
+
+        ttk.Label(bframe, text="Mitglieder der Triangulationsgruppe:", style="Bold.TLabel").pack(anchor="w", pady=(4, 2))
+        detail = tk.Text(bframe, height=10, wrap="word", font=("Segoe UI", 9))
+        detail.pack(fill="both", expand=True)
+
+        store = {}
+
+        def reload(*_):
+            try:
+                min_cm = float(min_cm_var.get() or 7)
+                min_ov = float(min_ov_var.get() or 5)
+            except ValueError:
+                min_cm, min_ov = 7.0, 5.0
+            from ancestry.core.triangulation import build_triangulation_groups
+            tgs = build_triangulation_groups(self._db, test_guid,
+                                             min_cm=min_cm, min_overlap_cm=min_ov)
+            tv.delete(*tv.get_children()); store.clear()
+            for tg in tgs:
+                chrom = tg["chromosome"]
+                start_mbp = tg["region_start"] / 1_000_000
+                end_mbp   = tg["region_end"]   / 1_000_000
+                n = len(tg["members"])
+                avg_cm = sum(m["length_cm"] for m in tg["members"]) / n if n else 0
+                iid = tv.insert("", "end", values=(
+                    chrom,
+                    f"{start_mbp:.1f} – {end_mbp:.1f}",
+                    n,
+                    f"{avg_cm:.1f}",
+                ))
+                store[iid] = tg
+            if tgs:
+                info.configure(text=f"{len(tgs)} Triangulationsgruppen (min. {min_cm:.0f} cM, Überlappung ≥ {min_ov:.0f} cM)")
+            else:
+                info.configure(text="Keine TGs – erst DNA-Segmente laden und Shared Matches abrufen.")
+
+        def on_sel(_event=None):
+            detail.delete("1.0", "end")
+            sel = tv.selection()
+            if not sel:
+                return
+            tg = store.get(sel[0])
+            if not tg:
+                return
+            chrom = tg["chromosome"]
+            s_mbp = tg["region_start"] / 1_000_000
+            e_mbp = tg["region_end"]   / 1_000_000
+            detail.insert("end", f"Chr {chrom}  {s_mbp:.2f} – {e_mbp:.2f} Mbp\n\n")
+            # Fetch display names for members
+            guids = [m["match_guid"] for m in tg["members"]]
+            name_map = {}
+            if guids:
+                try:
+                    matches = self._db.get_matches(test_guid)
+                    name_map = {m.match_guid: m.display_name for m in matches}
+                except Exception:
+                    pass
+            for m in sorted(tg["members"], key=lambda x: -x["length_cm"]):
+                name = name_map.get(m["match_guid"], m["match_guid"][:12])
+                detail.insert("end",
+                    f"  {name[:40]:<42} {m['length_cm']:6.1f} cM  "
+                    f"({m['start']/1e6:.1f}–{m['end']/1e6:.1f} Mbp)\n")
+
+        ttk.Button(top, text="↻", width=3, command=reload).pack(side="left", padx=8)
         tv.bind("<<TreeviewSelect>>", on_sel)
         reload()
 

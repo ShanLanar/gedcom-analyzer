@@ -145,6 +145,7 @@ class Database:
     def reset_shared_matches(self, *a, **kw):   return self._shared.reset_shared_matches(*a, **kw)
     def get_shared_match_count(self, *a, **kw): return self._shared.get_shared_match_count(*a, **kw)
     def get_all_shared_for_cluster(self, *a, **kw): return self._shared.get_all_shared_for_cluster(*a, **kw)
+    def get_shared_pairs_set(self, *a, **kw):       return self._shared.get_shared_pairs_set(*a, **kw)
 
     # ── Statistiken ───────────────────────────────────────────────────────────
 
@@ -153,3 +154,4 @@ class Database:
     # ── Segmente ──────────────────────────────────────────────────────────────
 
     def bulk_upsert_segments(self, *a, **kw):   return self._segs.bulk_upsert_segments(*a, **kw)
+    def get_segments(self, *a, **kw):            return self._segs.get_segments(*a, **kw)

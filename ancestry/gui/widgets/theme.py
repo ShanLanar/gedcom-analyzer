@@ -211,6 +211,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mn.ped_overlay":{"de": "Pedigree-Überlagerung (Cluster) …",   "en": "Pedigree overlay (cluster) …"},
     "mn.own_tree":  {"de": "Eigenen Baum (GEDCOM) abgleichen …",   "en": "Match own tree (GEDCOM) …"},
     "mn.sh_cluster":{"de": "Shared-Cluster (Triangulation) …",     "en": "Shared cluster (triangulation) …"},
+    "mn.seg_triang":{"de": "Segment-Triangulation …",               "en": "Segment triangulation …"},
     "mn.reset_sh":  {"de": "Shared Matches zurücksetzen (neu laden) …",
                      "en": "Reset shared matches (reload) …"},
     "mn.reset_nm":  {"de": "Namens-Versuche zurücksetzen (alle erneut) …",

@@ -35,3 +35,14 @@ class SegmentsRepo:
                 VALUES (?,?,?,?,?,?,?,?)
             """, rows)
         return len(rows)
+
+    def get_segments(self, test_guid: str, min_cm: float = 0.0) -> list[dict]:
+        with self._db._cursor() as cur:
+            cur.execute("""
+                SELECT match_guid, chromosome, start_location, end_location,
+                       length_cm, snp_count
+                FROM dna_segments
+                WHERE test_guid = ? AND length_cm >= ?
+                ORDER BY chromosome, start_location
+            """, (test_guid, min_cm))
+            return [dict(r) for r in cur.fetchall()]

@@ -249,6 +249,16 @@ class SharedRepo:
                             (test_guid,))
             return cur.fetchone()[0]
 
+    def get_shared_pairs_set(self, test_guid: str) -> set:
+        """Return all shared-match pairs as frozensets for O(1) lookup."""
+        with self._db._cursor() as cur:
+            cur.execute("""
+                SELECT match_guid_a, match_guid_b
+                FROM shared_matches
+                WHERE test_guid = ?
+            """, (test_guid,))
+            return {frozenset((r[0], r[1])) for r in cur.fetchall()}
+
     def get_all_shared_for_cluster(self, test_guid: str,
                                     min_cm_primary: float = 20.0,
                                     min_cm_shared: float = 20.0,

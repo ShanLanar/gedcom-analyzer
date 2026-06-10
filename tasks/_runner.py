@@ -79,13 +79,8 @@ def load_gedcom(progress_cb=None, stop_event=None):
 
     # GEDCOM-Personen in ancestry_dna.db persistieren (für Viewer + DNA-Bridge)
     try:
-        import sys as _sys
-        _anc = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                            "ancestry")
-        if _anc not in _sys.path:
-            _sys.path.insert(0, _anc)
-        from core.database import Database as AncestryDatabase
-        from core.bridge import import_gedcom_persons, ensure_tables
+        from ancestry.core.database import Database as AncestryDatabase
+        from ancestry.core.bridge import import_gedcom_persons, ensure_tables
         _db = AncestryDatabase()
         ensure_tables(_db)
         _n = import_gedcom_persons(
@@ -1243,8 +1238,6 @@ def run_dna_overview(progress_cb=None, stop_event=None):
 
     ancestry_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                 "ancestry")
-    if ancestry_dir not in sys.path:
-        sys.path.insert(0, ancestry_dir)
 
     db_path = os.path.join(ancestry_dir, "ancestry_dna.db")
     if not os.path.exists(db_path):
@@ -1253,7 +1246,7 @@ def run_dna_overview(progress_cb=None, stop_event=None):
         return
 
     try:
-        from core.database import Database
+        from ancestry.core.database import Database
         db = Database(db_path)
     except Exception as e:
         p(f"Ancestry-DB konnte nicht geöffnet werden: {e}", tag="err")
