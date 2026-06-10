@@ -2,6 +2,9 @@
 wikitree.py — WikiTree-Anreicherung für das Bridge-Modul.
 """
 
+import logging
+
+log = logging.getLogger(__name__)
 
 # ─────────────────────────────────────────────────────────────────────────────
 # WikiTree-Anreicherung — Match-Ahnenlinien über api.wikitree.com verlängern
@@ -27,7 +30,7 @@ def wikitree_extend_match(db, test_guid: str, match_guid: str,
     def p(msg):
         if progress_cb:
             try: progress_cb(msg)
-            except Exception: pass
+            except Exception as e: log.debug("progress_cb wikitree_extend: %s", e)
 
     rows = db.get_pedigree_for_match(test_guid, match_guid)
     # nur Ahnen mit Nachname; tiefste Generationen zuerst (beste Leads)

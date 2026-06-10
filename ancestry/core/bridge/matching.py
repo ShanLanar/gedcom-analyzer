@@ -226,7 +226,8 @@ def infer_side_from_links(db, test_guid: str, match_guid: str, amap: dict) -> st
                 "SELECT ged_id FROM gedcom_links WHERE test_guid=? AND match_guid=?",
                 (test_guid, match_guid),
             ).fetchall()]
-    except Exception:
+    except Exception as e:
+        log.debug("infer_side_from_links %s/%s: %s", test_guid[:8], match_guid[:8], e)
         return ""
     if not ged_ids:
         return ""
@@ -386,7 +387,8 @@ def apply_gedcom_endogamy_to_matches(
                    WHERE m.test_guid = ? AND ma.birth_place != ''""",
                 (test_guid,),
             ).fetchall()
-    except Exception:
+    except Exception as e:
+        log.debug("propagate_endogamy match_ancestors query: %s", e)
         rows = []
 
     marked: set = set()
@@ -437,7 +439,8 @@ def infer_match_origins(
     try:
         ged_rows = [r for r in iter_unique_persons(db)
                     if (r.get("birth_place") or "") and (r.get("surname_norm") or "")]
-    except Exception:
+    except Exception as e:
+        log.warning("infer_match_origins: GEDCOM nicht geladen (%s)", e)
         p("GEDCOM-Tabelle nicht gefunden – bitte zuerst GEDCOM laden.")
         return []
 
@@ -469,7 +472,8 @@ def infer_match_origins(
                    WHERE m.test_guid = ? AND mp.surname != ''""",
                 (test_guid,),
             ).fetchall()
-    except Exception:
+    except Exception as e:
+        log.warning("infer_match_origins: match_pedigree nicht geladen (%s)", e)
         p("match_pedigree-Tabelle nicht gefunden – bitte Ahnentafeln herunterladen.")
         return []
 

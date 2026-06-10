@@ -105,12 +105,12 @@ def ensure_tables(db) -> None:
         try:
             cur.execute("ALTER TABLE gedcom_persons ADD COLUMN source TEXT NOT NULL DEFAULT 'gedcom'")
         except Exception:
-            pass
+            pass  # column already exists
         # Migration: status-Spalte der Xref-Tabelle
         try:
             cur.execute("ALTER TABLE gedcom_person_xref ADD COLUMN status TEXT NOT NULL DEFAULT 'auto'")
         except Exception:
-            pass
+            pass  # column already exists
 
 
 # ── Import ─────────────────────────────────────────────────────────────────────
@@ -266,7 +266,7 @@ def link_duplicates(db, source: str, primary_source: str = "gedcom",
     def p(msg):
         if progress_cb:
             try: progress_cb(msg)
-            except Exception: pass
+            except Exception as e: log.debug("progress_cb link_duplicates: %s", e)
 
     def _first(g):
         toks = (g or "").lower().split()
@@ -435,5 +435,6 @@ def get_gedcom_person_count(db) -> int:
     try:
         with db._cursor() as cur:
             return cur.execute("SELECT COUNT(*) FROM gedcom_persons").fetchone()[0]
-    except Exception:
+    except Exception as e:
+        log.debug("get_gedcom_person_count: %s", e)
         return 0

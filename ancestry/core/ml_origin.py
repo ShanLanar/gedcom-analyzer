@@ -95,13 +95,13 @@ def train(db, min_region: int = 20, sources=None, dedupe: bool = True,
     def p(m):
         if progress_cb:
             try: progress_cb(m)
-            except Exception: pass
+            except Exception as e: log.debug("progress_cb train: %s", e)
 
     p("Lese Personen (quellenbewusst, dedupliziert) …")
     if dedupe:
         try:
             from core.bridge import iter_unique_persons
-        except Exception:
+        except ImportError:
             from bridge import iter_unique_persons
         rows = [r for r in iter_unique_persons(db, sources=sources)
                 if (r.get("surname") or "").strip() and (r.get("birth_place") or "").strip()]
@@ -199,7 +199,7 @@ def apply_to_matches(db, test_guid: str, progress_cb=None) -> int:
     def p(m):
         if progress_cb:
             try: progress_cb(m)
-            except Exception: pass
+            except Exception as e: log.debug("progress_cb apply: %s", e)
 
     with db._cursor() as cur:
         rows = cur.execute(

@@ -73,3 +73,29 @@ from .matching import (
     infer_match_origins,
 )
 from .wikitree import wikitree_extend_match
+
+__all__ = [
+    # scoring
+    "MIN_LINK_SCORE",
+    "compute_link_score",
+    # gedcom_import
+    "BRIDGE_SCHEMA",
+    "ensure_tables",
+    "import_gedcom_persons",
+    "import_external_persons",
+    "link_duplicates",
+    "get_xref_pairs",
+    "set_xref_status",
+    "iter_unique_persons",
+    "get_gedcom_person_count",
+    # matching
+    "run_match_for_match",
+    "run_match_all",
+    "path_to_sosa",
+    "infer_side_from_links",
+    "get_gedcom_relationship_summary",
+    "apply_gedcom_endogamy_to_matches",
+    "infer_match_origins",
+    # wikitree
+    "wikitree_extend_match",
+]
