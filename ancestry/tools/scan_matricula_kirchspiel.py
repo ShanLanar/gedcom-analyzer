@@ -361,17 +361,20 @@ def _scan_book(
     book_id   = book["book_id"]
     book_type = book["book_type"]
     book_url  = book["url"]
+    # book_id already contains the full path incl. diocese prefix
     if not book_url:
-        book_url = f"{BASE_URL}/de/deutschland/osnabrueck/{book_id}/"
+        book_url = f"{BASE_URL}/de/{book_id}/"
 
     print(f"\n  Buch: {book_id}  [{book_type}  {book['year_from'] or '?'}–{book['year_to'] or '?'}]")
     print(f"  URL:  {book_url}")
 
-    # Buchseite laden
+    # Buchseite laden — direkt ?pg=1 damit der Viewer und sein Pagination-UI
+    # vollständig geladen sind (nötig für _detect_page_count)
+    pg1_url = f"{book_url.rstrip('/')}/?pg=1"
     try:
-        pw_page.goto(book_url, wait_until="networkidle", timeout=30_000)
+        pw_page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
     except Exception:
-        pw_page.goto(book_url, wait_until="domcontentloaded", timeout=30_000)
+        pw_page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
     time.sleep(pause)
 
     # ── Seitenanzahl ermitteln ────────────────────────────────────────────────
@@ -438,7 +441,12 @@ def _scan_book(
             if pw_page is None:
                 print("⚠ kein Bild (kein Browser und kein Archiv)")
                 continue
-            image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
+            # Seite 1 wurde bereits für _detect_page_count geladen — Screenshot
+            # direkt machen ohne erneutes goto (Netzwerk sparen).
+            if page_nr == 1 and not retranscribe:
+                image_url, image_bytes = _capture_current_page(pw_page, book_url, 1)
+            else:
+                image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
             if image_bytes is not None:
                 # Archivieren
                 arch_file.parent.mkdir(parents=True, exist_ok=True)
@@ -505,6 +513,35 @@ def _detect_page_count(page) -> int | None:
     except Exception:
         pass
     return None
+
+
+def _capture_current_page(
+    page,
+    book_url: str,
+    page_nr: int,
+) -> tuple[str | None, bytes | None]:
+    """
+    Fängt das Bild der *bereits geladenen* Viewer-Seite ab — kein erneutes goto.
+    Wird für Seite 1 verwendet, die schon für _detect_page_count geladen wurde.
+    """
+    page_url = f"{book_url.rstrip('/')}/?pg={page_nr}"
+    # Letztes großes Bild aus dem Cache versuchen (Request API)
+    try:
+        # Das Viewer-Bild ist oft in der OpenSeadragon-Canvas — Screenshot reicht
+        viewer_el = (
+            page.query_selector(".openseadragon-container")
+            or page.query_selector("#viewer")
+            or page.query_selector("[class*=viewer]")
+            or page.query_selector("canvas")
+        )
+        if viewer_el:
+            screenshot = viewer_el.screenshot(type="jpeg", quality=90)
+        else:
+            screenshot = page.screenshot(type="jpeg", quality=90, full_page=False)
+        return page_url, screenshot
+    except Exception as e:
+        print(f"[Screenshot-Fehler: {e}] ", end="")
+    return None, None
 
 
 def _load_page_image(

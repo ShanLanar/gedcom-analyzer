@@ -40,46 +40,47 @@ DB_PATH = os.path.join(ROOT, "ancestry", "tools", "matricula_parishes.db")
 
 _MATRICULA_BASE = "https://data.matricula-online.eu"
 
-_YEAR_RANGE_RE = re.compile(r"(\d{4})\s*[-–—]\s*(\d{4})")
-_SINGLE_YEAR   = re.compile(r"\b(1[0-9]{3}|20\d{2})\b")
+_YEAR_RE = re.compile(r"\b(\d{4})\b")
 
-# Schlüsselwörter → kanonischer Buchtyp
-_BOOK_TYPE_KEYS: list[tuple[str, str]] = [
-    ("tauf",     "Taufe"),
-    ("getauft",  "Taufe"),
-    ("baptis",   "Taufe"),
-    ("trauung",  "Heirat"),
-    ("heirat",   "Heirat"),
-    ("copulat",  "Heirat"),
-    ("heiraten", "Heirat"),
-    ("ehe",      "Heirat"),
-    ("sterb",    "Tod"),
-    ("bestat",   "Tod"),
-    ("begraben", "Tod"),
-    ("begräbn",  "Tod"),
-    ("sepultur", "Tod"),
-    ("verstorb", "Tod"),
-    ("konfirm",  "Konfirmation"),
-    ("firmung",  "Firmung"),
-    ("komm",     "Kommunion"),
-    ("indices",  "Index"),
-    ("index",    "Index"),
-]
+# Matricula-Matrikeltyp-Namen → kanonischer Buchtyp
+# Quelle: Drop-down-Optionen aus der echten Matricula-HTML
+_MATRIKEL_TYPE_MAP: dict[str, str] = {
+    "taufen":                    "Taufe",
+    "trauungen":                 "Heirat",
+    "heiraten":                  "Heirat",
+    "beerdigungen":              "Tod",
+    "sterbefälle":               "Tod",
+    "taufen - trauungen":        "gemischt",
+    "taufen heiraten":           "gemischt",
+    "firmungen":                 "Firmung",
+    "firmung":                   "Firmung",
+    "erstkommunion":             "Kommunion",
+    "kommunion":                 "Kommunion",
+    "familienkatalog":           "Familienkatalog",
+    "index":                     "Index",
+    "index - taufen":            "Index",
+    "index - trauungen":         "Index",
+}
 
 
-def _detect_type(text: str) -> str:
-    t = text.lower()
-    for key, label in _BOOK_TYPE_KEYS:
-        if key in t:
+def _map_matrikel_type(raw: str) -> str:
+    """Mappt einen Matricula-Matrikeltyp-String auf unsere kanonischen Typen."""
+    key = raw.strip().lower()
+    # Exakter Match
+    if key in _MATRIKEL_TYPE_MAP:
+        return _MATRIKEL_TYPE_MAP[key]
+    # Teilstring-Match für zusammengesetzte Typen
+    for pattern, label in _MATRIKEL_TYPE_MAP.items():
+        if pattern in key:
             return label
-    return "unbekannt"
+    return raw.strip() or "unbekannt"
 
 
 def _extract_years(text: str) -> tuple[int | None, int | None]:
-    m = _YEAR_RANGE_RE.search(text)
-    if m:
-        return int(m.group(1)), int(m.group(2))
-    years = _SINGLE_YEAR.findall(text)
+    """Extrahiert Start- und Endjahr aus einem Matricula-Datums-String.
+    Eingabe: "1681 März - 1697 Sep"  →  (1681, 1697)
+    """
+    years = _YEAR_RE.findall(text)
     if len(years) >= 2:
         return int(years[0]), int(years[-1])
     if years:
@@ -233,6 +234,170 @@ def _resolve_parishes(
     return []
 
 
+# ── Tabellen-Parser ───────────────────────────────────────────────────────────
+
+_JS_PARSE_BOOK_TABLE = """
+() => {
+    // Liest alle Buchzeilen aus der Matricula-Matriken-Tabelle.
+    // Hauptzeile (<tr>):
+    //   td[0]  Kamera-Link → /de/…/D1_001_1/
+    //   td[1]  Signatur    → D1_001_1
+    //   td[2]  Anzeigetyp  → "Taufen Heiraten Lutheraner …" (variiert)
+    //   td[3]  Datum       → "1681 März - 1697 Sep"
+    // Detailzeile (<tr class="collapse">):
+    //   dt=Matrikeltyp / dd=normalisierter Typ → "Taufen - Trauungen"
+    //   dt=Beginn Datumsbereich  / dd="1. Januar 1681"
+    //   dt=Ende Datumsbereich    / dd="31. Dezember 1705"
+    const rows = [];
+    const trs = Array.from(document.querySelectorAll('table.table-bordered tr'));
+    for (let idx = 0; idx < trs.length; idx++) {
+        const tr = trs[idx];
+        const tds = tr.querySelectorAll('td');
+        if (tds.length < 4) continue;
+
+        const camLink = tds[0].querySelector('a[href*="/de/"]');
+        if (!camLink) continue;
+        const href = camLink.getAttribute('href') || '';
+
+        const signatur = tds[1].innerText.trim();
+        if (!signatur) continue;
+
+        // Anzeigetyp (3. Spalte) — kann ausführlicher Text sein
+        const typDisplay = tds[2].innerText.trim();
+        const datum = tds[3].innerText.trim();
+
+        // Normalisierter Matrikeltyp aus Detailzeile (nächste .collapse tr)
+        let typNorm = typDisplay;
+        let datumVon = '', datumBis = '';
+        const nextTr = trs[idx + 1];
+        if (nextTr && nextTr.classList.contains('collapse')) {
+            for (const dt of nextTr.querySelectorAll('dt')) {
+                const label = dt.innerText.trim();
+                const dd = dt.nextElementSibling;
+                if (!dd) continue;
+                const val = dd.innerText.trim();
+                if (label === 'Matrikeltyp')       typNorm  = val;
+                if (label.includes('Beginn'))       datumVon = val;
+                if (label.includes('Ende'))         datumBis = val;
+            }
+        }
+
+        rows.push({ href, signatur, typDisplay, typNorm, datum, datumVon, datumBis });
+    }
+    return rows;
+}
+"""
+
+_JS_NEXT_PAGE = """
+() => {
+    // Gibt die URL der nächsten Seite zurück, oder null.
+    // Matricula-Bücherliste: ?page=2, ?page=3, …
+    const next = document.querySelector(
+        'ul.pagination a[href*="?page="]:last-of-type, ' +
+        '.page-item:not(.disabled) a[href*="?page="]'
+    );
+    // Nur wenn es wirklich eine "weiter"-Seite gibt (nicht die aktive)
+    const active = document.querySelector('.page-item.active');
+    if (!next || !active) return null;
+    // Aktive Seitennummer
+    const activePg = parseInt(active.innerText, 10) || 1;
+    // URL der nächsten Seite
+    const url = next.getAttribute('href');
+    // Seitennummer aus der URL extrahieren
+    const m = url.match(/[?&]page=(\\d+)/);
+    if (!m) return null;
+    const nextPg = parseInt(m[1], 10);
+    return nextPg > activePg ? url : null;
+}
+"""
+
+
+def _scrape_parish_books(
+    page,
+    parish_id: str,
+    base_url: str,
+    pause: float,
+) -> list[dict]:
+    """
+    Scrapt alle Kirchenbücher einer Pfarrei aus der Matricula-Tabelle.
+
+    Matricula zeigt 50 Bücher pro Seite — die Bücherliste selbst ist mit
+    ?page=2, ?page=3 … paginiert (nicht zu verwechseln mit ?pg=N für
+    die Bilder-Seiten im Viewer).
+
+    Liest Signatur, Matrikeltyp und Datumsbereich direkt aus den <td>-Zellen —
+    nicht aus dem Link-Text, da Kamera-Links nur ein Icon enthalten.
+    """
+    from playwright.sync_api import TimeoutError as PWTimeout  # noqa
+
+    # Erste Seite der Bücherliste
+    try:
+        page.goto(base_url, wait_until="networkidle", timeout=20_000)
+    except PWTimeout:
+        page.goto(base_url, wait_until="domcontentloaded", timeout=20_000)
+    time.sleep(pause * 0.4)
+
+    all_rows: list[dict] = []
+    seen_sigs: set[str] = set()
+
+    while True:
+        raw_rows = page.evaluate(_JS_PARSE_BOOK_TABLE)
+
+        for r in raw_rows:
+            sig = r["signatur"]
+            if sig in seen_sigs:
+                continue
+            seen_sigs.add(sig)
+
+            href     = r["href"]    # /de/deutschland/osnabrueck/ostercappeln-st-lambertus/D1_001_1/
+            sub_id   = href.rstrip("/").rsplit("/", 1)[-1]
+            full_url = f"{_MATRICULA_BASE}{href}" if href.startswith("/") else href
+
+            # Normalisierter Typ aus Detailzeile bevorzugen (z.B. "Taufen - Trauungen"
+            # statt "Taufen Heiraten Lutheraner in Kapelle Arenshorst")
+            typ_raw   = r.get("typNorm") or r.get("typDisplay", "")
+            book_type = _map_matrikel_type(typ_raw)
+
+            # Präzise Jahresgrenzen aus Detailzeile, Fallback auf Anzeigedatum
+            datum_von = r.get("datumVon", "")
+            datum_bis = r.get("datumBis", "")
+            if datum_von and datum_bis:
+                yf, _   = _extract_years(datum_von)
+                _, yt   = _extract_years(datum_bis)
+                year_from, year_to = yf, yt
+            else:
+                year_from, year_to = _extract_years(r.get("datum", ""))
+
+            all_rows.append({
+                "book_id":   f"{parish_id}/{sub_id}",
+                "parish_id": parish_id,
+                "book_type": book_type,
+                "year_from": year_from,
+                "year_to":   year_to,
+                # Label = Anzeigetext + Datum — lesbarer als nur Signatur
+                "label":     f"{r.get('typDisplay', typ_raw)} {r.get('datum', '')}".strip(),
+                "url":       full_url,
+            })
+
+        # Nächste Seite?
+        next_href = page.evaluate(_JS_NEXT_PAGE)
+        if not next_href:
+            break
+
+        next_url = (
+            f"{_MATRICULA_BASE}{next_href}"
+            if next_href.startswith("/") else
+            f"{base_url.rstrip('/')}/{next_href.lstrip('/')}"
+        )
+        try:
+            page.goto(next_url, wait_until="networkidle", timeout=15_000)
+        except PWTimeout:
+            page.goto(next_url, wait_until="domcontentloaded", timeout=15_000)
+        time.sleep(pause * 0.3)
+
+    return all_rows
+
+
 # ── Scraping ───────────────────────────────────────────────────────────────────
 
 def scrape_books(
@@ -277,60 +442,14 @@ def scrape_books(
         page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
 
         for i, parish in enumerate(parishes, 1):
-            pid   = parish["id"]    # deutschland/osnabrueck/ostercappeln
-            slug  = pid.split("/")[-1]  # ostercappeln (nur für URL-Pattern)
-            name  = parish["name"]
-            # Fallback-URL aus kanonischer parish_id: /de/deutschland/osnabrueck/ostercappeln/
-            url   = parish["url"] or f"{_MATRICULA_BASE}/de/{pid}/"
+            pid  = parish["id"]   # deutschland/osnabrueck/ostercappeln-st-lambertus
+            name = parish["name"]
+            base_url = parish["url"] or f"{_MATRICULA_BASE}/de/{pid}/"
 
             print(f"  [{i:3d}/{len(parishes)}] {name:<45}", end=" ", flush=True)
 
             try:
-                try:
-                    page.goto(url, wait_until="networkidle", timeout=20_000)
-                except PWTimeout:
-                    page.goto(url, wait_until="domcontentloaded", timeout=20_000)
-                time.sleep(pause * 0.4)
-
-                # Buch-Links: .../de/<diocese>/<parish-slug>/<book-sub-id>/
-                # sub_id kommt direkt von Matricula — wir übernehmen ihn as-is
-                book_pattern = re.compile(
-                    rf"/de/{re.escape(pid)}/([^/?#]+)/?$"
-                )
-                books_found: list[dict] = []
-                seen: set[str] = set()
-
-                for link in page.query_selector_all("a[href]"):
-                    href  = link.get_attribute("href") or ""
-                    m     = book_pattern.search(href)
-                    if not m:
-                        continue
-                    sub_id = m.group(1)   # Matricula-Buchname, z.B. "TauBu-1697-1820"
-                    if sub_id in seen:
-                        continue
-                    seen.add(sub_id)
-
-                    label    = (link.inner_text() or "").strip()
-                    full_url = (
-                        f"{_MATRICULA_BASE}{href}"
-                        if href.startswith("/") else href
-                    )
-
-                    # Buchtyp aus Matricula-Label + Sub-ID ableiten
-                    hint      = f"{label} {sub_id}"
-                    book_type = _detect_type(hint)
-                    year_from, year_to = _extract_years(hint)
-
-                    books_found.append({
-                        # book_id = vollständiger Matricula-Pfad ohne /de/-Präfix
-                        "book_id":   f"{pid}/{sub_id}",
-                        "parish_id": pid,
-                        "book_type": book_type,
-                        "year_from": year_from,
-                        "year_to":   year_to,
-                        "label":     label,
-                        "url":       full_url,
-                    })
+                books_found = _scrape_parish_books(page, pid, base_url, pause)
 
                 with db:
                     for b in books_found:
