@@ -331,13 +331,20 @@ def _save_entries(
 # ── Playwright-Seiten-Scanner ──────────────────────────────────────────────────
 
 def _archive_path(archive_dir: Path, book_id: str, page_nr: int) -> Path:
-    """Kanonischer Archiv-Pfad für eine Buchseite."""
-    # book_id = "ostercappeln/A1_taufen-1697"  →  parish/sub_id
-    parts    = book_id.split("/", 1)
-    parish   = parts[0]
-    sub_id   = parts[1] if len(parts) > 1 else book_id
-    # Dateiname: 4-stellige Seitennummer
-    return archive_dir / parish / sub_id / f"{page_nr:04d}.jpg"
+    """
+    Kanonischer Archiv-Pfad für eine Buchseite.
+
+    book_id = "deutschland/osnabrueck/ostercappeln-st-lambertus/TauBu-1697-1820"
+    →  <archive_dir>/ostercappeln-st-lambertus/TauBu-1697-1820/0001.jpg
+
+    Nur die letzten zwei Segmente werden als Verzeichnis verwendet —
+    die Diözese-Präfixe sind im Archiv redundant, da Matriculas eigene
+    Slugs bereits global eindeutig sind.
+    """
+    parts      = book_id.split("/")
+    parish_slug = parts[-2] if len(parts) >= 2 else book_id
+    book_slug   = parts[-1]
+    return archive_dir / parish_slug / book_slug / f"{page_nr:04d}.jpg"
 
 
 def _scan_book(
@@ -376,7 +383,10 @@ def _scan_book(
     # ── Seiten bestimmen ─────────────────────────────────────────────────────
     if retranscribe:
         # Alle lokal archivierten Seiten dieses Buchs scannen
-        book_archive = archive_dir / book_id.split("/")[0] / (book_id.split("/", 1)[1] if "/" in book_id else book_id)
+        parts        = book_id.split("/")
+        parish_slug  = parts[-2] if len(parts) >= 2 else book_id
+        book_slug    = parts[-1]
+        book_archive = archive_dir / parish_slug / book_slug
         archived = sorted(book_archive.glob("*.jpg")) if book_archive.exists() else []
         total_pages = len(archived)
         if not total_pages:
