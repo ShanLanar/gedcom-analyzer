@@ -27,6 +27,9 @@ output/*.html
 .claude/
 
 # Ancestry-DNA-Tool Laufzeit-Daten
+ancestry.db
+ancestry_dna.db
+ancestry_dna.db-*
 ancestry/ancestry_dna.db
 ancestry/ancestry_dna.db-*
 ancestry/data/
