@@ -4,9 +4,15 @@ Matricula-Kirchspiel-Scanner
 
 Scannt alle Kirchenbücher eines Kirchspiels komplett durch:
   1. Playwright öffnet jede Buchseite, fängt Bild-Requests ab
-  2. Seiten-Bilder werden als Base64 an Claude Vision geschickt
-  3. Claude transkribiert alle Einträge auf der Seite als JSON
-  4. Ergebnisse landen in source_matrikula_entries + Fortschritt in matricula_page_scans
+  2. Seiten-Bilder werden lokal archiviert (für spätere Re-Transkription)
+  3. Bilder werden als Base64 an Claude Vision geschickt
+  4. Claude transkribiert alle Einträge auf der Seite als JSON
+  5. Ergebnisse landen in source_matrikula_entries + Fortschritt in matricula_page_scans
+
+Bild-Archiv:
+    <archive_dir>/<parish_id>/<book_sub_id>/<page_nr:04d>.jpg
+    Standard: ~/matricula_images/ (überschreibbar mit --archive-dir oder MATRICULA_ARCHIVE)
+    Vorhandene Bilder werden beim Re-Scan direkt geladen (kein Re-Download).
 
 Setzt voraus:
   - scrape_matricula_osnabrueck.py wurde ausgeführt (Pfarrei-DB existiert)
@@ -19,6 +25,11 @@ Start:
     python scan_matricula_kirchspiel.py --parish ostercappeln --year-from 1780 --year-to 1850
     python scan_matricula_kirchspiel.py --parish ostercappeln --visible --pause 2.0
     python scan_matricula_kirchspiel.py --parish ostercappeln --dry-run   # ohne API-Calls
+
+Re-Transkription (Bilder bereits lokal vorhanden):
+    python scan_matricula_kirchspiel.py --parish ostercappeln --retranscribe
+    Löscht die alten Einträge für das Kirchspiel und transkribiert alle archivierten
+    Bilder neu — kein erneuter Web-Zugriff auf Matricula nötig.
 
 Fortsetzen nach Unterbrechung:
     Bereits gescannte Seiten werden übersprungen (Status 'done' in matricula_page_scans).
@@ -49,6 +60,10 @@ CHROME_PATH  = os.environ.get(
     "PLAYWRIGHT_CHROMIUM",
     "/opt/pw-browsers/chromium-1194/chrome-linux/chrome",
 )
+DEFAULT_ARCHIVE = Path(os.environ.get(
+    "MATRICULA_ARCHIVE",
+    os.path.expanduser("~/matricula_images"),
+))
 
 # Matricula-Basis-URL
 BASE_URL = "https://data.matricula-online.eu"
@@ -145,6 +160,7 @@ def _open_parish_db() -> sqlite3.Connection:
         book_id     TEXT NOT NULL,
         page_nr     INTEGER NOT NULL,
         image_url   TEXT DEFAULT '',
+        image_path  TEXT DEFAULT '',   -- lokaler Archivpfad
         status      TEXT DEFAULT 'pending',  -- pending | done | error | skip
         entry_count INTEGER DEFAULT 0,
         scanned_at  TEXT DEFAULT '',
@@ -154,6 +170,12 @@ def _open_parish_db() -> sqlite3.Connection:
     CREATE INDEX IF NOT EXISTS idx_mps_book   ON matricula_page_scans(book_id);
     CREATE INDEX IF NOT EXISTS idx_mps_status ON matricula_page_scans(status);
     """)
+    # Migration: image_path-Spalte nachrüsten falls Tabelle aus alter Version
+    try:
+        db.execute("ALTER TABLE matricula_page_scans ADD COLUMN image_path TEXT DEFAULT ''")
+        db.commit()
+    except Exception:
+        pass
     return db
 
 
@@ -308,13 +330,25 @@ def _save_entries(
 
 # ── Playwright-Seiten-Scanner ──────────────────────────────────────────────────
 
+def _archive_path(archive_dir: Path, book_id: str, page_nr: int) -> Path:
+    """Kanonischer Archiv-Pfad für eine Buchseite."""
+    # book_id = "ostercappeln/A1_taufen-1697"  →  parish/sub_id
+    parts    = book_id.split("/", 1)
+    parish   = parts[0]
+    sub_id   = parts[1] if len(parts) > 1 else book_id
+    # Dateiname: 4-stellige Seitennummer
+    return archive_dir / parish / sub_id / f"{page_nr:04d}.jpg"
+
+
 def _scan_book(
     book: sqlite3.Row,
     parish_db: sqlite3.Connection,
     main_db: sqlite3.Connection,
-    pw_page,            # Playwright page-Objekt
+    pw_page,            # Playwright page-Objekt (None bei --retranscribe)
     pause: float,
     dry_run: bool,
+    archive_dir: Path = DEFAULT_ARCHIVE,
+    retranscribe: bool = False,
 ) -> tuple[int, int]:
     """Scannt ein Kirchenbuch. Gibt (gescannte Seiten, neue Einträge) zurück."""
     book_id   = book["book_id"]
@@ -339,39 +373,76 @@ def _scan_book(
         print("  ⚠ Konnte Seitenanzahl nicht ermitteln — überspringe Buch")
         return 0, 0
 
-    print(f"  {total_pages} Seiten gefunden")
-
-    # Bereits gescannte Seiten laden
-    done_pages: set[int] = {
-        row[0]
-        for row in parish_db.execute(
-            "SELECT page_nr FROM matricula_page_scans WHERE book_id=? AND status='done'",
-            (book_id,),
-        ).fetchall()
-    }
-    remaining = total_pages - len(done_pages)
-    print(f"  {len(done_pages)} bereits fertig, {remaining} verbleibend")
+    # ── Seiten bestimmen ─────────────────────────────────────────────────────
+    if retranscribe:
+        # Alle lokal archivierten Seiten dieses Buchs scannen
+        book_archive = archive_dir / book_id.split("/")[0] / (book_id.split("/", 1)[1] if "/" in book_id else book_id)
+        archived = sorted(book_archive.glob("*.jpg")) if book_archive.exists() else []
+        total_pages = len(archived)
+        if not total_pages:
+            print("  ⚠ Keine archivierten Bilder — überspringe")
+            return 0, 0
+        print(f"  {total_pages} archivierte Seiten (Re-Transkription)")
+        # Alte Einträge löschen
+        with main_db:
+            main_db.execute(
+                "DELETE FROM source_matrikula_entries WHERE book_id=?", (book_id,)
+            )
+        with parish_db:
+            parish_db.execute(
+                "UPDATE matricula_page_scans SET status='pending' WHERE book_id=?",
+                (book_id,),
+            )
+        done_pages: set[int] = set()
+        page_range = [int(p.stem) for p in archived]
+    else:
+        print(f"  {total_pages} Seiten gefunden")
+        done_pages = {
+            row[0]
+            for row in parish_db.execute(
+                "SELECT page_nr FROM matricula_page_scans WHERE book_id=? AND status='done'",
+                (book_id,),
+            ).fetchall()
+        }
+        remaining = total_pages - len(done_pages)
+        print(f"  {len(done_pages)} bereits fertig, {remaining} verbleibend")
+        page_range = list(range(1, total_pages + 1))
 
     scanned = 0
     new_entries = 0
 
-    for page_nr in range(1, total_pages + 1):
+    for page_nr in page_range:
         if page_nr in done_pages:
             continue
 
         print(f"    Seite {page_nr:4d}/{total_pages} ", end="", flush=True)
 
-        # Seite im Viewer laden
-        image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
+        arch_file = _archive_path(archive_dir, book_id, page_nr)
+
+        # Bild holen: erst lokales Archiv, dann Matricula
+        if arch_file.exists():
+            image_bytes = arch_file.read_bytes()
+            image_url   = str(arch_file)
+            print("📁 ", end="", flush=True)
+        else:
+            if pw_page is None:
+                print("⚠ kein Bild (kein Browser und kein Archiv)")
+                continue
+            image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
+            if image_bytes is not None:
+                # Archivieren
+                arch_file.parent.mkdir(parents=True, exist_ok=True)
+                arch_file.write_bytes(image_bytes)
+                print("💾 ", end="", flush=True)
 
         if image_bytes is None:
             print("⚠ kein Bild")
             with parish_db:
                 parish_db.execute(
                     """INSERT OR REPLACE INTO matricula_page_scans
-                       (book_id, page_nr, image_url, status, scanned_at, error_msg)
-                       VALUES (?,?,?,'error',datetime('now'),'kein Bild')""",
-                    (book_id, page_nr, image_url or ""),
+                       (book_id, page_nr, image_url, image_path, status, scanned_at, error_msg)
+                       VALUES (?,?,?,?,'error',datetime('now'),'kein Bild')""",
+                    (book_id, page_nr, image_url or "", ""),
                 )
             continue
 
@@ -384,9 +455,9 @@ def _scan_book(
         with parish_db:
             parish_db.execute(
                 """INSERT OR REPLACE INTO matricula_page_scans
-                   (book_id, page_nr, image_url, status, entry_count, scanned_at)
-                   VALUES (?,?,?,'done',?,datetime('now'))""",
-                (book_id, page_nr, image_url or "", count),
+                   (book_id, page_nr, image_url, image_path, status, entry_count, scanned_at)
+                   VALUES (?,?,?,?,'done',?,datetime('now'))""",
+                (book_id, page_nr, image_url or "", str(arch_file), count),
             )
 
         scanned     += 1
@@ -517,6 +588,8 @@ def scan_kirchspiel(
     headless: bool = True,
     pause: float = DEFAULT_PAUSE,
     dry_run: bool = False,
+    archive_dir: Path = DEFAULT_ARCHIVE,
+    retranscribe: bool = False,
 ) -> dict:
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout  # noqa
@@ -565,6 +638,10 @@ def scan_kirchspiel(
         print("  Bitte zuerst fetch_matricula_books.py ausführen.")
         sys.exit(1)
 
+    archive_dir.mkdir(parents=True, exist_ok=True)
+    print(f"Bild-Archiv: {archive_dir}")
+    if retranscribe:
+        print("MODUS: Re-Transkription (lokale Bilder, kein Web-Zugriff)")
     print(f"{len(books)} Kirchenbücher zu verarbeiten:\n")
     for b in books:
         done = parish_db.execute(
@@ -578,30 +655,41 @@ def scan_kirchspiel(
     total_scanned = 0
     total_entries = 0
 
-    with sync_playwright() as pw:
-        browser = pw.chromium.launch(
-            executable_path=CHROME_PATH,
-            headless=headless,
-            args=["--ignore-certificate-errors"],
-        )
-        ctx = browser.new_context(
-            ignore_https_errors=True,
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
-            ),
-            locale="de-DE",
-        )
-        pw_page = ctx.new_page()
-
+    if retranscribe:
+        # Kein Browser nötig — alle Bilder kommen aus dem Archiv
         for book in books:
             scanned, entries = _scan_book(
-                book, parish_db, main_db, pw_page, pause, dry_run
+                book, parish_db, main_db, None, pause, dry_run,
+                archive_dir=archive_dir, retranscribe=True,
             )
             total_scanned += scanned
             total_entries += entries
+    else:
+        with sync_playwright() as pw:
+            browser = pw.chromium.launch(
+                executable_path=CHROME_PATH,
+                headless=headless,
+                args=["--ignore-certificate-errors"],
+            )
+            ctx = browser.new_context(
+                ignore_https_errors=True,
+                user_agent=(
+                    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+                    "AppleWebKit/537.36 Chrome/120.0 Safari/537.36"
+                ),
+                locale="de-DE",
+            )
+            pw_page = ctx.new_page()
 
-        browser.close()
+            for book in books:
+                scanned, entries = _scan_book(
+                    book, parish_db, main_db, pw_page, pause, dry_run,
+                    archive_dir=archive_dir,
+                )
+                total_scanned += scanned
+                total_entries += entries
+
+            browser.close()
 
     result = {
         "parish_id":    parish_id,
@@ -636,8 +724,13 @@ if __name__ == "__main__":
                     help="Browser sichtbar anzeigen")
     ap.add_argument("--pause",     type=float, default=DEFAULT_PAUSE,
                     help=f"Wartezeit zwischen Seiten in Sekunden (default: {DEFAULT_PAUSE})")
-    ap.add_argument("--dry-run",   action="store_true",
+    ap.add_argument("--dry-run",     action="store_true",
                     help="Keine Claude-API-Calls – nur Seiten-Navigation testen")
+    ap.add_argument("--archive-dir", default=str(DEFAULT_ARCHIVE),
+                    help=f"Verzeichnis für Bild-Archiv (default: {DEFAULT_ARCHIVE})")
+    ap.add_argument("--retranscribe", action="store_true",
+                    help="Nur Re-Transkription: lokale Bilder neu durch Claude schicken, "
+                         "kein Web-Zugriff auf Matricula")
     args = ap.parse_args()
 
     scan_kirchspiel(
@@ -648,4 +741,6 @@ if __name__ == "__main__":
         headless=not args.visible,
         pause=args.pause,
         dry_run=args.dry_run,
+        archive_dir=Path(args.archive_dir),
+        retranscribe=args.retranscribe,
     )
