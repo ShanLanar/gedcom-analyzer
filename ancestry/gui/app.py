@@ -363,12 +363,12 @@ class AncestryDnaApp(
         self._build_style()
         self._build_menu()
         self._build_main()
-        self._refresh_match_table()
 
         if not self._embedded:
             self.winfo_toplevel().protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(200, self._load_settings)
         self.after(300, self._update_matches_kit_combo)
+        self.after(350, self._refresh_match_table)
         self.after(400, self._load_lang_setting)
 
     def mainloop(self, *a, **k):
@@ -423,7 +423,7 @@ class AncestryDnaApp(
             except Exception:
                 pass
         # Canvases: redraw with new background
-        if hasattr(self, "_ring_canvas"):
+        if hasattr(self, "_ring_canvas") and hasattr(self, "_stat_vars"):
             self._ring_canvas.configure(bg=C["bg"])
             if hasattr(self, "_last_stats"):
                 self._draw_stat_rings(self._last_stats)
