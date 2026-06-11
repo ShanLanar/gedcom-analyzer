@@ -127,28 +127,10 @@ def _apply_notebook_style(root: tk.Tk, cfg) -> None:
 # ── Hauptfunktion ────────────────────────────────────────────────────────────
 
 def main():
-    # ── Imports ──────────────────────────────────────────────────────────────
-    AhnenApp = None
-    _ahnen_exc: Exception = RuntimeError("not loaded")
-    try:
-        AhnenApp = _eager_import_analyzer()
-        _ahnen_exc = None
-    except Exception as exc:
-        log.exception("Analyzer-Import fehlgeschlagen")
-        _ahnen_exc = exc
-
-    AncestryDnaApp = None
-    _dna_exc: Exception = RuntimeError("not loaded")
-    try:
-        AncestryDnaApp = _load_dna_app()
-        _dna_exc = None
-    except Exception as exc:
-        log.exception("DNA-App-Import fehlgeschlagen")
-        _dna_exc = exc
-
     import config as cfg
+    import threading as _threading
 
-    # ── Tk-Fenster ────────────────────────────────────────────────────────────
+    # ── Tk-Fenster SOFORT anzeigen ────────────────────────────────────────────
     root = tk.Tk()
     root.title("Genealogie-Suite")
     root.geometry("1380x880")
@@ -165,8 +147,7 @@ def main():
     def _toggle_theme():
         new = "dark" if cfg.THEME == "light" else "light"
         cfg.save_overrides({"theme": new})
-        subprocess.Popen([sys.executable] + sys.argv,
-                         cwd=ROOT)
+        subprocess.Popen([sys.executable] + sys.argv, cwd=ROOT)
         root.after(300, root.destroy)
 
     theme_icon = "🌙  Dunkel" if cfg.THEME == "light" else "☀  Hell"
@@ -186,77 +167,141 @@ def main():
     nb.add(tab_ged,   text="  🌳 Stammbaum  ")
     nb.add(tab_dna,   text="  🧬 DNA-Matches  ")
 
-    # ── Start-Reiter ──────────────────────────────────────────────────────────
-    ahnen_obj: AhnenApp | None = None       # type: ignore[valid-type]
-    dna_obj:   AncestryDnaApp | None = None  # type: ignore[valid-type]
+    # ── Lazy-State ────────────────────────────────────────────────────────────
+    _s = {
+        "AhnenApp":       None,  # gesetzt vom Import-Thread
+        "AncestryDnaApp": None,
+        "ahnen_exc":      None,
+        "dna_exc":        None,
+        "ahnen_obj":      None,  # gesetzt nach Instantiierung
+        "dna_obj":        None,
+        "ged_built":      False,
+        "dna_built":      False,
+        "imports_done":   False,
+    }
 
+    # Platzhalter in den schweren Reitern
+    def _placeholder(parent, label):
+        f = tk.Frame(parent, bg=cfg.BG)
+        f.pack(fill="both", expand=True)
+        tk.Label(f, text=f"⏳  {label} wird geladen …",
+                 bg=cfg.BG, fg=cfg.FG_DIM,
+                 font=("Segoe UI", 12)).place(relx=0.5, rely=0.5, anchor="center")
+        return f
+
+    _ged_ph = _placeholder(tab_ged, "Stammbaum-Analyzer")
+    _dna_ph = _placeholder(tab_dna, "DNA-Match-Analyzer")
+
+    # ── Gedcom-Änderung propagieren ───────────────────────────────────────────
     def _on_gedcom_change(ged_path: str, root_id: str):
-        if ahnen_obj is not None:
+        if _s["ahnen_obj"] is not None:
             try:
-                ahnen_obj._path_var.set(ged_path)
-                ahnen_obj._root_id_var.set(root_id)
+                _s["ahnen_obj"]._path_var.set(ged_path)
+                _s["ahnen_obj"]._root_id_var.set(root_id)
             except Exception:
                 pass
-        if dna_obj is not None:
+        if _s["dna_obj"] is not None:
             try:
-                dna_obj._set_gedcom(ged_path)
+                _s["dna_obj"]._set_gedcom(ged_path)
             except Exception:
                 pass
 
+    # ── Start-Reiter (synchron, schnell) ─────────────────────────────────────
+    start_obj = None
     from start_page import StartPage
     try:
-        start_obj = StartPage(master=tab_start,
-                               on_gedcom_change=_on_gedcom_change)
+        start_obj = StartPage(master=tab_start, on_gedcom_change=_on_gedcom_change)
+        try:
+            start_obj._vars["gedfile"].set(cfg.DEFAULT_CONFIG.get("gedfile", ""))
+            start_obj._vars["root_id"].set(cfg.DEFAULT_CONFIG.get("root_id", ""))
+            start_obj._vars["exclude_id"].set(cfg.DEFAULT_CONFIG.get("exclude_id", ""))
+        except Exception:
+            pass
     except Exception as exc:
         log.exception("StartPage fehlgeschlagen")
         _error_tab(tab_start, "Start-Seite konnte nicht geladen werden", exc)
-        start_obj = None
 
-    # ── Stammbaum-Reiter ──────────────────────────────────────────────────────
-    if AhnenApp is None:
-        _error_tab(tab_ged, "GEDCOM-Analyzer konnte nicht geladen werden", _ahnen_exc)
-    else:
+    # ── Tab-Aufbau-Funktionen (laufen im Hauptthread) ─────────────────────────
+    def _build_ged_tab():
+        if _s["ged_built"]:
+            return
+        _s["ged_built"] = True
+        _ged_ph.destroy()
+        if _s["AhnenApp"] is None:
+            _error_tab(tab_ged, "GEDCOM-Analyzer konnte nicht geladen werden",
+                       _s["ahnen_exc"] or RuntimeError("not loaded"))
+            return
         try:
-            ahnen_obj = AhnenApp(master=tab_ged)
+            obj = _s["AhnenApp"](master=tab_ged)
+            _s["ahnen_obj"] = obj
             if start_obj is not None:
                 try:
-                    ged_path = cfg.DEFAULT_CONFIG.get("gedfile", "")
-                    start_obj._vars["gedfile"].set(ged_path)
-                    start_obj._vars["root_id"].set(cfg.DEFAULT_CONFIG.get("root_id", ""))
-                    start_obj._vars["exclude_id"].set(
-                        cfg.DEFAULT_CONFIG.get("exclude_id", ""))
+                    obj._path_var.set(start_obj._vars.get("gedfile", tk.StringVar()).get())
+                    obj._root_id_var.set(start_obj._vars.get("root_id", tk.StringVar()).get())
                 except Exception:
                     pass
         except Exception as exc:
             log.exception("AhnenApp-Init fehlgeschlagen")
             _error_tab(tab_ged, "GEDCOM-Analyzer-Fehler beim Start", exc)
 
-    # ── DNA-Reiter ────────────────────────────────────────────────────────────
-    if AncestryDnaApp is None:
-        _error_tab(tab_dna, "DNA-Tool konnte nicht geladen werden", _dna_exc)
-    else:
+    def _build_dna_tab():
+        if _s["dna_built"]:
+            return
+        _s["dna_built"] = True
+        _dna_ph.destroy()
+        if _s["AncestryDnaApp"] is None:
+            _error_tab(tab_dna, "DNA-Tool konnte nicht geladen werden",
+                       _s["dna_exc"] or RuntimeError("not loaded"))
+            return
         try:
-            dna_obj = AncestryDnaApp(master=tab_dna)
+            _s["dna_obj"] = _s["AncestryDnaApp"](master=tab_dna)
         except Exception as exc:
             log.exception("AncestryDnaApp-Init fehlgeschlagen")
             _error_tab(tab_dna, "DNA-Tool-Fehler beim Start", exc)
-            dna_obj = None
 
-    # ── Tab-Wechsel → Status aktualisieren ───────────────────────────────────
+    # ── Tab-Wechsel → bei Bedarf Tab aufbauen ────────────────────────────────
     def _on_tab_change(event=None):
-        if start_obj is not None:
+        idx = nb.index(nb.select())
+        if idx == 1 and not _s["ged_built"]:
+            if _s["imports_done"]:
+                _build_ged_tab()
+            # else: Importe noch nicht fertig → Platzhalter bleibt sichtbar
+        elif idx == 2 and not _s["dna_built"]:
+            if _s["imports_done"]:
+                _build_dna_tab()
+        if start_obj is not None and idx == 0:
             try:
-                if nb.index(nb.select()) == 0:
-                    start_obj._refresh_status()
+                start_obj._refresh_status()
             except Exception:
                 pass
+
     nb.bind("<<NotebookTabChanged>>", _on_tab_change)
+
+    # ── Hintergrund-Import-Thread ─────────────────────────────────────────────
+    def _bg_imports():
+        try:
+            _s["AhnenApp"] = _eager_import_analyzer()
+        except Exception as exc:
+            log.exception("Analyzer-Import fehlgeschlagen")
+            _s["ahnen_exc"] = exc
+        try:
+            _s["AncestryDnaApp"] = _load_dna_app()
+        except Exception as exc:
+            log.exception("DNA-App-Import fehlgeschlagen")
+            _s["dna_exc"] = exc
+        _s["imports_done"] = True
+        # DNA-Tab proaktiv aufbauen, damit er beim ersten Klick sofort da ist
+        root.after(0, _build_dna_tab)
+        # Stammbaum-Tab aufbauen falls er bereits selektiert wurde
+        root.after(0, lambda: _build_ged_tab() if nb.index(nb.select()) == 1 else None)
+
+    _threading.Thread(target=_bg_imports, daemon=True).start()
 
     # ── Fenster schließen ─────────────────────────────────────────────────────
     def _on_close():
-        if dna_obj is not None:
+        if _s["dna_obj"] is not None:
             try:
-                dna_obj.shutdown()
+                _s["dna_obj"].shutdown()
             except Exception:
                 pass
         root.destroy()
