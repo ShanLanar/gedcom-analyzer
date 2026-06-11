@@ -2757,9 +2757,10 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
         sb.pack(side="right", fill="y"); tv.configure(yscrollcommand=sb.set)
 
-        tv.tag_configure("strong",  background="#d8f0d8")
-        tv.tag_configure("newlead", background="#fde9c8")
         clr = self._active_colors()["cluster"]
+        tv.tag_configure("strong",  background=clr[1])
+        tv.tag_configure("newlead", background=clr[3])
+
         for i in range(1, len(clr) + 1):
             tv.tag_configure(f"cl{i}", background=clr[(i - 1) % len(clr)])
 
@@ -2827,7 +2828,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
                 elif d["score"] >= 0.8:
                     tag = ("strong",)
                 elif cid:
-                    tag = (f"cl{cid}",)
+                    tag = (f"cl{(cid - 1) % len(clr) + 1}",)
                 else:
                     tag = ()
                 tv.insert("", "end", tags=tag, values=(
@@ -4087,6 +4088,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         descs = self._load_ui_settings().get("cluster_descs", {})
         descs[str(cid)] = desc
         self._save_ui_settings(cluster_descs=descs)
+        self._cluster_descs = descs
         self._set_status(f"Cluster #{cid} Beschreibung gespeichert.")
 
     def _sort_by(self, col):
@@ -5000,7 +5002,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
 
         win = tk.Toplevel(self)
         _cc = self._active_colors()["cluster"]
-        color = _cc[(cid - 1) % len(_cc)]
+        color = getattr(self, "_cluster_side_colors", {}).get(cid, _cc[(cid - 1) % len(_cc)])
         win.title(f"Cluster #{cid} – Zeitachse der Vorfahren")
         win.geometry("900x400")
 

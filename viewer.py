@@ -1474,6 +1474,7 @@ class DataViewer(tk.Frame):
         self._source = ("anverwandte" if self._src_var.get().startswith("Anver")
                         else "gedcom")
         self._clear_rel_target(render=False)
+        self._current_id = None
         # Gespeicherten Zustand wiederherstellen (falls vorhanden)
         saved = self._filter_state.get(self._source)
         if saved:

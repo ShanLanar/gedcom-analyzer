@@ -154,24 +154,25 @@ class StatsTabMixin:
             side_known = endo_known = 0
 
         gedcom_linked = stats.get("gedcom_linked", 0) or 0
+        C = self._active_colors()
         rings = [
-            (with_tree / total,    f"{with_tree}/{total}",      "Mit Baum",      self._active_colors()["accent"]),
-            (ped_loaded / max(with_tree, 1), f"{ped_loaded}/{with_tree}", "Ahnentafel", self._active_colors()["success"]),
-            (side_known / total,   f"{side_known}/{total}",     "Seite bekannt", self._active_colors()["warning"]),
-            (gedcom_linked / total, f"{gedcom_linked}/{total}", "GEDCOM-Treffer", self._active_colors()["primary"]),
+            (with_tree / total,    f"{with_tree}/{total}",      "Mit Baum",      C["accent"]),
+            (ped_loaded / max(with_tree, 1), f"{ped_loaded}/{with_tree}", "Ahnentafel", C["success"]),
+            (side_known / total,   f"{side_known}/{total}",     "Seite bekannt", C["warning"]),
+            (gedcom_linked / total, f"{gedcom_linked}/{total}", "GEDCOM-Treffer", C["primary"]),
         ]
         R = 35; cx_start = 55
         for i, (pct, label_cnt, title, color) in enumerate(rings):
             cx = cx_start + i * 160
             cy = 45
             c.create_arc(cx-R, cy-R, cx+R, cy+R, start=90, extent=360,
-                          style="arc", outline=self._active_colors()["light"], width=8)
+                          style="arc", outline=C["light"], width=8)
             extent = max(1, min(360, int(pct * 360)))
             c.create_arc(cx-R, cy-R, cx+R, cy+R, start=90, extent=-extent,
                           style="arc", outline=color, width=8)
             c.create_text(cx, cy - 6, text=f"{pct*100:.0f}%",
-                          font=("Segoe UI", 10, "bold"), fill=self._active_colors()["text"])
+                          font=("Segoe UI", 10, "bold"), fill=C["text"])
             c.create_text(cx, cy + 8, text=label_cnt,
                           font=("Segoe UI", 7), fill="#777777")
             c.create_text(cx, cy + R + 12, text=title,
-                          font=("Segoe UI", 8), fill=self._active_colors()["text"])
+                          font=("Segoe UI", 8), fill=C["text"])

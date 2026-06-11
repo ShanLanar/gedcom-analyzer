@@ -129,6 +129,7 @@ class ClusterTabMixin:
         sy3.pack(side="right", fill="y")
 
         self._clusters: dict = {}
+        self._cluster_descs: dict = self._load_ui_settings().get("cluster_descs", {})
 
     def _refresh_cluster(self):
         test_guid = self._current_test_guid or self._get_kit_guid()
@@ -245,9 +246,8 @@ class ClusterTabMixin:
             return
         cid = int(sel[0])
         members = self._clusters.get(cid, [])
-        descs = self._load_ui_settings().get("cluster_descs", {})
         if hasattr(self, "_cluster_desc_var"):
-            self._cluster_desc_var.set(descs.get(str(cid), ""))
+            self._cluster_desc_var.set(self._cluster_descs.get(str(cid), ""))
         _cc = self._active_colors()["cluster"]
         color = getattr(self, "_cluster_side_colors", {}).get(
             cid, _cc[(cid - 1) % len(_cc)])
