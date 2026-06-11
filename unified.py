@@ -15,8 +15,6 @@ from __future__ import annotations
 import logging
 import os
 import sys
-import importlib
-import pkgutil
 import subprocess
 import traceback
 import tkinter as tk
@@ -35,23 +33,13 @@ if ANCESTRY_DIR not in sys.path:
 
 # ── Import-Helfer ───────────────────────────────────────────────────────────────
 
-def _eager_import_analyzer():
+def _load_ahnen_app():
     if ROOT not in sys.path:
         sys.path.insert(0, ROOT)
     import config as _root_config          # noqa: F401
     from config import apply_overrides
     apply_overrides()
     from main import AhnenApp
-
-    for pkg in ("tasks", "lib"):
-        pkg_dir = os.path.join(ROOT, pkg)
-        if not os.path.isdir(pkg_dir):
-            continue
-        for mod in pkgutil.walk_packages([pkg_dir], prefix=f"{pkg}."):
-            try:
-                importlib.import_module(mod.name)
-            except Exception as e:
-                log.debug("Modul übersprungen %s: %s", mod.name, e)
     return AhnenApp
 
 
@@ -280,7 +268,7 @@ def main():
     # ── Hintergrund-Import-Thread ─────────────────────────────────────────────
     def _bg_imports():
         try:
-            _s["AhnenApp"] = _eager_import_analyzer()
+            _s["AhnenApp"] = _load_ahnen_app()
         except Exception as exc:
             log.exception("Analyzer-Import fehlgeschlagen")
             _s["ahnen_exc"] = exc
@@ -290,10 +278,14 @@ def main():
             log.exception("DNA-App-Import fehlgeschlagen")
             _s["dna_exc"] = exc
         _s["imports_done"] = True
-        # DNA-Tab proaktiv aufbauen, damit er beim ersten Klick sofort da ist
-        root.after(0, _build_dna_tab)
-        # Stammbaum-Tab aufbauen falls er bereits selektiert wurde
-        root.after(0, lambda: _build_ged_tab() if nb.index(nb.select()) == 1 else None)
+        # Falls der User bereits auf einen Tab geklickt hat, jetzt aufbauen
+        def _build_pending():
+            idx = nb.index(nb.select())
+            if idx == 1 and not _s["ged_built"]:
+                _build_ged_tab()
+            elif idx == 2 and not _s["dna_built"]:
+                _build_dna_tab()
+        root.after(0, _build_pending)
 
     _threading.Thread(target=_bg_imports, daemon=True).start()
 
