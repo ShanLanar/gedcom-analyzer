@@ -106,6 +106,19 @@ def _init_books_table(db: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_kb_type   ON kirchenbuecher(book_type);
     CREATE INDEX IF NOT EXISTS idx_kb_years  ON kirchenbuecher(year_from, year_to);
     """)
+    # Migration: add slug column if parishes table was created by an older version
+    try:
+        db.execute("ALTER TABLE parishes ADD COLUMN slug TEXT NOT NULL DEFAULT ''")
+        db.commit()
+    except Exception:
+        pass
+    # Backfill slug = last path segment of id, for rows still empty
+    rows = db.execute("SELECT id FROM parishes WHERE slug = '' OR slug IS NULL").fetchall()
+    if rows:
+        for (pid,) in rows:
+            slug = pid.rsplit("/", 1)[-1] if "/" in pid else pid
+            db.execute("UPDATE parishes SET slug=? WHERE id=?", (slug, pid))
+        db.commit()
 
 
 # ── Öffentliche Lookup-Funktion für andere Tools ───────────────────────────────
