@@ -1,6 +1,7 @@
 """StatsTabMixin – Tab 5: Statistiken für AncestryDnaApp."""
 from __future__ import annotations
 
+import threading
 import tkinter as tk
 from tkinter import ttk
 
@@ -110,37 +111,46 @@ class StatsTabMixin:
         self._rel_tree.pack(fill="both", expand=True)
         self._lang_headings.append((self._rel_tree, "rel",   "st.rel"))
         self._lang_headings.append((self._rel_tree, "count", "st.count"))
-        self._refresh_stats()
+        self.after(0, self._refresh_stats)
 
     def _refresh_stats(self):
-        stats = self._db.get_statistics()
-        try:
-            tg = self._current_test_guid or self._get_kit_guid()
-            if tg:
-                with self._db._cursor() as cur:
-                    cur.execute(
-                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
-                        "AND paternal_maternal != '' AND paternal_maternal IS NOT NULL", (tg,))
-                    stats["_side_known"] = cur.fetchone()[0]
-                    cur.execute(
-                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
-                        "AND endogamy_cluster != '' AND endogamy_cluster IS NOT NULL", (tg,))
-                    stats["_endo_known"] = cur.fetchone()[0]
-            else:
+        tg = self._current_test_guid or self._get_kit_guid()
+
+        def _fetch():
+            stats = self._db.get_statistics()
+            try:
+                if tg:
+                    with self._db._cursor() as cur:
+                        cur.execute(
+                            "SELECT COUNT(*) FROM matches WHERE test_guid=? "
+                            "AND paternal_maternal != '' AND paternal_maternal IS NOT NULL", (tg,))
+                        stats["_side_known"] = cur.fetchone()[0]
+                        cur.execute(
+                            "SELECT COUNT(*) FROM matches WHERE test_guid=? "
+                            "AND endogamy_cluster != '' AND endogamy_cluster IS NOT NULL", (tg,))
+                        stats["_endo_known"] = cur.fetchone()[0]
+                else:
+                    stats["_side_known"] = stats["_endo_known"] = 0
+            except Exception:
                 stats["_side_known"] = stats["_endo_known"] = 0
-        except Exception:
-            stats["_side_known"] = stats["_endo_known"] = 0
-        self._last_stats = stats
-        for key, var in self._stat_vars.items():
-            v = stats.get(key)
-            var.set(f"{v:.1f}" if isinstance(v, float) else str(v) if v is not None else "—")
-        self._rel_tree.delete(*self._rel_tree.get_children())
-        for rel, cnt in stats.get("relationship_breakdown", []):
-            self._rel_tree.insert("", "end", values=(rel, cnt))
-        self._kit_stat_tree.delete(*self._kit_stat_tree.get_children())
-        for kit_name, cnt in stats.get("kit_breakdown", []):
-            self._kit_stat_tree.insert("", "end", values=(kit_name, cnt))
-        self._draw_stat_rings(stats)
+            self.after(0, lambda: _apply(stats))
+
+        def _apply(stats):
+            if not self.winfo_exists():
+                return
+            self._last_stats = stats
+            for key, var in self._stat_vars.items():
+                v = stats.get(key)
+                var.set(f"{v:.1f}" if isinstance(v, float) else str(v) if v is not None else "—")
+            self._rel_tree.delete(*self._rel_tree.get_children())
+            for rel, cnt in stats.get("relationship_breakdown", []):
+                self._rel_tree.insert("", "end", values=(rel, cnt))
+            self._kit_stat_tree.delete(*self._kit_stat_tree.get_children())
+            for kit_name, cnt in stats.get("kit_breakdown", []):
+                self._kit_stat_tree.insert("", "end", values=(kit_name, cnt))
+            self._draw_stat_rings(stats)
+
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def _draw_stat_rings(self, stats: dict):
         """Zeichnet drei Fortschritts-Ringe auf den Statistik-Canvas."""
