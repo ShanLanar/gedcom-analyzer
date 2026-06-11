@@ -514,7 +514,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
     # ── Hauptlayout ───────────────────────────────────────────────────────────
 
     def _build_main(self):
-        hf = tk.Frame(self, bg=COLORS["primary"])
+        hf = tk.Frame(self, bg=self._active_colors()["primary"])
         hf.pack(fill="x")
         ttk.Label(hf, text="🧬  Ancestry DNA Tool",
                   style="Header.TLabel").pack(side="left", fill="x", expand=True)
@@ -812,7 +812,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
             self._lang_widgets.append((_sv_d, key))
             val_sv = tk.StringVar(value="0")
             ttk.Label(col_frame, textvariable=val_sv, font=("Segoe UI", 11, "bold"),
-                      foreground=COLORS["primary"]).pack()
+                      foreground=self._active_colors()["primary"]).pack()
             dk = key.replace("dl.dash_","")
             self._dash_vars[dk] = val_sv
 
@@ -2220,7 +2220,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
                            if pred.get("via") else "")
                 ttk.Label(box, text=(f"✓ Andockpunkt in deinem Baum: {via_txt}"
                           f"deine Linie: {render_kinship(pred['path'])}"),
-                          foreground=COLORS.get("primary","#1b5e20"),
+                          foreground=self._active_colors()["primary"],
                           style="Bold.TLabel").pack(anchor="w", padx=8, pady=(0,4))
             elif pred["own"] is not None:
                 ttk.Label(box, text=(f"In deinem Baum als Seitenlinie: "
@@ -2370,7 +2370,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
             ttk.Label(win, text=(f"➡  Wahrscheinlicher Andockpunkt: {best[2]}  "
                                  f"({render_kinship(best[4])}) – von {best[0]} "
                                  f"Mitglied(ern) getroffen"),
-                      style="Bold.TLabel", foreground=COLORS.get("primary","#1b5e20")
+                      style="Bold.TLabel", foreground=self._active_colors()["primary"]
                       ).pack(anchor="w", padx=10, pady=(0,6))
         elif hits:
             ttk.Label(win, text=("Kein Treffer auf deiner direkten Ahnenlinie – "
@@ -3074,7 +3074,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
 
         self._match_count_var = tk.StringVar(value="")
         ttk.Label(fl, textvariable=self._match_count_var,
-                  foreground=COLORS["primary"]).pack(side="right", padx=8)
+                  foreground=self._active_colors()["primary"]).pack(side="right", padx=8)
         ttk.Button(fl, text="↻", command=self._refresh_match_table).pack(side="right", padx=4)
 
         # Schnellfilter-Chips
@@ -3092,11 +3092,12 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         for key, t_key, cmd in chip_defs:
             var = tk.BooleanVar(value=False)
             self._chip_vars[key] = var
+            _C = self._active_colors()
             btn = tk.Button(
                 cf, text=self._t(t_key),
                 font=("Segoe UI", 9), relief="flat", bd=1,
-                bg=COLORS["light"], fg=COLORS["text"],
-                activebackground=COLORS["primary"], activeforeground=COLORS["white"],
+                bg=_C["light"], fg=_C["text"],
+                activebackground=_C["primary"], activeforeground=_C["white"],
                 cursor="hand2", padx=10, pady=3,
                 command=lambda k=key, c=cmd: self._toggle_chip(k, c),
             )
@@ -3130,23 +3131,26 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
     def _chip_pat(self):
         if self._chip_vars["pat"].get():
             self._chip_vars["mat"].set(False)
-            self._chip_btns["mat"].configure(bg=COLORS["light"], fg=COLORS["text"])
+            _C = self._active_colors()
+            self._chip_btns["mat"].configure(bg=_C["light"], fg=_C["text"])
         self._refresh_match_table()
 
     def _chip_mat(self):
         if self._chip_vars["mat"].get():
             self._chip_vars["pat"].set(False)
-            self._chip_btns["pat"].configure(bg=COLORS["light"], fg=COLORS["text"])
+            _C = self._active_colors()
+            self._chip_btns["pat"].configure(bg=_C["light"], fg=_C["text"])
         self._refresh_match_table()
 
     def _toggle_chip(self, key: str, cmd):
         new_val = not self._chip_vars[key].get()
         self._chip_vars[key].set(new_val)
         btn = self._chip_btns[key]
+        _C = self._active_colors()
         if new_val:
-            btn.configure(bg=COLORS["primary"], fg=COLORS["white"])
+            btn.configure(bg=_C["primary"], fg=_C["white"])
         else:
-            btn.configure(bg=COLORS["light"], fg=COLORS["text"])
+            btn.configure(bg=_C["light"], fg=_C["text"])
         cmd()
 
     def _build_match_tree(self, parent):
@@ -3174,7 +3178,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         self._tree.tag_configure("starred",  background="#FFF3CD")
         self._tree.tag_configure("no_tree",  foreground="#999999")
         self._tree.tag_configure("endogamy", background="#E0E0E0", foreground="#666666")
-        self._tree.tag_configure("sub_match", foreground=COLORS.get("text_dim", "#888888"))
+        self._tree.tag_configure("sub_match", foreground=self._active_colors().get("text_dim", "#888888"))
 
         sy = ttk.Scrollbar(parent, orient="vertical",   command=self._tree.yview)
         sx = ttk.Scrollbar(parent, orient="horizontal", command=self._tree.xview)
@@ -3245,7 +3249,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         ttk.Label(info_frame, textvariable=_sv_rp,
                   style="Bold.TLabel").pack(anchor="w", padx=8)
         self._lang_widgets.append((_sv_rp, "md.rel_prob"))
-        self._rel_prob_canvas = tk.Canvas(info_frame, height=52, bg=COLORS["bg"],
+        self._rel_prob_canvas = tk.Canvas(info_frame, height=52, bg=self._active_colors()["bg"],
                                           highlightthickness=0)
         self._rel_prob_canvas.pack(fill="x", padx=8, pady=(2, 4))
 
@@ -3310,7 +3314,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=4)
         self._sm_count_var = tk.StringVar(value="Kein Match ausgewählt.")
         ttk.Label(tb, textvariable=self._sm_count_var,
-                  foreground=COLORS["primary"]).pack(side="left")
+                  foreground=self._active_colors()["primary"]).pack(side="left")
 
         # Tabelle
         cols = ("name","cm","cmab","rel")
@@ -3362,7 +3366,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=(2, 4))
         self._ged_link_status = tk.StringVar(value=self._t("md.ged_none"))
         ttk.Label(tb, textvariable=self._ged_link_status,
-                  foreground=COLORS["primary"]).pack(side="left")
+                  foreground=self._active_colors()["primary"]).pack(side="left")
         _sv_all = tk.StringVar(value=self._t("md.ged_run_all"))
         ttk.Button(tb, textvariable=_sv_all,
                    command=self._run_gedcom_match_all).pack(side="right")
@@ -3384,7 +3388,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
             self._ged_link_tree.column(col, width=widths[col],
                                         anchor="center" if col in ("gen","sosa","icon","score","ped_year","ged_year") else "w",
                                         stretch=(col in ("ped_name","ged_name")))
-        self._ged_link_tree.tag_configure("strong", foreground=COLORS["success"])
+        self._ged_link_tree.tag_configure("strong", foreground=self._active_colors()["success"])
         self._ged_link_tree.tag_configure("weak",   foreground="#888888")
         sy = ttk.Scrollbar(parent, orient="vertical", command=self._ged_link_tree.yview)
         self._ged_link_tree.configure(yscrollcommand=sy.set)
@@ -3478,7 +3482,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         tb = ttk.Frame(parent); tb.pack(fill="x", padx=6, pady=4)
         self._anc_status_var = tk.StringVar(value="")
         ttk.Label(tb, textvariable=self._anc_status_var,
-                  foreground=COLORS["primary"]).pack(side="left")
+                  foreground=self._active_colors()["primary"]).pack(side="left")
 
         cols = ("name", "birth", "death", "rel_sample", "rel_match", "path_sample")
         self._anc_tree = ttk.Treeview(parent, columns=cols,
@@ -4329,7 +4333,8 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         if not scored:
             return
         total = sum(s for s, _ in scored) or 1.0
-        colors = [COLORS["primary"], COLORS["accent"], COLORS["light"]]
+        _C = self._active_colors()
+        colors = [_C["primary"], _C["accent"], _C["light"]]
         bar_h = (h - 6) // 3
         for i, (score, label) in enumerate(scored):
             pct = score / total
@@ -4340,7 +4345,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
             c.create_text(bar_w + 6, y0 + bar_h // 2,
                           text=f"{label}  {pct*100:.0f}%",
                           anchor="w", font=("Segoe UI", 8),
-                          fill=COLORS["text"])
+                          fill=_C["text"])
 
     # ─────────────────────────────────────────────────────────────────────────
     # TAB 4: CLUSTER  →  cluster_tab.ClusterTabMixin
@@ -5052,7 +5057,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
                            lambda e, n=name, yr=yr, gen=gen:
                                c.create_text(e.x+10, e.y-10, text=f"{n} ({yr}) Gen{gen}",
                                              font=("Segoe UI", 8), tags="tooltip",
-                                             fill=COLORS["text"]))
+                                             fill=self._active_colors()["text"]))
                 c.tag_bind(tag, "<Leave>", lambda _: c.delete("tooltip"))
 
         c.bind("<Configure>", draw)
@@ -5134,7 +5139,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
             "Modern": "#F44336", "Ancient / Other": "#795548",
         }
 
-        c = tk.Canvas(win, height=160, bg=COLORS["bg"], highlightthickness=0)
+        c = tk.Canvas(win, height=160, bg=self._active_colors()["bg"], highlightthickness=0)
         c.pack(fill="x", padx=10, pady=6)
 
         def draw_era_bars(_=None):
@@ -5151,7 +5156,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
                     c.create_text(x + bw // 2, 50, text=f"{score:.1f}%",
                                   font=("Segoe UI", 8, "bold"), fill="white")
                 c.create_text(x + bw // 2, 95, text=era[:15],
-                              font=("Segoe UI", 7), fill=COLORS["text"], angle=45 if bw < 60 else 0)
+                              font=("Segoe UI", 7), fill=self._active_colors()["text"], angle=45 if bw < 60 else 0)
                 x += bw + 2
 
         c.bind("<Configure>", draw_era_bars)
