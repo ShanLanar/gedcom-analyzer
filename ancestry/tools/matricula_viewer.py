@@ -132,6 +132,19 @@ def _parish_db() -> sqlite3.Connection:
         abort(503, f"Pfarrei-DB nicht gefunden: {PARISH_DB}")
     db = sqlite3.connect(str(PARISH_DB))
     db.row_factory = sqlite3.Row
+    # Ensure scan-progress table exists (created by scanner on first run)
+    db.executescript("""
+        CREATE TABLE IF NOT EXISTS matricula_page_scans (
+            book_id     TEXT NOT NULL,
+            page_nr     INTEGER NOT NULL,
+            status      TEXT NOT NULL DEFAULT 'pending',
+            entry_count INTEGER,
+            image_path  TEXT,
+            scanned_at  TEXT,
+            PRIMARY KEY (book_id, page_nr)
+        );
+        CREATE INDEX IF NOT EXISTS idx_mps_book ON matricula_page_scans(book_id);
+    """)
     return db
 
 
