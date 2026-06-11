@@ -327,6 +327,37 @@ def _sosa_to_rel(sosa: int, sex: str = "") -> str:
     return f"Vorfahre {gen}. Gen."
 
 
+def _rel_degree_label(dist_a: int, dist_b: int) -> str:
+    """Verwandtschaftsgrad aus zwei Generationsabständen zum nächsten gemeinsamen Vorfahren."""
+    if dist_a == 0 and dist_b == 0:
+        return "Dieselbe Person"
+    if dist_a == 0:
+        labels = ["", "Kind", "Enkelkind", "Urenkelkind", "Ururenkind"]
+        return labels[dist_b] if dist_b < len(labels) else f"Nachkomme ({dist_b}. Gen.)"
+    if dist_b == 0:
+        labels = ["", "Elternteil", "Großelternteil", "Urgroßelternteil", "Ururgroßelternteil"]
+        return labels[dist_a] if dist_a < len(labels) else f"Vorfahre ({dist_a}. Gen.)"
+    if dist_a == 1 and dist_b == 1:
+        return "Geschwister"
+    if dist_a == 1 and dist_b == 2:
+        return "Nichte/Neffe"
+    if dist_a == 2 and dist_b == 1:
+        return "Onkel/Tante"
+    if dist_a == 1 and dist_b == 3:
+        return "Großnichte/Großneffe"
+    if dist_a == 3 and dist_b == 1:
+        return "Großonkel/Großtante"
+    degree  = min(dist_a, dist_b) - 1
+    removal = abs(dist_a - dist_b)
+    deg_names = {1: "1. Grades", 2: "2. Grades", 3: "3. Grades", 4: "4. Grades", 5: "5. Grades"}
+    base = f"Cousin/Cousine {deg_names.get(degree, f'{degree}. Grades')}"
+    if removal == 0:
+        return base
+    removal_words = {1: "einmal", 2: "zweimal", 3: "dreimal"}
+    suffix = f"{removal_words.get(removal, f'{removal}×')} entfernt"
+    return f"{base}, {suffix}"
+
+
 class DataViewer(tk.Frame):
     """Eigenständig (master=None) oder eingebettet (master=<Frame>)."""
 
@@ -367,6 +398,8 @@ class DataViewer(tk.Frame):
         self._parish_cache: dict[str, dict | None] = {}  # birth_place → parish-info
         self._undo_stack: list[dict] = []        # für Rückgängig-Funktion
         self._filter_state: dict[str, tuple] = {}  # source → (flt, conf, src, q)
+        self._rel_target: str | None = None      # Person A für Verwandtschaftspfad
+        self._rel_target_name: str = ""
 
         self._build()
         self._open_db()
@@ -700,6 +733,163 @@ class DataViewer(tk.Frame):
             s = s // 2
         path.reverse()
         return path
+
+    # ── Verwandtschaftspfad zwischen beliebigen zwei Personen ───────────────
+    def _find_ancestors_bfs(self, wt_id: str, max_gen: int = 18
+                            ) -> tuple[dict[str, int], dict[str, str | None]]:
+        """BFS aufwärts durch parents_json.
+        Gibt (dist{id→Generationen}, prev{id→Kind_das_zu_x_führte}) zurück."""
+        dist: dict[str, int] = {wt_id: 0}
+        prev: dict[str, str | None] = {wt_id: None}
+        queue: list[tuple[str, int]] = [(wt_id, 0)]
+        while queue:
+            curr, d = queue.pop(0)
+            if d >= max_gen:
+                continue
+            p = self._person(curr)
+            if not p:
+                continue
+            for par in _loads(p.get("parents_json")):
+                if par not in dist:
+                    dist[par] = d + 1
+                    prev[par] = curr
+                    queue.append((par, d + 1))
+        return dist, prev
+
+    def _trace_path_upward(self, target: str, prev: dict) -> list[str]:
+        """Rekonstruiert [start, …, target] aus BFS-prev-Zeigern (start = Node ohne Vorgänger)."""
+        path: list[str] = []
+        curr: str | None = target
+        while curr is not None:
+            path.append(curr)
+            curr = prev.get(curr)
+        return list(reversed(path))
+
+    def _compute_relationship(self, id_a: str, id_b: str):
+        """Findet den nächsten gemeinsamen Vorfahren (LCA) und gibt den vollständigen Pfad zurück.
+        Rückgabe: (path_a_to_lca, path_b_to_lca, dist_a, dist_b, lca_id) oder None."""
+        if id_a == id_b:
+            return None
+        dist_a, prev_a = self._find_ancestors_bfs(id_a)
+        dist_b, prev_b = self._find_ancestors_bfs(id_b)
+        common = set(dist_a.keys()) & set(dist_b.keys())
+        if not common:
+            return None
+        lca = min(common, key=lambda x: dist_a[x] + dist_b[x])
+        path_a = self._trace_path_upward(lca, prev_a)  # id_a → … → lca
+        path_b = self._trace_path_upward(lca, prev_b)  # id_b → … → lca
+        return path_a, path_b, dist_a[lca], dist_b[lca], lca
+
+    def _show_rel_path_window(self, id_a: str, id_b: str):
+        """Öffnet Fenster mit dem Verwandtschaftspfad zwischen zwei Personen."""
+        result = self._compute_relationship(id_a, id_b)
+
+        win = tk.Toplevel(self.winfo_toplevel())
+        win.title("Verwandtschaftspfad")
+        win.geometry("640x540")
+        win.configure(bg=C["bg"])
+
+        cv = tk.Canvas(win, bg=C["bg"], highlightthickness=0)
+        sb = ttk.Scrollbar(win, orient="vertical", command=cv.yview)
+        fr = tk.Frame(cv, bg=C["bg"])
+        fr.bind("<Configure>", lambda _e: cv.configure(scrollregion=cv.bbox("all")))
+        cv.create_window((0, 0), window=fr, anchor="nw")
+        cv.configure(yscrollcommand=sb.set)
+        cv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        def row(text, fg=C["text"], font=("Segoe UI", 9), padx=16, pady=1, anchor="w"):
+            tk.Label(fr, text=text, bg=C["bg"], fg=fg, font=font,
+                     anchor=anchor, padx=padx, pady=pady, wraplength=580).pack(fill="x")
+
+        name_a = self._label_for(id_a).replace("\n", " ")
+        name_b = self._label_for(id_b).replace("\n", " ")
+
+        row("🔗 Verwandtschaftspfad", fg=C["accent"], font=("Segoe UI", 13, "bold"), pady=(16, 4))
+
+        if result is None:
+            row("Keine nachweisliche Verwandtschaft gefunden.", fg=C["muted"], font=("Segoe UI", 10))
+            row(f"  • {name_a}", fg=C["text"])
+            row(f"  • {name_b}", fg=C["text"])
+            row("(Der verfügbare Baum reicht möglicherweise nicht weit genug zurück.)",
+                fg=C["muted"], font=("Segoe UI", 8))
+            tk.Button(fr, text="Schließen", command=win.destroy,
+                      bg=C["card"], fg=C["text"], relief="flat", padx=10).pack(pady=12)
+            return
+
+        path_a, path_b, dist_a, dist_b, lca = result
+        rel_label = _rel_degree_label(dist_a, dist_b)
+        lca_name  = self._label_for(lca).replace("\n", " ")
+
+        row(name_a, fg=C["accent"], font=("Segoe UI", 10, "bold"), pady=2)
+        row(f"  ist  {rel_label}  von", fg=C["dna"], font=("Segoe UI", 11, "bold"), pady=2)
+        row(name_b, fg=C["accent"], font=("Segoe UI", 10, "bold"), pady=2)
+        row(f"Gemeinsamer Vorfahre: {lca_name}", fg=C["muted"], pady=(4, 0))
+        row(f"Generationsabstand: Person A = {dist_a},  Person B = {dist_b}",
+            fg=C["muted"], font=("Segoe UI", 8), pady=(0, 4))
+        tk.Frame(fr, bg=C["card"], height=1).pack(fill="x", padx=16, pady=6)
+
+        # Vollständiger Pfad: A → … → LCA → … → B
+        full_path: list[str] = path_a + list(reversed(path_b))[1:]  # LCA nicht doppelt
+        lca_idx = len(path_a) - 1
+
+        row("Pfad:", fg=C["accent"], font=("Segoe UI", 9, "bold"))
+
+        for i, pid in enumerate(full_path):
+            is_lca   = (i == lca_idx)
+            is_start = (i == 0)
+            is_end   = (i == len(full_path) - 1)
+            going_up = (i < lca_idx)
+
+            entry_row = tk.Frame(fr, bg=C["bg"]); entry_row.pack(fill="x", padx=24, pady=1)
+
+            sym       = "◆" if is_lca else ("●" if (is_start or is_end) else "○")
+            sym_color = C["dna"] if is_lca else (C["accent"] if (is_start or is_end) else C["muted"])
+            tk.Label(entry_row, text=sym, bg=C["bg"], fg=sym_color,
+                     font=("Segoe UI", 10), width=2).pack(side="left")
+
+            pname = self._label_for(pid).replace("\n", " ")
+            if is_lca:
+                display = f"{pname}  ← Gemeinsamer Vorfahre"
+                fg_c = C["dna"]; fnt = ("Segoe UI", 9, "bold")
+            elif is_start:
+                display = f"{pname}  (Person A)"
+                fg_c = C["accent"]; fnt = ("Segoe UI", 9, "bold")
+            elif is_end:
+                display = f"{pname}  (Person B)"
+                fg_c = C["accent"]; fnt = ("Segoe UI", 9, "bold")
+            else:
+                display = pname
+                fg_c = C["link"]; fnt = ("Segoe UI", 9)
+
+            lbl = tk.Label(entry_row, text=display, bg=C["bg"], fg=fg_c,
+                           font=fnt, anchor="w", cursor="hand2")
+            lbl.pack(side="left", fill="x", expand=True)
+            _pid = pid
+            lbl.bind("<Button-1>", lambda _, p=_pid: self._navigate(p))
+
+            if i < len(full_path) - 1:
+                arrow = "↑" if going_up else "↓"
+                tk.Label(fr, text=f"   {arrow}", bg=C["bg"], fg=C["muted"],
+                         font=("Segoe UI", 8), anchor="w").pack(fill="x", padx=42)
+
+        tk.Frame(fr, bg=C["card"], height=1).pack(fill="x", padx=16, pady=8)
+        tk.Button(fr, text="Schließen", command=win.destroy,
+                  bg=C["card"], fg=C["text"], relief="flat", padx=10).pack(pady=8)
+
+    def _set_rel_target(self, wt_id: str, name: str):
+        """Setzt Person A für den Verwandtschaftspfad und aktualisiert das Detail-Panel."""
+        self._rel_target      = wt_id
+        self._rel_target_name = name
+        if self._current_id:
+            self._render_detail(self._current_id)
+
+    def _clear_rel_target(self):
+        """Löscht die gespeicherte Person A und aktualisiert das Panel."""
+        self._rel_target      = None
+        self._rel_target_name = ""
+        if self._current_id:
+            self._render_detail(self._current_id)
 
     # ── Bestätigen / Ablehnen ────────────────────────────────────────────────
     def _confirm_match(self, wt_id: str, ged_id: str, _push=True):
@@ -1970,6 +2160,35 @@ class DataViewer(tk.Frame):
                              font=("Segoe UI", 7), wraplength=320)
                 u.pack(fill="x", padx=12)
                 u.bind("<Button-1>", lambda _, url=p["url"]: self._open_url(url))
+
+            # ── Verwandtschaft berechnen ──────────────────────────────────
+            hdr("Verwandtschaft")
+            fp = tk.Frame(self._detail, bg=C["panel"]); fp.pack(fill="x", padx=12, pady=4)
+            if self._rel_target and self._rel_target != wt_id:
+                rel_name = self._label_for(self._rel_target).replace("\n", " ")[:35]
+                tk.Button(
+                    fp, text=f"🔗 Verwandtschaft zu {rel_name}",
+                    bg=C["dna"], fg="white", font=("Segoe UI", 8), relief="flat",
+                    padx=6, pady=3, wraplength=220, justify="left",
+                    command=lambda a=wt_id, b=self._rel_target: self._show_rel_path_window(a, b)
+                ).pack(side="left", padx=(0, 4))
+                tk.Button(fp, text="✕ Aufheben", bg=C["card"], fg=C["muted"],
+                          font=("Segoe UI", 8), relief="flat", padx=4, pady=3,
+                          command=self._clear_rel_target).pack(side="left")
+            elif self._rel_target == wt_id:
+                tk.Button(fp, text="📌 Person A gesetzt – wähle Person B",
+                          bg=C["mapped"], fg="white", font=("Segoe UI", 8),
+                          relief="flat", padx=6, pady=3, state="disabled"
+                          ).pack(side="left", padx=(0, 4))
+                tk.Button(fp, text="✕ Aufheben", bg=C["card"], fg=C["muted"],
+                          font=("Segoe UI", 8), relief="flat", padx=4, pady=3,
+                          command=self._clear_rel_target).pack(side="left")
+            else:
+                tk.Button(fp, text="📌 Als Person A festlegen",
+                          bg=C["card"], fg=C["text"], font=("Segoe UI", 8),
+                          relief="flat", padx=6, pady=3,
+                          command=lambda wi=wt_id, n=name: self._set_rel_target(wi, n)
+                          ).pack(side="left")
         else:
             name = _sanitize(
                 f"{p.get('given_name','')} {p.get('surname','')}".strip())
