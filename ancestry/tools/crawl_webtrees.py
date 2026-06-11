@@ -729,48 +729,10 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                      "birth_year": row[4], "death_year": row[5]}
         return (par if direction == "up" else chi), pdata
 
-    # ── Phase steuern ────────────────────────────────────────────────────────
-    phases = {"up": ["up"], "down": ["down"], "both": ["up", "down"]}[mode]
-    if discover:
-        phases = list(phases) + ["discover"]
-
-    for ph_idx, direction in enumerate(phases):
-        crawl._open0 = None   # type: ignore[attr-defined]  # Reset pro Phase
-
-        # ── Discover-Phase: scan related_json for unvisited IDs
-        if direction == "discover":
-            print(f"\n=== Phase {ph_idx+1}/{len(phases)}: Entdeckung (related_json) ===")
-            known = {row[0] for row in c.execute("SELECT id FROM wt_persons").fetchall()}
-            in_frontier = {row[0] for row in c.execute(
-                "SELECT id FROM wt_frontier WHERE direction='down'").fetchall()}
-            added = 0
-            for (rel_json,) in c.execute(
-                    "SELECT related_json FROM wt_persons "
-                    "WHERE related_json IS NOT NULL AND related_json != '[]'"
-            ).fetchall():
-                for rid in json.loads(rel_json or "[]"):
-                    if rid not in known and rid not in in_frontier:
-                        c.execute("INSERT OR IGNORE INTO wt_frontier "
-                                  "(id,direction,depth,done) VALUES (?,'down',0,0)", (rid,))
-                        in_frontier.add(rid)
-                        added += 1
-            c.commit()
-            print(f"  {added} neue IDs aus related_json in Frontier aufgenommen.")
-            direction = "down"   # process the queued entries as a normal down pass
-
-        if direction == "up" and seed_id:
-            enqueue(seed_id, "up", 0)
-        if direction == "down":
-            # Startpunkte abwärts: alle bisher (in Phase 'up') gefundenen Personen
-            if mode == "both":
-                for (pid,) in c.execute("SELECT id FROM wt_persons").fetchall():
-                    enqueue(pid, "down", 0)
-            elif seed_id:
-                enqueue(seed_id, "down", 0)
-        c.commit()
-
-        label = {"up": "Vorfahren ⬆", "down": "Nachkommen ⬇"}[direction]
-        print(f"\n=== Phase {ph_idx+1}/{len(phases)}: {label} ===")
+    # ── Hilfsfunktion: eine Richtung crawlen bis die Frontier leer ist ──────────
+    def _run_phase(direction: str, label: str, phase_label: str):
+        crawl._open0 = None   # type: ignore[attr-defined]
+        print(f"\n=== {phase_label}: {label} ===")
         processed = 0
         _phase_start = time.time()
         while max_pages == 0 or processed < max_pages:
@@ -782,20 +744,16 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
             pid, depth = row
             ids, pdata = neighbors(pid, direction)
             if ids is None:
-                # Netzwerkfehler — in Frontier lassen für nächsten Lauf
                 processed += 1
                 continue
             c.execute("UPDATE wt_frontier SET done=1 WHERE id=? AND direction=?",
                       (pid, direction))
-
-            # Pruning: abwärts nur expandieren, wenn Person im Raum/Zeitfenster
             expand = True
             if direction == "down" and pdata is not None:
                 expand = _in_scope(pdata, place_filter, year_min, year_max)
             if expand:
                 for nid in ids:
                     enqueue(nid, direction, depth + 1)
-
             processed += 1
             if processed % 25 == 0:
                 c.commit()
@@ -804,40 +762,81 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                                   "AND direction=?", (direction,)).fetchone()[0]
                 elapsed = time.time() - _phase_start
                 rate = processed / elapsed if elapsed > 0 else 0
-
-                # EMA-Wachstum: letzten 200 Seiten als Fenster
                 if not hasattr(crawl, "_ema_state"):
                     crawl._ema_state = {}  # type: ignore[attr-defined]
                 _st = crawl._ema_state.setdefault(direction, {"prev_open": openf, "ema": 0.0})
                 interval_growth = (openf - _st["prev_open"]) / 25.0
-                alpha = 0.05  # EMA-Glättung: ~500-Seiten-Fenster
+                alpha = 0.05
                 _st["ema"] = alpha * interval_growth + (1 - alpha) * _st["ema"]
                 _st["prev_open"] = openf
-                growth_per_page = _st["ema"]
-
-                net_drain = 1.0 - growth_per_page
-                if net_drain > 0.05 and rate > 0:
-                    eta_s = min((openf / net_drain) / rate, 999 * 3600)
+                gpg = _st["ema"]
+                nd = 1.0 - gpg
+                if nd > 0.05 and rate > 0:
+                    eta_s = min((openf / nd) / rate, 999 * 3600)
                     eta_str = (f"{int(eta_s//3600)}h{int((eta_s%3600)//60)}m"
                                if eta_s > 60 else f"{int(eta_s)}s")
-                elif net_drain <= 0:
+                elif nd <= 0:
                     eta_str = "wächst noch"
                 else:
                     eta_str = ">99h"
-                growth_str = f"{growth_per_page:+.2f}/S"
-                known_min = total + openf
-                if 0 < growth_per_page < 0.95:
-                    est_total = int(known_min / (1.0 - growth_per_page))
-                    total_str = f"gesamt≥{known_min} (~{est_total})"
-                else:
-                    total_str = f"gesamt≥{known_min}"
-                print(f"  +{processed}  | Personen: {total} | offen({direction}): {openf}"
-                      f" | {total_str} | {rate:.2f}/s | Wachstum: {growth_str} | ETA ~{eta_str}")
+                km = total + openf
+                est = f"(~{int(km/(1-gpg))})" if 0 < gpg < 0.95 else ""
+                print(f"  +{processed} | Personen: {total} | offen: {openf} "
+                      f"| gesamt≥{km}{est} | {rate:.2f}/s | ETA ~{eta_str}")
         c.commit()
         if max_pages > 0 and processed >= max_pages:
             print(f"Seiten-Limit ({max_pages}) erreicht – erneut starten zum Fortsetzen.")
-            break
 
+    # ── Phase steuern ────────────────────────────────────────────────────────
+    phases = {"up": ["up"], "down": ["down"], "both": ["up", "down"]}[mode]
+
+    for ph_idx, direction in enumerate(phases):
+        if direction == "up" and seed_id:
+            enqueue(seed_id, "up", 0)
+        if direction == "down":
+            # Startpunkte abwärts: alle bisher (in Phase 'up') gefundenen Personen
+            if mode == "both":
+                for (pid,) in c.execute("SELECT id FROM wt_persons").fetchall():
+                    enqueue(pid, "down", 0)
+            elif seed_id:
+                enqueue(seed_id, "down", 0)
+        c.commit()
+        label = {"up": "Vorfahren ⬆", "down": "Nachkommen ⬇"}[direction]
+        _run_phase(direction, label, f"Phase {ph_idx+1}/{len(phases)}")
+
+    # ── Entdeckungs-Schleife: related_json → convergence ─────────────────────
+    # Jede geholte Seite speichert in related_json ALLE verlinkten Personen-IDs
+    # (nicht nur Eltern/Kinder, sondern auch Cousins via Endogamie-Pfade).
+    # Wir scannen diese Links wiederholt, bis keine neuen IDs mehr auftauchen.
+    if discover:
+        disc_round = 0
+        while True:
+            disc_round += 1
+            known    = {r[0] for r in c.execute("SELECT id FROM wt_persons").fetchall()}
+            queued   = {r[0] for r in c.execute(
+                "SELECT id FROM wt_frontier WHERE direction='down'").fetchall()}
+            new_ids: set[str] = set()
+            for (rel_json,) in c.execute(
+                "SELECT related_json FROM wt_persons "
+                "WHERE related_json IS NOT NULL AND related_json != '[]'"
+            ).fetchall():
+                for rid in json.loads(rel_json or "[]"):
+                    if rid not in known and rid not in queued:
+                        c.execute("INSERT OR IGNORE INTO wt_frontier "
+                                  "(id,direction,depth,done) VALUES (?,'down',0,0)", (rid,))
+                        queued.add(rid)
+                        new_ids.add(rid)
+            c.commit()
+            if not new_ids:
+                total = c.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
+                print(f"\nEntdeckung abgeschlossen nach {disc_round} Runde(n). "
+                      f"Personen gesamt: {total}.")
+                break
+            print(f"\n=== Entdeckungs-Runde {disc_round}: "
+                  f"{len(new_ids)} neue IDs aus verlinkten Seiten ===")
+            _run_phase("down", "Nachkommen ⬇ (Entdeckung)", f"Runde {disc_round}")
+
+    # ── Restlicher Code (Phasen-Loop war hier, jetzt in _run_phase) ──────────
     total = c.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
     print(f"\nFertig. Personen gesamt: {total}.")
     print(f"DB: {db_path}  (erneut starten = fortsetzen)")
