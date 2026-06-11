@@ -1017,8 +1017,13 @@ class MatchesTabMixin:
         for group in match_groups:
             primary = group[0]
             _insert_match(primary, parent_iid="", is_sub=False)
-            for sub in group[1:]:
+            for i, sub in enumerate(group[1:]):
+                # Use a qualified iid so cross-platform GUID collisions never
+                # cause TclError: Item already exists.
+                orig_guid = sub.match_guid
+                sub.match_guid = f"{orig_guid}__sub{i}"
                 _insert_match(sub, parent_iid=primary.match_guid, is_sub=True)
+                sub.match_guid = orig_guid
         # Show/hide empty state
         if hasattr(self, "_empty_frame"):
             if self._matches:

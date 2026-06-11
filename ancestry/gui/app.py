@@ -432,7 +432,8 @@ class AncestryDnaApp(
         # Chip buttons: reset to idle state colors
         if hasattr(self, "_chip_btns") and hasattr(self, "_chip_vars"):
             for key_btn, btn in self._chip_btns.items():
-                if self._chip_vars.get(key_btn, None) and self._chip_vars[key_btn].get():
+                v = self._chip_vars.get(key_btn)
+                if v and v.get():
                     btn.configure(bg=C["primary"], fg=C["white"])
                 else:
                     btn.configure(bg=C["light"], fg=C["text"])

@@ -352,7 +352,7 @@ class DownloadTabMixin:
             self._matches_kit_combo.current(0)
 
     def _get_kit_guid(self) -> Optional[str]:
-        return self._kit_map.get(self._kit_var.get())
+        return self._kit_map.get(self._kit_var.get()) if hasattr(self, "_kit_var") else None
 
     def _start_matches(self):
         guid = self._get_kit_guid()
@@ -553,7 +553,6 @@ class DownloadTabMixin:
             self._progress_lbl.set(f"{fetched} / ~{total}  –  {label[:45]}")
             self._eta_var.set(eta_txt)
             if hasattr(self, "_dash_vars"):
-                self._dash_vars.get("mat_") or None
                 for k, sv in [
                     ("mat",  str(self._dl_counters["matches"])),
                     ("tree", str(self._dl_counters["trees"])),
