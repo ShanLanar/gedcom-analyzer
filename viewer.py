@@ -1856,20 +1856,43 @@ class DataViewer(tk.Frame):
                      bg=C["bg"], fg=C["muted"]).pack(pady=20)
             return
 
+        grandparents: list[str] = []
+
         if self._source == "anverwandte":
             parents  = _loads(p.get("parents_json"))
             spouses  = _loads(p.get("spouses_json"))
             children = _loads(p.get("children_json"))
             siblings = _loads(p.get("siblings_json"))
+            for par in parents:
+                par_data = self._person(par)
+                if par_data:
+                    grandparents.extend(_loads(par_data.get("parents_json")))
         else:
-            parents = spouses = children = siblings = []
-
-        # Großeltern-Reihe (Eltern der Eltern)
-        grandparents: list[str] = []
-        for par in parents:
-            par_data = self._person(par)
-            if par_data:
-                grandparents.extend(_loads(par_data.get("parents_json")))
+            # GEDCOM source: derive relationships from Sosa-Stradonitz numbers.
+            # sosa_map: ged_id → (sosa, sex),  sosa_rev: sosa → ged_id
+            sosa, _ = self._sosa_map.get(pid, (0, ""))
+            if sosa:
+                father_id = self._sosa_rev.get(sosa * 2)
+                mother_id = self._sosa_rev.get(sosa * 2 + 1)
+                parents   = [g for g in [father_id, mother_id] if g]
+                for gs in [sosa * 4, sosa * 4 + 1, sosa * 4 + 2, sosa * 4 + 3]:
+                    gp = self._sosa_rev.get(gs)
+                    if gp:
+                        grandparents.append(gp)
+                if sosa > 1:
+                    child_sosa = sosa // 2
+                    child_id   = self._sosa_rev.get(child_sosa)
+                    children   = [child_id] if child_id else []
+                    # co-parent of that child (= spouse in the ancestor chain)
+                    co_sosa = child_sosa * 2 + (1 if sosa % 2 == 0 else 0)
+                    co_id   = self._sosa_rev.get(co_sosa)
+                    spouses = [co_id] if co_id and co_id != pid else []
+                else:
+                    children = []
+                    spouses  = []
+            else:
+                parents = spouses = children = []
+            siblings = []
         if grandparents:
             tk.Label(self._tree_canvas, text="Großeltern",
                      bg=C["bg"], fg=C["muted"]).pack(pady=(4, 0))
@@ -1900,9 +1923,11 @@ class DataViewer(tk.Frame):
             self._person_card(crow, sp).pack(side="left", padx=6)
 
         # Kinder-Reihe
+        child_label = ("Nachkomme (Ahnenreihe)" if self._source != "anverwandte" and len(children) == 1
+                       else f"Kinder ({len(children)})")
         if children:
             tk.Label(self._tree_canvas, text="│", bg=C["bg"], fg=C["muted"]).pack()
-            tk.Label(self._tree_canvas, text=f"Kinder ({len(children)})",
+            tk.Label(self._tree_canvas, text=child_label,
                      bg=C["bg"], fg=C["muted"]).pack()
             kwrap = tk.Frame(self._tree_canvas, bg=C["bg"]); kwrap.pack()
             for i, ch in enumerate(children[:24]):
@@ -1914,12 +1939,13 @@ class DataViewer(tk.Frame):
                 tk.Label(kwrap, text=f"… +{len(children)-24} weitere",
                          bg=C["bg"], fg=C["muted"]).pack()
 
-            # Enkelkinder-Reihe (kompakt)
+            # Enkelkinder-Reihe (kompakt, nur Anverwandte-Modus)
             grandchildren: list[str] = []
-            for ch in children:
-                ch_data = self._person(ch)
-                if ch_data:
-                    grandchildren.extend(_loads(ch_data.get("children_json")))
+            if self._source == "anverwandte":
+                for ch in children:
+                    ch_data = self._person(ch)
+                    if ch_data:
+                        grandchildren.extend(_loads(ch_data.get("children_json")))
             if grandchildren:
                 tk.Label(self._tree_canvas, text="│", bg=C["bg"], fg=C["muted"]).pack()
                 tk.Label(self._tree_canvas, text=f"Enkelkinder ({len(grandchildren)})",
@@ -2339,6 +2365,42 @@ class DataViewer(tk.Frame):
                 p.get("death_year"), p.get("death_place")) if x))
             fact("Sosa", str(p.get("sosa_number") or "") if p.get("sosa_number") else "")
             fact("Geschlecht", p.get("sex", ""))
+
+            # Familie (aus SOSA-Arithmetik abgeleitet)
+            sosa_d, _ = self._sosa_map.get(pid, (0, ""))
+            if sosa_d:
+                hdr("Familie")
+                father_d = self._sosa_rev.get(sosa_d * 2)
+                mother_d = self._sosa_rev.get(sosa_d * 2 + 1)
+                if father_d:
+                    fact("Vater", self._label_for(father_d).replace("\n", " "), father_d)
+                if mother_d:
+                    fact("Mutter", self._label_for(mother_d).replace("\n", " "), mother_d)
+                if sosa_d > 1:
+                    child_d = self._sosa_rev.get(sosa_d // 2)
+                    co_sosa_d = (sosa_d // 2) * 2 + (1 if sosa_d % 2 == 0 else 0)
+                    co_d = self._sosa_rev.get(co_sosa_d)
+                    if co_d and co_d != pid:
+                        fact("Partner", self._label_for(co_d).replace("\n", " "), co_d)
+                    if child_d:
+                        fact("Kind (Ahnenreihe)",
+                             self._label_for(child_d).replace("\n", " "), child_d)
+
+            # Vorfahrenpfad
+            path_d = self._ancestor_path(pid)
+            if path_d:
+                hdr("Vorfahrenpfad")
+                pf2 = tk.Frame(self._detail, bg=C["panel"]); pf2.pack(fill="x", padx=12, pady=2)
+                for i, (gid_p, pname, _ps, _prel) in enumerate(path_d):
+                    if i:
+                        tk.Label(pf2, text=" › ", bg=C["panel"], fg=C["muted"],
+                                 font=("Segoe UI", 8)).pack(side="left")
+                    lbl2 = tk.Label(pf2, text=pname, bg=C["panel"],
+                                    fg=C["link"] if gid_p else C["muted"],
+                                    font=("Segoe UI", 8), cursor="hand2" if gid_p else "arrow")
+                    lbl2.pack(side="left")
+                    if gid_p:
+                        lbl2.bind("<Button-1>", lambda _, i=gid_p: self._navigate(i))
 
         self._status.set(f"Anzeige: {pid}")
 
