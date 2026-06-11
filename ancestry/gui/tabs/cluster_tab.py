@@ -248,8 +248,9 @@ class ClusterTabMixin:
         descs = self._load_ui_settings().get("cluster_descs", {})
         if hasattr(self, "_cluster_desc_var"):
             self._cluster_desc_var.set(descs.get(str(cid), ""))
+        _cc = self._active_colors()["cluster"]
         color = getattr(self, "_cluster_side_colors", {}).get(
-            cid, self._active_colors()["cluster"][(cid - 1) % len(self._active_colors()["cluster"])])
+            cid, _cc[(cid - 1) % len(_cc)])
 
         test_guid = self._current_guid()
         guid_match: dict = {}
@@ -365,7 +366,8 @@ class ClusterTabMixin:
                                         min(p["generations"]) if p["generations"] else 99))
 
         # Fenster
-        color = self._active_colors()["cluster"][(cid - 1) % len(self._active_colors()["cluster"])]
+        _cc = self._active_colors()["cluster"]
+        color = _cc[(cid - 1) % len(_cc)]
         win = tk.Toplevel(self)
         win.title(f"Cluster #{cid} – Stammbaum-Analyse ({len(members)} Matches)")
         win.geometry("1150x680")

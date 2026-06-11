@@ -885,11 +885,11 @@ class DataViewer(tk.Frame):
         if self._current_id:
             self._render_detail(self._current_id)
 
-    def _clear_rel_target(self):
+    def _clear_rel_target(self, render: bool = True):
         """Löscht die gespeicherte Person A und aktualisiert das Panel."""
         self._rel_target      = None
         self._rel_target_name = ""
-        if self._current_id:
+        if render and self._current_id:
             self._render_detail(self._current_id)
 
     # ── Bestätigen / Ablehnen ────────────────────────────────────────────────
@@ -1473,7 +1473,7 @@ class DataViewer(tk.Frame):
         )
         self._source = ("anverwandte" if self._src_var.get().startswith("Anver")
                         else "gedcom")
-        self._clear_rel_target()
+        self._clear_rel_target(render=False)
         # Gespeicherten Zustand wiederherstellen (falls vorhanden)
         saved = self._filter_state.get(self._source)
         if saved:

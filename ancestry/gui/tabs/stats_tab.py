@@ -157,7 +157,7 @@ class StatsTabMixin:
         rings = [
             (with_tree / total,    f"{with_tree}/{total}",      "Mit Baum",      self._active_colors()["accent"]),
             (ped_loaded / max(with_tree, 1), f"{ped_loaded}/{with_tree}", "Ahnentafel", self._active_colors()["success"]),
-            (side_known / total,   f"{side_known}/{total}",     "Seite bekannt", "#8B4513"),
+            (side_known / total,   f"{side_known}/{total}",     "Seite bekannt", self._active_colors()["warning"]),
             (gedcom_linked / total, f"{gedcom_linked}/{total}", "GEDCOM-Treffer", self._active_colors()["primary"]),
         ]
         R = 35; cx_start = 55

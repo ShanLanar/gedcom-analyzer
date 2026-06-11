@@ -369,7 +369,8 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         self._lang_widgets:        list = []   # (widget_or_sv, key[, suffix]) tuples
         self._lang_menus:          list = []   # (menu, index, key) tuples
         self._lang_inner_nb_tabs:  list = []   # (notebook, frame, key) tuples
-        self._dark_mode:           bool = _is_dark_theme()  # set before _build_style
+        _saved_dark = self._load_ui_settings().get("dark_mode")
+        self._dark_mode: bool = bool(_saved_dark) if _saved_dark is not None else _is_dark_theme()
         self.configure(bg=self._active_colors()["bg"])
         self._pause_event:         threading.Event = threading.Event()
         self._pause_event.set()  # not paused initially
@@ -432,14 +433,6 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
 
     def _active_colors(self):
         return COLORS_DARK if self._dark_mode else COLORS
-
-    def _init_dark_mode(self):
-        """Setzt _dark_mode beim Start aus der config, ohne COLORS zu mutieren."""
-        saved = self._load_ui_settings().get("dark_mode")
-        if saved is None:
-            self._dark_mode = _is_dark_theme()
-        else:
-            self._dark_mode = bool(saved)
 
     # ── Menü ──────────────────────────────────────────────────────────────────
 
@@ -1468,7 +1461,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
             W = canvas.winfo_width() or 980
             H = canvas.winfo_height() or 650
             all_members: dict = {}  # guid → {name, cm, cluster_idx, cluster_color}
-            cl_colors = COLORS["cluster"]
+            cl_colors = self._active_colors()["cluster"]
             for ci, cl in enumerate(clusters[:20]):
                 col = cl_colors[ci % len(cl_colors)]
                 for guid, name, cm in cl["members"]:
@@ -2766,7 +2759,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
 
         tv.tag_configure("strong",  background="#d8f0d8")
         tv.tag_configure("newlead", background="#fde9c8")
-        clr = COLORS["cluster"]
+        clr = self._active_colors()["cluster"]
         for i in range(1, len(clr) + 1):
             tv.tag_configure(f"cl{i}", background=clr[(i - 1) % len(clr)])
 
@@ -5006,7 +4999,8 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
             return
 
         win = tk.Toplevel(self)
-        color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
+        _cc = self._active_colors()["cluster"]
+        color = _cc[(cid - 1) % len(_cc)]
         win.title(f"Cluster #{cid} – Zeitachse der Vorfahren")
         win.geometry("900x400")
 
