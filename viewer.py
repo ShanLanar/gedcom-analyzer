@@ -1797,14 +1797,23 @@ class DataViewer(tk.Frame):
 
     # ── Personen laden ────────────────────────────────────────────────────────
     def _person(self, pid: str) -> dict | None:
-        if not self._conn or not pid:
+        return self._person_for(self._source, pid)
+
+    def _person_for(self, source: str, pid: str) -> dict | None:
+        """Fetch a person dict from the correct table for `source`."""
+        if not pid:
             return None
         try:
-            if self._source == "anverwandte":
-                r = self._conn.execute(
-                    "SELECT * FROM wt_persons WHERE id=?", (pid,)).fetchone()
+            if source == "anverwandte":
+                conn = self._conn
+                if not conn:
+                    return None
+                r = conn.execute("SELECT * FROM wt_persons WHERE id=?", (pid,)).fetchone()
             else:
-                r = self._conn.execute(
+                conn = self._anc_conn
+                if not conn:
+                    return None
+                r = conn.execute(
                     "SELECT * FROM gedcom_persons WHERE ged_id=?", (pid,)).fetchone()
             return dict(r) if r else None
         except Exception:
@@ -1850,26 +1859,56 @@ class DataViewer(tk.Frame):
     def _render_tree(self, pid: str):
         for w in self._tree_canvas.winfo_children():
             w.destroy()
-        p = self._person(pid)
+
+        # Side-by-side: show anverwandte + GEDCOM columns when a match exists
+        if self._source == "anverwandte":
+            ged_id, _ = self._mapping_for(str(pid))
+            if ged_id:
+                hdr_row = tk.Frame(self._tree_canvas, bg=C["bg"])
+                hdr_row.pack(fill="x", padx=4, pady=(4, 0))
+                tk.Label(hdr_row, text="◀ Anverwandte", bg=C["bg"], fg=C["accent"],
+                         font=("Segoe UI", 9, "bold")).pack(side="left", padx=8)
+                tk.Label(hdr_row, text="GEDCOM ▶", bg=C["bg"], fg=C["dna"],
+                         font=("Segoe UI", 9, "bold")).pack(side="right", padx=8)
+                cols = tk.Frame(self._tree_canvas, bg=C["bg"])
+                cols.pack(fill="both", expand=True)
+                left = tk.Frame(cols, bg=C["bg"])
+                left.pack(side="left", fill="both", expand=True, padx=4)
+                tk.Frame(cols, bg=C["muted"], width=1).pack(side="left", fill="y", pady=4)
+                right = tk.Frame(cols, bg=C["bg"])
+                right.pack(side="right", fill="both", expand=True, padx=4)
+                self._render_one_tree(left, "anverwandte", pid)
+                self._render_one_tree(right, "gedcom", ged_id)
+                return
+
+        self._render_one_tree(self._tree_canvas, self._source, pid)
+
+    def _render_one_tree(self, container: tk.Widget, source: str, pid: str):
+        """Render a family tree for `pid` into `container` using `source` DB."""
+        def card(par, xid, highlight=False, small=False):
+            if source == "gedcom":
+                return self._person_card_ged(par, xid, highlight=highlight, small=small)
+            return self._person_card(par, xid, highlight=highlight, small=small)
+
+        p = self._person_for(source, pid)
         if not p:
-            tk.Label(self._tree_canvas, text="Person nicht gefunden.",
+            tk.Label(container, text="Person nicht gefunden.",
                      bg=C["bg"], fg=C["muted"]).pack(pady=20)
             return
 
         grandparents: list[str] = []
+        siblings: list[str] = []
 
-        if self._source == "anverwandte":
+        if source == "anverwandte":
             parents  = _loads(p.get("parents_json"))
             spouses  = _loads(p.get("spouses_json"))
             children = _loads(p.get("children_json"))
             siblings = _loads(p.get("siblings_json"))
             for par in parents:
-                par_data = self._person(par)
+                par_data = self._person_for(source, par)
                 if par_data:
                     grandparents.extend(_loads(par_data.get("parents_json")))
         else:
-            # GEDCOM source: derive relationships from Sosa-Stradonitz numbers.
-            # sosa_map: ged_id → (sosa, sex),  sosa_rev: sosa → ged_id
             sosa, _ = self._sosa_map.get(pid, (0, ""))
             if sosa:
                 father_id = self._sosa_rev.get(sosa * 2)
@@ -1883,87 +1922,109 @@ class DataViewer(tk.Frame):
                     child_sosa = sosa // 2
                     child_id   = self._sosa_rev.get(child_sosa)
                     children   = [child_id] if child_id else []
-                    # co-parent of that child (= spouse in the ancestor chain)
-                    co_sosa = child_sosa * 2 + (1 if sosa % 2 == 0 else 0)
-                    co_id   = self._sosa_rev.get(co_sosa)
-                    spouses = [co_id] if co_id and co_id != pid else []
+                    co_sosa    = child_sosa * 2 + (1 if sosa % 2 == 0 else 0)
+                    co_id      = self._sosa_rev.get(co_sosa)
+                    spouses    = [co_id] if co_id and co_id != pid else []
                 else:
                     children = []
                     spouses  = []
             else:
                 parents = spouses = children = []
-            siblings = []
+
         if grandparents:
-            tk.Label(self._tree_canvas, text="Großeltern",
+            tk.Label(container, text="Großeltern",
                      bg=C["bg"], fg=C["muted"]).pack(pady=(4, 0))
-            gprow = tk.Frame(self._tree_canvas, bg=C["bg"]); gprow.pack()
+            gprow = tk.Frame(container, bg=C["bg"]); gprow.pack()
             for gp in grandparents[:8]:
-                self._person_card(gprow, gp, small=True).pack(
-                    side="left", padx=4, pady=2)
+                card(gprow, gp, small=True).pack(side="left", padx=4, pady=2)
             if len(grandparents) > 8:
                 tk.Label(gprow, text=f"+{len(grandparents)-8}",
                          bg=C["bg"], fg=C["muted"]).pack(side="left")
-            tk.Label(self._tree_canvas, text="│", bg=C["bg"], fg=C["muted"]).pack()
+            tk.Label(container, text="│", bg=C["bg"], fg=C["muted"]).pack()
 
-        # Eltern-Reihe
         if parents:
-            tk.Label(self._tree_canvas, text="Eltern",
+            tk.Label(container, text="Eltern",
                      bg=C["bg"], fg=C["muted"]).pack(pady=(0, 0))
-            prow = tk.Frame(self._tree_canvas, bg=C["bg"]); prow.pack()
+            prow = tk.Frame(container, bg=C["bg"]); prow.pack()
             for par in parents:
-                self._person_card(prow, par).pack(side="left", padx=6, pady=4)
-            tk.Label(self._tree_canvas, text="│", bg=C["bg"], fg=C["muted"]).pack()
+                card(prow, par).pack(side="left", padx=6, pady=4)
+            tk.Label(container, text="│", bg=C["bg"], fg=C["muted"]).pack()
 
-        # Person + Partner
-        crow = tk.Frame(self._tree_canvas, bg=C["bg"]); crow.pack(pady=4)
-        self._person_card(crow, pid, highlight=True).pack(side="left", padx=6)
+        crow = tk.Frame(container, bg=C["bg"]); crow.pack(pady=4)
+        card(crow, pid, highlight=True).pack(side="left", padx=6)
         for sp in spouses:
             tk.Label(crow, text="⚭", bg=C["bg"], fg=C["muted"],
                      font=("Segoe UI", 14)).pack(side="left")
-            self._person_card(crow, sp).pack(side="left", padx=6)
+            card(crow, sp).pack(side="left", padx=6)
 
-        # Kinder-Reihe
-        child_label = ("Nachkomme (Ahnenreihe)" if self._source != "anverwandte" and len(children) == 1
+        child_label = ("Nachkomme (Ahnenreihe)" if source != "anverwandte" and len(children) == 1
                        else f"Kinder ({len(children)})")
         if children:
-            tk.Label(self._tree_canvas, text="│", bg=C["bg"], fg=C["muted"]).pack()
-            tk.Label(self._tree_canvas, text=child_label,
+            tk.Label(container, text="│", bg=C["bg"], fg=C["muted"]).pack()
+            tk.Label(container, text=child_label,
                      bg=C["bg"], fg=C["muted"]).pack()
-            kwrap = tk.Frame(self._tree_canvas, bg=C["bg"]); kwrap.pack()
+            kwrap = tk.Frame(container, bg=C["bg"]); kwrap.pack()
             for i, ch in enumerate(children[:24]):
                 if i % 8 == 0:
                     krow = tk.Frame(kwrap, bg=C["bg"]); krow.pack()
-                self._person_card(krow, ch, small=True).pack(
-                    side="left", padx=4, pady=4)
+                card(krow, ch, small=True).pack(side="left", padx=4, pady=4)
             if len(children) > 24:
                 tk.Label(kwrap, text=f"… +{len(children)-24} weitere",
                          bg=C["bg"], fg=C["muted"]).pack()
 
-            # Enkelkinder-Reihe (kompakt, nur Anverwandte-Modus)
             grandchildren: list[str] = []
-            if self._source == "anverwandte":
+            if source == "anverwandte":
                 for ch in children:
-                    ch_data = self._person(ch)
+                    ch_data = self._person_for(source, ch)
                     if ch_data:
                         grandchildren.extend(_loads(ch_data.get("children_json")))
             if grandchildren:
-                tk.Label(self._tree_canvas, text="│", bg=C["bg"], fg=C["muted"]).pack()
-                tk.Label(self._tree_canvas, text=f"Enkelkinder ({len(grandchildren)})",
+                tk.Label(container, text="│", bg=C["bg"], fg=C["muted"]).pack()
+                tk.Label(container, text=f"Enkelkinder ({len(grandchildren)})",
                          bg=C["bg"], fg=C["muted"]).pack()
-                ekwrap = tk.Frame(self._tree_canvas, bg=C["bg"]); ekwrap.pack()
+                ekwrap = tk.Frame(container, bg=C["bg"]); ekwrap.pack()
                 for i, ek in enumerate(grandchildren[:16]):
                     if i % 8 == 0:
                         ekrow = tk.Frame(ekwrap, bg=C["bg"]); ekrow.pack()
-                    self._person_card(ekrow, ek, small=True).pack(
-                        side="left", padx=3, pady=2)
+                    card(ekrow, ek, small=True).pack(side="left", padx=3, pady=2)
                 if len(grandchildren) > 16:
                     tk.Label(ekwrap, text=f"… +{len(grandchildren)-16} weitere",
                              bg=C["bg"], fg=C["muted"]).pack()
 
-        # Geschwister (kompakt)
         if siblings:
-            tk.Label(self._tree_canvas, text=f"Geschwister: {len(siblings)}",
+            tk.Label(container, text=f"Geschwister: {len(siblings)}",
                      bg=C["bg"], fg=C["muted"]).pack(pady=(10, 0))
+
+    def _label_for_ged(self, ged_id: str) -> str:
+        """Display name for a GEDCOM person (used in side-by-side view)."""
+        if not ged_id:
+            return ged_id
+        g = self._person_for("gedcom", ged_id)
+        if g:
+            name = _sanitize(
+                f"{g.get('given_name') or ''} {g.get('surname') or ''}".strip())
+            yrs = _years(str(g.get("birth_year") or ""), str(g.get("death_year") or ""))
+            return (name + (f"\n{yrs}" if yrs else "")) or ged_id
+        return ged_id
+
+    def _person_card_ged(self, parent, ged_id: str, highlight=False, small=False) -> tk.Widget:
+        """Person card for a GEDCOM person (right column in side-by-side view)."""
+        g   = self._person_for("gedcom", ged_id)
+        sex = (g or {}).get("sex", "")
+        bg  = C["card_m"] if sex == "M" else C["card_f"] if sex == "F" else C["card"]
+        outer_bg = C["accent"] if highlight else bg
+        frame = tk.Frame(parent, bg=outer_bg, bd=0)
+        inner = tk.Frame(frame, bg=bg)
+        inner.pack(padx=2, pady=2)
+        lbl_text = self._label_for_ged(ged_id)
+        w = 14 if small else 18
+        btn = tk.Label(inner, text=lbl_text, bg=bg, fg="white",
+                       width=w, justify="center", cursor="hand2",
+                       font=("Segoe UI", 7 if small else 9),
+                       padx=4, pady=4, wraplength=130)
+        btn.pack()
+        btn.bind("<Button-1>", lambda _, i=ged_id: self._navigate_ged(i))
+        return frame
 
     def _person_card(self, parent, pid: str, highlight=False, small=False) -> tk.Widget:
         p   = self._person(pid)
