@@ -2,13 +2,18 @@
 from __future__ import annotations
 
 import logging
+import threading
+import time
 import tkinter as tk
-import webbrowser
 from tkinter import messagebox, ttk
 from typing import Optional
 from urllib.parse import quote
+import webbrowser
 
 from ancestry.core.scraper import Scraper, DownloadResult
+
+
+log = logging.getLogger(__name__)
 
 
 class DownloadTabMixin:
@@ -521,7 +526,6 @@ class DownloadTabMixin:
             self._set_status("▶ Download fortgesetzt.")
 
     def _on_progress(self, fetched, total, label):
-        import time
         pct = min(100.0, (fetched / max(total, 1)) * 100)
         if self._dl_t0 == 0.0:
             self._dl_t0 = time.monotonic()
@@ -653,4 +657,3 @@ class DownloadTabMixin:
             if result.success:
                 messagebox.showinfo("Alle Phasen fertig", result.message)
         self.after(0, _u)
-
