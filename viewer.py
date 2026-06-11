@@ -129,6 +129,35 @@ def _loads(s) -> list:
         return []
 
 
+_NN_PATTERN = re.compile(r"\bN\.N\.?\b|/N\.N\.?/", re.IGNORECASE)
+
+
+def _sanitize(text: str) -> str:
+    """Replace 'N.N.' placeholders with '_____'."""
+    return _NN_PATTERN.sub("_____", text or "").strip()
+
+
+def _sosa_to_rel(sosa: int, sex: str = "") -> str:
+    """Convert a Sosa-Stradonitz number to a German relationship label."""
+    if sosa <= 0:
+        return ""
+    if sosa == 1:
+        return "Root"
+    import math
+    gen = int(math.log2(sosa))
+    f = sex == "F"
+    _LABELS = [
+        ("Root",           "Root"),
+        ("Vater",          "Mutter"),
+        ("Großvater",      "Großmutter"),
+        ("Urgroßvater",    "Urgroßmutter"),
+        ("Ururgroßvater",  "Ururgroßmutter"),
+    ]
+    if gen < len(_LABELS):
+        return _LABELS[gen][1 if f else 0]
+    return f"Vorfahre {gen}. Gen."
+
+
 class DataViewer(tk.Frame):
     """Eigenständig (master=None) oder eingebettet (master=<Frame>)."""
 
@@ -157,6 +186,7 @@ class DataViewer(tk.Frame):
         self._gedcom_map: dict[str, str] = {}   # wt_id  → ged_id (bestätigt via xref)
         self._fuzzy_map:  dict[str, str] = {}   # wt_id  → ged_id (fuzzy Name+Jahr)
         self._cluster_map: dict[str, int] = {}  # ged_id → cluster_id
+        self._sosa_map: dict[str, tuple] = {}   # ged_id → (sosa_number, sex)
         self._parish_cache: dict[str, dict | None] = {}  # birth_place → parish-info
 
         self._build()
@@ -177,6 +207,7 @@ class DataViewer(tk.Frame):
                                 else ANCESTRY_DB))
         self._load_gedcom_mapping()
         self._load_clusters()
+        self._load_sosa_map()
 
     def _reopen(self):
         for c in (self._conn, self._anc_conn):
@@ -283,6 +314,30 @@ class DataViewer(tk.Frame):
             except Exception:
                 continue
 
+    def _load_sosa_map(self):
+        """Lädt sosa_number + sex für alle gedcom_persons (ged_id → (sosa, sex))."""
+        self._sosa_map.clear()
+        if not self._anc_conn:
+            return
+        try:
+            rows = self._anc_conn.execute(
+                "SELECT ged_id, sosa_number, sex FROM gedcom_persons "
+                "WHERE sosa_number > 0"
+            ).fetchall()
+            for r in rows:
+                self._sosa_map[str(r["ged_id"])] = (r["sosa_number"] or 0,
+                                                     r["sex"] or "")
+        except Exception:
+            pass
+
+    def _rel_for_wt(self, wt_id: str) -> str:
+        """Verwandtschaftsgrad einer Anverwandten-Person via GEDCOM-Mapping."""
+        ged_id, _ = self._mapping_for(str(wt_id))
+        if ged_id:
+            sosa, sex = self._sosa_map.get(str(ged_id), (0, ""))
+            return _sosa_to_rel(sosa, sex)
+        return ""
+
     def _parish_info(self, birth_place: str) -> dict | None:
         """Pfarrei-Info für einen Geburtsort (gecacht)."""
         if birth_place not in self._parish_cache:
@@ -378,17 +433,19 @@ class DataViewer(tk.Frame):
             side="left", fill="y"); left.pack_propagate(False)
         tk.Label(left, text="Ergebnisse", bg=C["panel"], fg=C["muted"],
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
-        cols = ("name", "years", "place", "status")
+        cols = ("name", "years", "rel", "place", "status")
         self._list = ttk.Treeview(left, columns=cols, show="headings",
                                   selectmode="browse")
         self._list.heading("name",   text="Name")
         self._list.heading("years",  text="Jahre")
+        self._list.heading("rel",    text="Grad")
         self._list.heading("place",  text="Ort")
         self._list.heading("status", text="GED")
-        self._list.column("name",   width=130)
-        self._list.column("years",  width=60, anchor="center")
+        self._list.column("name",   width=120)
+        self._list.column("years",  width=60,  anchor="center")
+        self._list.column("rel",    width=90,  anchor="w")
         self._list.column("place",  width=60)
-        self._list.column("status", width=36, anchor="center")
+        self._list.column("status", width=36,  anchor="center")
         self._list.pack(fill="both", expand=True, padx=6, pady=6)
         self._list.bind("<<TreeviewSelect>>", self._on_list_select)
 
@@ -478,27 +535,25 @@ class DataViewer(tk.Frame):
                         "SELECT id, name, given_name, surname, birth_year, "
                         "death_year, birth_place FROM wt_persons "
                         "WHERE name LIKE ? OR surname LIKE ? OR given_name LIKE ? "
-                        "ORDER BY surname, given_name LIMIT 800",
+                        "ORDER BY surname, given_name LIMIT 2000",
                         (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
                 else:
                     rows = self._conn.execute(
                         "SELECT id, name, given_name, surname, birth_year, "
                         "death_year, birth_place FROM wt_persons "
-                        "ORDER BY rowid DESC LIMIT 600").fetchall()
+                        "ORDER BY surname, given_name LIMIT 2000").fetchall()
                 for r in rows:
                     wt_id = str(r["id"])
                     ged_id, is_fuzzy = self._mapping_for(wt_id)
                     cluster = self._cluster_map.get(ged_id) if ged_id else None
                     confession = self._confession_of(r["birth_place"] or "")
 
-                    # GEDCOM-Filter
                     if flt == _FILTER_MAPPED and (not ged_id or is_fuzzy):
                         continue
                     if flt == _FILTER_FUZZY and not is_fuzzy:
                         continue
                     if flt == _FILTER_UNMAP and ged_id:
                         continue
-                    # Konfessions-Filter
                     if conf_flt == _CONF_KATH and confession != "kath":
                         continue
                     if conf_flt == _CONF_EV and confession != "ev":
@@ -506,7 +561,8 @@ class DataViewer(tk.Frame):
                     if conf_flt == _CONF_UNK and confession:
                         continue
 
-                    label = r["name"] or f"{r['given_name']} {r['surname']}".strip()
+                    raw_label = r["name"] or f"{r['given_name']} {r['surname']}".strip()
+                    label = _sanitize(raw_label)
                     ged_badge = ""
                     if ged_id and not is_fuzzy:
                         ged_badge = "✓"
@@ -514,12 +570,12 @@ class DataViewer(tk.Frame):
                         ged_badge = "~"
                     if cluster is not None:
                         ged_badge += f"C{cluster}"
-
                     conf_badge = ("✝K" if confession == "kath" else
                                   "✝E" if confession == "ev" else "")
                     if conf_badge:
                         ged_badge = f"{conf_badge} {ged_badge}".strip()
 
+                    rel = self._rel_for_wt(wt_id)
                     tag = ("cluster" if cluster is not None else
                            "mapped"  if ged_id and not is_fuzzy else
                            "fuzzy"   if is_fuzzy else
@@ -528,30 +584,36 @@ class DataViewer(tk.Frame):
                     self._list.insert("", "end", iid=wt_id, values=(
                         label,
                         _years(r["birth_year"], r["death_year"]),
+                        rel,
                         (r["birth_place"] or "")[:18],
                         ged_badge,
                     ), tags=(tag,) if tag else ())
             else:
-                # GEDCOM-Quelle – kein GEDCOM-Mapping-Filter sinnvoll
+                # GEDCOM-Quelle
                 if q:
                     rows = self._conn.execute(
-                        "SELECT ged_id, given_name, surname, birth_year, "
-                        "death_year, birth_place FROM gedcom_persons "
+                        "SELECT ged_id, given_name, surname, birth_year, death_year, "
+                        "birth_place, sosa_number, sex FROM gedcom_persons "
                         "WHERE surname LIKE ? OR given_name LIKE ? "
-                        "ORDER BY surname, given_name LIMIT 500",
+                        "ORDER BY surname, given_name LIMIT 2000",
                         (f"%{q}%", f"%{q}%")).fetchall()
                 else:
                     rows = self._conn.execute(
-                        "SELECT ged_id, given_name, surname, birth_year, "
-                        "death_year, birth_place FROM gedcom_persons "
-                        "ORDER BY surname, given_name LIMIT 300").fetchall()
+                        "SELECT ged_id, given_name, surname, birth_year, death_year, "
+                        "birth_place, sosa_number, sex FROM gedcom_persons "
+                        "ORDER BY surname, given_name LIMIT 2000").fetchall()
                 for r in rows:
-                    label = f"{r['given_name']} {r['surname']}".strip()
+                    gn = _sanitize(r["given_name"] or "")
+                    sn = _sanitize(r["surname"] or "")
+                    label = f"{gn} {sn}".strip() or _sanitize(r["ged_id"])
                     cluster = self._cluster_map.get(str(r["ged_id"]))
+                    sosa = r["sosa_number"] or 0
+                    rel = _sosa_to_rel(sosa, r["sex"] or "")
                     tag = "cluster" if cluster is not None else ""
                     self._list.insert("", "end", iid=r["ged_id"], values=(
                         label,
                         _years(str(r["birth_year"] or ""), str(r["death_year"] or "")),
+                        rel,
                         (r["birth_place"] or "")[:18],
                         f"C{cluster}" if cluster is not None else "",
                     ), tags=(tag,) if tag else ())
@@ -585,10 +647,12 @@ class DataViewer(tk.Frame):
         p = self._person(pid)
         if p:
             if self._source == "anverwandte":
-                lbl = p.get("name") or f"{p.get('given_name','')} {p.get('surname','')}".strip()
+                lbl = _sanitize(p.get("name") or
+                                f"{p.get('given_name','')} {p.get('surname','')}".strip())
                 yrs = _years(p.get("birth_year"), p.get("death_year"))
             else:
-                lbl = f"{p.get('given_name','')} {p.get('surname','')}".strip()
+                lbl = _sanitize(
+                    f"{p.get('given_name','')} {p.get('surname','')}".strip())
                 yrs = _years(str(p.get("birth_year") or ""), str(p.get("death_year") or ""))
             lbl = (lbl + (f"\n{yrs}" if yrs else "")) or pid
         else:
@@ -626,10 +690,28 @@ class DataViewer(tk.Frame):
         else:
             parents = spouses = children = siblings = []
 
+        # Großeltern-Reihe (Eltern der Eltern)
+        grandparents: list[str] = []
+        for par in parents:
+            par_data = self._person(par)
+            if par_data:
+                grandparents.extend(_loads(par_data.get("parents_json")))
+        if grandparents:
+            tk.Label(self._tree_canvas, text="Großeltern",
+                     bg=C["bg"], fg=C["muted"]).pack(pady=(4, 0))
+            gprow = tk.Frame(self._tree_canvas, bg=C["bg"]); gprow.pack()
+            for gp in grandparents[:8]:
+                self._person_card(gprow, gp, small=True).pack(
+                    side="left", padx=4, pady=2)
+            if len(grandparents) > 8:
+                tk.Label(gprow, text=f"+{len(grandparents)-8}",
+                         bg=C["bg"], fg=C["muted"]).pack(side="left")
+            tk.Label(self._tree_canvas, text="│", bg=C["bg"], fg=C["muted"]).pack()
+
         # Eltern-Reihe
         if parents:
-            row = tk.Frame(self._tree_canvas, bg=C["bg"]); row.pack(pady=(4, 0))
-            tk.Label(row, text="Eltern", bg=C["bg"], fg=C["muted"]).pack()
+            tk.Label(self._tree_canvas, text="Eltern",
+                     bg=C["bg"], fg=C["muted"]).pack(pady=(0, 0))
             prow = tk.Frame(self._tree_canvas, bg=C["bg"]); prow.pack()
             for par in parents:
                 self._person_card(prow, par).pack(side="left", padx=6, pady=4)
@@ -649,14 +731,34 @@ class DataViewer(tk.Frame):
             tk.Label(self._tree_canvas, text=f"Kinder ({len(children)})",
                      bg=C["bg"], fg=C["muted"]).pack()
             kwrap = tk.Frame(self._tree_canvas, bg=C["bg"]); kwrap.pack()
-            for i, ch in enumerate(children[:12]):
-                if i % 6 == 0:
+            for i, ch in enumerate(children[:24]):
+                if i % 8 == 0:
                     krow = tk.Frame(kwrap, bg=C["bg"]); krow.pack()
                 self._person_card(krow, ch, small=True).pack(
                     side="left", padx=4, pady=4)
-            if len(children) > 12:
-                tk.Label(kwrap, text=f"… +{len(children)-12} weitere",
+            if len(children) > 24:
+                tk.Label(kwrap, text=f"… +{len(children)-24} weitere",
                          bg=C["bg"], fg=C["muted"]).pack()
+
+            # Enkelkinder-Reihe (kompakt)
+            grandchildren: list[str] = []
+            for ch in children:
+                ch_data = self._person(ch)
+                if ch_data:
+                    grandchildren.extend(_loads(ch_data.get("children_json")))
+            if grandchildren:
+                tk.Label(self._tree_canvas, text="│", bg=C["bg"], fg=C["muted"]).pack()
+                tk.Label(self._tree_canvas, text=f"Enkelkinder ({len(grandchildren)})",
+                         bg=C["bg"], fg=C["muted"]).pack()
+                ekwrap = tk.Frame(self._tree_canvas, bg=C["bg"]); ekwrap.pack()
+                for i, ek in enumerate(grandchildren[:16]):
+                    if i % 8 == 0:
+                        ekrow = tk.Frame(ekwrap, bg=C["bg"]); ekrow.pack()
+                    self._person_card(ekrow, ek, small=True).pack(
+                        side="left", padx=3, pady=2)
+                if len(grandchildren) > 16:
+                    tk.Label(ekwrap, text=f"… +{len(grandchildren)-16} weitere",
+                             bg=C["bg"], fg=C["muted"]).pack()
 
         # Geschwister (kompakt)
         if siblings:
@@ -741,11 +843,16 @@ class DataViewer(tk.Frame):
                 lab.bind("<Button-1>", lambda _, i=link_id: self._navigate(i))
 
         if self._source == "anverwandte":
-            name = p.get("name") or f"{p.get('given_name','')} {p.get('surname','')}".strip()
+            name = _sanitize(p.get("name") or
+                             f"{p.get('given_name','')} {p.get('surname','')}".strip())
             tk.Label(self._detail, text=name, bg=C["panel"], fg="white",
                      font=("Segoe UI", 14, "bold"), wraplength=320,
                      anchor="w").pack(fill="x", padx=12, pady=(12, 0))
-            tk.Label(self._detail, text=f"ID {p.get('id','')} · {p.get('sex','')}",
+            rel_label = self._rel_for_wt(str(p.get("id", pid)))
+            meta = f"ID {p.get('id','')} · {p.get('sex','')}"
+            if rel_label:
+                meta += f" · {rel_label}"
+            tk.Label(self._detail, text=meta,
                      bg=C["panel"], fg=C["muted"], anchor="w").pack(
                 fill="x", padx=12)
 
@@ -843,12 +950,17 @@ class DataViewer(tk.Frame):
                 u.pack(fill="x", padx=12)
                 u.bind("<Button-1>", lambda _, url=p["url"]: self._open_url(url))
         else:
-            name = f"{p.get('given_name','')} {p.get('surname','')}".strip()
+            name = _sanitize(
+                f"{p.get('given_name','')} {p.get('surname','')}".strip())
             tk.Label(self._detail, text=name, bg=C["panel"], fg="white",
                      font=("Segoe UI", 14, "bold"), wraplength=320,
                      anchor="w").pack(fill="x", padx=12, pady=(12, 0))
-            tk.Label(self._detail,
-                     text=f"{p.get('ged_id','')} · Quelle: {p.get('source','')}",
+            sosa = p.get("sosa_number") or 0
+            rel_label = _sosa_to_rel(sosa, p.get("sex") or "")
+            meta = f"{p.get('ged_id','')} · Quelle: {p.get('source','')}"
+            if rel_label:
+                meta += f" · {rel_label}"
+            tk.Label(self._detail, text=meta,
                      bg=C["panel"], fg=C["muted"], anchor="w").pack(
                 fill="x", padx=12)
 
