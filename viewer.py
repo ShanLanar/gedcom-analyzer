@@ -416,6 +416,28 @@ class DataViewer(tk.Frame):
         self._refresh_stats()
         self._do_search()
 
+    def _ensure_indexes(self):
+        """Create read-optimised indexes on wt_persons if not yet present.
+
+        Needs a write connection; silently skips if the DB is locked or absent.
+        """
+        db_path = self._db_path if self._source == "anverwandte" else ANCESTRY_DB
+        if not os.path.exists(db_path):
+            return
+        try:
+            import sqlite3 as _sq3
+            wc = _sq3.connect(db_path, timeout=3.0)
+            wc.execute(
+                "CREATE INDEX IF NOT EXISTS idx_wtp_sort "
+                "ON wt_persons(surname, given_name)")
+            wc.execute(
+                "CREATE INDEX IF NOT EXISTS idx_wtp_search "
+                "ON wt_persons(surname, given_name, name)")
+            wc.commit()
+            wc.close()
+        except Exception:
+            pass
+
     def _open_db(self):
         if self._source == "anverwandte":
             self._conn = _ro_connect(self._db_path)
@@ -427,6 +449,7 @@ class DataViewer(tk.Frame):
             self._status.set("⚠ Datenbank nicht gefunden / noch nicht angelegt: "
                              + (self._db_path if self._source == "anverwandte"
                                 else ANCESTRY_DB))
+        self._ensure_indexes()
         self._load_rejected()
         self._load_gedcom_mapping()
         self._load_clusters()
@@ -1543,170 +1566,223 @@ class DataViewer(tk.Frame):
 
     # ── Suche ─────────────────────────────────────────────────────────────────
     def _do_search(self):
-        self._list.delete(*self._list.get_children())
-        self._sub_ids.clear()
         if not self._conn:
+            self._list.delete(*self._list.get_children())
+            self._sub_ids.clear()
             return
-        q       = self._search_var.get().strip()
-        flt     = self._filter_var.get()
-        conf_flt = self._conf_var.get()
-        try:
-            if self._source == "anverwandte":
-                if q:
-                    rows = self._conn.execute(
-                        "SELECT id, name, given_name, surname, birth_year, "
-                        "death_year, birth_place FROM wt_persons "
-                        "WHERE name LIKE ? OR surname LIKE ? OR given_name LIKE ? "
-                        "ORDER BY surname, given_name LIMIT 2000",
-                        (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
-                else:
-                    rows = self._conn.execute(
-                        "SELECT id, name, given_name, surname, birth_year, "
-                        "death_year, birth_place FROM wt_persons "
-                        "ORDER BY surname, given_name LIMIT 2000").fetchall()
-                for r in rows:
-                    wt_id = str(r["id"])
-                    ged_id, is_fuzzy = self._mapping_for(wt_id)
-                    cluster = self._cluster_map.get(ged_id) if ged_id else None
-                    confession = self._confession_of(r["birth_place"] or "")
 
-                    if flt == _FILTER_MAPPED and (not ged_id or is_fuzzy):
-                        continue
-                    if flt == _FILTER_FUZZY and not is_fuzzy:
-                        continue
-                    if flt == _FILTER_UNMAP and ged_id:
-                        continue
-                    if conf_flt == _CONF_KATH and confession != "kath":
-                        continue
-                    if conf_flt == _CONF_EV and confession != "ev":
-                        continue
-                    if conf_flt == _CONF_UNK and confession:
-                        continue
+        # Snapshot all UI state and shared dicts on the main thread
+        q           = self._search_var.get().strip()
+        flt         = self._filter_var.get()
+        conf_flt    = self._conf_var.get()
+        dna_src_sel = self._dna_src_var.get()
+        source      = self._source
+        gedcom_map  = dict(self._gedcom_map)
+        fuzzy_map   = dict(self._fuzzy_map)
+        auto_map    = dict(self._auto_map)
+        auto_scores = dict(self._auto_scores)
+        cluster_map = dict(self._cluster_map)
+        dna_map     = dict(self._dna_map)
+        ged_cache   = dict(self._ged_cache)
 
-                    # DNA-Match-Info (über gemappten ged_id)
-                    dna_info   = self._dna_map.get(ged_id) if ged_id else None
-                    has_dna    = dna_info is not None
-                    dna_cm     = dna_info[0] if dna_info else None   # None = cm unbekannt
-                    dna_src    = dna_info[2] if dna_info else set()
+        # Generation counter — stale results from a previous search are discarded
+        if not hasattr(self, "_search_gen"):
+            self._search_gen = 0
+        self._search_gen += 1
+        gen = self._search_gen
 
-                    if flt == _FILTER_DNA and not has_dna:
-                        continue
-                    # DNA-Quellen-Filter
-                    dna_src_sel = self._dna_src_var.get()
-                    if dna_src_sel and dna_src_sel != "Alle" and has_dna:
-                        if dna_src_sel not in dna_src:
+        def _mapping_for_snap(wt_id: str):
+            if wt_id in gedcom_map:
+                return gedcom_map[wt_id], False
+            if wt_id in fuzzy_map:
+                return fuzzy_map[wt_id], True
+            if wt_id in auto_map:
+                return auto_map[wt_id], True
+            return None, False
+
+        # ── Background: SQL + per-row processing ─────────────────────────────
+        def _fetch():
+            rows_out = []   # list of (iid, parent, tags, values) for main rows
+            subs_out = []   # list of (iid, parent_iid, tags, values) for sub-rows
+            seen_subs: set = set()
+
+            try:
+                if source == "anverwandte":
+                    if q:
+                        rows = self._conn.execute(
+                            "SELECT id, name, given_name, surname, birth_year, "
+                            "death_year, birth_place FROM wt_persons "
+                            "WHERE name LIKE ? OR surname LIKE ? OR given_name LIKE ? "
+                            "ORDER BY surname, given_name LIMIT 500",
+                            (f"%{q}%", f"%{q}%", f"%{q}%")).fetchall()
+                    else:
+                        rows = self._conn.execute(
+                            "SELECT id, name, given_name, surname, birth_year, "
+                            "death_year, birth_place FROM wt_persons "
+                            "ORDER BY surname, given_name LIMIT 500").fetchall()
+
+                    for r in rows:
+                        wt_id  = str(r["id"])
+                        ged_id, is_fuzzy = _mapping_for_snap(wt_id)
+                        cluster    = cluster_map.get(ged_id) if ged_id else None
+                        confession = self._confession_of(r["birth_place"] or "")
+
+                        if flt == _FILTER_MAPPED and (not ged_id or is_fuzzy):
+                            continue
+                        if flt == _FILTER_FUZZY and not is_fuzzy:
+                            continue
+                        if flt == _FILTER_UNMAP and ged_id:
+                            continue
+                        if conf_flt == _CONF_KATH and confession != "kath":
+                            continue
+                        if conf_flt == _CONF_EV and confession != "ev":
+                            continue
+                        if conf_flt == _CONF_UNK and confession:
                             continue
 
-                    raw_label = r["name"] or f"{r['given_name']} {r['surname']}".strip()
-                    label = _sanitize(raw_label)
+                        dna_info = dna_map.get(ged_id) if ged_id else None
+                        has_dna  = dna_info is not None
+                        dna_cm   = dna_info[0] if dna_info else None
+                        dna_src  = dna_info[2] if dna_info else set()
 
-                    # Status-Badge: DNA-cM schlägt mapping-Status
-                    if has_dna:
-                        cm_str = f"{dna_cm:.0f}" if dna_cm is not None else "?"
-                        pfx    = "✓" if (ged_id and not is_fuzzy) else ("~" if is_fuzzy else "")
-                        ged_badge = f"{pfx}🧬{cm_str}"
-                    else:
-                        ged_badge = ""
-                        if ged_id and not is_fuzzy:
-                            ged_badge = "✓"
-                        elif is_fuzzy:
-                            ged_badge = "~"
-                        if cluster is not None:
-                            ged_badge += f"C{cluster}"
-                    conf_badge = ("✝K" if confession == "kath" else
-                                  "✝E" if confession == "ev" else "")
-                    if conf_badge:
-                        ged_badge = f"{conf_badge} {ged_badge}".strip()
+                        if flt == _FILTER_DNA and not has_dna:
+                            continue
+                        if dna_src_sel and dna_src_sel != "Alle" and has_dna:
+                            if dna_src_sel not in dna_src:
+                                continue
 
-                    rel = self._rel_for_wt(wt_id)
-                    tag = ("cluster" if cluster is not None else
-                           "dna"     if has_dna else
-                           "mapped"  if ged_id and not is_fuzzy else
-                           "fuzzy"   if is_fuzzy else
-                           "kath"    if confession == "kath" else
-                           "ev"      if confession == "ev" else "")
-                    self._list.insert("", "end", iid=wt_id, values=(
-                        label,
-                        _years(r["birth_year"], r["death_year"]),
-                        rel,
-                        (r["birth_place"] or "")[:18],
-                        ged_badge,
-                    ), tags=(tag,) if tag else ())
+                        raw_label = r["name"] or f"{r['given_name']} {r['surname']}".strip()
+                        label = _sanitize(raw_label)
 
-                    # Eingerückte GEDCOM-Sub-Zeile (auto-match oder bestätigter Link)
-                    if ged_id and ged_id in self._ged_cache:
-                        g = self._ged_cache[ged_id]
-                        g_gn = _sanitize(g.get("given_name") or "")
-                        g_sn = _sanitize(g.get("surname") or "")
-                        g_name = f"{g_gn} {g_sn}".strip() or ged_id
-                        g_rel = _sosa_to_rel(g.get("sosa_number") or 0, g.get("sex") or "")
-                        score = self._auto_scores.get(wt_id, 0)
-                        g_dna = self._dna_map.get(ged_id)
-                        if g_dna:
-                            sub_badge = f"🧬{g_dna[0]:.0f}" if g_dna[0] is not None else "🧬?"
-                        elif wt_id in self._gedcom_map:
-                            sub_badge = "✓"
+                        if has_dna:
+                            cm_str = f"{dna_cm:.0f}" if dna_cm is not None else "?"
+                            pfx = "✓" if (ged_id and not is_fuzzy) else ("~" if is_fuzzy else "")
+                            ged_badge = f"{pfx}🧬{cm_str}"
                         else:
-                            sub_badge = f"~{score:.0f}"
-                        sub_iid = f"{ged_id}_{wt_id}"
-                        if sub_iid in self._sub_ids:
-                            continue
-                        try:
-                            self._list.insert(wt_id, "end", iid=sub_iid,
-                                values=("  └ " + g_name,
-                                        _years(str(g.get("birth_year") or ""),
-                                               str(g.get("death_year") or "")),
-                                        g_rel,
-                                        (g.get("birth_place") or "")[:18],
-                                        sub_badge),
-                                tags=("sub",))
-                            self._sub_ids.add(sub_iid)
-                        except Exception:
-                            pass
-            else:
-                # GEDCOM-Quelle
-                if q:
-                    rows = self._conn.execute(
-                        "SELECT ged_id, given_name, surname, birth_year, death_year, "
-                        "birth_place, sosa_number, sex FROM gedcom_persons "
-                        "WHERE surname LIKE ? OR given_name LIKE ? "
-                        "ORDER BY surname, given_name LIMIT 2000",
-                        (f"%{q}%", f"%{q}%")).fetchall()
+                            ged_badge = ""
+                            if ged_id and not is_fuzzy:
+                                ged_badge = "✓"
+                            elif is_fuzzy:
+                                ged_badge = "~"
+                            if cluster is not None:
+                                ged_badge += f"C{cluster}"
+                        conf_badge = ("✝K" if confession == "kath" else
+                                      "✝E" if confession == "ev" else "")
+                        if conf_badge:
+                            ged_badge = f"{conf_badge} {ged_badge}".strip()
+
+                        rel = self._rel_for_wt(wt_id)
+                        tag = ("cluster" if cluster is not None else
+                               "dna"     if has_dna else
+                               "mapped"  if ged_id and not is_fuzzy else
+                               "fuzzy"   if is_fuzzy else
+                               "kath"    if confession == "kath" else
+                               "ev"      if confession == "ev" else "")
+                        rows_out.append((wt_id, "", (tag,) if tag else (), (
+                            label,
+                            _years(r["birth_year"], r["death_year"]),
+                            rel,
+                            (r["birth_place"] or "")[:18],
+                            ged_badge,
+                        )))
+
+                        if ged_id and ged_id in ged_cache:
+                            g = ged_cache[ged_id]
+                            g_gn = _sanitize(g.get("given_name") or "")
+                            g_sn = _sanitize(g.get("surname") or "")
+                            g_name = f"{g_gn} {g_sn}".strip() or ged_id
+                            g_rel  = _sosa_to_rel(g.get("sosa_number") or 0, g.get("sex") or "")
+                            score  = auto_scores.get(wt_id, 0)
+                            g_dna  = dna_map.get(ged_id)
+                            if g_dna:
+                                sub_badge = f"🧬{g_dna[0]:.0f}" if g_dna[0] is not None else "🧬?"
+                            elif wt_id in gedcom_map:
+                                sub_badge = "✓"
+                            else:
+                                sub_badge = f"~{score:.0f}"
+                            sub_iid = f"{ged_id}_{wt_id}"
+                            if sub_iid not in seen_subs:
+                                seen_subs.add(sub_iid)
+                                subs_out.append((sub_iid, wt_id, ("sub",), (
+                                    "  └ " + g_name,
+                                    _years(str(g.get("birth_year") or ""),
+                                           str(g.get("death_year") or "")),
+                                    g_rel,
+                                    (g.get("birth_place") or "")[:18],
+                                    sub_badge,
+                                )))
+
                 else:
-                    rows = self._conn.execute(
-                        "SELECT ged_id, given_name, surname, birth_year, death_year, "
-                        "birth_place, sosa_number, sex FROM gedcom_persons "
-                        "ORDER BY surname, given_name LIMIT 2000").fetchall()
-                for r in rows:
-                    gn = _sanitize(r["given_name"] or "")
-                    sn = _sanitize(r["surname"] or "")
-                    label = f"{gn} {sn}".strip() or _sanitize(r["ged_id"])
-                    ged_id_g = str(r["ged_id"])
-                    cluster  = self._cluster_map.get(ged_id_g)
-                    dna_info = self._dna_map.get(ged_id_g)
-                    has_dna  = dna_info is not None
-                    dna_cm   = dna_info[0] if dna_info else None
-                    sosa = r["sosa_number"] or 0
-                    rel  = _sosa_to_rel(sosa, r["sex"] or "")
-                    if flt == _FILTER_DNA and not has_dna:
-                        continue
-                    if has_dna:
-                        badge = f"🧬{dna_cm:.0f}" if dna_cm is not None else "🧬?"
-                    elif cluster is not None:
-                        badge = f"C{cluster}"
+                    # GEDCOM source
+                    if q:
+                        rows = self._conn.execute(
+                            "SELECT ged_id, given_name, surname, birth_year, death_year, "
+                            "birth_place, sosa_number, sex FROM gedcom_persons "
+                            "WHERE surname LIKE ? OR given_name LIKE ? "
+                            "ORDER BY surname, given_name LIMIT 500",
+                            (f"%{q}%", f"%{q}%")).fetchall()
                     else:
-                        badge = ""
-                    tag = ("cluster" if cluster is not None else
-                           "dna"     if has_dna else "")
-                    self._list.insert("", "end", iid=ged_id_g, values=(
-                        label,
-                        _years(str(r["birth_year"] or ""), str(r["death_year"] or "")),
-                        rel,
-                        (r["birth_place"] or "")[:18],
-                        badge,
-                    ), tags=(tag,) if tag else ())
-        except Exception as e:
-            self._status.set(f"⚠ Suche: {e}")
+                        rows = self._conn.execute(
+                            "SELECT ged_id, given_name, surname, birth_year, death_year, "
+                            "birth_place, sosa_number, sex FROM gedcom_persons "
+                            "ORDER BY surname, given_name LIMIT 500").fetchall()
+                    for r in rows:
+                        gn = _sanitize(r["given_name"] or "")
+                        sn = _sanitize(r["surname"] or "")
+                        label    = f"{gn} {sn}".strip() or _sanitize(r["ged_id"])
+                        ged_id_g = str(r["ged_id"])
+                        cluster  = cluster_map.get(ged_id_g)
+                        dna_info = dna_map.get(ged_id_g)
+                        has_dna  = dna_info is not None
+                        dna_cm   = dna_info[0] if dna_info else None
+                        sosa = r["sosa_number"] or 0
+                        rel  = _sosa_to_rel(sosa, r["sex"] or "")
+                        if flt == _FILTER_DNA and not has_dna:
+                            continue
+                        if has_dna:
+                            badge = f"🧬{dna_cm:.0f}" if dna_cm is not None else "🧬?"
+                        elif cluster is not None:
+                            badge = f"C{cluster}"
+                        else:
+                            badge = ""
+                        tag = ("cluster" if cluster is not None else
+                               "dna"     if has_dna else "")
+                        rows_out.append((ged_id_g, "", (tag,) if tag else (), (
+                            label,
+                            _years(str(r["birth_year"] or ""), str(r["death_year"] or "")),
+                            rel,
+                            (r["birth_place"] or "")[:18],
+                            badge,
+                        )))
+
+            except Exception as e:
+                self.after(0, lambda e=e: self._status.set(f"⚠ Suche: {e}"))
+                return
+
+            self.after(0, lambda: _apply(rows_out, subs_out, seen_subs))
+
+        # ── Main thread: insert prepared rows into Treeview ───────────────────
+        def _apply(rows_out, subs_out, seen_subs):
+            if self._search_gen != gen or not self.winfo_exists():
+                return
+            self._list.delete(*self._list.get_children())
+            self._sub_ids.clear()
+            for iid, parent, tags, values in rows_out:
+                try:
+                    self._list.insert(parent, "end", iid=iid, values=values,
+                                      tags=tags)
+                except Exception:
+                    pass
+            for iid, parent_iid, tags, values in subs_out:
+                try:
+                    self._list.insert(parent_iid, "end", iid=iid, values=values,
+                                      tags=tags)
+                    self._sub_ids.add(iid)
+                except Exception:
+                    pass
+
+        import threading
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def _on_list_select(self, _=None):
         sel = self._list.selection()
