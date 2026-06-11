@@ -298,47 +298,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 }
 
 
-def _group_matches_by_person(matches: list) -> list:
-    """Group matches that represent the same person across different sources.
-
-    Returns a list of lists. Each sub-list begins with the "primary" match
-    (source priority: ancestry=0, myheritage=1, gedmatch=2; ties broken by
-    higher cM). Remaining items are secondary matches from other platforms.
-    """
-    import re
-
-    _SRC_PRIO = {"ancestry": 0, "myheritage": 1, "gedmatch": 2}
-
-    def _words(name: str) -> set:
-        return set(re.sub(r"[,.\-]", " ", (name or "").lower()).split()) - {""}
-
-    result: list = []
-    assigned: set = set()
-
-    for i, m in enumerate(matches):
-        if i in assigned:
-            continue
-        words_i = _words(m.display_name)
-        group = [m]
-        for j in range(i + 1, len(matches)):
-            if j in assigned:
-                continue
-            n = matches[j]
-            if getattr(m, "source", "") == getattr(n, "source", ""):
-                continue  # don't merge same-source entries
-            words_j = _words(n.display_name)
-            if words_i and words_j and (words_i <= words_j or words_j <= words_i):
-                group.append(n)
-                assigned.add(j)
-        assigned.add(i)
-        group.sort(key=lambda x: (
-            _SRC_PRIO.get(getattr(x, "source", "ancestry"), 99),
-            -(x.shared_cm or 0),
-        ))
-        result.append(group)
-
-    return result
-
 
 class AncestryDnaApp(
         LoginTabMixin, ClusterTabMixin, StatsTabMixin,
@@ -374,6 +333,7 @@ class AncestryDnaApp(
         self._lang_nb_tabs:        list = []   # (frame, key) tuples
         self._lang_widgets:        list = []   # (widget_or_sv, key[, suffix]) tuples
         self._lang_menus:          list = []   # (menu, index, key) tuples
+        self._theme_widgets:       list = []   # (widget, attr, color_key) tuples
         self._lang_inner_nb_tabs:  list = []   # (notebook, frame, key) tuples
         _saved_dark = self._load_ui_settings().get("dark_mode")
         self._dark_mode: bool = bool(_saved_dark) if _saved_dark is not None else _is_dark_theme()
@@ -435,7 +395,30 @@ class AncestryDnaApp(
     def _toggle_theme(self):
         self._dark_mode = not self._dark_mode
         self._build_style()
+        self._apply_theme()
         self._save_ui_settings(dark_mode=self._dark_mode)
+
+    def _apply_theme(self):
+        """Update all registered non-ttk widgets to the current theme palette."""
+        C = self._active_colors()
+        for widget, attr, key in self._theme_widgets:
+            try:
+                widget.configure(**{attr: C[key]})
+            except Exception:
+                pass
+        # Canvases: redraw with new background
+        if hasattr(self, "_ring_canvas"):
+            self._ring_canvas.configure(bg=C["bg"])
+            self._refresh_stats()
+        if hasattr(self, "_rel_prob_canvas"):
+            self._rel_prob_canvas.configure(bg=C["bg"])
+        # Chip buttons: reset to idle state colors
+        if hasattr(self, "_chip_btns") and hasattr(self, "_chip_vars"):
+            for key_btn, btn in self._chip_btns.items():
+                if self._chip_vars.get(key_btn, None) and self._chip_vars[key_btn].get():
+                    btn.configure(bg=C["primary"], fg=C["white"])
+                else:
+                    btn.configure(bg=C["light"], fg=C["text"])
 
     def _active_colors(self):
         return COLORS_DARK if self._dark_mode else COLORS
@@ -521,6 +504,7 @@ class AncestryDnaApp(
 
     def _build_main(self):
         hf = tk.Frame(self, bg=self._active_colors()["primary"])
+        self._theme_widgets.append((hf, "bg", "primary"))
         hf.pack(fill="x")
         ttk.Label(hf, text="🧬  Ancestry DNA Tool",
                   style="Header.TLabel").pack(side="left", fill="x", expand=True)

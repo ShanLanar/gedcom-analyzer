@@ -3,8 +3,10 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
+import webbrowser
 from tkinter import messagebox, ttk
 from typing import Optional
+from urllib.parse import quote
 
 from ancestry.core.scraper import Scraper, DownloadResult
 

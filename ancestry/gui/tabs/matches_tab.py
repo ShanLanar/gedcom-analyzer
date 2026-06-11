@@ -1,12 +1,56 @@
 """MatchesTabMixin – Tab 3: Matches für AncestryDnaApp."""
 from __future__ import annotations
 
+import logging
+import re
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 
 from ancestry.models import DnaMatch
+
+log = logging.getLogger(__name__)
+
+
+def _group_matches_by_person(matches: list) -> list:
+    """Group matches that represent the same person across different sources.
+
+    Returns a list of lists. Each sub-list begins with the "primary" match
+    (source priority: ancestry=0, myheritage=1, gedmatch=2; ties broken by
+    higher cM). Remaining items are secondary matches from other platforms.
+    """
+    _SRC_PRIO = {"ancestry": 0, "myheritage": 1, "gedmatch": 2}
+
+    def _words(name: str) -> set:
+        return set(re.sub(r"[,.\-]", " ", (name or "").lower()).split()) - {""}
+
+    result: list = []
+    assigned: set = set()
+
+    for i, m in enumerate(matches):
+        if i in assigned:
+            continue
+        words_i = _words(m.display_name)
+        group = [m]
+        for j in range(i + 1, len(matches)):
+            if j in assigned:
+                continue
+            n = matches[j]
+            if getattr(m, "source", "") == getattr(n, "source", ""):
+                continue  # don't merge same-source entries
+            words_j = _words(n.display_name)
+            if words_i and words_j and (words_i <= words_j or words_j <= words_i):
+                group.append(n)
+                assigned.add(j)
+        assigned.add(i)
+        group.sort(key=lambda x: (
+            _SRC_PRIO.get(getattr(x, "source", "ancestry"), 99),
+            -(x.shared_cm or 0),
+        ))
+        result.append(group)
+
+    return result
 
 
 class MatchesTabMixin:
