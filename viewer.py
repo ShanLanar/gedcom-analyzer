@@ -17,6 +17,7 @@ Start:
 """
 from __future__ import annotations
 
+import functools
 import json
 import os
 import re
@@ -186,6 +187,7 @@ def _sanitize(text: str) -> str:
 
 # ── Matching-Hilfsfunktionen ────────────────────────────────────────────────
 
+@functools.lru_cache(maxsize=65536)
 def _norm_str(s: str) -> str:
     """Normalisiert einen String für Vergleiche (wie bridge._norm)."""
     s = (s or "").lower().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
@@ -193,6 +195,7 @@ def _norm_str(s: str) -> str:
     return re.sub(r"\s+", " ", s).strip()
 
 
+@functools.lru_cache(maxsize=65536)
 def _koelner(name: str) -> str:
     """Kölner Phonetik — identisch mit bridge._koelner."""
     if not name:
@@ -436,6 +439,8 @@ class DataViewer(tk.Frame):
             self._build_auto_match()
             self.after(0, self._refresh_dna_src_dropdown)
             self.after(0, self._do_search)
+            self.after(0, lambda: self._status.set(
+                f"✓ Auto-Match fertig — {len(self._auto_map)} Zuordnungen"))
         threading.Thread(target=_bg_auto, daemon=True).start()
 
     def _reopen(self):
@@ -643,8 +648,18 @@ class DataViewer(tk.Frame):
             return
 
         THRESHOLD = 5.0
+        import time
+        n_total = len(wt_rows)
 
-        for wt_row in wt_rows:
+        for idx, wt_row in enumerate(wt_rows):
+            # GIL regelmäßig abgeben, damit die UI flüssig bleibt, und
+            # Fortschritt in der Statuszeile anzeigen
+            if idx % 200 == 0:
+                time.sleep(0.002)
+                if idx:
+                    pct = idx * 100 // n_total
+                    self.after(0, lambda p=pct: self._status.set(
+                        f"⏳ Auto-Match läuft im Hintergrund … {p} %"))
             wt_id = str(wt_row["id"])
             if wt_id in already:
                 continue
