@@ -584,7 +584,10 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
           login_url: str | None = None,
           login_user: str | None = None,
           login_pass: str | None = None,
-          tree_source: str | None = None):
+          tree_source: str | None = None,
+          discover: bool = False,
+          extra_seeds: list | None = None,
+          reset_stale: bool = False):
     """mode:
         'up'   – nur Vorfahren (Eltern rückwärts)
         'down' – nur Nachkommen (Kinder vorwärts)
@@ -595,6 +598,10 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
     cookies: path to cookie JSON file.
     login_url/login_user/login_pass: form-based login credentials.
     tree_source: "{host}/{tree}" label stored in wt_persons.tree_source column.
+    discover: scan every stored related_json for unknown IDs and crawl them.
+    extra_seeds: list of webtrees individual URLs to add as extra start points.
+    reset_stale: re-fetch pages where child_names_json lists children but
+                 children_json is empty (detects endogamy parse failures).
     """
     base = (_BASE_RE.match(seed_url) or [None, ""])[1]
     if not base:
@@ -638,6 +645,43 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                 last_run = excluded.last_run
         """, (tree_source, seed_id, seed_url, base, tree, mode,
               tree_source))
+        c.commit()
+
+    # ── reset-stale: re-fetch pages where meta mentions children but none were stored
+    if reset_stale:
+        stale = c.execute(
+            "SELECT id FROM wt_persons "
+            "WHERE children_json='[]' "
+            "AND child_names_json IS NOT NULL "
+            "AND child_names_json NOT IN ('[]','null','')"
+        ).fetchall()
+        if stale:
+            print(f"--reset-stale: {len(stale)} Seiten mit fehlenden Kinder-Daten werden neu geladen.")
+            for (sid,) in stale:
+                c.execute("DELETE FROM wt_persons WHERE id=?", (sid,))
+                c.execute("UPDATE wt_frontier SET done=0 WHERE id=? AND direction='down'", (sid,))
+            c.commit()
+        else:
+            print("--reset-stale: keine veralteten Einträge gefunden.")
+
+    # ── extra-seeds: add specific person URLs to both frontier directions
+    if extra_seeds:
+        for eseed in extra_seeds:
+            em = _IND_RE.search(eseed)
+            if not em:
+                print(f"  Warnung: Kein Individual-Link in '{eseed}' gefunden — übersprungen.")
+                continue
+            eid = em.group(1)
+            # Force into frontier even if previously done
+            c.execute("INSERT OR IGNORE INTO wt_frontier (id,direction,depth,done) "
+                      "VALUES (?,'down',0,0)", (eid,))
+            c.execute("UPDATE wt_frontier SET done=0 WHERE id=? AND direction='down'", (eid,))
+            c.execute("INSERT OR IGNORE INTO wt_frontier (id,direction,depth,done) "
+                      "VALUES (?,'up',0,0)", (eid,))
+            c.execute("UPDATE wt_frontier SET done=0 WHERE id=? AND direction='up'", (eid,))
+            # Remove from wt_persons so the page gets re-fetched fresh
+            c.execute("DELETE FROM wt_persons WHERE id=?", (eid,))
+            print(f"  Extra-Seed: {eid}")
         c.commit()
 
     def enqueue(pid, direction, depth):
@@ -687,9 +731,33 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
 
     # ── Phase steuern ────────────────────────────────────────────────────────
     phases = {"up": ["up"], "down": ["down"], "both": ["up", "down"]}[mode]
+    if discover:
+        phases = list(phases) + ["discover"]
 
     for ph_idx, direction in enumerate(phases):
         crawl._open0 = None   # type: ignore[attr-defined]  # Reset pro Phase
+
+        # ── Discover-Phase: scan related_json for unvisited IDs
+        if direction == "discover":
+            print(f"\n=== Phase {ph_idx+1}/{len(phases)}: Entdeckung (related_json) ===")
+            known = {row[0] for row in c.execute("SELECT id FROM wt_persons").fetchall()}
+            in_frontier = {row[0] for row in c.execute(
+                "SELECT id FROM wt_frontier WHERE direction='down'").fetchall()}
+            added = 0
+            for (rel_json,) in c.execute(
+                    "SELECT related_json FROM wt_persons "
+                    "WHERE related_json IS NOT NULL AND related_json != '[]'"
+            ).fetchall():
+                for rid in json.loads(rel_json or "[]"):
+                    if rid not in known and rid not in in_frontier:
+                        c.execute("INSERT OR IGNORE INTO wt_frontier "
+                                  "(id,direction,depth,done) VALUES (?,'down',0,0)", (rid,))
+                        in_frontier.add(rid)
+                        added += 1
+            c.commit()
+            print(f"  {added} neue IDs aus related_json in Frontier aufgenommen.")
+            direction = "down"   # process the queued entries as a normal down pass
+
         if direction == "up" and seed_id:
             enqueue(seed_id, "up", 0)
         if direction == "down":
@@ -942,6 +1010,16 @@ def main(argv):
                     help="Gespeichertes Profil laden (CLI-Args überschreiben)")
     cr.add_argument("--save-profile", default=None, metavar="NAME",
                     help="Aktuelle CLI-Args als Profil speichern")
+    cr.add_argument("--discover", action="store_true", default=False,
+                    help="Nach regulären Phasen: related_json aller Seiten nach "
+                         "unbekannten Personen scannen und nachladen (findet via "
+                         "Endogamie verbundene Vettern die keine Vorfahren/Kinder sind)")
+    cr.add_argument("--extra-seeds", nargs="+", metavar="URL", default=None,
+                    help="Webtrees-Individual-URLs gezielt hinzufügen (z.B. bekannte "
+                         "Vettern die vom Hauptcrawl übersprungen wurden)")
+    cr.add_argument("--reset-stale", action="store_true", default=False,
+                    help="Seiten neu laden, bei denen child_names_json Kinder nennt "
+                         "aber children_json leer ist (behebt Parsing-Fehler)")
 
     sub.add_parser("matricula", help="Matricula-Belege + reparierte URLs ausgeben")
     sub.add_parser("profiles", help="Alle gespeicherten Profile auflisten")
@@ -1063,7 +1141,10 @@ def main(argv):
               cookies=cfg["cookies"],
               login_url=cfg["login_url"],
               login_user=cfg["login_user"],
-              login_pass=cfg["login_pass"])
+              login_pass=cfg["login_pass"],
+              discover=args.discover,
+              extra_seeds=args.extra_seeds,
+              reset_stale=args.reset_stale)
 
     elif args.cmd == "matricula":
         matricula_report()
