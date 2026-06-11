@@ -791,11 +791,10 @@ def scan_kirchspiel(
             total_entries += entries
     else:
         with sync_playwright() as pw:
-            browser = pw.chromium.launch(
-                executable_path=CHROME_PATH,
-                headless=headless,
-                args=["--ignore-certificate-errors"],
-            )
+            launch_kwargs: dict = {"headless": headless, "args": ["--ignore-certificate-errors"]}
+            if os.path.exists(CHROME_PATH):
+                launch_kwargs["executable_path"] = CHROME_PATH
+            browser = pw.chromium.launch(**launch_kwargs)
             ctx = browser.new_context(
                 ignore_https_errors=True,
                 user_agent=(
