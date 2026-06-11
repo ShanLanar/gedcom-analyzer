@@ -567,28 +567,68 @@ def _detect_page_count(page) -> int | None:
     Liest die Gesamtseitenanzahl aus dem Matricula-Viewer.
     URL-Schema: .../D1_001_1/?pg=1  → Viewer zeigt z.B. "1 / 248"
     """
-    # Direkt aus DOM — Matricula rendert die Seitenzahl in einem
-    # Pagination-Element (Input-Feld oder Text-Span)
+    # Wait a moment for JS to finish rendering
+    try:
+        page.wait_for_load_state("networkidle", timeout=8_000)
+    except Exception:
+        pass
+
     try:
         result = page.evaluate("""
         () => {
-            // Input[max] — häufigste Form
+            // 1) Input[max] — häufigste Form (Matricula pagination input)
             const inp = document.querySelector('input[max]');
-            if (inp && inp.max) return parseInt(inp.max);
-            // Span/div mit "X / Y"-Format
-            const all = document.body.innerText;
-            const m = all.match(/\\b(\\d+)\\s*\\/\\s*(\\d+)\\b/);
-            if (m) return parseInt(m[2]);
-            // Anzahl ?pg=-Links (Thumbnailleiste)
+            if (inp && inp.max && parseInt(inp.max) > 0) return parseInt(inp.max);
+
+            // 2) Span/div mit "X / Y"-Format (z.B. "Seite 1 von 248")
+            const text = document.body.innerText || '';
+            const m = text.match(/\\b(\\d+)\\s*[\\/von]+\\s*(\\d+)\\b/i);
+            if (m && parseInt(m[2]) > 0) return parseInt(m[2]);
+
+            // 3) Anzahl ?pg=-Links (Thumbnail-Leiste)
             const pgs = document.querySelectorAll('a[href*="?pg="]');
             if (pgs.length > 1) return pgs.length;
+
+            // 4) select[name="pg"] oder select mit Seitenzahlen
+            const sel = document.querySelector('select[name="pg"], select[name="page"]');
+            if (sel && sel.options.length > 1) return sel.options.length;
+
+            // 5) data-Attribute auf Viewer-Containern
+            const viewer = document.querySelector('[data-total-pages],[data-page-count],[data-pages]');
+            if (viewer) {
+                const v = viewer.dataset.totalPages || viewer.dataset.pageCount || viewer.dataset.pages;
+                if (v && parseInt(v) > 0) return parseInt(v);
+            }
+
+            // 6) JSON in <script> suchen (häufig bei React/Vue-Seiten)
+            for (const s of document.querySelectorAll('script:not([src])')) {
+                const sm = s.textContent.match(/"(?:total_?pages?|page_?count|numPages)"\\s*:\\s*(\\d+)/i);
+                if (sm && parseInt(sm[1]) > 0) return parseInt(sm[1]);
+            }
+
             return null;
         }
         """)
-        if result:
+        if result and int(result) > 0:
             return int(result)
+    except Exception as e:
+        print(f"[JS-Fehler: {e}] ", end="")
+
+    # Debug: page title + URL so the user can check manually
+    try:
+        title = page.title()
+        url   = page.url
+        print(f"\n  [debug] URL={url}  Titel={title!r}")
+        # Try to find any number patterns in the page text as last resort
+        text = page.inner_text("body") or ""
+        import re as _re
+        nums = _re.findall(r'\b(\d{2,4})\b', text)
+        large = [int(n) for n in nums if 10 <= int(n) <= 9999]
+        if large:
+            print(f"  [debug] Zahlen auf der Seite: {sorted(set(large))[:20]}")
     except Exception:
         pass
+
     return None
 
 
