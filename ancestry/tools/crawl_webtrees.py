@@ -184,6 +184,7 @@ class Fetcher:
         self._opener = request.build_opener(
             request.HTTPCookieProcessor(self._cookie_jar)
         )
+        self._perm_fail: set[str] = set()  # URLs that returned 403/404/410
 
         # Load cookies from file (JSON from Cookie Editor or Netscape)
         if cookies_path:
@@ -288,6 +289,7 @@ class Fetcher:
             except (HTTPError, URLError, TimeoutError) as e:
                 last_err = e
                 if isinstance(e, HTTPError) and e.code in (403, 404, 410):
+                    self._perm_fail.add(url)
                     break  # nicht erneut versuchen
                 time.sleep(2 ** attempt)
         log.warning("Fehlgeschlagen %s: %s", url, last_err)
@@ -702,6 +704,13 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
             url = f"{base}/tree/{tree}/individual/{pid}"
             html = f.get(url)
             if not html:
+                if url in f._perm_fail:
+                    # 403/404/410 — person not accessible, skip permanently
+                    log.info("Person %s dauerhaft nicht erreichbar (HTTP 403/404) — überspringe", pid)
+                    c.execute("UPDATE wt_frontier SET done=1 WHERE id=? AND direction=?",
+                              (pid, direction))
+                    c.commit()
+                    return [], None
                 return None, None   # Netzwerkfehler → nicht als erledigt markieren
             # Webtrees returns 200 for private/deleted persons with an error message
             if ("existiert nicht" in html or "keine Berechtigung" in html
