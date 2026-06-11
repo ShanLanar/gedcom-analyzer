@@ -2536,17 +2536,21 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
 
     def _load_ui_settings(self) -> dict:
         import json
-        import os
         try:
             with open(self._settings_path(), encoding="utf-8") as f:
                 data = json.load(f)
-                return data if isinstance(data, dict) else {}
+                if isinstance(data, dict):
+                    self._ui_settings_cache = data
+                    return data
+                return {}
         except Exception:
-            return {}
+            return dict(getattr(self, "_ui_settings_cache", {}))
 
     def _save_ui_settings(self, **kw):
         import json
-        s = self._load_ui_settings(); s.update(kw)
+        s = self._load_ui_settings()
+        s.update(kw)
+        self._ui_settings_cache = s
         try:
             with open(self._settings_path(), "w", encoding="utf-8") as f:
                 json.dump(s, f, ensure_ascii=False, indent=2)
@@ -4085,10 +4089,8 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
             return
         cid = int(sel[0])
         desc = self._cluster_desc_var.get().strip()
-        descs = self._load_ui_settings().get("cluster_descs", {})
-        descs[str(cid)] = desc
-        self._save_ui_settings(cluster_descs=descs)
-        self._cluster_descs = descs
+        self._cluster_descs[str(cid)] = desc
+        self._save_ui_settings(cluster_descs=self._cluster_descs)
         self._set_status(f"Cluster #{cid} Beschreibung gespeichert.")
 
     def _sort_by(self, col):

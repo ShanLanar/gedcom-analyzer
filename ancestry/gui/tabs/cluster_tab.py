@@ -158,6 +158,7 @@ class ClusterTabMixin:
 
         self._clusters = build_clusters(shared_data, min_prim, min_shared,
                                         max_cm_primary=max_prim)
+        self._cluster_descs = self._load_ui_settings().get("cluster_descs", {})
         self._cluster_count_var.set(f"{len(self._clusters)} Cluster")
         self._cluster_text_var.set(suggest_grandparent_lines(self._clusters))
 
