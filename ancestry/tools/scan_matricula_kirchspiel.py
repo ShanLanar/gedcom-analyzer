@@ -458,13 +458,7 @@ def _scan_book(
         # Buchseite laden — direkt ?pg=1 damit der Viewer und sein Pagination-UI
         # vollständig geladen sind (nötig für _detect_page_count)
         pg1_url = f"{book_url.rstrip('/')}/?pg=1"
-        try:
-            pw_page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
-        except Exception:
-            pw_page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
-        time.sleep(pause)
-
-        total_pages = _detect_page_count(pw_page)
+        total_pages = _navigate_and_detect(pw_page, pg1_url, book_url, pause)
         if total_pages is None:
             print("  ⚠ Konnte Seitenanzahl nicht ermitteln — überspringe Buch")
             return 0, 0
@@ -562,74 +556,115 @@ def _scan_book(
     return scanned, new_entries
 
 
-def _detect_page_count(page) -> int | None:
+def _navigate_and_detect(page, pg1_url: str, book_url: str, pause: float) -> int | None:
     """
-    Liest die Gesamtseitenanzahl aus dem Matricula-Viewer.
-    URL-Schema: .../D1_001_1/?pg=1  → Viewer zeigt z.B. "1 / 248"
+    Navigiert zu pg1_url und ermittelt die Gesamtseitenanzahl.
+
+    Strategie:
+    1. Network-Interception: fängt API-Antworten ab, die total_pages enthalten
+    2. DOM-Fallback: sucht im gerenderten HTML nach Pagination-Elementen
+    3. Debug-Ausgabe wenn alles scheitert
     """
-    # Wait a moment for JS to finish rendering
+    _found: dict[str, int | None] = {"total": None}
+
+    def _on_response(response) -> None:
+        if _found["total"]:
+            return
+        ct = response.headers.get("content-type", "")
+        if "json" not in ct:
+            return
+        try:
+            data = response.json()
+        except Exception:
+            return
+        if not isinstance(data, dict):
+            return
+        for key in ("total_pages", "totalPages", "page_count", "pageCount",
+                    "numPages", "num_pages", "count", "total"):
+            v = data.get(key)
+            if v and isinstance(v, int) and v > 0:
+                _found["total"] = v
+                return
+        # nested: {"meta": {"total": N}}
+        for sub in data.values():
+            if isinstance(sub, dict):
+                for key in ("total_pages", "totalPages", "page_count", "total"):
+                    v = sub.get(key)
+                    if v and isinstance(v, int) and v > 0:
+                        _found["total"] = v
+                        return
+
+    page.on("response", _on_response)
     try:
-        page.wait_for_load_state("networkidle", timeout=8_000)
-    except Exception:
-        pass
+        try:
+            page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
+        except Exception:
+            page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
+        time.sleep(pause)
 
-    try:
-        result = page.evaluate("""
-        () => {
-            // 1) Input[max] — häufigste Form (Matricula pagination input)
-            const inp = document.querySelector('input[max]');
-            if (inp && inp.max && parseInt(inp.max) > 0) return parseInt(inp.max);
+        if _found["total"]:
+            return _found["total"]
 
-            // 2) Span/div mit "X / Y"-Format (z.B. "Seite 1 von 248")
-            const text = document.body.innerText || '';
-            const m = text.match(/\\b(\\d+)\\s*[\\/von]+\\s*(\\d+)\\b/i);
-            if (m && parseInt(m[2]) > 0) return parseInt(m[2]);
+        # DOM fallback — try several common pagination patterns
+        try:
+            result = page.evaluate("""
+            () => {
+                const inp = document.querySelector('input[max]');
+                if (inp && parseInt(inp.max) > 0) return parseInt(inp.max);
 
-            // 3) Anzahl ?pg=-Links (Thumbnail-Leiste)
-            const pgs = document.querySelectorAll('a[href*="?pg="]');
-            if (pgs.length > 1) return pgs.length;
+                const sel = document.querySelector('select[name="pg"],select[name="page"]');
+                if (sel && sel.options.length > 1) return sel.options.length;
 
-            // 4) select[name="pg"] oder select mit Seitenzahlen
-            const sel = document.querySelector('select[name="pg"], select[name="page"]');
-            if (sel && sel.options.length > 1) return sel.options.length;
+                const viewer = document.querySelector(
+                    '[data-total-pages],[data-page-count],[data-pages],[data-num-pages]');
+                if (viewer) {
+                    const v = viewer.dataset.totalPages || viewer.dataset.pageCount
+                            || viewer.dataset.pages    || viewer.dataset.numPages;
+                    if (v && parseInt(v) > 0) return parseInt(v);
+                }
 
-            // 5) data-Attribute auf Viewer-Containern
-            const viewer = document.querySelector('[data-total-pages],[data-page-count],[data-pages]');
-            if (viewer) {
-                const v = viewer.dataset.totalPages || viewer.dataset.pageCount || viewer.dataset.pages;
-                if (v && parseInt(v) > 0) return parseInt(v);
+                const pgs = document.querySelectorAll('a[href*="?pg="]');
+                if (pgs.length > 1) return pgs.length;
+
+                const text = (document.body && document.body.innerText) || '';
+                const m = text.match(/\\b(\\d+)\\s*[/|von|of]+\\s*(\\d+)\\b/i);
+                if (m && parseInt(m[2]) > 0) return parseInt(m[2]);
+
+                for (const s of document.querySelectorAll('script:not([src])')) {
+                    const sm = s.textContent.match(
+                        /"(?:total_?pages?|page_?count|numPages)"\\s*:\\s*(\\d+)/i);
+                    if (sm && parseInt(sm[1]) > 0) return parseInt(sm[1]);
+                }
+                return null;
             }
+            """)
+            if result and int(result) > 0:
+                return int(result)
+        except Exception as e:
+            print(f"[DOM-Fehler: {e}] ", end="")
 
-            // 6) JSON in <script> suchen (häufig bei React/Vue-Seiten)
-            for (const s of document.querySelectorAll('script:not([src])')) {
-                const sm = s.textContent.match(/"(?:total_?pages?|page_?count|numPages)"\\s*:\\s*(\\d+)/i);
-                if (sm && parseInt(sm[1]) > 0) return parseInt(sm[1]);
-            }
+        # Debug output so user can inspect what Playwright actually loaded
+        try:
+            title = page.title()
+            url   = page.url
+            print(f"\n  [debug] Geladene URL : {url}")
+            print(f"  [debug] Seitentitel  : {title!r}")
+            body_text = page.inner_text("body") or ""
+            nums = re.findall(r'\b(\d{2,4})\b', body_text)
+            unique_nums = sorted({int(n) for n in nums if 10 <= int(n) <= 9999})
+            if unique_nums:
+                print(f"  [debug] Zahlen im DOM: {unique_nums[:30]}")
+            else:
+                print(f"  [debug] Kein Text im DOM gefunden — Seite evtl. leer/gesperrt")
+        except Exception:
+            pass
 
-            return null;
-        }
-        """)
-        if result and int(result) > 0:
-            return int(result)
-    except Exception as e:
-        print(f"[JS-Fehler: {e}] ", end="")
-
-    # Debug: page title + URL so the user can check manually
-    try:
-        title = page.title()
-        url   = page.url
-        print(f"\n  [debug] URL={url}  Titel={title!r}")
-        # Try to find any number patterns in the page text as last resort
-        text = page.inner_text("body") or ""
-        import re as _re
-        nums = _re.findall(r'\b(\d{2,4})\b', text)
-        large = [int(n) for n in nums if 10 <= int(n) <= 9999]
-        if large:
-            print(f"  [debug] Zahlen auf der Seite: {sorted(set(large))[:20]}")
-    except Exception:
-        pass
-
-    return None
+        return None
+    finally:
+        try:
+            page.remove_listener("response", _on_response)
+        except Exception:
+            pass
 
 
 def _capture_current_page(
