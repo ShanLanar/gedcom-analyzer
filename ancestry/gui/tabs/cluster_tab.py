@@ -158,7 +158,6 @@ class ClusterTabMixin:
 
         self._clusters = build_clusters(shared_data, min_prim, min_shared,
                                         max_cm_primary=max_prim)
-        self._cluster_descs = self._load_ui_settings().get("cluster_descs", {}).copy()
         self._cluster_count_var.set(f"{len(self._clusters)} Cluster")
         self._cluster_text_var.set(suggest_grandparent_lines(self._clusters))
 
@@ -472,3 +471,14 @@ class ClusterTabMixin:
             ttk.Label(mf, text=f"#{i+1} {m['name']}  ({m['cm']:.0f} cM)",
                       foreground=self._active_colors()["primary"]).grid(
                 row=0, column=i, padx=10, pady=2, sticky="w")
+
+    def _save_cluster_desc(self):
+        """Save cluster description to ui_settings."""
+        sel = self._cluster_list.selection()
+        if not sel:
+            return
+        cid = int(sel[0])
+        desc = self._cluster_desc_var.get().strip()
+        self._cluster_descs[str(cid)] = desc
+        self._save_ui_settings(cluster_descs=self._cluster_descs)
+        self._set_status(f"Cluster #{cid} Beschreibung gespeichert.")

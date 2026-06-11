@@ -114,6 +114,7 @@ class StatsTabMixin:
 
     def _refresh_stats(self):
         stats = self._db.get_statistics()
+        self._last_stats = stats
         for key, var in self._stat_vars.items():
             v = stats.get(key)
             var.set(f"{v:.1f}" if isinstance(v, float) else str(v) if v is not None else "—")
@@ -157,7 +158,7 @@ class StatsTabMixin:
         C = self._active_colors()
         rings = [
             (with_tree / total,    f"{with_tree}/{total}",      "Mit Baum",      C["accent"]),
-            (ped_loaded / max(with_tree, 1), f"{ped_loaded}/{with_tree}", "Ahnentafel", C["success"]),
+            (ped_loaded / max(with_tree, 1), f"{ped_loaded}/{with_tree}" if with_tree else "—", "Ahnentafel", C["success"]),
             (side_known / total,   f"{side_known}/{total}",     "Seite bekannt", C["warning"]),
             (gedcom_linked / total, f"{gedcom_linked}/{total}", "GEDCOM-Treffer", C["primary"]),
         ]

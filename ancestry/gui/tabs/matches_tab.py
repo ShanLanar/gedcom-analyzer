@@ -27,11 +27,12 @@ def _group_matches_by_person(matches: list) -> list:
 
     result: list = []
     assigned: set = set()
+    words_cache = [_words(m.display_name) for m in matches]
 
     for i, m in enumerate(matches):
         if i in assigned:
             continue
-        words_i = _words(m.display_name)
+        words_i = words_cache[i]
         group = [m]
         for j in range(i + 1, len(matches)):
             if j in assigned:
@@ -39,7 +40,7 @@ def _group_matches_by_person(matches: list) -> list:
             n = matches[j]
             if getattr(m, "source", "") == getattr(n, "source", ""):
                 continue  # don't merge same-source entries
-            words_j = _words(n.display_name)
+            words_j = words_cache[j]
             if words_i and words_j and (words_i <= words_j or words_j <= words_i):
                 group.append(n)
                 assigned.add(j)
@@ -1130,17 +1131,6 @@ class MatchesTabMixin:
                             (name.strip(), match.match_guid))
             self._set_status(f"Name gespeichert: {name.strip()}")
             self._refresh_match_table()
-
-    def _save_cluster_desc(self):
-        """Save cluster description to ui_settings."""
-        sel = self._cluster_list.selection()
-        if not sel:
-            return
-        cid = int(sel[0])
-        desc = self._cluster_desc_var.get().strip()
-        self._cluster_descs[str(cid)] = desc
-        self._save_ui_settings(cluster_descs=self._cluster_descs)
-        self._set_status(f"Cluster #{cid} Beschreibung gespeichert.")
 
     def _sort_by(self, col):
         if self._sort_col == col:

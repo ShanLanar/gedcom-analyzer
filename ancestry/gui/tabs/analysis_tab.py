@@ -7,6 +7,8 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 from urllib.parse import quote
 
+from ancestry.core.scraper import Scraper
+
 
 class AnalysisTabMixin:
     """Mixin mit allen Analyse-Popup-Methoden für AncestryDnaApp."""
@@ -255,21 +257,6 @@ class AnalysisTabMixin:
         reload()
 
     # ── MRCA-Wahrscheinlichkeit ───────────────────────────────────────────────
-
-    # cM → relationship probability table (Shared cM Project 2020 + DNAPainter)
-    _CM_RANGES = [
-        (2600, 3900, "Elternteil / Kind",               1),
-        (1700, 2600, "Halbgeschwister / Großelternteil", 2),
-        (1200, 1700, "Halbgeschwister / Großelternteil", 2),
-        ( 550, 1200, "Onkel/Tante · 1. Cousin",         2),
-        ( 330,  550, "1. Cousin",                        3),
-        ( 200,  330, "1. Cousin 1× entf. · 2. Cousin",  3),
-        ( 100,  200, "2. Cousin",                        4),
-        (  55,  100, "2. Cousin 1× entf. · 3. Cousin",  4),
-        (  20,   55, "3. Cousin · 4. Cousin",            5),
-        (   7,   20, "4. Cousin · 5. Cousin",            6),
-        (   3,    7, "5. Cousin und weiter",              7),
-    ]
 
     def _show_mrca_analysis(self, match=None):
         """Zeigt cM-basierte MRCA-Wahrscheinlichkeiten für den gewählten Match

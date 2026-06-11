@@ -304,6 +304,21 @@ class AncestryDnaApp(
         DownloadTabMixin, AnalysisTabMixin, MatchesTabMixin,
         tk.Frame):
 
+    # cM → relationship probability table (Shared cM Project 2020 + DNAPainter)
+    _CM_RANGES = [
+        (2600, 3900, "Elternteil / Kind",               1),
+        (1700, 2600, "Halbgeschwister / Großelternteil", 2),
+        (1200, 1700, "Halbgeschwister / Großelternteil", 2),
+        ( 550, 1200, "Onkel/Tante · 1. Cousin",         2),
+        ( 330,  550, "1. Cousin",                        3),
+        ( 200,  330, "1. Cousin 1× entf. · 2. Cousin",  3),
+        ( 100,  200, "2. Cousin",                        4),
+        (  55,  100, "2. Cousin 1× entf. · 3. Cousin",  4),
+        (  20,   55, "3. Cousin · 4. Cousin",            5),
+        (   7,   20, "4. Cousin · 5. Cousin",            6),
+        (   3,    7, "5. Cousin und weiter",              7),
+    ]
+
     def __init__(self, master=None, gedcom_path: str = ""):
         # Dual-Modus: master=None -> eigenes Fenster (Standalone, abwärtskompatibel),
         # master=<Frame/Notebook-Tab> -> eingebettet in die vereinte App.
@@ -325,6 +340,7 @@ class AncestryDnaApp(
         self._kit_map : dict[str, str]              = {}
         self._matches_kit_guid_map: dict[str, str]  = {}
         self._matches : list[DnaMatch]              = []
+        self._selected_match : Optional[DnaMatch]   = None
         self._current_test_guid : Optional[str]     = None
         self._startup_gedcom_path: str              = gedcom_path
 
@@ -409,7 +425,8 @@ class AncestryDnaApp(
         # Canvases: redraw with new background
         if hasattr(self, "_ring_canvas"):
             self._ring_canvas.configure(bg=C["bg"])
-            self._refresh_stats()
+            if hasattr(self, "_last_stats"):
+                self._draw_stat_rings(self._last_stats)
         if hasattr(self, "_rel_prob_canvas"):
             self._rel_prob_canvas.configure(bg=C["bg"])
         # Chip buttons: reset to idle state colors
@@ -508,12 +525,18 @@ class AncestryDnaApp(
         hf.pack(fill="x")
         ttk.Label(hf, text="🧬  Ancestry DNA Tool",
                   style="Header.TLabel").pack(side="left", fill="x", expand=True)
+        _C = self._active_colors()
         self._lang_btn = tk.Button(
             hf, text="🌐 → EN", font=("Segoe UI", 10, "bold"),
-            bg="#2E75B6", fg="white", activebackground="#1F4E79", activeforeground="white",
+            bg=_C["accent"], fg=_C["white"],
+            activebackground=_C["primary"], activeforeground=_C["white"],
             relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
             command=self._toggle_lang)
         self._lang_btn.pack(side="right", padx=10, pady=4)
+        self._theme_widgets.append((self._lang_btn, "bg", "accent"))
+        self._theme_widgets.append((self._lang_btn, "fg", "white"))
+        self._theme_widgets.append((self._lang_btn, "activebackground", "primary"))
+        self._theme_widgets.append((self._lang_btn, "activeforeground", "white"))
 
         self._nb = ttk.Notebook(self)
         self._nb.pack(fill="both", expand=True, padx=8, pady=8)
