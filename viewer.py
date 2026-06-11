@@ -23,6 +23,7 @@ import re
 import sqlite3
 import sys
 import tkinter as tk
+from collections import deque
 from tkinter import ttk, messagebox
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
@@ -741,9 +742,9 @@ class DataViewer(tk.Frame):
         Gibt (dist{id→Generationen}, prev{id→Kind_das_zu_x_führte}) zurück."""
         dist: dict[str, int] = {wt_id: 0}
         prev: dict[str, str | None] = {wt_id: None}
-        queue: list[tuple[str, int]] = [(wt_id, 0)]
+        queue: deque[tuple[str, int]] = deque([(wt_id, 0)])
         while queue:
-            curr, d = queue.pop(0)
+            curr, d = queue.popleft()
             if d >= max_gen:
                 continue
             p = self._person(curr)
@@ -1472,6 +1473,7 @@ class DataViewer(tk.Frame):
         )
         self._source = ("anverwandte" if self._src_var.get().startswith("Anver")
                         else "gedcom")
+        self._clear_rel_target()
         # Gespeicherten Zustand wiederherstellen (falls vorhanden)
         saved = self._filter_state.get(self._source)
         if saved:
@@ -2215,7 +2217,7 @@ class DataViewer(tk.Frame):
                 tk.Label(fd, text="DNA-Match", bg=C["panel"], fg=C["muted"],
                          width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
                 _cm_s = f"{dna_info[0]:.1f} cM" if dna_info[0] is not None else "? cM"
-            tk.Label(fd, text=f"🧬 {_cm_s}  —  {dna_info[1]}",
+                tk.Label(fd, text=f"🧬 {_cm_s}  —  {dna_info[1]}",
                          bg=C["panel"], fg=C["dna"], anchor="w",
                          font=("Segoe UI", 8, "bold")).pack(side="left")
             if cluster is not None:

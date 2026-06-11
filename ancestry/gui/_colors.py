@@ -1,7 +1,8 @@
 """Zentrales Farb-Schema für die Ancestry-GUI.
 
 Importiert von app.py und den Tab-Mixins, um zirkuläre Abhängigkeiten zu vermeiden.
-Das Theme wird einmalig beim Import gesetzt (Light oder Dark je nach config_user.json).
+COLORS und _COLORS_DARK bleiben immer separate Objekte — _active_colors() wählt
+zur Laufzeit das richtige Dict, sodass Theme-Wechsel korrekt funktioniert.
 """
 
 COLORS: dict = {
@@ -28,9 +29,9 @@ _COLORS_DARK: dict = {
     "cluster" : ["#3a2020","#1a3a2a","#1e1e3a","#2e2a10","#2a1a3a","#0a2230"],
 }
 
-try:
-    import config as _cfg_theme
-    if getattr(_cfg_theme, "THEME", "light") == "dark":
-        COLORS.update(_COLORS_DARK)
-except Exception:
-    pass
+def _is_dark_theme() -> bool:
+    try:
+        import config as _cfg
+        return getattr(_cfg, "THEME", "light") == "dark"
+    except Exception:
+        return False

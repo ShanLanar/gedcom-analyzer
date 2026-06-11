@@ -4,7 +4,6 @@ from __future__ import annotations
 import tkinter as tk
 from tkinter import ttk
 
-from ancestry.gui._colors import COLORS
 
 
 class StatsTabMixin:
@@ -40,14 +39,14 @@ class StatsTabMixin:
             for i, (stat_key, label_key) in enumerate(items):
                 sv_lbl = tk.StringVar(value=self._t(label_key))
                 ttk.Label(lf, textvariable=sv_lbl,
-                          foreground=COLORS["text"]).grid(
+                          foreground=self._active_colors()["text"]).grid(
                     row=i // 2, column=(i % 2) * 2,
                     sticky="e", padx=(8, 4), pady=2)
                 self._lang_widgets.append((sv_lbl, label_key))
                 var = tk.StringVar(value="—")
                 ttk.Label(lf, textvariable=var,
                           font=("Segoe UI", 10, "bold"),
-                          foreground=COLORS["primary"]).grid(
+                          foreground=self._active_colors()["primary"]).grid(
                     row=i // 2, column=(i % 2) * 2 + 1,
                     sticky="w", padx=(0, 16), pady=2)
                 self._stat_vars[stat_key] = var
@@ -94,7 +93,7 @@ class StatsTabMixin:
 
         ring_frame = ttk.Frame(right)
         ring_frame.pack(fill="x", pady=(0, 6))
-        self._ring_canvas = tk.Canvas(ring_frame, height=90, bg=COLORS["bg"],
+        self._ring_canvas = tk.Canvas(ring_frame, height=90, bg=self._active_colors()["bg"],
                                        highlightthickness=0)
         self._ring_canvas.pack(fill="x")
         self._stat_ring_data: dict = {}
@@ -156,23 +155,23 @@ class StatsTabMixin:
 
         gedcom_linked = stats.get("gedcom_linked", 0) or 0
         rings = [
-            (with_tree / total,    f"{with_tree}/{total}",      "Mit Baum",      COLORS["accent"]),
-            (ped_loaded / max(with_tree, 1), f"{ped_loaded}/{with_tree}", "Ahnentafel", COLORS["success"]),
+            (with_tree / total,    f"{with_tree}/{total}",      "Mit Baum",      self._active_colors()["accent"]),
+            (ped_loaded / max(with_tree, 1), f"{ped_loaded}/{with_tree}", "Ahnentafel", self._active_colors()["success"]),
             (side_known / total,   f"{side_known}/{total}",     "Seite bekannt", "#8B4513"),
-            (gedcom_linked / total, f"{gedcom_linked}/{total}", "GEDCOM-Treffer", COLORS["primary"]),
+            (gedcom_linked / total, f"{gedcom_linked}/{total}", "GEDCOM-Treffer", self._active_colors()["primary"]),
         ]
         R = 35; cx_start = 55
         for i, (pct, label_cnt, title, color) in enumerate(rings):
             cx = cx_start + i * 160
             cy = 45
             c.create_arc(cx-R, cy-R, cx+R, cy+R, start=90, extent=360,
-                          style="arc", outline=COLORS["light"], width=8)
+                          style="arc", outline=self._active_colors()["light"], width=8)
             extent = max(1, min(360, int(pct * 360)))
             c.create_arc(cx-R, cy-R, cx+R, cy+R, start=90, extent=-extent,
                           style="arc", outline=color, width=8)
             c.create_text(cx, cy - 6, text=f"{pct*100:.0f}%",
-                          font=("Segoe UI", 10, "bold"), fill=COLORS["text"])
+                          font=("Segoe UI", 10, "bold"), fill=self._active_colors()["text"])
             c.create_text(cx, cy + 8, text=label_cnt,
                           font=("Segoe UI", 7), fill="#777777")
             c.create_text(cx, cy + R + 12, text=title,
-                          font=("Segoe UI", 8), fill=COLORS["text"])
+                          font=("Segoe UI", 8), fill=self._active_colors()["text"])

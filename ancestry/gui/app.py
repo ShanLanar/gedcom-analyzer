@@ -26,7 +26,7 @@ from ancestry.core.scraper import Scraper, DownloadResult
 from ancestry.core.export import export_csv, export_shared_csv, export_xlsx
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.models import DnaKit, DnaMatch, SharedMatch
-from ancestry.gui._colors import COLORS, _COLORS_DARK as COLORS_DARK
+from ancestry.gui._colors import COLORS, _COLORS_DARK as COLORS_DARK, _is_dark_theme
 from ancestry.gui.tabs.login_tab import LoginTabMixin
 from ancestry.gui.tabs.cluster_tab import ClusterTabMixin
 from ancestry.gui.tabs.stats_tab import StatsTabMixin
@@ -369,7 +369,7 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
         self._lang_widgets:        list = []   # (widget_or_sv, key[, suffix]) tuples
         self._lang_menus:          list = []   # (menu, index, key) tuples
         self._lang_inner_nb_tabs:  list = []   # (notebook, frame, key) tuples
-        self._dark_mode:           bool = False
+        self._dark_mode:           bool = _is_dark_theme()  # set before _build_style
         self.configure(bg=self._active_colors()["bg"])
         self._pause_event:         threading.Event = threading.Event()
         self._pause_event.set()  # not paused initially
@@ -432,6 +432,14 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
 
     def _active_colors(self):
         return COLORS_DARK if self._dark_mode else COLORS
+
+    def _init_dark_mode(self):
+        """Setzt _dark_mode beim Start aus der config, ohne COLORS zu mutieren."""
+        saved = self._load_ui_settings().get("dark_mode")
+        if saved is None:
+            self._dark_mode = _is_dark_theme()
+        else:
+            self._dark_mode = bool(saved)
 
     # ── Menü ──────────────────────────────────────────────────────────────────
 

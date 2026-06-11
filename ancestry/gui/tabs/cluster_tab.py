@@ -5,7 +5,6 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
-from ancestry.gui._colors import COLORS
 
 
 class ClusterTabMixin:
@@ -36,7 +35,7 @@ class ClusterTabMixin:
         self._lang_widgets.append((_sv_calc, "cl.calc_btn"))
         self._cluster_count_var = tk.StringVar(value="")
         ttk.Label(cf, textvariable=self._cluster_count_var,
-                  foreground=COLORS["primary"]).pack(side="left")
+                  foreground=self._active_colors()["primary"]).pack(side="left")
         _sv_tree_btn = tk.StringVar(value=self._t("cl.tree_btn"))
         ttk.Button(cf, textvariable=_sv_tree_btn, command=self._show_cluster_tree).pack(side="left", padx=14)
         self._lang_widgets.append((_sv_tree_btn, "cl.tree_btn"))
@@ -178,14 +177,11 @@ class ClusterTabMixin:
         self._cluster_side_colors: dict[int, str] = {}
 
         # Dichte pro Cluster aus shared_data berechnen (undirected unique pairs)
-        _cluster_member_sets: dict[int, set] = {
-            cid: {m["guid"] for m in mlist}
+        _guid_to_cid: dict[str, int] = {
+            m["guid"]: cid
             for cid, mlist in self._clusters.items()
+            for m in mlist
         }
-        _guid_to_cid: dict[str, int] = {}
-        for cid, guids in _cluster_member_sets.items():
-            for g in guids:
-                _guid_to_cid[g] = cid
         _edge_counts: dict[int, int] = {}
         _seen_pairs: set = set()
         for row in shared_data:
@@ -199,7 +195,7 @@ class ClusterTabMixin:
 
         # Cluster-Liste füllen
         self._cluster_list.delete(*self._cluster_list.get_children())
-        cluster_colors = COLORS["cluster"]
+        cluster_colors = self._active_colors()["cluster"]
         for cid, members in self._clusters.items():
             cms   = [m["cm"] for m in members]
             sides = [side_map.get(m["guid"], "") for m in members]
@@ -253,7 +249,7 @@ class ClusterTabMixin:
         if hasattr(self, "_cluster_desc_var"):
             self._cluster_desc_var.set(descs.get(str(cid), ""))
         color = getattr(self, "_cluster_side_colors", {}).get(
-            cid, COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])])
+            cid, self._active_colors()["cluster"][(cid - 1) % len(self._active_colors()["cluster"])])
 
         test_guid = self._current_guid()
         guid_match: dict = {}
@@ -369,7 +365,7 @@ class ClusterTabMixin:
                                         min(p["generations"]) if p["generations"] else 99))
 
         # Fenster
-        color = COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])]
+        color = self._active_colors()["cluster"][(cid - 1) % len(self._active_colors()["cluster"])]
         win = tk.Toplevel(self)
         win.title(f"Cluster #{cid} – Stammbaum-Analyse ({len(members)} Matches)")
         win.geometry("1150x680")
@@ -471,5 +467,5 @@ class ClusterTabMixin:
         mf.pack(fill="x", padx=12, pady=(0, 8))
         for i, m in enumerate(sorted(members, key=lambda x: -(x["cm"] or 0))):
             ttk.Label(mf, text=f"#{i+1} {m['name']}  ({m['cm']:.0f} cM)",
-                      foreground=COLORS["primary"]).grid(
+                      foreground=self._active_colors()["primary"]).grid(
                 row=0, column=i, padx=10, pady=2, sticky="w")
