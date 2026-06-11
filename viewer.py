@@ -124,13 +124,13 @@ def _ro_connect(path: str) -> sqlite3.Connection | None:
         return None
     try:
         uri = f"file:{path}?mode=ro&immutable=0"
-        c = sqlite3.connect(uri, uri=True, timeout=5.0)
+        c = sqlite3.connect(uri, uri=True, timeout=5.0, check_same_thread=False)
         c.row_factory = sqlite3.Row
         c.execute("PRAGMA busy_timeout=4000")
         return c
     except Exception:
         try:
-            c = sqlite3.connect(path, timeout=5.0)
+            c = sqlite3.connect(path, timeout=5.0, check_same_thread=False)
             c.row_factory = sqlite3.Row
             return c
         except Exception:
@@ -403,11 +403,16 @@ class DataViewer(tk.Frame):
         self._rel_target_name: str = ""
 
         self._build()
+        # Defer heavy DB init so the window appears before blocking work starts
+        self.after(0, self._deferred_load)
+
+    # ── DB ────────────────────────────────────────────────────────────────────
+    def _deferred_load(self):
+        """Runs after the first mainloop iteration so the window paints first."""
         self._open_db()
         self._refresh_stats()
         self._do_search()
 
-    # ── DB ────────────────────────────────────────────────────────────────────
     def _open_db(self):
         if self._source == "anverwandte":
             self._conn = _ro_connect(self._db_path)
@@ -424,8 +429,14 @@ class DataViewer(tk.Frame):
         self._load_clusters()
         self._load_dna_match_map()
         self._load_sosa_map()
-        self._build_auto_match()
         self._refresh_dna_src_dropdown()
+        # _build_auto_match is slow (scores wt_persons vs gedcom_persons); run in background
+        import threading
+        def _bg_auto():
+            self._build_auto_match()
+            self.after(0, self._refresh_dna_src_dropdown)
+            self.after(0, self._do_search)
+        threading.Thread(target=_bg_auto, daemon=True).start()
 
     def _reopen(self):
         for c in (self._conn, self._anc_conn, self._anc_write):

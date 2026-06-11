@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import re
+import threading
 import tkinter as tk
 import webbrowser
 from tkinter import filedialog, messagebox, ttk
@@ -855,37 +856,18 @@ class MatchesTabMixin:
         threading.Thread(target=_worker, daemon=True, name="origin-infer").start()
 
     def _refresh_match_table(self, *_):
-        try:
-            self._refresh_match_table_inner()
-        except Exception as exc:
-            import logging
-            logging.getLogger(__name__).exception("_refresh_match_table fehlgeschlagen")
-            try:
-                if hasattr(self, "_match_count_var"):
-                    self._match_count_var.set(f"⚠ Fehler: {exc}")
-            except Exception:
-                pass
-
-    def _refresh_match_table_inner(self, *_):
+        # ── Snapshot all UI state on main thread ─────────────────────────────
         try:
             min_cm = float(self._min_cm_var.get() or 0)
         except (ValueError, AttributeError):
             min_cm = 0.0
 
-        try:
-            rels = self._db.get_distinct_relationships()
-        except Exception:
-            rels = []
-        if hasattr(self, "_rel_combo"):
-            self._rel_combo["values"] = ["(alle)"] + rels
-
-        col_map = {"name":"display_name","guid":"match_guid","note":"tag_surname",
-                   "cm":"shared_cm","seg":"shared_segments",
-                   "rel":"predicted_relationship","tree":"tree_size",
-                   "ged":"match_guid","ca":"has_common_ancestor","starred":"starred"}
+        col_map = {"name": "display_name", "guid": "match_guid", "note": "tag_surname",
+                   "cm": "shared_cm", "seg": "shared_segments",
+                   "rel": "predicted_relationship", "tree": "tree_size",
+                   "ged": "match_guid", "ca": "has_common_ancestor", "starred": "starred"}
         sort_col = col_map.get(self._sort_col, "shared_cm")
 
-        # Kit-GUID aus Matches-Tab-Selektor
         active_kit: Optional[str] = None
         selected_kit_name = ""
         if hasattr(self, "_matches_kit_var") and self._matches_kit_var.get():
@@ -895,139 +877,180 @@ class MatchesTabMixin:
         if not all_sources_mode and not active_kit:
             active_kit = self._current_test_guid or self._get_kit_guid()
 
-        self._matches = self._db.get_matches(
-            test_guid      = active_kit,
-            all_sources    = all_sources_mode,
-            search         = self._search_var.get().strip() or None,
-            relationship   = self._rel_var.get() if hasattr(self,"_rel_var") else None,
-            starred_only   = self._starred_var.get() if hasattr(self,"_starred_var") else False,
-            has_tree_only  = self._tree_var.get() if hasattr(self,"_tree_var") else False,
-            min_cm         = min_cm,
-            hide_endogamy  = getattr(self, "_hide_endo_var", tk.BooleanVar()).get(),
-            sort_col       = sort_col,
-            sort_asc       = self._sort_asc,
-        )
+        search        = self._search_var.get().strip() or None
+        rel_filter    = self._rel_var.get() if hasattr(self, "_rel_var") else None
+        starred_only  = self._starred_var.get() if hasattr(self, "_starred_var") else False
+        has_tree_only = self._tree_var.get() if hasattr(self, "_tree_var") else False
+        hide_endo     = getattr(self, "_hide_endo_var", tk.BooleanVar()).get()
+        pat_chip      = hasattr(self, "_chip_vars") and self._chip_vars.get("pat", tk.BooleanVar()).get()
+        mat_chip      = hasattr(self, "_chip_vars") and self._chip_vars.get("mat", tk.BooleanVar()).get()
+        sort_asc      = self._sort_asc
+        has_gedcom    = bool(getattr(self, "_gedcom", None))
+        tg            = self._current_test_guid or self._get_kit_guid()
 
-        # Overlap-Set: welche GUIDs kommen noch in anderen Kits vor?
-        overlap_guids: set = set()
-        if active_kit:
+        # Generation counter to discard stale results when rapid calls overlap
+        if not hasattr(self, "_match_refresh_gen"):
+            self._match_refresh_gen = 0
+        self._match_refresh_gen += 1
+        gen = self._match_refresh_gen
+
+        # ── Background: all DB work ───────────────────────────────────────────
+        def _fetch():
             try:
-                all_kits = [k.guid for k in self._db.get_kits() if k.guid != active_kit]
-                if all_kits:
-                    with self._db._cursor() as _cur:
-                        rows = _cur.execute(
-                            "SELECT match_guid FROM match_kit_membership WHERE test_guid IN ({})".format(
-                                ",".join("?" * len(all_kits))),
-                            all_kits,
-                        ).fetchall()
-                    overlap_guids = {r[0] for r in rows}
+                rels = self._db.get_distinct_relationships()
             except Exception:
-                pass
-        self._match_count_var.set(f"{len(self._matches)} Match(es)")
-        self._tree.delete(*self._tree.get_children())
-        # Apply pat/mat chip filter
-        if hasattr(self, "_chip_vars"):
-            if self._chip_vars.get("pat", tk.BooleanVar()).get():
-                self._matches = [m for m in self._matches
-                                 if getattr(m, "paternal_maternal", "") == "paternal"]
-            elif self._chip_vars.get("mat", tk.BooleanVar()).get():
-                self._matches = [m for m in self._matches
-                                 if getattr(m, "paternal_maternal", "") == "maternal"]
-        # Bridge-Treffer-Zähler laden (leer wenn kein GEDCOM / keine Tabelle)
-        bridge_hits: dict = {}
-        if getattr(self, "_gedcom", None):
+                rels = []
+
             try:
-                tg = self._current_test_guid or self._get_kit_guid()
-                if tg:
+                matches = self._db.get_matches(
+                    test_guid     = active_kit,
+                    all_sources   = all_sources_mode,
+                    search        = search,
+                    relationship  = rel_filter,
+                    starred_only  = starred_only,
+                    has_tree_only = has_tree_only,
+                    min_cm        = min_cm,
+                    hide_endogamy = hide_endo,
+                    sort_col      = sort_col,
+                    sort_asc      = sort_asc,
+                )
+            except Exception as exc:
+                log.exception("_refresh_match_table fehlgeschlagen")
+                self.after(0, lambda exc=exc: (
+                    self._match_count_var.set(f"⚠ Fehler: {exc}")
+                    if hasattr(self, "_match_count_var") else None
+                ))
+                return
+
+            overlap_guids: set = set()
+            if active_kit:
+                try:
+                    all_kits = [k.guid for k in self._db.get_kits() if k.guid != active_kit]
+                    if all_kits:
+                        with self._db._cursor() as _cur:
+                            rows = _cur.execute(
+                                "SELECT match_guid FROM match_kit_membership "
+                                "WHERE test_guid IN ({})".format(
+                                    ",".join("?" * len(all_kits))),
+                                all_kits,
+                            ).fetchall()
+                        overlap_guids = {r[0] for r in rows}
+                except Exception:
+                    pass
+
+            bridge_hits: dict = {}
+            if has_gedcom and tg:
+                try:
                     bridge_hits = self._db.get_bridge_hit_counts(tg)
-            except Exception:
-                pass
-        # Group same person across sources when viewing all sources
-        if all_sources_mode and len(self._matches) > 1:
-            match_groups = _group_matches_by_person(self._matches)
-        else:
-            match_groups = [[m] for m in self._matches]
+                except Exception:
+                    pass
 
-        def _insert_match(m, parent_iid: str = "", is_sub: bool = False, iid: str | None = None):
-            endo = getattr(m, "endogamy_cluster", "") or ""
-            tags = []
-            if is_sub:
-                tags.append("sub_match")
-            pm = m.paternal_maternal or ""
-            if pm == "paternal":
-                tags.append("paternal")
-            elif pm == "maternal":
-                tags.append("maternal")
-            if endo:
-                tags.append("endogamy")
-            elif m.starred:
-                tags.append("starred")
-            elif m.predicted_relationship.lower() in (
-                "parent", "child", "sibling", "aunt/uncle", "first cousin",
-                "1st cousin", "half sibling", "close"):
-                tags.append("close")
-            if not m.has_tree and not endo:
-                tags.append("no_tree")
+            self.after(0, lambda: _apply(rels, matches, overlap_guids, bridge_hits))
 
-            status = getattr(m, "tree_status", "") or ""
-            if status and m.tree_size:
-                tree_txt = f"{status} ({m.tree_size})"
-            elif status:
-                tree_txt = status
-            elif m.has_tree:
-                tree_txt = f"✓ ({m.tree_size})" if m.tree_size else "✓"
+        # ── Main thread: apply results ────────────────────────────────────────
+        def _apply(rels, matches, overlap_guids, bridge_hits):
+            if not self.winfo_exists() or self._match_refresh_gen != gen:
+                return
+
+            if hasattr(self, "_rel_combo"):
+                self._rel_combo["values"] = ["(alle)"] + rels
+
+            if pat_chip:
+                matches = [m for m in matches
+                           if getattr(m, "paternal_maternal", "") == "paternal"]
+            elif mat_chip:
+                matches = [m for m in matches
+                           if getattr(m, "paternal_maternal", "") == "maternal"]
+
+            self._matches = matches
+            self._match_count_var.set(f"{len(matches)} Match(es)")
+            self._tree.delete(*self._tree.get_children())
+
+            if all_sources_mode and len(matches) > 1:
+                match_groups = _group_matches_by_person(matches)
             else:
-                tree_txt = "—"
+                match_groups = [[m] for m in matches]
 
-            src = getattr(m, "source", "ancestry") or "ancestry"
-            gm_kit = getattr(m, "gedmatch_kit_id", "") or ""
-            if src == "myheritage":
-                src_badge = "🔵MH"
-            elif src == "gedmatch":
-                src_badge = "⚪GED"
-            else:
-                src_badge = "🧬ANC"
-            if gm_kit:
-                src_badge += "⚡"
+            def _insert_match(m, parent_iid: str = "", is_sub: bool = False, iid: str | None = None):
+                endo = getattr(m, "endogamy_cluster", "") or ""
+                tags = []
+                if is_sub:
+                    tags.append("sub_match")
+                pm = m.paternal_maternal or ""
+                if pm == "paternal":
+                    tags.append("paternal")
+                elif pm == "maternal":
+                    tags.append("maternal")
+                if endo:
+                    tags.append("endogamy")
+                elif m.starred:
+                    tags.append("starred")
+                elif m.predicted_relationship.lower() in (
+                    "parent", "child", "sibling", "aunt/uncle", "first cousin",
+                    "1st cousin", "half sibling", "close"):
+                    tags.append("close")
+                if not m.has_tree and not endo:
+                    tags.append("no_tree")
 
-            in_other_kit = m.match_guid in overlap_guids
-            if endo:
-                note_txt = f"🔇 {endo}"
-            elif in_other_kit:
-                note_txt = f"👥 {m.tag_surname or ''}".strip()
-            else:
-                note_txt = m.tag_surname or ""
+                status = getattr(m, "tree_status", "") or ""
+                if status and m.tree_size:
+                    tree_txt = f"{status} ({m.tree_size})"
+                elif status:
+                    tree_txt = status
+                elif m.has_tree:
+                    tree_txt = f"✓ ({m.tree_size})" if m.tree_size else "✓"
+                else:
+                    tree_txt = "—"
 
-            n_hits = bridge_hits.get(m.match_guid, 0)
-            ged_txt = f"🌳{n_hits}" if n_hits else ""
-            name_txt = ("  └ " + m.display_name) if is_sub else m.display_name
-            self._tree.insert(parent_iid, "end", iid=iid if iid is not None else m.match_guid, tags=tags, values=(
-                name_txt,
-                src_badge,
-                note_txt,
-                f"{m.shared_cm:.1f}" if m.shared_cm else "—",
-                m.shared_segments or "—",
-                m.predicted_relationship or "—",
-                tree_txt,
-                ged_txt,
-                "👪" if getattr(m, "has_common_ancestor", False) else "—",
-                "⭐" if m.starred else "",
-            ))
+                src = getattr(m, "source", "ancestry") or "ancestry"
+                gm_kit = getattr(m, "gedmatch_kit_id", "") or ""
+                if src == "myheritage":
+                    src_badge = "🔵MH"
+                elif src == "gedmatch":
+                    src_badge = "⚪GED"
+                else:
+                    src_badge = "🧬ANC"
+                if gm_kit:
+                    src_badge += "⚡"
 
-        for group in match_groups:
-            primary = group[0]
-            _insert_match(primary, parent_iid="", is_sub=False)
-            for i, sub in enumerate(group[1:]):
-                # Compose a unique iid from parent+index+sub so neither the
-                # model object is mutated nor GUIDs collide across groups.
-                sub_iid = f"{primary.match_guid}__s{i}__{sub.match_guid}"
-                _insert_match(sub, parent_iid=primary.match_guid, is_sub=True, iid=sub_iid)
-        # Show/hide empty state
-        if hasattr(self, "_empty_frame"):
-            if self._matches:
-                self._empty_frame.place_forget()
-            else:
-                self._empty_frame.place(relx=0.5, rely=0.5, anchor="center")
+                in_other_kit = m.match_guid in overlap_guids
+                if endo:
+                    note_txt = f"🔇 {endo}"
+                elif in_other_kit:
+                    note_txt = f"👥 {m.tag_surname or ''}".strip()
+                else:
+                    note_txt = m.tag_surname or ""
+
+                n_hits = bridge_hits.get(m.match_guid, 0)
+                ged_txt = f"🌳{n_hits}" if n_hits else ""
+                name_txt = ("  └ " + m.display_name) if is_sub else m.display_name
+                self._tree.insert(parent_iid, "end", iid=iid if iid is not None else m.match_guid, tags=tags, values=(
+                    name_txt,
+                    src_badge,
+                    note_txt,
+                    f"{m.shared_cm:.1f}" if m.shared_cm else "—",
+                    m.shared_segments or "—",
+                    m.predicted_relationship or "—",
+                    tree_txt,
+                    ged_txt,
+                    "👪" if getattr(m, "has_common_ancestor", False) else "—",
+                    "⭐" if m.starred else "",
+                ))
+
+            for group in match_groups:
+                primary = group[0]
+                _insert_match(primary, parent_iid="", is_sub=False)
+                for i, sub in enumerate(group[1:]):
+                    sub_iid = f"{primary.match_guid}__s{i}__{sub.match_guid}"
+                    _insert_match(sub, parent_iid=primary.match_guid, is_sub=True, iid=sub_iid)
+
+            if hasattr(self, "_empty_frame"):
+                if matches:
+                    self._empty_frame.place_forget()
+                else:
+                    self._empty_frame.place(relx=0.5, rely=0.5, anchor="center")
+
+        threading.Thread(target=_fetch, daemon=True).start()
 
     def _match_from_iid(self, iid: str):
         """Resolve a Treeview iid to a DnaMatch, handling sub-match iid suffixes."""
