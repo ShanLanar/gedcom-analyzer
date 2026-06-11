@@ -114,6 +114,22 @@ class StatsTabMixin:
 
     def _refresh_stats(self):
         stats = self._db.get_statistics()
+        try:
+            tg = self._current_test_guid or self._get_kit_guid()
+            if tg:
+                with self._db._cursor() as cur:
+                    cur.execute(
+                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
+                        "AND paternal_maternal != '' AND paternal_maternal IS NOT NULL", (tg,))
+                    stats["_side_known"] = cur.fetchone()[0]
+                    cur.execute(
+                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
+                        "AND endogamy_cluster != '' AND endogamy_cluster IS NOT NULL", (tg,))
+                    stats["_endo_known"] = cur.fetchone()[0]
+            else:
+                stats["_side_known"] = stats["_endo_known"] = 0
+        except Exception:
+            stats["_side_known"] = stats["_endo_known"] = 0
         self._last_stats = stats
         for key, var in self._stat_vars.items():
             v = stats.get(key)
@@ -137,23 +153,7 @@ class StatsTabMixin:
             return
         with_tree   = stats.get("with_tree", 0) or 0
         ped_loaded  = stats.get("ped_loaded", 0) or 0
-        try:
-            tg = self._current_test_guid or self._get_kit_guid()
-            if tg:
-                with self._db._cursor() as cur:
-                    cur.execute(
-                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
-                        "AND paternal_maternal != '' AND paternal_maternal IS NOT NULL", (tg,))
-                    side_known = cur.fetchone()[0]
-                    cur.execute(
-                        "SELECT COUNT(*) FROM matches WHERE test_guid=? "
-                        "AND endogamy_cluster != '' AND endogamy_cluster IS NOT NULL", (tg,))
-                    endo_known = cur.fetchone()[0]
-            else:
-                side_known = endo_known = 0
-        except Exception:
-            side_known = endo_known = 0
-
+        side_known  = stats.get("_side_known", 0) or 0
         gedcom_linked = stats.get("gedcom_linked", 0) or 0
         C = self._active_colors()
         rings = [

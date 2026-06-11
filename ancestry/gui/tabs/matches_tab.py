@@ -948,7 +948,7 @@ class MatchesTabMixin:
         else:
             match_groups = [[m] for m in self._matches]
 
-        def _insert_match(m, parent_iid: str = "", is_sub: bool = False):
+        def _insert_match(m, parent_iid: str = "", is_sub: bool = False, iid: str | None = None):
             endo = getattr(m, "endogamy_cluster", "") or ""
             tags = []
             if is_sub:
@@ -1001,7 +1001,7 @@ class MatchesTabMixin:
             n_hits = bridge_hits.get(m.match_guid, 0)
             ged_txt = f"🌳{n_hits}" if n_hits else ""
             name_txt = ("  └ " + m.display_name) if is_sub else m.display_name
-            self._tree.insert(parent_iid, "end", iid=m.match_guid, tags=tags, values=(
+            self._tree.insert(parent_iid, "end", iid=iid if iid is not None else m.match_guid, tags=tags, values=(
                 name_txt,
                 src_badge,
                 note_txt,
@@ -1018,12 +1018,10 @@ class MatchesTabMixin:
             primary = group[0]
             _insert_match(primary, parent_iid="", is_sub=False)
             for i, sub in enumerate(group[1:]):
-                # Use a qualified iid so cross-platform GUID collisions never
-                # cause TclError: Item already exists.
-                orig_guid = sub.match_guid
-                sub.match_guid = f"{orig_guid}__sub{i}"
-                _insert_match(sub, parent_iid=primary.match_guid, is_sub=True)
-                sub.match_guid = orig_guid
+                # Compose a unique iid from parent+index+sub so neither the
+                # model object is mutated nor GUIDs collide across groups.
+                sub_iid = f"{primary.match_guid}__s{i}__{sub.match_guid}"
+                _insert_match(sub, parent_iid=primary.match_guid, is_sub=True, iid=sub_iid)
         # Show/hide empty state
         if hasattr(self, "_empty_frame"):
             if self._matches:
@@ -1031,13 +1029,18 @@ class MatchesTabMixin:
             else:
                 self._empty_frame.place(relx=0.5, rely=0.5, anchor="center")
 
+    def _match_from_iid(self, iid: str):
+        """Resolve a Treeview iid to a DnaMatch, handling sub-match iid suffixes."""
+        guid = iid.rsplit("__", 1)[-1] if "__" in iid else iid
+        return next((m for m in self._matches if m.match_guid == guid), None)
+
     def _on_match_rightclick(self, event):
         """Kontextmenü bei Rechtsklick auf einen Match."""
         item = self._tree.identify_row(event.y)
         if not item:
             return
         self._tree.selection_set(item)
-        match = next((m for m in self._matches if m.match_guid == item), None)
+        match = self._match_from_iid(item)
         if not match:
             return
 
@@ -1168,7 +1171,7 @@ class MatchesTabMixin:
     def _on_match_select(self, _):
         sel = self._tree.selection()
         if not sel: return
-        match = next((m for m in self._matches if m.match_guid == sel[0]), None)
+        match = self._match_from_iid(sel[0])
         if not match: return
         self._selected_match = match
 
