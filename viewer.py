@@ -45,6 +45,7 @@ C = {
     "mapped":    "#2e7d32",   # dunkelgrün  – im GEDCOM bestätigt
     "fuzzy":     "#5d4037",   # dunkelbraun – fuzzy-Match
     "cluster":   "#6a1b9a",   # lila        – DNA-Cluster
+    "dna":       "#00838f",   # petrol      – DNA-Match
     "kath":      "#1565c0",   # blau        – katholisch
     "ev":        "#558b2f",   # grün        – evangelisch
 }
@@ -53,6 +54,7 @@ _FILTER_ALL    = "Alle"
 _FILTER_MAPPED = "Im GEDCOM ✓"
 _FILTER_FUZZY  = "Fuzzy-Match ~"
 _FILTER_UNMAP  = "Nicht im GEDCOM"
+_FILTER_DNA    = "DNA-Match 🧬"
 
 _CONF_ALL  = "Alle Konfessionen"
 _CONF_KATH = "Katholisch"
@@ -309,6 +311,7 @@ class DataViewer(tk.Frame):
         self._auto_map:   dict[str, str] = {}    # wt_id  → ged_id (auto Score-Matching)
         self._auto_scores: dict[str, float] = {} # wt_id  → Score
         self._cluster_map: dict[str, int] = {}   # ged_id → cluster_id
+        self._dna_map: dict[str, tuple] = {}     # ged_id → (best_cm, match_name)
         self._sosa_map: dict[str, tuple] = {}    # ged_id → (sosa_number, sex)
         self._ged_cache: dict[str, dict] = {}    # ged_id → person-dict (für Sub-Zeilen)
         self._sub_ids: set[str] = set()          # iids von eingerückten GEDCOM-Zeilen
@@ -332,6 +335,7 @@ class DataViewer(tk.Frame):
                                 else ANCESTRY_DB))
         self._load_gedcom_mapping()
         self._load_clusters()
+        self._load_dna_match_map()
         self._load_sosa_map()
         self._build_auto_match()
 
@@ -439,6 +443,23 @@ class DataViewer(tk.Frame):
                     break
             except Exception:
                 continue
+
+    def _load_dna_match_map(self):
+        """Befüllt _dna_map: ged_id → (best_cm, match_name) aus gedcom_links + matches."""
+        self._dna_map.clear()
+        if not self._anc_conn:
+            return
+        try:
+            rows = self._anc_conn.execute(
+                "SELECT gl.ged_id, m.name, MAX(COALESCE(m.shared_cm, 0)) AS cm "
+                "FROM gedcom_links gl "
+                "JOIN matches m ON m.match_guid = gl.match_guid "
+                "GROUP BY gl.ged_id"
+            ).fetchall()
+            for r in rows:
+                self._dna_map[str(r["ged_id"])] = (float(r["cm"] or 0), r["name"] or "")
+        except Exception:
+            pass
 
     def _load_sosa_map(self):
         """Lädt sosa_number + sex für alle gedcom_persons (ged_id → (sosa, sex))."""
@@ -608,7 +629,7 @@ class DataViewer(tk.Frame):
         self._filter_var = tk.StringVar(value=_FILTER_ALL)
         flt = ttk.Combobox(top, textvariable=self._filter_var, width=18,
                            state="readonly",
-                           values=[_FILTER_ALL, _FILTER_MAPPED,
+                           values=[_FILTER_ALL, _FILTER_DNA, _FILTER_MAPPED,
                                    _FILTER_FUZZY, _FILTER_UNMAP])
         flt.pack(side="left", pady=8)
         flt.bind("<<ComboboxSelected>>", lambda _: self._do_search())
@@ -639,9 +660,10 @@ class DataViewer(tk.Frame):
         # Mapping-Legende
         leg = tk.Frame(self, bg=C["bg"]); leg.pack(fill="x")
         for color, label in (
+            (C["dna"],     "🧬 DNA-Match"),
+            (C["cluster"], "◆ DNA-Cluster"),
             (C["mapped"],  "✓ Im GEDCOM"),
             (C["fuzzy"],   "~ Fuzzy-Match"),
-            (C["cluster"], "◆ DNA-Cluster"),
             (C["card"],    "○ Ungemappt"),
             (C["kath"],    "✝ Katholisch"),
             (C["ev"],      "✝ Evangelisch"),
@@ -671,7 +693,7 @@ class DataViewer(tk.Frame):
         self._list.column("years",  width=60,  anchor="center")
         self._list.column("rel",    width=90,  anchor="w")
         self._list.column("place",  width=60)
-        self._list.column("status", width=36,  anchor="center")
+        self._list.column("status", width=56,  anchor="center")
         self._list.pack(fill="both", expand=True, padx=6, pady=6)
         self._list.bind("<<TreeviewSelect>>", self._on_list_select)
 
@@ -679,6 +701,7 @@ class DataViewer(tk.Frame):
         self._list.tag_configure("mapped",   foreground=C["mapped"])
         self._list.tag_configure("fuzzy",    foreground=C["fuzzy"])
         self._list.tag_configure("cluster",  foreground=C["cluster"])
+        self._list.tag_configure("dna",      foreground=C["dna"])
         self._list.tag_configure("kath",     foreground=C["kath"])
         self._list.tag_configure("ev",       foreground=C["ev"])
         self._list.tag_configure("sub",      foreground=C["muted"])
@@ -736,9 +759,11 @@ class DataViewer(tk.Frame):
                     pass
                 mapped = len(self._gedcom_map)
                 fuzzy  = len(self._fuzzy_map)
+                dna_ct = len(self._dna_map)
                 self._stats.set(
                     f"{n:,} Personen · {openf:,} offen · "
-                    f"{mapped:,} gemappt · {fuzzy:,} fuzzy"
+                    f"{mapped:,} gemappt · {fuzzy:,} fuzzy · "
+                    f"🧬{dna_ct:,} DNA"
                     .replace(",", "."))
             else:
                 n = self._conn.execute(
@@ -789,15 +814,33 @@ class DataViewer(tk.Frame):
                     if conf_flt == _CONF_UNK and confession:
                         continue
 
+                    # DNA-Match-Info (über gemappten ged_id)
+                    dna_info = self._dna_map.get(ged_id) if ged_id else None
+                    dna_cm   = dna_info[0] if dna_info else 0.0
+
+                    if flt == _FILTER_DNA and not dna_cm:
+                        continue
+
                     raw_label = r["name"] or f"{r['given_name']} {r['surname']}".strip()
                     label = _sanitize(raw_label)
-                    ged_badge = ""
-                    if ged_id and not is_fuzzy:
-                        ged_badge = "✓"
-                    elif is_fuzzy:
-                        ged_badge = "~"
-                    if cluster is not None:
-                        ged_badge += f"C{cluster}"
+
+                    # Status-Badge: DNA-cM schlägt mapping-Status
+                    if dna_cm:
+                        cm_str = f"{dna_cm:.0f}"
+                        if ged_id and not is_fuzzy:
+                            ged_badge = f"✓🧬{cm_str}"
+                        elif is_fuzzy:
+                            ged_badge = f"~🧬{cm_str}"
+                        else:
+                            ged_badge = f"🧬{cm_str}"
+                    else:
+                        ged_badge = ""
+                        if ged_id and not is_fuzzy:
+                            ged_badge = "✓"
+                        elif is_fuzzy:
+                            ged_badge = "~"
+                        if cluster is not None:
+                            ged_badge += f"C{cluster}"
                     conf_badge = ("✝K" if confession == "kath" else
                                   "✝E" if confession == "ev" else "")
                     if conf_badge:
@@ -805,6 +848,7 @@ class DataViewer(tk.Frame):
 
                     rel = self._rel_for_wt(wt_id)
                     tag = ("cluster" if cluster is not None else
+                           "dna"     if dna_cm else
                            "mapped"  if ged_id and not is_fuzzy else
                            "fuzzy"   if is_fuzzy else
                            "kath"    if confession == "kath" else
@@ -825,7 +869,13 @@ class DataViewer(tk.Frame):
                         g_name = f"{g_gn} {g_sn}".strip() or ged_id
                         g_rel = _sosa_to_rel(g.get("sosa_number") or 0, g.get("sex") or "")
                         score = self._auto_scores.get(wt_id, 0)
-                        sub_badge = "✓" if wt_id in self._gedcom_map else f"~{score:.0f}"
+                        g_dna = self._dna_map.get(ged_id)
+                        if g_dna:
+                            sub_badge = f"🧬{g_dna[0]:.0f}"
+                        elif wt_id in self._gedcom_map:
+                            sub_badge = "✓"
+                        else:
+                            sub_badge = f"~{score:.0f}"
                         sub_iid = f"{ged_id}_{wt_id}"
                         try:
                             self._list.insert(wt_id, "end", iid=sub_iid,
@@ -857,16 +907,28 @@ class DataViewer(tk.Frame):
                     gn = _sanitize(r["given_name"] or "")
                     sn = _sanitize(r["surname"] or "")
                     label = f"{gn} {sn}".strip() or _sanitize(r["ged_id"])
-                    cluster = self._cluster_map.get(str(r["ged_id"]))
+                    ged_id_g = str(r["ged_id"])
+                    cluster  = self._cluster_map.get(ged_id_g)
+                    dna_info = self._dna_map.get(ged_id_g)
+                    dna_cm   = dna_info[0] if dna_info else 0.0
                     sosa = r["sosa_number"] or 0
-                    rel = _sosa_to_rel(sosa, r["sex"] or "")
-                    tag = "cluster" if cluster is not None else ""
-                    self._list.insert("", "end", iid=r["ged_id"], values=(
+                    rel  = _sosa_to_rel(sosa, r["sex"] or "")
+                    if flt == _FILTER_DNA and not dna_cm:
+                        continue
+                    if dna_cm:
+                        badge = f"🧬{dna_cm:.0f}"
+                    elif cluster is not None:
+                        badge = f"C{cluster}"
+                    else:
+                        badge = ""
+                    tag = ("cluster" if cluster is not None else
+                           "dna"     if dna_cm else "")
+                    self._list.insert("", "end", iid=ged_id_g, values=(
                         label,
                         _years(str(r["birth_year"] or ""), str(r["death_year"] or "")),
                         rel,
                         (r["birth_place"] or "")[:18],
-                        f"C{cluster}" if cluster is not None else "",
+                        badge,
                     ), tags=(tag,) if tag else ())
         except Exception as e:
             self._status.set(f"⚠ Suche: {e}")
@@ -1112,9 +1174,18 @@ class DataViewer(tk.Frame):
         tk.Label(self._detail, text=meta, bg=C["panel"], fg=C["muted"],
                  anchor="w").pack(fill="x", padx=12)
 
-        cluster = self._cluster_map.get(ged_id)
+        dna_info = self._dna_map.get(ged_id)
+        cluster  = self._cluster_map.get(ged_id)
+        if dna_info or cluster is not None:
+            hdr("DNA-Verknüpfung")
+        if dna_info:
+            fd = tk.Frame(self._detail, bg=C["panel"]); fd.pack(fill="x", padx=12, pady=1)
+            tk.Label(fd, text="cM-Wert", bg=C["panel"], fg=C["muted"],
+                     width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
+            tk.Label(fd, text=f"🧬 {dna_info[0]:.1f} cM  —  {dna_info[1]}",
+                     bg=C["panel"], fg=C["dna"], anchor="w",
+                     font=("Segoe UI", 8, "bold")).pack(side="left")
         if cluster is not None:
-            hdr("DNA-Cluster")
             f3 = tk.Frame(self._detail, bg=C["panel"]); f3.pack(fill="x", padx=12, pady=1)
             tk.Label(f3, text="Cluster", bg=C["panel"], fg=C["muted"],
                      width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
@@ -1174,12 +1245,13 @@ class DataViewer(tk.Frame):
                      bg=C["panel"], fg=C["muted"], anchor="w").pack(
                 fill="x", padx=12)
 
-            # GEDCOM-Mapping anzeigen
+            # GEDCOM-Mapping + DNA anzeigen
             wt_id = str(p.get("id", pid))
             ged_id, is_fuzzy = self._mapping_for(wt_id)
-            cluster = self._cluster_map.get(ged_id) if ged_id else None
+            cluster  = self._cluster_map.get(ged_id) if ged_id else None
+            dna_info = self._dna_map.get(ged_id) if ged_id else None
 
-            if ged_id or cluster is not None:
+            if ged_id or cluster is not None or dna_info:
                 hdr("GEDCOM-Verknüpfung")
             if ged_id:
                 kind  = "Fuzzy-Match (~)" if is_fuzzy else "Bestätigt (✓)"
@@ -1191,6 +1263,14 @@ class DataViewer(tk.Frame):
                 tk.Label(f2, text=kind, bg=C["panel"], fg=color, anchor="w",
                          font=("Segoe UI", 8, "bold")).pack(side="left")
                 fact("GED-ID", ged_id)
+            if dna_info:
+                fd = tk.Frame(self._detail, bg=C["panel"])
+                fd.pack(fill="x", padx=12, pady=1)
+                tk.Label(fd, text="DNA-Match", bg=C["panel"], fg=C["muted"],
+                         width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
+                tk.Label(fd, text=f"🧬 {dna_info[0]:.1f} cM  —  {dna_info[1]}",
+                         bg=C["panel"], fg=C["dna"], anchor="w",
+                         font=("Segoe UI", 8, "bold")).pack(side="left")
             if cluster is not None:
                 f3 = tk.Frame(self._detail, bg=C["panel"])
                 f3.pack(fill="x", padx=12, pady=1)
@@ -1282,10 +1362,20 @@ class DataViewer(tk.Frame):
                      bg=C["panel"], fg=C["muted"], anchor="w").pack(
                 fill="x", padx=12)
 
-            # Cluster anzeigen (für GEDCOM-Personen direkt)
-            cluster = self._cluster_map.get(str(p.get("ged_id", "")))
+            # DNA-Match + Cluster anzeigen (für GEDCOM-Personen direkt)
+            ged_id_p = str(p.get("ged_id", ""))
+            dna_info = self._dna_map.get(ged_id_p)
+            cluster  = self._cluster_map.get(ged_id_p)
+            if dna_info or cluster is not None:
+                hdr("DNA-Verknüpfung")
+            if dna_info:
+                fd = tk.Frame(self._detail, bg=C["panel"]); fd.pack(fill="x", padx=12, pady=1)
+                tk.Label(fd, text="DNA-Match", bg=C["panel"], fg=C["muted"],
+                         width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
+                tk.Label(fd, text=f"🧬 {dna_info[0]:.1f} cM  —  {dna_info[1]}",
+                         bg=C["panel"], fg=C["dna"], anchor="w",
+                         font=("Segoe UI", 8, "bold")).pack(side="left")
             if cluster is not None:
-                hdr("DNA-Cluster")
                 f3 = tk.Frame(self._detail, bg=C["panel"])
                 f3.pack(fill="x", padx=12, pady=1)
                 tk.Label(f3, text="Cluster", bg=C["panel"], fg=C["muted"],
