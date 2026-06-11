@@ -256,8 +256,10 @@ def _score_pair(wt: dict, g: dict) -> float:
     # ── Vorname (erstes Token) ────────────────────────────────────
     wt_gn_raw = (wt.get("given_name") or "").strip()
     g_gn_raw  = (g.get("given_name") or "").strip()
-    wt_gn = _norm_str(wt_gn_raw.split()[0]) if wt_gn_raw else ""
-    g_gn  = _norm_str(g_gn_raw.split()[0])  if g_gn_raw  else ""
+    _wt_tok = wt_gn_raw.split()
+    _g_tok  = g_gn_raw.split()
+    wt_gn = _norm_str(_wt_tok[0]) if _wt_tok else ""
+    g_gn  = _norm_str(_g_tok[0])  if _g_tok  else ""
 
     if wt_gn and g_gn:
         if wt_gn == g_gn:
@@ -359,10 +361,12 @@ class DataViewer(tk.Frame):
         self._dna_map: dict[str, tuple] = {}     # ged_id → (best_cm, match_name)
         self._sosa_map: dict[str, tuple] = {}    # ged_id → (sosa_number, sex)
         self._sosa_rev: dict[int, str] = {}      # sosa_number → ged_id (für Pfad)
-        self._rejected: set[tuple] = set()       # (wt_id, ged_id) abgelehnte Paare
+        self._rejected: set[str] = set()          # wt_ids mit abgelehntem Match
         self._ged_cache: dict[str, dict] = {}    # ged_id → person-dict (für Sub-Zeilen)
         self._sub_ids: set[str] = set()          # iids von eingerückten GEDCOM-Zeilen
         self._parish_cache: dict[str, dict | None] = {}  # birth_place → parish-info
+        self._undo_stack: list[dict] = []        # für Rückgängig-Funktion
+        self._filter_state: dict[str, tuple] = {}  # source → (flt, conf, src, q)
 
         self._build()
         self._open_db()
@@ -387,6 +391,7 @@ class DataViewer(tk.Frame):
         self._load_dna_match_map()
         self._load_sosa_map()
         self._build_auto_match()
+        self._refresh_dna_src_dropdown()
 
     def _reopen(self):
         for c in (self._conn, self._anc_conn, self._anc_write):
@@ -397,6 +402,7 @@ class DataViewer(tk.Frame):
                 pass
         self._anc_write = None
         self._name_cache.clear()
+        self._parish_cache.clear()
         self._open_db()
         self._refresh_stats()
         self._do_search()
@@ -459,16 +465,24 @@ class DataViewer(tk.Frame):
                 continue
             by_raw = r["birth_year"]
             candidates = ged_index.get(sn, [])
+            best_score, best_id = -99, None
             for ged_id, ged_by in candidates:
+                score = 0
                 try:
-                    if by_raw and ged_by and abs(int(by_raw) - int(ged_by)) <= 5:
-                        self._fuzzy_map[wt_id] = str(ged_id)
-                        break
+                    if by_raw and ged_by:
+                        diff = abs(int(by_raw) - int(ged_by))
+                        score = 3 if diff == 0 else 2 if diff <= 2 else 1 if diff <= 5 else (
+                            0 if diff <= 10 else -2)
                     elif not by_raw and not ged_by:
-                        self._fuzzy_map[wt_id] = str(ged_id)
-                        break
+                        score = 1
+                    else:
+                        score = -1
                 except (ValueError, TypeError):
                     pass
+                if score > best_score:
+                    best_score, best_id = score, ged_id
+            if best_id is not None and best_score >= 0:
+                self._fuzzy_map[wt_id] = str(best_id)
 
     def _load_clusters(self):
         """Befüllt _cluster_map: ged_id → cluster_id aus der DNA-Datenbank."""
@@ -495,19 +509,22 @@ class DataViewer(tk.Frame):
                 continue
 
     def _load_dna_match_map(self):
-        """Befüllt _dna_map: ged_id → (best_cm, match_name) aus gedcom_links + matches."""
+        """Befüllt _dna_map: ged_id → (cm_or_None, match_name, source_set)."""
         self._dna_map.clear()
         if not self._anc_conn:
             return
         try:
             rows = self._anc_conn.execute(
-                "SELECT gl.ged_id, m.name, MAX(COALESCE(m.shared_cm, 0)) AS cm "
+                "SELECT gl.ged_id, m.name, MAX(m.shared_cm) AS cm, "
+                "GROUP_CONCAT(DISTINCT m.source) AS sources "
                 "FROM gedcom_links gl "
                 "JOIN matches m ON m.match_guid = gl.match_guid "
                 "GROUP BY gl.ged_id"
             ).fetchall()
             for r in rows:
-                self._dna_map[str(r["ged_id"])] = (float(r["cm"] or 0), r["name"] or "")
+                cm = float(r["cm"]) if r["cm"] is not None else None
+                srcs = set((r["sources"] or "").split(",")) - {""}
+                self._dna_map[str(r["ged_id"])] = (cm, r["name"] or "", srcs)
         except Exception:
             pass
 
@@ -586,8 +603,7 @@ class DataViewer(tk.Frame):
             wt_id = str(wt_row["id"])
             if wt_id in already:
                 continue
-            # Abgelehnte Paare überspringen
-            if any(wt_id == r[0] for r in self._rejected):
+            if wt_id in self._rejected:
                 continue
 
             wt = dict(wt_row)
@@ -655,7 +671,7 @@ class DataViewer(tk.Frame):
                 "WHERE status = 'rejected' AND source_other = 'anverwandte'"
             ).fetchall()
             for r in rows:
-                self._rejected.add((str(r["ged_id_other"]), str(r["ged_id_main"])))
+                self._rejected.add(str(r["ged_id_other"]))
         except Exception:
             pass
 
@@ -686,7 +702,7 @@ class DataViewer(tk.Frame):
         return path
 
     # ── Bestätigen / Ablehnen ────────────────────────────────────────────────
-    def _confirm_match(self, wt_id: str, ged_id: str):
+    def _confirm_match(self, wt_id: str, ged_id: str, _push=True):
         """Schreibt ein bestätigtes Mapping in gedcom_person_xref."""
         if not self._anc_write:
             messagebox.showerror("Fehler", "Keine Schreibverbindung zur Datenbank.")
@@ -702,16 +718,25 @@ class DataViewer(tk.Frame):
         except Exception as e:
             messagebox.showerror("Fehler", str(e))
             return
+        if _push:
+            prev = ("auto" if wt_id in self._auto_map else
+                    "fuzzy" if wt_id in self._fuzzy_map else "none")
+            self._push_undo("confirm", wt_id, ged_id, prev)
         # In-memory aktualisieren
         self._gedcom_map[wt_id] = ged_id
         self._fuzzy_map.pop(wt_id, None)
         self._auto_map.pop(wt_id, None)
-        self._rejected.discard((wt_id, ged_id))
+        self._rejected.discard(wt_id)
         self._do_search()
         self.after(50, lambda: self._navigate(wt_id, push=False))
 
-    def _reject_match(self, wt_id: str, ged_id: str):
+    def _reject_match(self, wt_id: str, ged_id: str, _push=True):
         """Schreibt 'rejected' in xref — verhindert künftige Auto-Matches."""
+        if _push:
+            prev = ("confirmed" if wt_id in self._gedcom_map else
+                    "fuzzy" if wt_id in self._fuzzy_map else
+                    "auto" if wt_id in self._auto_map else "none")
+            self._push_undo("reject", wt_id, ged_id, prev)
         if self._anc_write:
             try:
                 self._anc_write.execute(
@@ -727,7 +752,7 @@ class DataViewer(tk.Frame):
         self._gedcom_map.pop(wt_id, None)
         self._fuzzy_map.pop(wt_id, None)
         self._auto_map.pop(wt_id, None)
-        self._rejected.add((wt_id, ged_id))
+        self._rejected.add(wt_id)
         self._do_search()
 
     # ── DNA-Statistik-Fenster ────────────────────────────────────────────────
@@ -768,8 +793,8 @@ class DataViewer(tk.Frame):
         # ── Übersicht ─────────────────────────────────────────────────────
         hdr("Übersicht")
         try:
-            total = self._anc_conn.execute(
-                "SELECT COUNT(*) FROM matches").fetchone()[0]
+            r_t = self._anc_conn.execute("SELECT COUNT(*) FROM matches").fetchone()
+            total = r_t[0] if r_t else 0
             row("Gesamt DNA-Matches", f"{total:,}".replace(",", "."))
         except Exception:
             pass
@@ -841,7 +866,232 @@ class DataViewer(tk.Frame):
         row("Bestätigte Verknüpfungen", len(self._gedcom_map), C["mapped"])
         row("Fuzzy-Matches",            len(self._fuzzy_map),  C["fuzzy"])
         row("Auto-Matches (Score)",     len(self._auto_map),   C["dna"])
-        row("Abgelehnte Paare",         len(self._rejected),   C["muted"])
+        row("Abgelehnte Personen",      len(self._rejected),   C["muted"])
+        if self._auto_scores:
+            scores = list(self._auto_scores.values())
+            row("  Ø Score Auto-Matches",
+                f"{sum(scores)/len(scores):.1f}  (min {min(scores):.1f} / max {max(scores):.1f})")
+
+        # ── Fehlende Personen ─────────────────────────────────────────────
+        hdr("Lückenanalyse")
+        try:
+            r2 = self._anc_conn.execute(
+                "SELECT COUNT(*) FROM gedcom_persons gp "
+                "WHERE gp.source='gedcom' AND NOT EXISTS "
+                "(SELECT 1 FROM gedcom_links gl WHERE gl.ged_id = gp.ged_id)"
+            ).fetchone()
+            row("GEDCOM-Personen ohne DNA-Match", r2[0] if r2 else "?", C["muted"])
+        except Exception:
+            pass
+        try:
+            r3 = self._anc_conn.execute(
+                "SELECT COUNT(DISTINCT m.match_guid) FROM matches m "
+                "WHERE NOT EXISTS "
+                "(SELECT 1 FROM gedcom_links gl WHERE gl.match_guid = m.match_guid)"
+            ).fetchone()
+            row("DNA-Matches ohne GEDCOM-Eintrag", r3[0] if r3 else "?", C["fuzzy"])
+        except Exception:
+            pass
+        try:
+            r4 = self._anc_conn.execute(
+                "SELECT COUNT(*) FROM wt_persons").fetchone()
+            wt_total = r4[0] if r4 else 0
+            wt_mapped = len(self._gedcom_map) + len(self._fuzzy_map) + len(self._auto_map)
+            row("Anverwandte ohne Mapping",
+                f"{wt_total - wt_mapped} von {wt_total}", C["card"])
+        except Exception:
+            pass
+
+    # ── DNA-Quellen-Dropdown befüllen ─────────────────────────────────────────
+    def _refresh_dna_src_dropdown(self):
+        srcs = {"Alle"}
+        for _, _, src_set in self._dna_map.values():
+            srcs.update(src_set)
+        values = ["Alle"] + sorted(srcs - {"Alle"})
+        try:
+            self._dna_src_box["values"] = values
+            if self._dna_src_var.get() not in values:
+                self._dna_src_var.set("Alle")
+        except Exception:
+            pass
+
+    # ── Undo-Stack ────────────────────────────────────────────────────────────
+    def _push_undo(self, action: str, wt_id: str, ged_id: str, prev: str):
+        self._undo_stack.append({"action": action, "wt_id": wt_id,
+                                  "ged_id": ged_id, "prev": prev})
+        if len(self._undo_stack) > 30:
+            self._undo_stack.pop(0)
+        try:
+            self._undo_btn.configure(state="normal", fg=C["text"])
+        except Exception:
+            pass
+
+    def _undo_last(self):
+        if not self._undo_stack:
+            return
+        op = self._undo_stack.pop()
+        wt_id, ged_id, action, prev = op["wt_id"], op["ged_id"], op["action"], op["prev"]
+
+        # xref-Eintrag rückgängig machen
+        if self._anc_write:
+            try:
+                if prev in ("auto", "fuzzy", None):
+                    self._anc_write.execute(
+                        "DELETE FROM gedcom_person_xref "
+                        "WHERE ged_id_other=? AND source_other='anverwandte'", (wt_id,))
+                else:
+                    self._anc_write.execute(
+                        "INSERT OR REPLACE INTO gedcom_person_xref "
+                        "(ged_id_main, ged_id_other, source_main, source_other, status) "
+                        "VALUES (?, ?, 'gedcom', 'anverwandte', ?)",
+                        (ged_id, wt_id, prev))
+                self._anc_write.commit()
+            except Exception:
+                pass
+
+        # In-memory wiederherstellen
+        if action == "confirm":
+            self._gedcom_map.pop(wt_id, None)
+            if prev == "fuzzy":
+                self._fuzzy_map[wt_id] = ged_id
+            elif prev == "auto":
+                self._auto_map[wt_id] = ged_id
+        elif action == "reject":
+            self._rejected.discard(wt_id)
+            if prev == "confirmed":
+                self._gedcom_map[wt_id] = ged_id
+            elif prev == "fuzzy":
+                self._fuzzy_map[wt_id] = ged_id
+            elif prev == "auto":
+                self._auto_map[wt_id] = ged_id
+
+        if not self._undo_stack:
+            try:
+                self._undo_btn.configure(state="disabled", fg=C["muted"])
+            except Exception:
+                pass
+        self._do_search()
+
+    # ── Bulk-Confirm-Fenster ──────────────────────────────────────────────────
+    def _show_bulk_window(self):
+        """Zeigt alle offenen Auto- und Fuzzy-Matches zum Bulk-Bestätigen/-Ablehnen."""
+        if not self._anc_conn:
+            return
+        win = tk.Toplevel(self.winfo_toplevel())
+        win.title("Bulk-Aktionen – offene Matches")
+        win.geometry("860x580")
+        win.configure(bg=C["bg"])
+
+        # Score-Schwellwert
+        ctrl = tk.Frame(win, bg=C["panel"]); ctrl.pack(fill="x", padx=8, pady=6)
+        tk.Label(ctrl, text="Min. Score:", bg=C["panel"], fg=C["text"]).pack(side="left", padx=6)
+        score_var = tk.DoubleVar(value=5.0)
+        tk.Spinbox(ctrl, from_=0, to=20, increment=0.5, textvariable=score_var,
+                   width=6, bg=C["card"], fg=C["text"]).pack(side="left")
+
+        tree = ttk.Treeview(win, columns=("type","wt","ged","score","by","sex"),
+                            show="headings", selectmode="extended")
+        for col, txt, w in (("type","Art",60),("wt","Anverwandte",180),
+                             ("ged","GEDCOM",180),("score","Score",60),
+                             ("by","Geb.",55),("sex","Sex",40)):
+            tree.heading(col, text=txt); tree.column(col, width=w)
+        sb2 = ttk.Scrollbar(win, orient="vertical", command=tree.yview)
+        tree.configure(yscrollcommand=sb2.set)
+        tree.pack(side="left", fill="both", expand=True, padx=(8, 0), pady=4)
+        sb2.pack(side="left", fill="y", pady=4)
+
+        def _populate():
+            tree.delete(*tree.get_children())
+            min_s = score_var.get()
+            # Auto-Matches
+            for wt_id, ged_id in list(self._auto_map.items()):
+                sc = self._auto_scores.get(wt_id, 0)
+                if sc < min_s:
+                    continue
+                g = self._ged_cache.get(ged_id, {})
+                wt_name = ""
+                if self._conn:
+                    try:
+                        r = self._conn.execute(
+                            "SELECT name, birth_year FROM wt_persons WHERE id=?",
+                            (wt_id,)).fetchone()
+                        if r:
+                            wt_name = _sanitize(r["name"] or "")
+                    except Exception:
+                        pass
+                g_name = _sanitize(
+                    f"{g.get('given_name','')} {g.get('surname','')}".strip())
+                tree.insert("", "end", iid=f"auto_{wt_id}",
+                            values=("Auto", wt_name, g_name, f"{sc:.1f}",
+                                    g.get("birth_year",""), g.get("sex","")),
+                            tags=("auto",))
+            # Fuzzy-Matches
+            for wt_id, ged_id in list(self._fuzzy_map.items()):
+                g = self._ged_cache.get(ged_id, {})
+                wt_name = ""
+                if self._conn:
+                    try:
+                        r = self._conn.execute(
+                            "SELECT name FROM wt_persons WHERE id=?",
+                            (wt_id,)).fetchone()
+                        if r:
+                            wt_name = _sanitize(r["name"] or "")
+                    except Exception:
+                        pass
+                g_name = _sanitize(
+                    f"{g.get('given_name','')} {g.get('surname','')}".strip())
+                tree.insert("", "end", iid=f"fuzzy_{wt_id}",
+                            values=("Fuzzy", wt_name, g_name, "—",
+                                    g.get("birth_year",""), g.get("sex","")),
+                            tags=("fuzzy",))
+            tree.tag_configure("auto",  foreground=C["dna"])
+            tree.tag_configure("fuzzy", foreground=C["fuzzy"])
+
+        _populate()
+        tk.Button(ctrl, text="🔄 Aktualisieren", command=_populate,
+                  bg=C["card"], fg=C["text"], relief="flat").pack(side="left", padx=8)
+
+        def _confirm_sel():
+            for iid in tree.selection():
+                parts = iid.split("_", 1)
+                if len(parts) != 2:
+                    continue
+                kind, wt_id = parts
+                ged_id = (self._auto_map if kind == "auto" else self._fuzzy_map).get(wt_id)
+                if ged_id:
+                    prev = kind
+                    self._push_undo("confirm", wt_id, ged_id, prev)
+                    self._confirm_match(wt_id, ged_id)
+            _populate()
+
+        def _reject_sel():
+            for iid in tree.selection():
+                parts = iid.split("_", 1)
+                if len(parts) != 2:
+                    continue
+                kind, wt_id = parts
+                ged_id = (self._auto_map if kind == "auto" else self._fuzzy_map).get(wt_id)
+                if ged_id:
+                    prev = kind
+                    self._push_undo("reject", wt_id, ged_id, prev)
+                    self._reject_match(wt_id, ged_id)
+            _populate()
+
+        def _confirm_all():
+            min_s = score_var.get()
+            for wt_id, ged_id in list(self._auto_map.items()):
+                if self._auto_scores.get(wt_id, 0) >= min_s:
+                    self._push_undo("confirm", wt_id, ged_id, "auto")
+                    self._confirm_match(wt_id, ged_id)
+            _populate()
+
+        btns = tk.Frame(win, bg=C["bg"]); btns.pack(fill="x", padx=8, pady=6)
+        tk.Button(btns, text="✓ Auswahl bestätigen", bg=C["mapped"], fg="white",
+                  relief="flat", padx=8, command=_confirm_sel).pack(side="left", padx=4)
+        tk.Button(btns, text="✗ Auswahl ablehnen", bg=C["card"], fg=C["muted"],
+                  relief="flat", padx=8, command=_reject_sel).pack(side="left", padx=4)
+        tk.Button(btns, text=f"✓✓ Alle Auto ≥ Score bestätigen", bg=C["accent"], fg="white",
+                  relief="flat", padx=8, command=_confirm_all).pack(side="left", padx=4)
 
     # ────────────────────────────────────────────────────────────────────────
     def _rel_for_wt(self, wt_id: str) -> str:
@@ -882,47 +1132,62 @@ class DataViewer(tk.Frame):
 
     # ── UI-Aufbau ───────────────────────────────────────────────────────────
     def _build(self):
-        # Top-Leiste
+        # Zeile 1: Quelle, Filter, Suche, Aktionen
         top = tk.Frame(self, bg=C["panel"]); top.pack(fill="x")
         tk.Label(top, text="Quelle:", bg=C["panel"], fg=C["text"]).pack(
-            side="left", padx=(10, 4), pady=8)
+            side="left", padx=(10, 4), pady=6)
         self._src_var = tk.StringVar(value="Anverwandte (Crawl)")
-        src = ttk.Combobox(top, textvariable=self._src_var, width=24,
+        src = ttk.Combobox(top, textvariable=self._src_var, width=22,
                            state="readonly",
                            values=["Anverwandte (Crawl)", "GEDCOM / extern"])
-        src.pack(side="left", pady=8)
+        src.pack(side="left", pady=6)
         src.bind("<<ComboboxSelected>>", self._on_source_change)
 
         tk.Label(top, text="Filter:", bg=C["panel"], fg=C["text"]).pack(
-            side="left", padx=(16, 4))
+            side="left", padx=(12, 4))
         self._filter_var = tk.StringVar(value=_FILTER_ALL)
-        flt = ttk.Combobox(top, textvariable=self._filter_var, width=18,
+        flt = ttk.Combobox(top, textvariable=self._filter_var, width=16,
                            state="readonly",
                            values=[_FILTER_ALL, _FILTER_DNA, _FILTER_MAPPED,
                                    _FILTER_FUZZY, _FILTER_UNMAP])
-        flt.pack(side="left", pady=8)
+        flt.pack(side="left", pady=6)
         flt.bind("<<ComboboxSelected>>", lambda _: self._do_search())
 
         tk.Label(top, text="Konfession:", bg=C["panel"], fg=C["text"]).pack(
-            side="left", padx=(12, 4))
+            side="left", padx=(10, 4))
         self._conf_var = tk.StringVar(value=_CONF_ALL)
-        conf = ttk.Combobox(top, textvariable=self._conf_var, width=16,
+        conf = ttk.Combobox(top, textvariable=self._conf_var, width=13,
                             state="readonly",
                             values=[_CONF_ALL, _CONF_KATH, _CONF_EV, _CONF_UNK])
-        conf.pack(side="left", pady=8)
+        conf.pack(side="left", pady=6)
         conf.bind("<<ComboboxSelected>>", lambda _: self._do_search())
 
+        tk.Label(top, text="DNA-Quelle:", bg=C["panel"], fg=C["text"]).pack(
+            side="left", padx=(10, 4))
+        self._dna_src_var = tk.StringVar(value="Alle")
+        self._dna_src_box = ttk.Combobox(top, textvariable=self._dna_src_var, width=13,
+                                          state="readonly",
+                                          values=["Alle"])
+        self._dna_src_box.pack(side="left", pady=6)
+        self._dna_src_box.bind("<<ComboboxSelected>>", lambda _: self._do_search())
+
         tk.Label(top, text="Suche:", bg=C["panel"], fg=C["text"]).pack(
-            side="left", padx=(16, 4))
+            side="left", padx=(10, 4))
         self._search_var = tk.StringVar()
-        e = tk.Entry(top, textvariable=self._search_var, width=28)
-        e.pack(side="left", pady=8)
+        e = tk.Entry(top, textvariable=self._search_var, width=22)
+        e.pack(side="left", pady=6)
         e.bind("<Return>", lambda _: self._do_search())
-        tk.Button(top, text="🔍", command=self._do_search).pack(side="left", padx=4)
-        tk.Button(top, text="🔄 Aktualisieren", command=self._reopen).pack(
-            side="left", padx=12)
-        tk.Button(top, text="📊 Statistik", command=self._show_stats_window).pack(
-            side="left", padx=4)
+        tk.Button(top, text="🔍", command=self._do_search).pack(side="left", padx=2)
+        tk.Button(top, text="🔄", command=self._reopen,
+                  bg=C["panel"], fg=C["text"], relief="flat").pack(side="left", padx=4)
+        tk.Button(top, text="📊 Statistik", command=self._show_stats_window,
+                  bg=C["panel"], fg=C["text"], relief="flat").pack(side="left", padx=2)
+        tk.Button(top, text="⚡ Bulk", command=self._show_bulk_window,
+                  bg=C["panel"], fg=C["dna"], relief="flat").pack(side="left", padx=2)
+        self._undo_btn = tk.Button(top, text="↩ Rückgängig", command=self._undo_last,
+                                   bg=C["panel"], fg=C["muted"], relief="flat",
+                                   state="disabled")
+        self._undo_btn.pack(side="left", padx=4)
 
         self._stats = tk.StringVar(value="")
         tk.Label(top, textvariable=self._stats, bg=C["panel"], fg=C["accent"],
@@ -1008,8 +1273,22 @@ class DataViewer(tk.Frame):
 
     # ── Datenquellen-Wechsel ─────────────────────────────────────────────────
     def _on_source_change(self, _=None):
+        # Aktuellen Filter-Zustand speichern
+        self._filter_state[self._source] = (
+            self._filter_var.get(),
+            self._conf_var.get(),
+            self._dna_src_var.get(),
+            self._search_var.get(),
+        )
         self._source = ("anverwandte" if self._src_var.get().startswith("Anver")
                         else "gedcom")
+        # Gespeicherten Zustand wiederherstellen (falls vorhanden)
+        saved = self._filter_state.get(self._source)
+        if saved:
+            self._filter_var.set(saved[0])
+            self._conf_var.set(saved[1])
+            self._dna_src_var.set(saved[2])
+            self._search_var.set(saved[3])
         self._reopen()
 
     # ── Statistik (Live) ─────────────────────────────────────────────────────
@@ -1019,13 +1298,13 @@ class DataViewer(tk.Frame):
             return
         try:
             if self._source == "anverwandte":
-                n = self._conn.execute(
-                    "SELECT COUNT(*) FROM wt_persons").fetchone()[0]
+                _r = self._conn.execute("SELECT COUNT(*) FROM wt_persons").fetchone()
+                n = _r[0] if _r else 0
                 openf = 0
                 try:
-                    openf = self._conn.execute(
-                        "SELECT COUNT(*) FROM wt_frontier WHERE done=0"
-                    ).fetchone()[0]
+                    _rf = self._conn.execute(
+                        "SELECT COUNT(*) FROM wt_frontier WHERE done=0").fetchone()
+                    openf = _rf[0] if _rf else 0
                 except Exception:
                     pass
                 mapped = len(self._gedcom_map)
@@ -1037,8 +1316,8 @@ class DataViewer(tk.Frame):
                     f"🧬{dna_ct:,} DNA"
                     .replace(",", "."))
             else:
-                n = self._conn.execute(
-                    "SELECT COUNT(*) FROM gedcom_persons").fetchone()[0]
+                _rg = self._conn.execute("SELECT COUNT(*) FROM gedcom_persons").fetchone()
+                n = _rg[0] if _rg else 0
                 self._stats.set(f"{n:,} Personen".replace(",", "."))
         except Exception as e:
             self._stats.set(f"⚠ {e}")
@@ -1086,24 +1365,27 @@ class DataViewer(tk.Frame):
                         continue
 
                     # DNA-Match-Info (über gemappten ged_id)
-                    dna_info = self._dna_map.get(ged_id) if ged_id else None
-                    dna_cm   = dna_info[0] if dna_info else 0.0
+                    dna_info   = self._dna_map.get(ged_id) if ged_id else None
+                    has_dna    = dna_info is not None
+                    dna_cm     = dna_info[0] if dna_info else None   # None = cm unbekannt
+                    dna_src    = dna_info[2] if dna_info else set()
 
-                    if flt == _FILTER_DNA and not dna_cm:
+                    if flt == _FILTER_DNA and not has_dna:
                         continue
+                    # DNA-Quellen-Filter
+                    dna_src_sel = self._dna_src_var.get()
+                    if dna_src_sel and dna_src_sel != "Alle" and has_dna:
+                        if dna_src_sel not in dna_src:
+                            continue
 
                     raw_label = r["name"] or f"{r['given_name']} {r['surname']}".strip()
                     label = _sanitize(raw_label)
 
                     # Status-Badge: DNA-cM schlägt mapping-Status
-                    if dna_cm:
-                        cm_str = f"{dna_cm:.0f}"
-                        if ged_id and not is_fuzzy:
-                            ged_badge = f"✓🧬{cm_str}"
-                        elif is_fuzzy:
-                            ged_badge = f"~🧬{cm_str}"
-                        else:
-                            ged_badge = f"🧬{cm_str}"
+                    if has_dna:
+                        cm_str = f"{dna_cm:.0f}" if dna_cm is not None else "?"
+                        pfx    = "✓" if (ged_id and not is_fuzzy) else ("~" if is_fuzzy else "")
+                        ged_badge = f"{pfx}🧬{cm_str}"
                     else:
                         ged_badge = ""
                         if ged_id and not is_fuzzy:
@@ -1119,7 +1401,7 @@ class DataViewer(tk.Frame):
 
                     rel = self._rel_for_wt(wt_id)
                     tag = ("cluster" if cluster is not None else
-                           "dna"     if dna_cm else
+                           "dna"     if has_dna else
                            "mapped"  if ged_id and not is_fuzzy else
                            "fuzzy"   if is_fuzzy else
                            "kath"    if confession == "kath" else
@@ -1142,12 +1424,14 @@ class DataViewer(tk.Frame):
                         score = self._auto_scores.get(wt_id, 0)
                         g_dna = self._dna_map.get(ged_id)
                         if g_dna:
-                            sub_badge = f"🧬{g_dna[0]:.0f}"
+                            sub_badge = f"🧬{g_dna[0]:.0f}" if g_dna[0] is not None else "🧬?"
                         elif wt_id in self._gedcom_map:
                             sub_badge = "✓"
                         else:
                             sub_badge = f"~{score:.0f}"
                         sub_iid = f"{ged_id}_{wt_id}"
+                        if sub_iid in self._sub_ids:
+                            continue
                         try:
                             self._list.insert(wt_id, "end", iid=sub_iid,
                                 values=("  └ " + g_name,
@@ -1181,19 +1465,20 @@ class DataViewer(tk.Frame):
                     ged_id_g = str(r["ged_id"])
                     cluster  = self._cluster_map.get(ged_id_g)
                     dna_info = self._dna_map.get(ged_id_g)
-                    dna_cm   = dna_info[0] if dna_info else 0.0
+                    has_dna  = dna_info is not None
+                    dna_cm   = dna_info[0] if dna_info else None
                     sosa = r["sosa_number"] or 0
                     rel  = _sosa_to_rel(sosa, r["sex"] or "")
-                    if flt == _FILTER_DNA and not dna_cm:
+                    if flt == _FILTER_DNA and not has_dna:
                         continue
-                    if dna_cm:
-                        badge = f"🧬{dna_cm:.0f}"
+                    if has_dna:
+                        badge = f"🧬{dna_cm:.0f}" if dna_cm is not None else "🧬?"
                     elif cluster is not None:
                         badge = f"C{cluster}"
                     else:
                         badge = ""
                     tag = ("cluster" if cluster is not None else
-                           "dna"     if dna_cm else "")
+                           "dna"     if has_dna else "")
                     self._list.insert("", "end", iid=ged_id_g, values=(
                         label,
                         _years(str(r["birth_year"] or ""), str(r["death_year"] or "")),
@@ -1457,7 +1742,8 @@ class DataViewer(tk.Frame):
             fd = tk.Frame(self._detail, bg=C["panel"]); fd.pack(fill="x", padx=12, pady=1)
             tk.Label(fd, text="cM-Wert", bg=C["panel"], fg=C["muted"],
                      width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
-            tk.Label(fd, text=f"🧬 {dna_info[0]:.1f} cM  —  {dna_info[1]}",
+            _cm_s = f"{dna_info[0]:.1f} cM" if dna_info[0] is not None else "? cM"
+            tk.Label(fd, text=f"🧬 {_cm_s}  —  {dna_info[1]}",
                      bg=C["panel"], fg=C["dna"], anchor="w",
                      font=("Segoe UI", 8, "bold")).pack(side="left")
         if cluster is not None:
@@ -1477,7 +1763,8 @@ class DataViewer(tk.Frame):
         if sosa:
             fact("Sosa-Nr.", str(sosa))
         if dna_info:
-            fact("Erwarteter Grad", _cm_to_rel(dna_info[0]))
+            if dna_info[0] is not None:
+                fact("Erwarteter Grad", _cm_to_rel(dna_info[0]))
 
         # Vorfahrenpfad
         path = self._ancestor_path(ged_id)
@@ -1585,7 +1872,8 @@ class DataViewer(tk.Frame):
                 fd.pack(fill="x", padx=12, pady=1)
                 tk.Label(fd, text="DNA-Match", bg=C["panel"], fg=C["muted"],
                          width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
-                tk.Label(fd, text=f"🧬 {dna_info[0]:.1f} cM  ({_cm_to_rel(dna_info[0])})  —  {dna_info[1]}",
+                _cm_s2 = f"{dna_info[0]:.1f} cM  ({_cm_to_rel(dna_info[0])})" if dna_info[0] is not None else "? cM"
+                tk.Label(fd, text=f"🧬 {_cm_s2}  —  {dna_info[1]}",
                          bg=C["panel"], fg=C["dna"], anchor="w",
                          font=("Segoe UI", 8, "bold"), wraplength=240).pack(side="left")
             if cluster is not None:
@@ -1707,7 +1995,8 @@ class DataViewer(tk.Frame):
                 fd = tk.Frame(self._detail, bg=C["panel"]); fd.pack(fill="x", padx=12, pady=1)
                 tk.Label(fd, text="DNA-Match", bg=C["panel"], fg=C["muted"],
                          width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
-                tk.Label(fd, text=f"🧬 {dna_info[0]:.1f} cM  —  {dna_info[1]}",
+                _cm_s = f"{dna_info[0]:.1f} cM" if dna_info[0] is not None else "? cM"
+            tk.Label(fd, text=f"🧬 {_cm_s}  —  {dna_info[1]}",
                          bg=C["panel"], fg=C["dna"], anchor="w",
                          font=("Segoe UI", 8, "bold")).pack(side="left")
             if cluster is not None:

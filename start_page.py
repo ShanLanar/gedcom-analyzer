@@ -408,9 +408,10 @@ class StartPage(tk.Frame):
         # Import-Button
         b2 = tk.Frame(dna, bg=P["bg2"])
         b2.pack(fill="x", pady=(8, 0))
-        tk.Button(b2, text="⬇ DNA-Quellen importieren",
+        self._btn_import_dna = tk.Button(b2, text="⬇ DNA-Quellen importieren",
                   bg="#1F4E79", fg="#fff", font=cfg.FONT_HEAD, relief="flat", padx=12,
-                  command=self._import_dna).pack(side="left")
+                  command=self._import_dna)
+        self._btn_import_dna.pack(side="left")
         self._help_btn(b2, "cookie_editor", "Cookie Editor / Login-Hilfe")
         tk.Label(b2, text="Importiert alle gesetzten CSVs in ancestry_dna.db",
                  bg=P["bg2"], fg=P["dim"], font=("Segoe UI", 8)).pack(
@@ -655,6 +656,8 @@ class StartPage(tk.Frame):
             self._log_msg("Keine DNA-Quelle gesetzt.", tag="warn")
             return
 
+        self._btn_import_dna.configure(state="disabled", text="… importiert")
+
         def _run():
             anc_dir = os.path.join(_ROOT, "ancestry")
             import sys as _sys
@@ -696,8 +699,18 @@ class StartPage(tk.Frame):
                     self._log_msg(f"  GEDmatch-Fehler: {e}", tag="err")
 
             self.after(0, self._refresh_status)
+            self.after(0, lambda: self._btn_import_dna.configure(
+                state="normal", text="⬇ DNA-Quellen importieren"))
 
-        threading.Thread(target=_run, daemon=True).start()
+        def _run_safe():
+            try:
+                _run()
+            except Exception as exc:
+                self._log_msg(f"Unerwarteter Fehler beim Import: {exc}", tag="err")
+                self.after(0, lambda: self._btn_import_dna.configure(
+                    state="normal", text="⬇ DNA-Quellen importieren"))
+
+        threading.Thread(target=_run_safe, daemon=True).start()
 
     def _refresh_status(self):
         stats     = _db_stats()
@@ -741,21 +754,24 @@ class StartPage(tk.Frame):
         self._log_msg("Starte Matricula-Scraper (benötigt Internet) …", tag="info")
 
         def _run():
-            import subprocess
-            import sys as _sys
-            script = os.path.join(_ROOT, "ancestry", "tools",
-                                  "scrape_matricula_osnabrueck.py")
-            proc = subprocess.Popen(
-                [_sys.executable, script],
-                stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace")
-            for line in proc.stdout:
-                self._log_msg(line.rstrip())
-            rc = proc.wait()
-            self._log_msg(
-                f"Matricula-Scraper beendet (Code {rc}).",
-                tag="ok" if rc == 0 else "err")
-            self.after(0, self._refresh_status)
+            try:
+                import subprocess
+                import sys as _sys
+                script = os.path.join(_ROOT, "ancestry", "tools",
+                                      "scrape_matricula_osnabrueck.py")
+                proc = subprocess.Popen(
+                    [_sys.executable, script],
+                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                    text=True, encoding="utf-8", errors="replace")
+                for line in proc.stdout:
+                    self._log_msg(line.rstrip())
+                rc = proc.wait()
+                self._log_msg(
+                    f"Matricula-Scraper beendet (Code {rc}).",
+                    tag="ok" if rc == 0 else "err")
+                self.after(0, self._refresh_status)
+            except Exception as exc:
+                self._log_msg(f"Matricula-Scraper Fehler: {exc}", tag="err")
 
         threading.Thread(target=_run, daemon=True).start()
 
