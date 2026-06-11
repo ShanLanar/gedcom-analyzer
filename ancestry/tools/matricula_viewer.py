@@ -20,7 +20,10 @@ from __future__ import annotations
 import argparse
 import json
 import sqlite3
+import subprocess
 import sys
+import threading
+import uuid
 from pathlib import Path
 
 try:
@@ -43,6 +46,83 @@ except ImportError:
 
 app = Flask(__name__)
 app.config.setdefault("ARCHIVE_DIR", DEFAULT_ARCHIVE)
+
+# ── Scan jobs ──────────────────────────────────────────────────────────────────
+
+_SCAN_JOBS: dict[str, dict] = {}  # job_id → {proc, lines, done, rc}
+_SCAN_SCRIPT = Path(__file__).resolve().parent / "scan_matricula_kirchspiel.py"
+
+
+def _stream_job(job_id: str, proc: subprocess.Popen) -> None:
+    """Background thread: reads proc stdout+stderr, stores last 500 lines."""
+    buf = _SCAN_JOBS[job_id]["lines"]
+    assert proc.stdout is not None
+    for raw in proc.stdout:
+        line = raw.rstrip("\n")
+        buf.append(line)
+        if len(buf) > 500:
+            buf.pop(0)
+    proc.wait()
+    _SCAN_JOBS[job_id]["done"] = True
+    _SCAN_JOBS[job_id]["rc"]   = proc.returncode
+
+
+@app.route("/scan/start", methods=["POST"])
+def scan_start():
+    data      = request.get_json() or {}
+    parish    = data.get("parish", "").strip()
+    if not parish:
+        return jsonify({"error": "parish fehlt"}), 400
+
+    cmd = [sys.executable, "-u", str(_SCAN_SCRIPT), "--parish", parish]
+    if data.get("book_type"):
+        cmd += ["--book-type", data["book_type"]]
+    if data.get("year_from"):
+        cmd += ["--year-from", str(int(data["year_from"]))]
+    if data.get("year_to"):
+        cmd += ["--year-to", str(int(data["year_to"]))]
+    if data.get("retranscribe"):
+        cmd.append("--retranscribe")
+    archive_dir = str(app.config["ARCHIVE_DIR"])
+    cmd += ["--archive-dir", archive_dir]
+
+    try:
+        proc = subprocess.Popen(
+            cmd,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            cwd=str(_SCAN_SCRIPT.parent.parent.parent),
+        )
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+    job_id = uuid.uuid4().hex[:12]
+    _SCAN_JOBS[job_id] = {"proc": proc, "lines": [], "done": False, "rc": None}
+    t = threading.Thread(target=_stream_job, args=(job_id, proc), daemon=True)
+    t.start()
+    return jsonify({"job_id": job_id})
+
+
+@app.route("/scan/status/<job_id>")
+def scan_status(job_id: str):
+    job = _SCAN_JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "unbekannte Job-ID"}), 404
+    tail = job["lines"][-100:]
+    return jsonify({"running": not job["done"], "lines": tail, "rc": job["rc"]})
+
+
+@app.route("/scan/stop/<job_id>", methods=["POST"])
+def scan_stop(job_id: str):
+    job = _SCAN_JOBS.get(job_id)
+    if not job:
+        return jsonify({"error": "unbekannte Job-ID"}), 404
+    if not job["done"]:
+        job["proc"].terminate()
+    return jsonify({"ok": True})
 
 
 # ── DB ─────────────────────────────────────────────────────────────────────────
@@ -561,6 +641,127 @@ _TMPL_PARISH = """\
 {% endfor %}
 </tbody>
 </table>
+
+<details id="scanBox" style="margin-top:1.2rem;border:1px solid var(--border);
+  border-radius:5px;background:var(--card);padding:.7rem 1rem">
+  <summary style="cursor:pointer;font-weight:bold;color:var(--accent);user-select:none">
+    ▸ Scan starten
+  </summary>
+  <div style="margin-top:.7rem;display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end">
+    <div>
+      <label style="font-size:.8rem;color:var(--muted);display:block;margin-bottom:.2rem">Buchtyp</label>
+      <select id="sBookType" style="border:1px solid var(--border);border-radius:3px;
+        padding:.2rem .4rem;font-family:inherit;font-size:.85rem;background:#fffef8">
+        <option value="">— alle —</option>
+        <option>Taufe</option><option>Heirat</option>
+        <option>Tod</option><option>Konfirmation</option>
+      </select>
+    </div>
+    <div>
+      <label style="font-size:.8rem;color:var(--muted);display:block;margin-bottom:.2rem">Jahr von</label>
+      <input type="number" id="sYearFrom" placeholder="z.B. 1750"
+        style="width:90px;border:1px solid var(--border);border-radius:3px;
+        padding:.2rem .4rem;font-family:inherit;font-size:.85rem;background:#fffef8">
+    </div>
+    <div>
+      <label style="font-size:.8rem;color:var(--muted);display:block;margin-bottom:.2rem">Jahr bis</label>
+      <input type="number" id="sYearTo" placeholder="z.B. 1850"
+        style="width:90px;border:1px solid var(--border);border-radius:3px;
+        padding:.2rem .4rem;font-family:inherit;font-size:.85rem;background:#fffef8">
+    </div>
+    <div>
+      <label style="font-size:.8rem;color:var(--muted);display:block;margin-bottom:.2rem">
+        <input type="checkbox" id="sRetranscribe"> Re-Transkription
+      </label>
+    </div>
+    <button id="startScanBtn" onclick="startScan()"
+      style="background:var(--accent);color:#fff;border:none;padding:.3rem 1rem;
+      border-radius:4px;cursor:pointer;font-family:inherit;font-size:.88rem;align-self:flex-end">
+      ▶ Scan starten
+    </button>
+    <button id="stopScanBtn" onclick="stopScan()" style="display:none;
+      background:#c0392b;color:#fff;border:none;padding:.3rem .8rem;
+      border-radius:4px;cursor:pointer;font-family:inherit;font-size:.88rem;align-self:flex-end">
+      ■ Stoppen
+    </button>
+  </div>
+  <div id="scanStatus" style="margin-top:.5rem;font-size:.82rem;color:var(--muted)"></div>
+  <textarea id="scanLog" readonly style="display:none;margin-top:.5rem;
+    width:100%;height:220px;font-size:.73rem;font-family:monospace;
+    border:1px solid var(--border);border-radius:3px;background:#1a1a1a;color:#d4d4d4;
+    padding:.5rem;resize:vertical"></textarea>
+</details>
+
+<script>
+const PARISH_ID = {{ parish['id'] | tojson }};
+let _scanJobId  = null;
+let _scanPoll   = null;
+
+function startScan() {
+  const body = {
+    parish:       PARISH_ID,
+    book_type:    document.getElementById('sBookType').value || null,
+    year_from:    parseInt(document.getElementById('sYearFrom').value) || null,
+    year_to:      parseInt(document.getElementById('sYearTo').value)   || null,
+    retranscribe: document.getElementById('sRetranscribe').checked,
+  };
+  document.getElementById('startScanBtn').disabled = true;
+  document.getElementById('stopScanBtn').style.display = 'inline-block';
+  document.getElementById('scanStatus').textContent = 'Starte …';
+  const log = document.getElementById('scanLog');
+  log.style.display = 'block';
+  log.value = '';
+
+  fetch('/scan/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { document.getElementById('scanStatus').textContent = '⚠ ' + d.error; return; }
+    _scanJobId = d.job_id;
+    document.getElementById('scanStatus').textContent = 'Läuft … (Job ' + _scanJobId + ')';
+    _scanPoll = setInterval(pollScan, 1500);
+  })
+  .catch(err => {
+    document.getElementById('scanStatus').textContent = '⚠ ' + err;
+    document.getElementById('startScanBtn').disabled = false;
+    document.getElementById('stopScanBtn').style.display = 'none';
+  });
+}
+
+function pollScan() {
+  if (!_scanJobId) return;
+  fetch('/scan/status/' + _scanJobId)
+  .then(r => r.json())
+  .then(d => {
+    const log = document.getElementById('scanLog');
+    log.value = d.lines.join('\\n');
+    log.scrollTop = log.scrollHeight;
+    if (!d.running) {
+      clearInterval(_scanPoll);
+      _scanPoll = null;
+      const ok = d.rc === 0;
+      document.getElementById('scanStatus').textContent =
+        ok ? '✓ Fertig (RC 0)' : '⚠ Beendet mit RC ' + d.rc;
+      document.getElementById('startScanBtn').disabled = false;
+      document.getElementById('stopScanBtn').style.display = 'none';
+    }
+  });
+}
+
+function stopScan() {
+  if (!_scanJobId) return;
+  fetch('/scan/stop/' + _scanJobId, {method: 'POST'})
+  .then(() => {
+    clearInterval(_scanPoll);
+    document.getElementById('scanStatus').textContent = 'Gestoppt.';
+    document.getElementById('startScanBtn').disabled = false;
+    document.getElementById('stopScanBtn').style.display = 'none';
+  });
+}
+</script>
 </div>
 </body></html>
 """
@@ -606,6 +807,116 @@ _TMPL_BOOK = """\
   <p class="muted">Noch keine gescannten Seiten.</p>
 {% endfor %}
 </div>
+
+<details id="scanBox" style="margin-top:1.2rem;border:1px solid var(--border);
+  border-radius:5px;background:var(--card);padding:.7rem 1rem">
+  <summary style="cursor:pointer;font-weight:bold;color:var(--accent);user-select:none">
+    ▸ Scan starten (dieses Buch)
+  </summary>
+  <p style="font-size:.82rem;color:var(--muted);margin:.4rem 0">
+    Scannt die Pfarrei <strong>{{ parish['name'] if parish else book['book_id'].rsplit('/',1)[0] }}</strong>
+    gefiltert auf {{ book['book_type'] }}
+    {{ book['year_from'] or '?' }}–{{ book['year_to'] or '?' }}.
+    (Bereits fertige Seiten werden übersprungen.)
+  </p>
+  <div style="display:flex;flex-wrap:wrap;gap:.5rem;align-items:flex-end">
+    <div>
+      <label style="font-size:.8rem;color:var(--muted);display:block;margin-bottom:.2rem">
+        <input type="checkbox" id="bRetranscribe"> Re-Transkription (Bilder neu senden)
+      </label>
+    </div>
+    <button id="startScanBtn" onclick="startBookScan()"
+      style="background:var(--accent);color:#fff;border:none;padding:.3rem 1rem;
+      border-radius:4px;cursor:pointer;font-family:inherit;font-size:.88rem">
+      ▶ Scan starten
+    </button>
+    <button id="stopScanBtn" onclick="stopScan()" style="display:none;
+      background:#c0392b;color:#fff;border:none;padding:.3rem .8rem;
+      border-radius:4px;cursor:pointer;font-family:inherit;font-size:.88rem">
+      ■ Stoppen
+    </button>
+  </div>
+  <div id="scanStatus" style="margin-top:.5rem;font-size:.82rem;color:var(--muted)"></div>
+  <textarea id="scanLog" readonly style="display:none;margin-top:.5rem;
+    width:100%;height:220px;font-size:.73rem;font-family:monospace;
+    border:1px solid var(--border);border-radius:3px;background:#1a1a1a;color:#d4d4d4;
+    padding:.5rem;resize:vertical"></textarea>
+</details>
+
+<script>
+const PARISH_ID   = {{ (parish['id'] if parish else book['book_id'].rsplit('/',1)[0]) | tojson }};
+const BOOK_TYPE   = {{ book['book_type'] | tojson }};
+const BOOK_YFROM  = {{ book['year_from'] | tojson }};
+const BOOK_YTO    = {{ book['year_to']   | tojson }};
+let _scanJobId = null;
+let _scanPoll  = null;
+
+function startBookScan() {
+  const body = {
+    parish:       PARISH_ID,
+    book_type:    BOOK_TYPE || null,
+    year_from:    BOOK_YFROM || null,
+    year_to:      BOOK_YTO   || null,
+    retranscribe: document.getElementById('bRetranscribe').checked,
+  };
+  document.getElementById('startScanBtn').disabled = true;
+  document.getElementById('stopScanBtn').style.display = 'inline-block';
+  document.getElementById('scanStatus').textContent = 'Starte …';
+  const log = document.getElementById('scanLog');
+  log.style.display = 'block';
+  log.value = '';
+
+  fetch('/scan/start', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  })
+  .then(r => r.json())
+  .then(d => {
+    if (d.error) { document.getElementById('scanStatus').textContent = '⚠ ' + d.error; return; }
+    _scanJobId = d.job_id;
+    document.getElementById('scanStatus').textContent = 'Läuft … (Job ' + _scanJobId + ')';
+    _scanPoll = setInterval(pollScan, 1500);
+  })
+  .catch(err => {
+    document.getElementById('scanStatus').textContent = '⚠ ' + err;
+    document.getElementById('startScanBtn').disabled = false;
+    document.getElementById('stopScanBtn').style.display = 'none';
+  });
+}
+
+function pollScan() {
+  if (!_scanJobId) return;
+  fetch('/scan/status/' + _scanJobId)
+  .then(r => r.json())
+  .then(d => {
+    const log = document.getElementById('scanLog');
+    log.value = d.lines.join('\\n');
+    log.scrollTop = log.scrollHeight;
+    if (!d.running) {
+      clearInterval(_scanPoll);
+      _scanPoll = null;
+      const ok = d.rc === 0;
+      document.getElementById('scanStatus').textContent =
+        ok ? '✓ Fertig (RC 0) — Seite neu laden für aktuelle Fortschrittsanzeige'
+           : '⚠ Beendet mit RC ' + d.rc;
+      document.getElementById('startScanBtn').disabled = false;
+      document.getElementById('stopScanBtn').style.display = 'none';
+    }
+  });
+}
+
+function stopScan() {
+  if (!_scanJobId) return;
+  fetch('/scan/stop/' + _scanJobId, {method: 'POST'})
+  .then(() => {
+    clearInterval(_scanPoll);
+    document.getElementById('scanStatus').textContent = 'Gestoppt.';
+    document.getElementById('startScanBtn').disabled = false;
+    document.getElementById('stopScanBtn').style.display = 'none';
+  });
+}
+</script>
 </div>
 </body></html>
 """
