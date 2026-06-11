@@ -455,15 +455,15 @@ def _scan_book(
         done_pages: set[int] = set()
         page_range = [int(p.stem) for p in archived]
     else:
-        # Buchseite laden — direkt ?pg=1 damit der Viewer und sein Pagination-UI
-        # vollständig geladen sind (nötig für _detect_page_count)
+        # Navigate to page 1 and optionally detect total for display
         pg1_url = f"{book_url.rstrip('/')}/?pg=1"
-        total_pages = _navigate_and_detect(pw_page, pg1_url, book_url, pause)
-        if total_pages is None:
-            print("  ⚠ Konnte Seitenanzahl nicht ermitteln — überspringe Buch")
-            return 0, 0
+        try:
+            pw_page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
+        except Exception:
+            pw_page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
+        time.sleep(pause)
 
-        print(f"  {total_pages} Seiten gefunden")
+        total_pages = _try_detect_page_count(pw_page)
         done_pages = {
             row[0]
             for row in parish_db.execute(
@@ -471,9 +471,11 @@ def _scan_book(
                 (book_id,),
             ).fetchall()
         }
-        remaining = total_pages - len(done_pages)
-        print(f"  {len(done_pages)} bereits fertig, {remaining} verbleibend")
-        page_range = list(range(1, total_pages + 1))
+        if total_pages:
+            print(f"  {total_pages} Seiten erkannt, {len(done_pages)} bereits fertig")
+        else:
+            print(f"  Seitenanzahl unbekannt — inkrementeller Scan "
+                  f"({len(done_pages)} bereits fertig)")
 
     # Seiten mit manuellen Viewer-Korrekturen nie überschreiben
     try:
@@ -493,17 +495,30 @@ def _scan_book(
     scanned = 0
     new_entries = 0
 
-    for page_nr in page_range:
-        if page_nr in done_pages:
-            continue
-        if page_nr in corrected_pages:
-            continue
+    if retranscribe:
+        # page_range already set above
+        _iter = page_range
+    elif total_pages:
+        _iter = range(1, total_pages + 1)
+    else:
+        _iter = None  # incremental: open-ended while loop below
 
-        print(f"    Seite {page_nr:4d}/{total_pages} ", end="", flush=True)
+    def _do_page(page_nr: int) -> bool:
+        """Process one page. Returns False when end-of-book detected."""
+        nonlocal scanned, new_entries
+
+        if page_nr in done_pages:
+            return True
+        if page_nr in corrected_pages:
+            return True
+
+        total_str = f"/{total_pages}" if total_pages else ""
+        print(f"    Seite {page_nr:4d}{total_str} ", end="", flush=True)
 
         arch_file = _archive_path(archive_dir, book_id, page_nr)
+        image_url: str | None = None
+        image_bytes: bytes | None = None
 
-        # Bild holen: erst lokales Archiv, dann Matricula
         if arch_file.exists():
             image_bytes = arch_file.read_bytes()
             image_url   = str(arch_file)
@@ -511,15 +526,18 @@ def _scan_book(
         else:
             if pw_page is None:
                 print("⚠ kein Bild (kein Browser und kein Archiv)")
-                continue
-            # Seite 1 wurde bereits für _detect_page_count geladen — Screenshot
-            # direkt machen ohne erneutes goto (Netzwerk sparen).
+                return True
             if page_nr == 1 and not retranscribe:
                 image_url, image_bytes = _capture_current_page(pw_page, book_url, 1)
             else:
+                # Before loading, note the current URL so we can detect end-of-book
                 image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
+                # End-of-book: Matricula clamps URL back to last valid page
+                actual_pg = re.search(r'[?&]pg=(\d+)', pw_page.url)
+                if actual_pg and int(actual_pg.group(1)) < page_nr:
+                    print(f"\n  Ende des Buches nach Seite {int(actual_pg.group(1))}")
+                    return False  # stop loop
             if image_bytes is not None:
-                # Archivieren
                 arch_file.parent.mkdir(parents=True, exist_ok=True)
                 arch_file.write_bytes(image_bytes)
                 print("💾 ", end="", flush=True)
@@ -533,12 +551,10 @@ def _scan_book(
                        VALUES (?,?,?,?,'error',datetime('now'),'kein Bild')""",
                     (book_id, page_nr, image_url or "", ""),
                 )
-            continue
+            return True
 
-        # Claude Vision
         entries = _transcribe_page(image_bytes, book_type, dry_run)
         count   = _save_entries(main_db, book_id, page_nr, book_type, entries)
-
         print(f"→ {count:3d} Einträge")
 
         with parish_db:
@@ -548,12 +564,49 @@ def _scan_book(
                    VALUES (?,?,?,?,'done',?,datetime('now'))""",
                 (book_id, page_nr, image_url or "", str(arch_file), count),
             )
-
         scanned     += 1
         new_entries += count
         time.sleep(pause * 0.5)
+        return True
+
+    if _iter is not None:
+        for page_nr in _iter:
+            if not _do_page(page_nr):
+                break
+    else:
+        # Incremental: scan until _do_page detects URL clamp (end-of-book)
+        page_nr = 1
+        while _do_page(page_nr):
+            page_nr += 1
 
     return scanned, new_entries
+
+
+def _try_detect_page_count(page) -> int | None:
+    """Quick DOM probe for total page count — optional, used for display only."""
+    try:
+        return page.evaluate("""
+        () => {
+            const inp = document.querySelector('input[max]');
+            if (inp && parseInt(inp.max) > 0) return parseInt(inp.max);
+            const sel = document.querySelector('select[name="pg"],select[name="page"]');
+            if (sel && sel.options.length > 1) return sel.options.length;
+            let maxPg = 0;
+            for (const el of document.querySelectorAll('[href],[data-href],[onclick]')) {
+                for (const attr of el.attributes) {
+                    const m = attr.value.match(/[?&]pg=(\\d+)/);
+                    if (m) { const n = parseInt(m[1]); if (n > maxPg) maxPg = n; }
+                }
+            }
+            if (maxPg > 0) return maxPg;
+            const html = document.documentElement.innerHTML;
+            const m = html.match(/"(?:total_?pages?|page_?count|numPages)"\\s*:\\s*(\\d+)/i);
+            if (m && parseInt(m[1]) > 0) return parseInt(m[1]);
+            return null;
+        }
+        """) or None
+    except Exception:
+        return None
 
 
 def _navigate_and_detect(page, pg1_url: str, book_url: str, pause: float) -> int | None:
