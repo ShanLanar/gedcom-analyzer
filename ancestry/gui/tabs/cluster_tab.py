@@ -129,7 +129,7 @@ class ClusterTabMixin:
         sy3.pack(side="right", fill="y")
 
         self._clusters: dict = {}
-        self._cluster_descs: dict = self._load_ui_settings().get("cluster_descs", {})
+        self._cluster_descs: dict = self._load_ui_settings().get("cluster_descs", {}).copy()
 
     def _refresh_cluster(self):
         test_guid = self._current_test_guid or self._get_kit_guid()
@@ -158,7 +158,7 @@ class ClusterTabMixin:
 
         self._clusters = build_clusters(shared_data, min_prim, min_shared,
                                         max_cm_primary=max_prim)
-        self._cluster_descs = self._load_ui_settings().get("cluster_descs", {})
+        self._cluster_descs = self._load_ui_settings().get("cluster_descs", {}).copy()
         self._cluster_count_var.set(f"{len(self._clusters)} Cluster")
         self._cluster_text_var.set(suggest_grandparent_lines(self._clusters))
 

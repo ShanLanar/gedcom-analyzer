@@ -2541,19 +2541,19 @@ class AncestryDnaApp(LoginTabMixin, ClusterTabMixin, StatsTabMixin, tk.Frame):
                 data = json.load(f)
                 if isinstance(data, dict):
                     self._ui_settings_cache = data
-                    return data
-                return {}
+                    return dict(data)
         except Exception:
-            return dict(getattr(self, "_ui_settings_cache", {}))
+            pass
+        return dict(getattr(self, "_ui_settings_cache", {}))
 
     def _save_ui_settings(self, **kw):
         import json
-        s = self._load_ui_settings()
+        s = dict(getattr(self, "_ui_settings_cache", {}))
         s.update(kw)
-        self._ui_settings_cache = s
         try:
             with open(self._settings_path(), "w", encoding="utf-8") as f:
                 json.dump(s, f, ensure_ascii=False, indent=2)
+            self._ui_settings_cache = s
         except Exception as e:
             log.debug("Settings speichern fehlgeschlagen: %s", e)
 
