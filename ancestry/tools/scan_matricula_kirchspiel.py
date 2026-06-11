@@ -605,7 +605,7 @@ def _navigate_and_detect(page, pg1_url: str, book_url: str, pause: float) -> int
         if _found["total"]:
             return _found["total"]
 
-        # DOM fallback — try several common pagination patterns
+        # DOM fallback — try several common pagination patterns including raw HTML
         try:
             result = page.evaluate("""
             () => {
@@ -623,18 +623,35 @@ def _navigate_and_detect(page, pg1_url: str, book_url: str, pause: float) -> int
                     if (v && parseInt(v) > 0) return parseInt(v);
                 }
 
-                const pgs = document.querySelectorAll('a[href*="?pg="]');
-                if (pgs.length > 1) return pgs.length;
+                // Find max ?pg= number across ALL elements and ALL attributes
+                let maxPg = 0;
+                for (const el of document.querySelectorAll('[href],[src],[data-href],[onclick],[data-url]')) {
+                    for (const attr of el.attributes) {
+                        const m = attr.value.match(/[?&]pg=(\d+)/);
+                        if (m) { const n = parseInt(m[1]); if (n > maxPg) maxPg = n; }
+                    }
+                }
+                if (maxPg > 0) return maxPg;
+
+                // Script tags: look for page count as JSON or assignment
+                const html = document.documentElement.innerHTML;
+                const patterns = [
+                    /"(?:total_?pages?|page_?count|numPages|anzahl_?seiten|num_?pages?)"\\s*:\\s*(\\d+)/i,
+                    /totalPages\\s*[=:]\\s*(\\d+)/i,
+                    /pageCount\\s*[=:]\\s*(\\d+)/i,
+                    /numPages\\s*[=:]\\s*(\\d+)/i,
+                    /\\.pages_?count\\s*=\\s*(\\d+)/i,
+                    /"pages"\\s*:\\s*(\\d+)/i,
+                ];
+                for (const p of patterns) {
+                    const m = html.match(p);
+                    if (m && parseInt(m[1]) > 0) return parseInt(m[1]);
+                }
 
                 const text = (document.body && document.body.innerText) || '';
                 const m = text.match(/\\b(\\d+)\\s*[/|von|of]+\\s*(\\d+)\\b/i);
                 if (m && parseInt(m[2]) > 0) return parseInt(m[2]);
 
-                for (const s of document.querySelectorAll('script:not([src])')) {
-                    const sm = s.textContent.match(
-                        /"(?:total_?pages?|page_?count|numPages)"\\s*:\\s*(\\d+)/i);
-                    if (sm && parseInt(sm[1]) > 0) return parseInt(sm[1]);
-                }
                 return null;
             }
             """)
@@ -643,19 +660,26 @@ def _navigate_and_detect(page, pg1_url: str, book_url: str, pause: float) -> int
         except Exception as e:
             print(f"[DOM-Fehler: {e}] ", end="")
 
-        # Debug output so user can inspect what Playwright actually loaded
+        # Last resort: dump a snippet of the raw HTML for diagnosis
         try:
             title = page.title()
             url   = page.url
             print(f"\n  [debug] Geladene URL : {url}")
             print(f"  [debug] Seitentitel  : {title!r}")
-            body_text = page.inner_text("body") or ""
-            nums = re.findall(r'\b(\d{2,4})\b', body_text)
-            unique_nums = sorted({int(n) for n in nums if 10 <= int(n) <= 9999})
-            if unique_nums:
-                print(f"  [debug] Zahlen im DOM: {unique_nums[:30]}")
+            html_snippet = page.content()
+            # Search raw HTML for any page-count-like patterns
+            candidates = re.findall(
+                r'(?:total_?pages?|page_?count|numPages|anzahl|seiten)\D{0,20}?(\d+)',
+                html_snippet, re.IGNORECASE)
+            if candidates:
+                print(f"  [debug] Seitenanzahl-Kandidaten im HTML: {candidates[:10]}")
             else:
-                print(f"  [debug] Kein Text im DOM gefunden — Seite evtl. leer/gesperrt")
+                body_text = page.inner_text("body") or ""
+                nums = re.findall(r'\b(\d{2,4})\b', body_text)
+                unique_nums = sorted({int(n) for n in nums if 10 <= int(n) <= 9999})
+                print(f"  [debug] DOM-Zahlen: {unique_nums[:30]}")
+                # Show first 500 chars of body for structure clues
+                print(f"  [debug] Body-Anfang: {body_text[:300]!r}")
         except Exception:
             pass
 
