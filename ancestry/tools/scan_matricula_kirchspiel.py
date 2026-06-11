@@ -429,24 +429,9 @@ def _scan_book(
     print(f"\n  Buch: {book_id}  [{book_type}  {book['year_from'] or '?'}–{book['year_to'] or '?'}]")
     print(f"  URL:  {book_url}")
 
-    # Buchseite laden — direkt ?pg=1 damit der Viewer und sein Pagination-UI
-    # vollständig geladen sind (nötig für _detect_page_count)
-    pg1_url = f"{book_url.rstrip('/')}/?pg=1"
-    try:
-        pw_page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
-    except Exception:
-        pw_page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
-    time.sleep(pause)
-
-    # ── Seitenanzahl ermitteln ────────────────────────────────────────────────
-    total_pages = _detect_page_count(pw_page)
-    if total_pages is None:
-        print("  ⚠ Konnte Seitenanzahl nicht ermitteln — überspringe Buch")
-        return 0, 0
-
     # ── Seiten bestimmen ─────────────────────────────────────────────────────
     if retranscribe:
-        # Alle lokal archivierten Seiten dieses Buchs scannen
+        # Alle lokal archivierten Seiten dieses Buchs scannen (kein Browser nötig)
         parts        = book_id.split("/")
         parish_slug  = parts[-2] if len(parts) >= 2 else book_id
         book_slug    = parts[-1]
@@ -470,6 +455,20 @@ def _scan_book(
         done_pages: set[int] = set()
         page_range = [int(p.stem) for p in archived]
     else:
+        # Buchseite laden — direkt ?pg=1 damit der Viewer und sein Pagination-UI
+        # vollständig geladen sind (nötig für _detect_page_count)
+        pg1_url = f"{book_url.rstrip('/')}/?pg=1"
+        try:
+            pw_page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
+        except Exception:
+            pw_page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
+        time.sleep(pause)
+
+        total_pages = _detect_page_count(pw_page)
+        if total_pages is None:
+            print("  ⚠ Konnte Seitenanzahl nicht ermitteln — überspringe Buch")
+            return 0, 0
+
         print(f"  {total_pages} Seiten gefunden")
         done_pages = {
             row[0]
