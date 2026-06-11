@@ -61,6 +61,27 @@ _CONF_KATH = "Katholisch"
 _CONF_EV   = "Evangelisch"
 _CONF_UNK  = "Unbekannt"
 
+# cM-Bereiche → erwarteter Verwandtschaftsgrad (nach ISOGG/DNA Painter)
+_CM_RANGES = [
+    (2600, 9999, "Elternteil / Zwilling"),
+    (1700, 2599, "Geschwister / Halbgeschwister"),
+    (1160, 1699, "Großelternteil / Onkel/Tante"),
+    (575,  1159, "Urgroßelternteil / Cousin 1. Grades"),
+    (215,   574, "Cousin 2. Grades / Großonkel/tante"),
+    (90,    214, "Cousin 3. Grades"),
+    (45,     89, "Cousin 4. Grades"),
+    (20,     44, "Cousin 5. Grades"),
+    (6,      19, "Entfernt verwandt"),
+    (0,       5, "Sehr entfernt / Rauschen"),
+]
+
+
+def _cm_to_rel(cm: float) -> str:
+    for lo, hi, label in _CM_RANGES:
+        if lo <= cm <= hi:
+            return label
+    return ""
+
 
 def _load_parish_lookup() -> dict:
     """Lädt matricula_parishes.json: Ortsname (lower) → Pfarrei-Info."""
@@ -113,6 +134,29 @@ def _ro_connect(path: str) -> sqlite3.Connection | None:
             return c
         except Exception:
             return None
+
+
+def _rw_connect(path: str) -> sqlite3.Connection | None:
+    """Öffnet eine SQLite-DB read-write und stellt sicher, dass xref existiert."""
+    if not os.path.exists(path):
+        return None
+    try:
+        c = sqlite3.connect(path, timeout=10.0, check_same_thread=False)
+        c.row_factory = sqlite3.Row
+        c.execute("PRAGMA journal_mode=WAL")
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS gedcom_person_xref (
+                ged_id_main   TEXT,
+                ged_id_other  TEXT,
+                source_main   TEXT,
+                source_other  TEXT,
+                status        TEXT DEFAULT 'confirmed',
+                PRIMARY KEY (ged_id_other, source_other)
+            )""")
+        c.commit()
+        return c
+    except Exception:
+        return None
 
 
 def _years(birth: str, death: str) -> str:
@@ -301,6 +345,7 @@ class DataViewer(tk.Frame):
         self._source  = "anverwandte"        # anverwandte | gedcom
         self._conn: sqlite3.Connection | None = None
         self._anc_conn: sqlite3.Connection | None = None
+        self._anc_write: sqlite3.Connection | None = None  # Schreib-Verbindung für xref
         self._current_id: str | None = None
         self._name_cache: dict[str, str] = {}
         self._history: list[str] = []
@@ -313,6 +358,8 @@ class DataViewer(tk.Frame):
         self._cluster_map: dict[str, int] = {}   # ged_id → cluster_id
         self._dna_map: dict[str, tuple] = {}     # ged_id → (best_cm, match_name)
         self._sosa_map: dict[str, tuple] = {}    # ged_id → (sosa_number, sex)
+        self._sosa_rev: dict[int, str] = {}      # sosa_number → ged_id (für Pfad)
+        self._rejected: set[tuple] = set()       # (wt_id, ged_id) abgelehnte Paare
         self._ged_cache: dict[str, dict] = {}    # ged_id → person-dict (für Sub-Zeilen)
         self._sub_ids: set[str] = set()          # iids von eingerückten GEDCOM-Zeilen
         self._parish_cache: dict[str, dict | None] = {}  # birth_place → parish-info
@@ -329,10 +376,12 @@ class DataViewer(tk.Frame):
         else:
             self._conn = _ro_connect(ANCESTRY_DB)
         self._anc_conn = _ro_connect(ANCESTRY_DB)
+        self._anc_write = _rw_connect(ANCESTRY_DB)
         if self._conn is None:
             self._status.set("⚠ Datenbank nicht gefunden / noch nicht angelegt: "
                              + (self._db_path if self._source == "anverwandte"
                                 else ANCESTRY_DB))
+        self._load_rejected()
         self._load_gedcom_mapping()
         self._load_clusters()
         self._load_dna_match_map()
@@ -340,12 +389,13 @@ class DataViewer(tk.Frame):
         self._build_auto_match()
 
     def _reopen(self):
-        for c in (self._conn, self._anc_conn):
+        for c in (self._conn, self._anc_conn, self._anc_write):
             try:
                 if c:
                     c.close()
             except Exception:
                 pass
+        self._anc_write = None
         self._name_cache.clear()
         self._open_db()
         self._refresh_stats()
@@ -462,8 +512,9 @@ class DataViewer(tk.Frame):
             pass
 
     def _load_sosa_map(self):
-        """Lädt sosa_number + sex für alle gedcom_persons (ged_id → (sosa, sex))."""
+        """Lädt sosa_number + sex für alle gedcom_persons; baut auch _sosa_rev auf."""
         self._sosa_map.clear()
+        self._sosa_rev.clear()
         if not self._anc_conn:
             return
         try:
@@ -472,8 +523,10 @@ class DataViewer(tk.Frame):
                 "WHERE sosa_number > 0"
             ).fetchall()
             for r in rows:
-                self._sosa_map[str(r["ged_id"])] = (r["sosa_number"] or 0,
-                                                     r["sex"] or "")
+                gid  = str(r["ged_id"])
+                sosa = r["sosa_number"] or 0
+                self._sosa_map[gid] = (sosa, r["sex"] or "")
+                self._sosa_rev[sosa] = gid
         except Exception:
             pass
 
@@ -533,6 +586,9 @@ class DataViewer(tk.Frame):
             wt_id = str(wt_row["id"])
             if wt_id in already:
                 continue
+            # Abgelehnte Paare überspringen
+            if any(wt_id == r[0] for r in self._rejected):
+                continue
 
             wt = dict(wt_row)
             wt_sn = _norm_str(wt.get("surname") or "")
@@ -557,7 +613,7 @@ class DataViewer(tk.Frame):
                 self._auto_map[wt_id] = best_ged_id
                 self._auto_scores[wt_id] = round(best_score, 1)
 
-        # _ged_cache für alle gematchten ged_ids befüllen
+        # _ged_cache: alle gematchten ged_ids + alle SOSA-Vorfahren (für Pfad-Anzeige)
         all_ged_ids = (set(self._gedcom_map.values()) |
                        set(self._fuzzy_map.values()) |
                        set(self._auto_map.values()))
@@ -574,7 +630,220 @@ class DataViewer(tk.Frame):
                     self._ged_cache[r["ged_id"]] = dict(r)
             except Exception:
                 pass
+        # Alle SOSA-Vorfahren für den Vorfahrenpfad laden
+        try:
+            rows = self._anc_conn.execute(
+                "SELECT ged_id, given_name, surname, sex, birth_year, "
+                "birth_place, death_year, sosa_number "
+                "FROM gedcom_persons WHERE sosa_number > 0"
+            ).fetchall()
+            for r in rows:
+                if r["ged_id"] not in self._ged_cache:
+                    self._ged_cache[r["ged_id"]] = dict(r)
+        except Exception:
+            pass
 
+    # ── Rejected-Set laden ──────────────────────────────────────────────────
+    def _load_rejected(self):
+        """Lädt abgelehnte Paare aus gedcom_person_xref in _rejected."""
+        self._rejected.clear()
+        if not self._anc_conn:
+            return
+        try:
+            rows = self._anc_conn.execute(
+                "SELECT ged_id_main, ged_id_other FROM gedcom_person_xref "
+                "WHERE status = 'rejected' AND source_other = 'anverwandte'"
+            ).fetchall()
+            for r in rows:
+                self._rejected.add((str(r["ged_id_other"]), str(r["ged_id_main"])))
+        except Exception:
+            pass
+
+    # ── Vorfahrenpfad ────────────────────────────────────────────────────────
+    def _ancestor_path(self, ged_id: str) -> list:
+        """Pfad von Root (SOSA 1) zur angegebenen Person via SOSA-Arithmetik.
+        Gibt [(ged_id, name, sosa, rel_label), ...] zurück (Root zuerst)."""
+        import math
+        info = self._sosa_map.get(ged_id)
+        if not info or not info[0]:
+            return []
+        sosa = info[0]
+        path = []
+        s = sosa
+        while s >= 1:
+            gid = self._sosa_rev.get(s, "")
+            g   = self._ged_cache.get(gid, {})
+            gn  = _sanitize(g.get("given_name") or "")
+            sn  = _sanitize(g.get("surname") or "")
+            name = f"{gn} {sn}".strip() or (gid or f"SOSA {s}")
+            gen  = int(math.log2(s)) if s > 0 else 0
+            rel  = _sosa_to_rel(s, g.get("sex") or "")
+            path.append((gid, name, s, rel))
+            if s <= 1:
+                break
+            s = s // 2
+        path.reverse()
+        return path
+
+    # ── Bestätigen / Ablehnen ────────────────────────────────────────────────
+    def _confirm_match(self, wt_id: str, ged_id: str):
+        """Schreibt ein bestätigtes Mapping in gedcom_person_xref."""
+        if not self._anc_write:
+            messagebox.showerror("Fehler", "Keine Schreibverbindung zur Datenbank.")
+            return
+        try:
+            self._anc_write.execute(
+                "INSERT OR REPLACE INTO gedcom_person_xref "
+                "(ged_id_main, ged_id_other, source_main, source_other, status) "
+                "VALUES (?, ?, 'gedcom', 'anverwandte', 'confirmed')",
+                (ged_id, wt_id)
+            )
+            self._anc_write.commit()
+        except Exception as e:
+            messagebox.showerror("Fehler", str(e))
+            return
+        # In-memory aktualisieren
+        self._gedcom_map[wt_id] = ged_id
+        self._fuzzy_map.pop(wt_id, None)
+        self._auto_map.pop(wt_id, None)
+        self._rejected.discard((wt_id, ged_id))
+        self._do_search()
+        self.after(50, lambda: self._navigate(wt_id, push=False))
+
+    def _reject_match(self, wt_id: str, ged_id: str):
+        """Schreibt 'rejected' in xref — verhindert künftige Auto-Matches."""
+        if self._anc_write:
+            try:
+                self._anc_write.execute(
+                    "INSERT OR REPLACE INTO gedcom_person_xref "
+                    "(ged_id_main, ged_id_other, source_main, source_other, status) "
+                    "VALUES (?, ?, 'gedcom', 'anverwandte', 'rejected')",
+                    (ged_id, wt_id)
+                )
+                self._anc_write.commit()
+            except Exception:
+                pass
+        # In-memory entfernen
+        self._gedcom_map.pop(wt_id, None)
+        self._fuzzy_map.pop(wt_id, None)
+        self._auto_map.pop(wt_id, None)
+        self._rejected.add((wt_id, ged_id))
+        self._do_search()
+
+    # ── DNA-Statistik-Fenster ────────────────────────────────────────────────
+    def _show_stats_window(self):
+        """Öffnet ein Toplevel-Fenster mit DNA-Match-Statistiken."""
+        win = tk.Toplevel(self.winfo_toplevel())
+        win.title("DNA-Statistiken")
+        win.geometry("760x640")
+        win.configure(bg=C["bg"])
+
+        cv = tk.Canvas(win, bg=C["bg"], highlightthickness=0)
+        sb = ttk.Scrollbar(win, orient="vertical", command=cv.yview)
+        fr = tk.Frame(cv, bg=C["bg"])
+        fr.bind("<Configure>", lambda _: cv.configure(scrollregion=cv.bbox("all")))
+        cv.create_window((0, 0), window=fr, anchor="nw")
+        cv.configure(yscrollcommand=sb.set)
+        cv.pack(side="left", fill="both", expand=True)
+        sb.pack(side="right", fill="y")
+
+        def hdr(t):
+            tk.Label(fr, text=t, bg=C["bg"], fg=C["accent"],
+                     font=("Segoe UI", 11, "bold"), anchor="w").pack(
+                fill="x", padx=16, pady=(16, 4))
+
+        def row(label, value, color=None):
+            f = tk.Frame(fr, bg=C["bg"]); f.pack(fill="x", padx=24, pady=1)
+            tk.Label(f, text=label, bg=C["bg"], fg=C["muted"], width=36,
+                     anchor="w", font=("Segoe UI", 9)).pack(side="left")
+            tk.Label(f, text=str(value), bg=C["bg"],
+                     fg=color or C["text"], anchor="w",
+                     font=("Segoe UI", 9)).pack(side="left")
+
+        if not self._anc_conn:
+            tk.Label(fr, text="Keine Datenbank.", bg=C["bg"],
+                     fg=C["muted"]).pack(pady=20)
+            return
+
+        # ── Übersicht ─────────────────────────────────────────────────────
+        hdr("Übersicht")
+        try:
+            total = self._anc_conn.execute(
+                "SELECT COUNT(*) FROM matches").fetchone()[0]
+            row("Gesamt DNA-Matches", f"{total:,}".replace(",", "."))
+        except Exception:
+            pass
+        try:
+            srcs = self._anc_conn.execute(
+                "SELECT source, COUNT(*) AS n FROM matches GROUP BY source"
+            ).fetchall()
+            for s in srcs:
+                row(f"  Quelle: {s['source'] or 'unbekannt'}", s['n'])
+        except Exception:
+            pass
+        row("Im GEDCOM verknüpft (ged_id)",
+            len(self._dna_map), C["dna"])
+        row("Davon mit SOSA-Vorfahrenpfad",
+            sum(1 for gid in self._dna_map if gid in self._sosa_map),
+            C["accent"])
+
+        # ── cM-Verteilung ────────────────────────────────────────────────
+        hdr("cM-Verteilung nach erwartetem Verwandtschaftsgrad")
+        try:
+            cm_rows = self._anc_conn.execute(
+                "SELECT shared_cm FROM matches WHERE shared_cm IS NOT NULL"
+            ).fetchall()
+            cm_vals = [float(r[0]) for r in cm_rows if r[0]]
+            buckets: dict[str, int] = {}
+            for cm in cm_vals:
+                lbl = _cm_to_rel(cm) or "?"
+                buckets[lbl] = buckets.get(lbl, 0) + 1
+            total_cm = len(cm_vals)
+            for _, _, label in _CM_RANGES:
+                n = buckets.get(label, 0)
+                if n:
+                    pct = 100 * n / total_cm if total_cm else 0
+                    bar = "█" * min(30, int(pct / 2))
+                    row(label, f"{n:>5}   {bar} {pct:.1f}%")
+        except Exception as e:
+            row("Fehler", str(e))
+
+        # ── Top-Namen ─────────────────────────────────────────────────────
+        hdr("Häufigste Namen unter DNA-Matches (Top 25)")
+        try:
+            name_rows = self._anc_conn.execute(
+                "SELECT name, COUNT(*) AS n FROM matches "
+                "WHERE name IS NOT NULL GROUP BY name ORDER BY n DESC LIMIT 25"
+            ).fetchall()
+            for r in name_rows:
+                row(r["name"] or "–", r["n"])
+        except Exception:
+            pass
+
+        # ── Cluster-Übersicht ─────────────────────────────────────────────
+        hdr("DNA-Cluster")
+        try:
+            cl_rows = self._anc_conn.execute(
+                "SELECT cluster_id, COUNT(*) AS n FROM matches "
+                "WHERE cluster_id IS NOT NULL "
+                "GROUP BY cluster_id ORDER BY cluster_id"
+            ).fetchall()
+            if cl_rows:
+                for r in cl_rows:
+                    row(f"Cluster {r['cluster_id']}", f"{r['n']} Matches")
+            else:
+                row("Keine Cluster angelegt", "")
+        except Exception:
+            pass
+
+        # ── Auto-Match-Status ─────────────────────────────────────────────
+        hdr("Auto-Match-Status")
+        row("Bestätigte Verknüpfungen", len(self._gedcom_map), C["mapped"])
+        row("Fuzzy-Matches",            len(self._fuzzy_map),  C["fuzzy"])
+        row("Auto-Matches (Score)",     len(self._auto_map),   C["dna"])
+        row("Abgelehnte Paare",         len(self._rejected),   C["muted"])
+
+    # ────────────────────────────────────────────────────────────────────────
     def _rel_for_wt(self, wt_id: str) -> str:
         """Verwandtschaftsgrad einer Anverwandten-Person via GEDCOM-Mapping."""
         ged_id, _ = self._mapping_for(str(wt_id))
@@ -652,6 +921,8 @@ class DataViewer(tk.Frame):
         tk.Button(top, text="🔍", command=self._do_search).pack(side="left", padx=4)
         tk.Button(top, text="🔄 Aktualisieren", command=self._reopen).pack(
             side="left", padx=12)
+        tk.Button(top, text="📊 Statistik", command=self._show_stats_window).pack(
+            side="left", padx=4)
 
         self._stats = tk.StringVar(value="")
         tk.Label(top, textvariable=self._stats, bg=C["panel"], fg=C["accent"],
@@ -980,6 +1251,10 @@ class DataViewer(tk.Frame):
         return lbl
 
     # ── Navigation ────────────────────────────────────────────────────────────
+    def _navigate_ged(self, ged_id: str):
+        """Zeigt eine GEDCOM-Person im Detailpanel — ohne Quell-Wechsel."""
+        self._render_gedcom_sub_detail(ged_id)
+
     def _navigate(self, pid: str, push=True):
         if push and self._current_id and self._current_id != pid:
             self._history.append(self._current_id)
@@ -1201,6 +1476,24 @@ class DataViewer(tk.Frame):
         fact("Geschlecht", g.get("sex", ""))
         if sosa:
             fact("Sosa-Nr.", str(sosa))
+        if dna_info:
+            fact("Erwarteter Grad", _cm_to_rel(dna_info[0]))
+
+        # Vorfahrenpfad
+        path = self._ancestor_path(ged_id)
+        if path:
+            hdr("Vorfahrenpfad")
+            pf = tk.Frame(self._detail, bg=C["panel"]); pf.pack(fill="x", padx=12, pady=2)
+            for i, (gid_p, pname, ps, prel) in enumerate(path):
+                if i:
+                    tk.Label(pf, text=" › ", bg=C["panel"], fg=C["muted"],
+                             font=("Segoe UI", 8)).pack(side="left")
+                lbl = tk.Label(pf, text=pname, bg=C["panel"],
+                               fg=C["link"] if gid_p else C["muted"],
+                               font=("Segoe UI", 8), cursor="hand2" if gid_p else "arrow")
+                lbl.pack(side="left")
+                if gid_p:
+                    lbl.bind("<Button-1>", lambda _, i=gid_p: self._navigate_ged(i))
 
         self._status.set(f"GEDCOM: {ged_id}")
 
@@ -1251,11 +1544,18 @@ class DataViewer(tk.Frame):
             cluster  = self._cluster_map.get(ged_id) if ged_id else None
             dna_info = self._dna_map.get(ged_id) if ged_id else None
 
+            is_auto  = wt_id in self._auto_map
+            is_confirmed = wt_id in self._gedcom_map
+
             if ged_id or cluster is not None or dna_info:
                 hdr("GEDCOM-Verknüpfung")
             if ged_id:
-                kind  = "Fuzzy-Match (~)" if is_fuzzy else "Bestätigt (✓)"
-                color = C["fuzzy"] if is_fuzzy else C["mapped"]
+                if is_confirmed:
+                    kind, color = "Bestätigt (✓)", C["mapped"]
+                elif is_auto:
+                    kind, color = f"Auto-Match (Score {self._auto_scores.get(wt_id, 0):.1f})", C["dna"]
+                else:
+                    kind, color = "Fuzzy-Match (~)", C["fuzzy"]
                 f2 = tk.Frame(self._detail, bg=C["panel"])
                 f2.pack(fill="x", padx=12, pady=1)
                 tk.Label(f2, text="Status", bg=C["panel"], fg=C["muted"],
@@ -1263,14 +1563,31 @@ class DataViewer(tk.Frame):
                 tk.Label(f2, text=kind, bg=C["panel"], fg=color, anchor="w",
                          font=("Segoe UI", 8, "bold")).pack(side="left")
                 fact("GED-ID", ged_id)
+
+                # Bestätigen / Ablehnen / Aufheben
+                btn_frame = tk.Frame(self._detail, bg=C["panel"])
+                btn_frame.pack(fill="x", padx=12, pady=(2, 4))
+                if not is_confirmed:
+                    tk.Button(btn_frame, text="✓ Bestätigen",
+                              bg=C["mapped"], fg="white", font=("Segoe UI", 8),
+                              relief="flat", padx=6, pady=2,
+                              command=lambda wi=wt_id, gi=ged_id: self._confirm_match(wi, gi)
+                              ).pack(side="left", padx=(0, 4))
+                tk.Button(btn_frame,
+                          text="✗ Ablehnen" if not is_confirmed else "↩ Verknüpfung aufheben",
+                          bg=C["card"], fg=C["muted"], font=("Segoe UI", 8),
+                          relief="flat", padx=6, pady=2,
+                          command=lambda wi=wt_id, gi=ged_id: self._reject_match(wi, gi)
+                          ).pack(side="left")
+
             if dna_info:
                 fd = tk.Frame(self._detail, bg=C["panel"])
                 fd.pack(fill="x", padx=12, pady=1)
                 tk.Label(fd, text="DNA-Match", bg=C["panel"], fg=C["muted"],
                          width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
-                tk.Label(fd, text=f"🧬 {dna_info[0]:.1f} cM  —  {dna_info[1]}",
+                tk.Label(fd, text=f"🧬 {dna_info[0]:.1f} cM  ({_cm_to_rel(dna_info[0])})  —  {dna_info[1]}",
                          bg=C["panel"], fg=C["dna"], anchor="w",
-                         font=("Segoe UI", 8, "bold")).pack(side="left")
+                         font=("Segoe UI", 8, "bold"), wraplength=240).pack(side="left")
             if cluster is not None:
                 f3 = tk.Frame(self._detail, bg=C["panel"])
                 f3.pack(fill="x", padx=12, pady=1)
@@ -1279,6 +1596,24 @@ class DataViewer(tk.Frame):
                 tk.Label(f3, text=f"Cluster {cluster}", bg=C["panel"],
                          fg=C["cluster"], anchor="w",
                          font=("Segoe UI", 8, "bold")).pack(side="left")
+
+            # Vorfahrenpfad (wenn ged_id eine SOSA-Nummer hat)
+            if ged_id:
+                path = self._ancestor_path(ged_id)
+                if path:
+                    hdr("Vorfahrenpfad")
+                    pf = tk.Frame(self._detail, bg=C["panel"])
+                    pf.pack(fill="x", padx=12, pady=2)
+                    for i, (gid_p, pname, ps, prel) in enumerate(path):
+                        if i:
+                            tk.Label(pf, text=" › ", bg=C["panel"], fg=C["muted"],
+                                     font=("Segoe UI", 8)).pack(side="left")
+                        lbl = tk.Label(pf, text=pname, bg=C["panel"],
+                                       fg=C["link"] if gid_p else C["muted"],
+                                       font=("Segoe UI", 8), cursor="hand2" if gid_p else "arrow")
+                        lbl.pack(side="left")
+                        if gid_p:
+                            lbl.bind("<Button-1>", lambda _, i=gid_p: self._navigate_ged(i))
 
             hdr("Lebensdaten")
             fact("Geboren", " · ".join(x for x in (
