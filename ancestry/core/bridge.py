@@ -133,10 +133,14 @@ CREATE TABLE IF NOT EXISTS gedcom_persons (
     birth_place  TEXT DEFAULT '',
     death_year   INTEGER,
     death_place  TEXT DEFAULT '',
-    ged_file     TEXT NOT NULL DEFAULT '',
-    sosa_number  INTEGER NOT NULL DEFAULT 0,
-    source       TEXT NOT NULL DEFAULT 'gedcom',   -- gedcom | anverwandte | wikitree
-    loaded_at    TEXT NOT NULL DEFAULT (datetime('now'))
+    ged_file      TEXT NOT NULL DEFAULT '',
+    sosa_number   INTEGER NOT NULL DEFAULT 0,
+    source        TEXT NOT NULL DEFAULT 'gedcom',   -- gedcom | anverwandte | wikitree
+    parents_json  TEXT NOT NULL DEFAULT '[]',
+    spouses_json  TEXT NOT NULL DEFAULT '[]',
+    children_json TEXT NOT NULL DEFAULT '[]',
+    siblings_json TEXT NOT NULL DEFAULT '[]',
+    loaded_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_gp_koelner_year
     ON gedcom_persons(koelner_code, birth_year);
@@ -199,6 +203,19 @@ def ensure_tables(db) -> None:
             cur.execute("ALTER TABLE gedcom_person_xref ADD COLUMN status TEXT NOT NULL DEFAULT 'auto'")
         except Exception:
             pass
+        # Migration: Familien-JSON-Spalten
+        for col, default in (
+            ("parents_json",  "[]"),
+            ("spouses_json",  "[]"),
+            ("children_json", "[]"),
+            ("siblings_json", "[]"),
+        ):
+            try:
+                cur.execute(
+                    f"ALTER TABLE gedcom_persons ADD COLUMN {col} TEXT NOT NULL DEFAULT '{default}'"
+                )
+            except Exception:
+                pass
 
 
 # ── Import ─────────────────────────────────────────────────────────────────────
@@ -230,6 +247,38 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
     if root_id and families:
         sosa_map = _build_sosa_map(root_id, individuals, families)
 
+    # Build family-link dicts: ged_id → {parents, spouses, children, siblings}
+    _fam_links: dict[str, dict] = {}
+    if families:
+        for ged_id in individuals:
+            ind = individuals[ged_id]
+            parents:  list[str] = []
+            spouses:  list[str] = []
+            children: list[str] = []
+            siblings: list[str] = []
+            for fam_id in ind.get("FAMC", []):
+                fam = families.get(fam_id) or {}
+                for key in ("HUSB", "WIFE"):
+                    p = fam.get(key)
+                    if p:
+                        parents.append(p)
+                for sib in fam.get("CHIL", []):
+                    if sib != ged_id:
+                        siblings.append(sib)
+            for fam_id in ind.get("FAMS", []):
+                fam = families.get(fam_id) or {}
+                for key in ("HUSB", "WIFE"):
+                    sp = fam.get(key)
+                    if sp and sp != ged_id:
+                        spouses.append(sp)
+                children.extend(fam.get("CHIL", []))
+            _fam_links[ged_id] = {
+                "parents":  parents,
+                "spouses":  spouses,
+                "children": children,
+                "siblings": siblings,
+            }
+
     rows = []
     for ged_id, ind in individuals.items():
         given, surname = _parse_name_from_indi(ind)
@@ -238,20 +287,25 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
         birt = ind.get("BIRT") or {}
         deat = ind.get("DEAT") or {}
         sn_norm = _norm(surname)
+        fl = _fam_links.get(ged_id, {})
         rows.append({
-            "ged_id":       ged_id,
-            "given_name":   given,
-            "surname":      surname,
-            "surname_norm": sn_norm,
-            "koelner_code": _koelner(sn_norm) if sn_norm else "",
-            "sex":          ind.get("SEX", ""),
-            "birth_year":   birt.get("YEAR") or None,
-            "birth_qual":   birt.get("DATE_QUAL") or "",
-            "birth_place":  (birt.get("PLAC") or "").strip(),
-            "death_year":   deat.get("YEAR") or None,
-            "death_place":  (deat.get("PLAC") or "").strip(),
-            "ged_file":     ged_file,
-            "sosa_number":  sosa_map.get(ged_id, 0),
+            "ged_id":        ged_id,
+            "given_name":    given,
+            "surname":       surname,
+            "surname_norm":  sn_norm,
+            "koelner_code":  _koelner(sn_norm) if sn_norm else "",
+            "sex":           ind.get("SEX", ""),
+            "birth_year":    birt.get("YEAR") or None,
+            "birth_qual":    birt.get("DATE_QUAL") or "",
+            "birth_place":   (birt.get("PLAC") or "").strip(),
+            "death_year":    deat.get("YEAR") or None,
+            "death_place":   (deat.get("PLAC") or "").strip(),
+            "ged_file":      ged_file,
+            "sosa_number":   sosa_map.get(ged_id, 0),
+            "parents_json":  json.dumps(fl.get("parents",  [])),
+            "spouses_json":  json.dumps(fl.get("spouses",  [])),
+            "children_json": json.dumps(fl.get("children", [])),
+            "siblings_json": json.dumps(fl.get("siblings", [])),
         })
     with db._cursor() as cur:
         # Nur die EIGENEN GEDCOM-Personen ersetzen – Anverwandte/WikiTree bleiben
@@ -260,10 +314,12 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
             """INSERT OR REPLACE INTO gedcom_persons
                (ged_id, given_name, surname, surname_norm, koelner_code,
                 sex, birth_year, birth_qual, birth_place,
-                death_year, death_place, ged_file, sosa_number)
+                death_year, death_place, ged_file, sosa_number,
+                parents_json, spouses_json, children_json, siblings_json)
                VALUES (:ged_id, :given_name, :surname, :surname_norm, :koelner_code,
                        :sex, :birth_year, :birth_qual, :birth_place,
-                       :death_year, :death_place, :ged_file, :sosa_number)""",
+                       :death_year, :death_place, :ged_file, :sosa_number,
+                       :parents_json, :spouses_json, :children_json, :siblings_json)""",
             rows,
         )
     log.info("bridge: %d GEDCOM-Personen importiert (Sosa: %d)",

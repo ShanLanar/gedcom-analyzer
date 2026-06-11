@@ -1453,7 +1453,7 @@ class DataViewer(tk.Frame):
         body = tk.Frame(self, bg=C["bg"]); body.pack(fill="both", expand=True)
 
         # Links: Suchergebnisse
-        left = tk.Frame(body, bg=C["panel"], width=300); left.pack(
+        left = tk.Frame(body, bg=C["panel"], width=440); left.pack(
             side="left", fill="y"); left.pack_propagate(False)
         tk.Label(left, text="Ergebnisse", bg=C["panel"], fg=C["muted"],
                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10, pady=(8, 2))
@@ -1462,14 +1462,14 @@ class DataViewer(tk.Frame):
                                   selectmode="browse")
         self._list.heading("name",   text="Name")
         self._list.heading("years",  text="Jahre")
-        self._list.heading("rel",    text="Grad")
+        self._list.heading("rel",    text="Verwandtschaft")
         self._list.heading("place",  text="Ort")
         self._list.heading("status", text="GED")
-        self._list.column("name",   width=120)
-        self._list.column("years",  width=60,  anchor="center")
-        self._list.column("rel",    width=90,  anchor="w")
-        self._list.column("place",  width=60)
-        self._list.column("status", width=56,  anchor="center")
+        self._list.column("name",   width=180, stretch=True)
+        self._list.column("years",  width=65,  anchor="center", stretch=False)
+        self._list.column("rel",    width=130, anchor="w", stretch=True)
+        self._list.column("place",  width=110, stretch=True)
+        self._list.column("status", width=56,  anchor="center", stretch=False)
         self._list.pack(fill="both", expand=True, padx=6, pady=6)
         self._list.bind("<<TreeviewSelect>>", self._on_list_select)
 
@@ -1897,18 +1897,19 @@ class DataViewer(tk.Frame):
             return
 
         grandparents: list[str] = []
-        siblings: list[str] = []
 
-        if source == "anverwandte":
-            parents  = _loads(p.get("parents_json"))
-            spouses  = _loads(p.get("spouses_json"))
-            children = _loads(p.get("children_json"))
-            siblings = _loads(p.get("siblings_json"))
-            for par in parents:
-                par_data = self._person_for(source, par)
-                if par_data:
-                    grandparents.extend(_loads(par_data.get("parents_json")))
-        else:
+        # Both sources use stored JSON when available
+        parents  = _loads(p.get("parents_json"))
+        spouses  = _loads(p.get("spouses_json"))
+        children = _loads(p.get("children_json"))
+        siblings = _loads(p.get("siblings_json"))
+        for par in parents:
+            par_data = self._person_for(source, par)
+            if par_data:
+                grandparents.extend(_loads(par_data.get("parents_json")))
+
+        # SOSA fallback for GEDCOM persons imported before family JSON was stored
+        if not parents and source == "gedcom":
             sosa, _ = self._sosa_map.get(pid, (0, ""))
             if sosa:
                 father_id = self._sosa_rev.get(sosa * 2)
@@ -1928,8 +1929,6 @@ class DataViewer(tk.Frame):
                 else:
                     children = []
                     spouses  = []
-            else:
-                parents = spouses = children = []
 
         if grandparents:
             tk.Label(container, text="Großeltern",
@@ -2017,6 +2016,12 @@ class DataViewer(tk.Frame):
         inner = tk.Frame(frame, bg=bg)
         inner.pack(padx=2, pady=2)
         lbl_text = self._label_for_ged(ged_id)
+        # Relationship label on full-size cards
+        if not small:
+            sosa, gsex = self._sosa_map.get(ged_id, (0, ""))
+            rel = _sosa_to_rel(sosa, gsex or sex)
+            if rel:
+                lbl_text = lbl_text + f"\n{rel}"
         w = 14 if small else 18
         btn = tk.Label(inner, text=lbl_text, bg=bg, fg="white",
                        width=w, justify="center", cursor="hand2",
@@ -2066,6 +2071,11 @@ class DataViewer(tk.Frame):
             badge = " ~"
         if badge:
             lbl_text = lbl_text.rstrip() + badge
+        # Relationship label on full-size cards
+        if not small:
+            rel = self._rel_for_wt(str(pid))
+            if rel:
+                lbl_text = lbl_text + f"\n{rel}"
 
         w = 14 if small else 18
         btn = tk.Label(inner, text=lbl_text, bg=bg, fg="white",
