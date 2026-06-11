@@ -90,6 +90,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mb.cm":   {"de": "cM",        "en": "cM"},
     "mb.rel":  {"de": "Beziehung", "en": "Relationship"},
     "mb.baum": {"de": "Baum",      "en": "Tree"},
+    "mb.src":  {"de": "Quelle",    "en": "Source"},
     # Pairwise
     "pw.a":  {"de": "Match A",      "en": "Match A"},
     "pw.b":  {"de": "Match B",      "en": "Match B"},
@@ -320,6 +321,48 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.ged_origin":    {"de": "🗺 Herkunft ableiten",        "en": "🗺 Infer origins"},
     "md.ged_endogamy":  {"de": "🧬 Endogamie übertragen",     "en": "🧬 Transfer endogamy"},
 }
+
+
+def _group_matches_by_person(matches: list) -> list:
+    """Group matches that represent the same person across different sources.
+
+    Returns a list of lists. Each sub-list begins with the "primary" match
+    (source priority: ancestry=0, myheritage=1, gedmatch=2; ties broken by
+    higher cM). Remaining items are secondary matches from other platforms.
+    """
+    import re
+
+    _SRC_PRIO = {"ancestry": 0, "myheritage": 1, "gedmatch": 2}
+
+    def _words(name: str) -> set:
+        return set(re.sub(r"[,.\-]", " ", (name or "").lower()).split()) - {""}
+
+    result: list = []
+    assigned: set = set()
+
+    for i, m in enumerate(matches):
+        if i in assigned:
+            continue
+        words_i = _words(m.display_name)
+        group = [m]
+        for j in range(i + 1, len(matches)):
+            if j in assigned:
+                continue
+            n = matches[j]
+            if getattr(m, "source", "") == getattr(n, "source", ""):
+                continue  # don't merge same-source entries
+            words_j = _words(n.display_name)
+            if words_i and words_j and (words_i <= words_j or words_j <= words_i):
+                group.append(n)
+                assigned.add(j)
+        assigned.add(i)
+        group.sort(key=lambda x: (
+            _SRC_PRIO.get(getattr(x, "source", "ancestry"), 99),
+            -(x.shared_cm or 0),
+        ))
+        result.append(group)
+
+    return result
 
 
 class AncestryDnaApp(tk.Frame):
@@ -3297,6 +3340,7 @@ class AncestryDnaApp(tk.Frame):
         self._tree.tag_configure("starred",  background="#FFF3CD")
         self._tree.tag_configure("no_tree",  foreground="#999999")
         self._tree.tag_configure("endogamy", background="#E0E0E0", foreground="#666666")
+        self._tree.tag_configure("sub_match", foreground=COLORS.get("text_dim", "#888888"))
 
         sy = ttk.Scrollbar(parent, orient="vertical",   command=self._tree.yview)
         sx = ttk.Scrollbar(parent, orient="horizontal", command=self._tree.xview)
@@ -4014,9 +4058,17 @@ class AncestryDnaApp(tk.Frame):
                     bridge_hits = self._db.get_bridge_hit_counts(tg)
             except Exception:
                 pass
-        for m in self._matches:
+        # Group same person across sources when viewing all sources
+        if all_sources_mode and len(self._matches) > 1:
+            match_groups = _group_matches_by_person(self._matches)
+        else:
+            match_groups = [[m] for m in self._matches]
+
+        def _insert_match(m, parent_iid: str = "", is_sub: bool = False):
             endo = getattr(m, "endogamy_cluster", "") or ""
             tags = []
+            if is_sub:
+                tags.append("sub_match")
             pm = m.paternal_maternal or ""
             if pm == "paternal":
                 tags.append("paternal")
@@ -4027,13 +4079,12 @@ class AncestryDnaApp(tk.Frame):
             elif m.starred:
                 tags.append("starred")
             elif m.predicted_relationship.lower() in (
-                "parent","child","sibling","aunt/uncle","first cousin",
-                "1st cousin","half sibling","close"):
+                "parent", "child", "sibling", "aunt/uncle", "first cousin",
+                "1st cousin", "half sibling", "close"):
                 tags.append("close")
             if not m.has_tree and not endo:
                 tags.append("no_tree")
 
-            # Stammbaum-Spalte: Status (+ Personenzahl falls vorhanden)
             status = getattr(m, "tree_status", "") or ""
             if status and m.tree_size:
                 tree_txt = f"{status} ({m.tree_size})"
@@ -4044,7 +4095,6 @@ class AncestryDnaApp(tk.Frame):
             else:
                 tree_txt = "—"
 
-            # Quell-Badge (Plattform)
             src = getattr(m, "source", "ancestry") or "ancestry"
             gm_kit = getattr(m, "gedmatch_kit_id", "") or ""
             if src == "myheritage":
@@ -4054,9 +4104,8 @@ class AncestryDnaApp(tk.Frame):
             else:
                 src_badge = "🧬ANC"
             if gm_kit:
-                src_badge += "⚡"   # GEDmatch-Brücke bekannt
+                src_badge += "⚡"
 
-            # Bemerkungsspalte: Overlap → Endogamie → tag_surname
             in_other_kit = m.match_guid in overlap_guids
             if endo:
                 note_txt = f"🔇 {endo}"
@@ -4067,8 +4116,9 @@ class AncestryDnaApp(tk.Frame):
 
             n_hits = bridge_hits.get(m.match_guid, 0)
             ged_txt = f"🌳{n_hits}" if n_hits else ""
-            self._tree.insert("", "end", iid=m.match_guid, tags=tags, values=(
-                m.display_name,
+            name_txt = ("  └ " + m.display_name) if is_sub else m.display_name
+            self._tree.insert(parent_iid, "end", iid=m.match_guid, tags=tags, values=(
+                name_txt,
                 src_badge,
                 note_txt,
                 f"{m.shared_cm:.1f}" if m.shared_cm else "—",
@@ -4079,6 +4129,12 @@ class AncestryDnaApp(tk.Frame):
                 "👪" if getattr(m, "has_common_ancestor", False) else "—",
                 "⭐" if m.starred else "",
             ))
+
+        for group in match_groups:
+            primary = group[0]
+            _insert_match(primary, parent_iid="", is_sub=False)
+            for sub in group[1:]:
+                _insert_match(sub, parent_iid=primary.match_guid, is_sub=True)
         # Show/hide empty state
         if hasattr(self, "_empty_frame"):
             if self._matches:
@@ -4209,17 +4265,16 @@ class AncestryDnaApp(tk.Frame):
             self._sort_asc = not self._sort_asc
         else:
             self._sort_col = col
-            self._sort_asc = col in ("name","rel")
-        # Update column header to show sort direction
-        for c in ("name","guid","note","cm","seg","rel","tree","ca","starred"):
-            base = self._t({
-                "name":"m.name","guid":"m.guid","note":"m.note","cm":"m.cm",
-                "seg":"m.seg","rel":"m.rel","tree":"m.tree","ca":"m.ca","starred":"m.starred",
-            }[c])
-            if c == self._sort_col:
-                self._tree.heading(c, text=base + (" ▲" if self._sort_asc else " ▼"))
-            else:
-                self._tree.heading(c, text=base)
+            self._sort_asc = col in ("name", "rel")
+        _key_map = {
+            "name": "m.name", "guid": "m.guid", "note": "m.note", "cm": "m.cm",
+            "seg": "m.seg", "rel": "m.rel", "tree": "m.tree", "ged": "m.ged",
+            "ca": "m.ca", "starred": "m.starred",
+        }
+        for c, t_key in _key_map.items():
+            base = self._t(t_key)
+            indicator = (" ▲" if self._sort_asc else " ▼") if c == self._sort_col else ""
+            self._tree.heading(c, text=base + indicator)
         self._refresh_match_table()
 
     @staticmethod
@@ -4540,13 +4595,14 @@ class AncestryDnaApp(tk.Frame):
         mid = ttk.LabelFrame(pane, text=self._t("cl.frm_mid"), padding=6)
         self._lang_widgets.append((mid, "cl.frm_mid"))
         pane.add(mid, weight=2)
-        self._member_tree = ttk.Treeview(mid, columns=("name","cm","rel","baum"),
+        self._member_tree = ttk.Treeview(mid, columns=("name","cm","rel","baum","src"),
                                           show="headings", selectmode="browse")
         for col, (key, w, anchor) in {
-            "name": ("mb.name", 190, "w"),
+            "name": ("mb.name", 180, "w"),
             "cm"  : ("mb.cm",    60, "e"),
-            "rel" : ("mb.rel",  150, "w"),
+            "rel" : ("mb.rel",  140, "w"),
             "baum": ("mb.baum",  55, "center"),
+            "src" : ("mb.src",   65, "center"),
         }.items():
             self._member_tree.heading(col, text=self._t(key))
             self._member_tree.column(col, width=w, anchor=anchor, stretch=(col=="name"))
@@ -4710,6 +4766,22 @@ class AncestryDnaApp(tk.Frame):
             except Exception:
                 pass
 
+        # Load source for all cluster members in one query
+        m_guids = [m["guid"] for m in members]
+        src_map: dict = {}
+        if m_guids:
+            try:
+                with self._db._cursor() as _cur:
+                    src_rows = _cur.execute(
+                        "SELECT match_guid, source FROM matches WHERE match_guid IN ({})".format(
+                            ",".join("?" * len(m_guids))),
+                        m_guids,
+                    ).fetchall()
+                src_map = {r["match_guid"]: (r["source"] or "ancestry") for r in src_rows}
+            except Exception:
+                pass
+
+        _SRC_BADGE = {"myheritage": "🔵MH", "gedmatch": "⚪GED"}
         self._member_tree.delete(*self._member_tree.get_children())
         self._member_tree.tag_configure("row", background=color)
         for m in members:
@@ -4720,9 +4792,10 @@ class AncestryDnaApp(tk.Frame):
                 baum_val = "🌳"
             else:
                 baum_val = "—"
+            src_badge = _SRC_BADGE.get(src_map.get(m["guid"], "ancestry"), "🧬ANC")
             self._member_tree.insert("", "end", tags=("row",),
                                       values=(m["name"], f"{m['cm']:.1f}",
-                                              m.get("rel",""), baum_val))
+                                              m.get("rel", ""), baum_val, src_badge))
 
         # Paarweise cM zwischen den Cluster-Mitgliedern
         self._pairwise_tree.delete(*self._pairwise_tree.get_children())
