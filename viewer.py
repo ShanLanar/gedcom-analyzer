@@ -137,6 +137,127 @@ def _sanitize(text: str) -> str:
     return _NN_PATTERN.sub("_____", text or "").strip()
 
 
+# ── Matching-Hilfsfunktionen ────────────────────────────────────────────────
+
+def _norm_str(s: str) -> str:
+    """Normalisiert einen String für Vergleiche (wie bridge._norm)."""
+    s = (s or "").lower().replace("ä", "ae").replace("ö", "oe").replace("ü", "ue").replace("ß", "ss")
+    s = re.sub(r"[^a-z0-9 ]+", " ", s)
+    return re.sub(r"\s+", " ", s).strip()
+
+
+def _koelner(name: str) -> str:
+    """Kölner Phonetik — identisch mit bridge._koelner."""
+    if not name:
+        return ""
+    name = name.upper().strip()
+    name = (name.replace("Ä", "AE").replace("Ö", "OE").replace("Ü", "UE")
+            .replace("ß", "SS").replace("PH", "F").replace("TH", "T"))
+    name = re.sub(r"[^A-Z]", "", name)
+    if not name:
+        return ""
+    codes: list[str] = []
+    n = len(name)
+    for i, ch in enumerate(name):
+        nxt  = name[i + 1] if i < n - 1 else ""
+        prev = name[i - 1] if i > 0     else ""
+        if ch in "AEIJOUY":   codes.append("0")
+        elif ch == "H":        continue
+        elif ch == "B":        codes.append("1")
+        elif ch == "P":        codes.append("1" if nxt != "H" else "3")
+        elif ch in "DT":       codes.append("2" if nxt not in "CSZ" else "8")
+        elif ch in "FVW":      codes.append("3")
+        elif ch in "GKQ":      codes.append("4")
+        elif ch == "C":
+            if i == 0:         codes.append("4" if nxt in "AHKLOQRUX" else "8")
+            elif prev in "SZ": codes.append("8")
+            elif nxt in "AHKOQUX": codes.append("4")
+            else:              codes.append("8")
+        elif ch == "X":        codes.extend(["4", "8"])
+        elif ch == "L":        codes.append("5")
+        elif ch in "MN":       codes.append("6")
+        elif ch == "R":        codes.append("7")
+        elif ch in "SZ":       codes.append("8")
+    reduced: list[str] = []
+    for c in codes:
+        if not reduced or c != reduced[-1]:
+            reduced.append(c)
+    return "".join(reduced).lstrip("0") or "0"
+
+
+def _score_pair(wt: dict, g: dict) -> float:
+    """Berechnet einen Ähnlichkeits-Score zwischen einer wt_person und einer gedcom_person.
+    Positiv = ähnlich; Threshold 5.0 → wahrscheinlich dieselbe Person."""
+    score = 0.0
+
+    # ── Nachname ─────────────────────────────────────────────────
+    wt_sn = _norm_str(wt.get("surname") or "")
+    g_sn  = g.get("surname_norm") or _norm_str(g.get("surname") or "")
+    wt_kk = _koelner(wt_sn)
+    g_kk  = g.get("koelner_code") or _koelner(g_sn)
+
+    if not wt_sn or not g_sn:
+        score -= 1.0           # fehlender Nachname → unsicher
+    elif wt_sn == g_sn:
+        score += 5.0           # exakter Norm-Match
+    elif wt_kk and g_kk and wt_kk == g_kk:
+        score += 3.0           # Kölner Phonetik stimmt überein
+    elif wt_kk and g_kk and wt_kk[:3] == g_kk[:3]:
+        score += 1.5           # Phonetik-Präfix stimmt
+    else:
+        score -= 3.0           # komplett anderer Nachname → sehr unwahrscheinlich
+
+    # ── Vorname (erstes Token) ────────────────────────────────────
+    wt_gn_raw = (wt.get("given_name") or "").strip()
+    g_gn_raw  = (g.get("given_name") or "").strip()
+    wt_gn = _norm_str(wt_gn_raw.split()[0]) if wt_gn_raw else ""
+    g_gn  = _norm_str(g_gn_raw.split()[0])  if g_gn_raw  else ""
+
+    if wt_gn and g_gn:
+        if wt_gn == g_gn:
+            score += 4.0
+        elif wt_gn[:3] == g_gn[:3]:   # Kürzungen wie "Wil" ↔ "Wilhelm"
+            score += 2.0
+        elif wt_gn in g_gn or g_gn in wt_gn:
+            score += 1.0
+        else:
+            score -= 1.5
+    elif not wt_gn and not g_gn:
+        pass                   # beide fehlen – neutral
+    else:
+        score -= 0.5           # nur einer fehlt
+
+    # ── Geburtsjahr ───────────────────────────────────────────────
+    try:
+        wt_by = int(wt.get("birth_year") or 0)
+        g_by  = int(g.get("birth_year")  or 0)
+    except (ValueError, TypeError):
+        wt_by = g_by = 0
+    if wt_by and g_by:
+        diff = abs(wt_by - g_by)
+        if diff == 0:
+            score += 3.0
+        elif diff <= 2:
+            score += 2.0
+        elif diff <= 5:
+            score += 1.0
+        elif diff <= 10:
+            score -= 1.0
+        else:
+            score -= 4.0      # stark unterschiedliches Geburtsjahr
+
+    # ── Geschlecht ────────────────────────────────────────────────
+    wt_sex = (wt.get("sex") or "").upper()[:1]
+    g_sex  = (g.get("sex")  or "").upper()[:1]
+    if wt_sex and g_sex:
+        if wt_sex == g_sex:
+            score += 1.0
+        else:
+            score -= 6.0      # Geschlecht-Widerspruch → fast sicher falsch
+
+    return score
+
+
 def _sosa_to_rel(sosa: int, sex: str = "") -> str:
     """Convert a Sosa-Stradonitz number to a German relationship label."""
     if sosa <= 0:
@@ -183,10 +304,14 @@ class DataViewer(tk.Frame):
         self._history: list[str] = []
 
         # GEDCOM-Mapping-Caches
-        self._gedcom_map: dict[str, str] = {}   # wt_id  → ged_id (bestätigt via xref)
-        self._fuzzy_map:  dict[str, str] = {}   # wt_id  → ged_id (fuzzy Name+Jahr)
-        self._cluster_map: dict[str, int] = {}  # ged_id → cluster_id
-        self._sosa_map: dict[str, tuple] = {}   # ged_id → (sosa_number, sex)
+        self._gedcom_map: dict[str, str] = {}    # wt_id  → ged_id (bestätigt via xref)
+        self._fuzzy_map:  dict[str, str] = {}    # wt_id  → ged_id (fuzzy Name+Jahr)
+        self._auto_map:   dict[str, str] = {}    # wt_id  → ged_id (auto Score-Matching)
+        self._auto_scores: dict[str, float] = {} # wt_id  → Score
+        self._cluster_map: dict[str, int] = {}   # ged_id → cluster_id
+        self._sosa_map: dict[str, tuple] = {}    # ged_id → (sosa_number, sex)
+        self._ged_cache: dict[str, dict] = {}    # ged_id → person-dict (für Sub-Zeilen)
+        self._sub_ids: set[str] = set()          # iids von eingerückten GEDCOM-Zeilen
         self._parish_cache: dict[str, dict | None] = {}  # birth_place → parish-info
 
         self._build()
@@ -208,6 +333,7 @@ class DataViewer(tk.Frame):
         self._load_gedcom_mapping()
         self._load_clusters()
         self._load_sosa_map()
+        self._build_auto_match()
 
     def _reopen(self):
         for c in (self._conn, self._anc_conn):
@@ -330,6 +456,104 @@ class DataViewer(tk.Frame):
         except Exception:
             pass
 
+    def _build_auto_match(self):
+        """Score-basiertes Mapping von wt_persons → gedcom_persons.
+
+        Läuft einmalig beim DB-Öffnen. Befüllt _auto_map (wt_id → ged_id)
+        und _ged_cache (ged_id → person-dict) für alle gematchten Personen.
+        """
+        self._auto_map.clear()
+        self._auto_scores.clear()
+        self._ged_cache.clear()
+
+        if not self._anc_conn:
+            return
+
+        # ── Alle gedcom_persons aus dem GEDCOM laden (nicht Anverwandte-Einträge)
+        try:
+            g_rows = self._anc_conn.execute(
+                "SELECT ged_id, given_name, surname, surname_norm, koelner_code, "
+                "sex, birth_year, birth_place, death_year, sosa_number "
+                "FROM gedcom_persons WHERE source = 'gedcom'"
+            ).fetchall()
+        except Exception:
+            return
+        if not g_rows:
+            return
+
+        # Index: koelner_code[:3] → liste von gedcom-dicts
+        ged_by_kk: dict[str, list[dict]] = {}
+        for r in g_rows:
+            g = dict(r)
+            kk = (g["koelner_code"] or "")[:3]
+            if kk:
+                ged_by_kk.setdefault(kk, []).append(g)
+            # Auch erste 3 Zeichen von surname_norm als Fallback
+            sn3 = (g["surname_norm"] or "")[:3]
+            if sn3 and sn3 != kk:
+                ged_by_kk.setdefault("n:" + sn3, []).append(g)
+
+        # Bereits gematchte wt_ids
+        already = set(self._gedcom_map) | set(self._fuzzy_map)
+
+        if not self._conn:
+            return
+        try:
+            wt_rows = self._conn.execute(
+                "SELECT id, given_name, surname, birth_year, sex "
+                "FROM wt_persons"
+            ).fetchall()
+        except Exception:
+            return
+
+        THRESHOLD = 5.0
+
+        for wt_row in wt_rows:
+            wt_id = str(wt_row["id"])
+            if wt_id in already:
+                continue
+
+            wt = dict(wt_row)
+            wt_sn = _norm_str(wt.get("surname") or "")
+            wt_kk = _koelner(wt_sn)[:3]
+            wt_sn3 = wt_sn[:3]
+
+            # Kandidaten per Phonetik-Index
+            candidates: dict[str, dict] = {}  # ged_id → g
+            for key in ([wt_kk] if wt_kk else []) + (["n:" + wt_sn3] if wt_sn3 else []):
+                for g in ged_by_kk.get(key, []):
+                    candidates[g["ged_id"]] = g
+
+            best_score = THRESHOLD - 0.001
+            best_ged_id: str | None = None
+            for g in candidates.values():
+                s = _score_pair(wt, g)
+                if s > best_score:
+                    best_score = s
+                    best_ged_id = g["ged_id"]
+
+            if best_ged_id:
+                self._auto_map[wt_id] = best_ged_id
+                self._auto_scores[wt_id] = round(best_score, 1)
+
+        # _ged_cache für alle gematchten ged_ids befüllen
+        all_ged_ids = (set(self._gedcom_map.values()) |
+                       set(self._fuzzy_map.values()) |
+                       set(self._auto_map.values()))
+        if all_ged_ids:
+            try:
+                placeholders = ",".join("?" * len(all_ged_ids))
+                rows = self._anc_conn.execute(
+                    f"SELECT ged_id, given_name, surname, sex, birth_year, "
+                    f"birth_place, death_year, sosa_number "
+                    f"FROM gedcom_persons WHERE ged_id IN ({placeholders})",
+                    list(all_ged_ids),
+                ).fetchall()
+                for r in rows:
+                    self._ged_cache[r["ged_id"]] = dict(r)
+            except Exception:
+                pass
+
     def _rel_for_wt(self, wt_id: str) -> str:
         """Verwandtschaftsgrad einer Anverwandten-Person via GEDCOM-Mapping."""
         ged_id, _ = self._mapping_for(str(wt_id))
@@ -356,6 +580,8 @@ class DataViewer(tk.Frame):
             return self._gedcom_map[wt_id], False
         if wt_id in self._fuzzy_map:
             return self._fuzzy_map[wt_id], True
+        if wt_id in self._auto_map:
+            return self._auto_map[wt_id], True
         return None, False
 
     def _cluster_for_wt(self, wt_id: str) -> int | None:
@@ -455,6 +681,7 @@ class DataViewer(tk.Frame):
         self._list.tag_configure("cluster",  foreground=C["cluster"])
         self._list.tag_configure("kath",     foreground=C["kath"])
         self._list.tag_configure("ev",       foreground=C["ev"])
+        self._list.tag_configure("sub",      foreground=C["muted"])
 
         # Mitte: navigierbarer Mini-Baum
         mid = tk.Frame(body, bg=C["bg"]); mid.pack(side="left", fill="both",
@@ -523,6 +750,7 @@ class DataViewer(tk.Frame):
     # ── Suche ─────────────────────────────────────────────────────────────────
     def _do_search(self):
         self._list.delete(*self._list.get_children())
+        self._sub_ids.clear()
         if not self._conn:
             return
         q       = self._search_var.get().strip()
@@ -588,6 +816,29 @@ class DataViewer(tk.Frame):
                         (r["birth_place"] or "")[:18],
                         ged_badge,
                     ), tags=(tag,) if tag else ())
+
+                    # Eingerückte GEDCOM-Sub-Zeile (auto-match oder bestätigter Link)
+                    if ged_id and ged_id in self._ged_cache:
+                        g = self._ged_cache[ged_id]
+                        g_gn = _sanitize(g.get("given_name") or "")
+                        g_sn = _sanitize(g.get("surname") or "")
+                        g_name = f"{g_gn} {g_sn}".strip() or ged_id
+                        g_rel = _sosa_to_rel(g.get("sosa_number") or 0, g.get("sex") or "")
+                        score = self._auto_scores.get(wt_id, 0)
+                        sub_badge = "✓" if wt_id in self._gedcom_map else f"~{score:.0f}"
+                        sub_iid = f"{ged_id}_{wt_id}"
+                        try:
+                            self._list.insert(wt_id, "end", iid=sub_iid,
+                                values=("  └ " + g_name,
+                                        _years(str(g.get("birth_year") or ""),
+                                               str(g.get("death_year") or "")),
+                                        g_rel,
+                                        (g.get("birth_place") or "")[:18],
+                                        sub_badge),
+                                tags=("sub",))
+                            self._sub_ids.add(sub_iid)
+                        except Exception:
+                            pass
             else:
                 # GEDCOM-Quelle
                 if q:
@@ -622,8 +873,14 @@ class DataViewer(tk.Frame):
 
     def _on_list_select(self, _=None):
         sel = self._list.selection()
-        if sel:
-            self._navigate(sel[0])
+        if not sel:
+            return
+        pid = sel[0]
+        if pid in self._sub_ids:
+            ged_id = pid.rsplit("_", 1)[0]
+            self._render_gedcom_sub_detail(ged_id)
+        else:
+            self._navigate(pid)
 
     # ── Personen laden ────────────────────────────────────────────────────────
     def _person(self, pid: str) -> dict | None:
@@ -814,6 +1071,67 @@ class DataViewer(tk.Frame):
         btn.pack()
         btn.bind("<Button-1>", lambda _, i=pid: self._navigate(i))
         return frame
+
+    # ── GEDCOM-Sub-Detail (eingerückte Zeile angeklickt) ─────────────────────
+    def _render_gedcom_sub_detail(self, ged_id: str):
+        """Zeigt Detailinfo für eine gematchte GEDCOM-Person (aus _ged_cache)."""
+        for w in self._detail.winfo_children():
+            w.destroy()
+        g = self._ged_cache.get(ged_id)
+        if not g:
+            tk.Label(self._detail, text=f"Kein Cache für {ged_id}",
+                     bg=C["panel"], fg=C["muted"]).pack(pady=20)
+            return
+
+        def hdr(t):
+            tk.Label(self._detail, text=t, bg=C["panel"], fg=C["accent"],
+                     font=("Segoe UI", 10, "bold"), anchor="w").pack(
+                fill="x", padx=12, pady=(12, 2))
+
+        def fact(label, value):
+            if not value:
+                return
+            f = tk.Frame(self._detail, bg=C["panel"]); f.pack(fill="x", padx=12, pady=1)
+            tk.Label(f, text=label, bg=C["panel"], fg=C["muted"], width=11,
+                     anchor="w", font=("Segoe UI", 8)).pack(side="left")
+            tk.Label(f, text=value, bg=C["panel"], fg=C["text"], anchor="w",
+                     justify="left", wraplength=230).pack(side="left", fill="x", expand=True)
+
+        g_gn = _sanitize(g.get("given_name") or "")
+        g_sn = _sanitize(g.get("surname") or "")
+        name = f"{g_gn} {g_sn}".strip() or ged_id
+        tk.Label(self._detail, text=name, bg=C["panel"], fg="white",
+                 font=("Segoe UI", 14, "bold"), wraplength=320,
+                 anchor="w").pack(fill="x", padx=12, pady=(12, 0))
+
+        sosa = g.get("sosa_number") or 0
+        rel_label = _sosa_to_rel(sosa, g.get("sex") or "")
+        meta = f"{ged_id} · GEDCOM"
+        if rel_label:
+            meta += f" · {rel_label}"
+        tk.Label(self._detail, text=meta, bg=C["panel"], fg=C["muted"],
+                 anchor="w").pack(fill="x", padx=12)
+
+        cluster = self._cluster_map.get(ged_id)
+        if cluster is not None:
+            hdr("DNA-Cluster")
+            f3 = tk.Frame(self._detail, bg=C["panel"]); f3.pack(fill="x", padx=12, pady=1)
+            tk.Label(f3, text="Cluster", bg=C["panel"], fg=C["muted"],
+                     width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
+            tk.Label(f3, text=f"Cluster {cluster}", bg=C["panel"],
+                     fg=C["cluster"], anchor="w",
+                     font=("Segoe UI", 8, "bold")).pack(side="left")
+
+        hdr("Lebensdaten")
+        fact("Geboren", " · ".join(str(x) for x in (
+            g.get("birth_year"), g.get("birth_place")) if x))
+        fact("Gestorben", " · ".join(str(x) for x in (
+            g.get("death_year"),) if x))
+        fact("Geschlecht", g.get("sex", ""))
+        if sosa:
+            fact("Sosa-Nr.", str(sosa))
+
+        self._status.set(f"GEDCOM: {ged_id}")
 
     # ── Detailpanel (rechts) ──────────────────────────────────────────────────
     def _render_detail(self, pid: str):
