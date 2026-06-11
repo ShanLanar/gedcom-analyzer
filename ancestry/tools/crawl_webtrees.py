@@ -703,6 +703,14 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
             html = f.get(url)
             if not html:
                 return None, None   # Netzwerkfehler → nicht als erledigt markieren
+            # Webtrees returns 200 for private/deleted persons with an error message
+            if ("existiert nicht" in html or "keine Berechtigung" in html
+                    or "does not exist" in html or "not authorised" in html):
+                log.info("Person %s nicht sichtbar (gelöscht/privat) — überspringe", pid)
+                c.execute("UPDATE wt_frontier SET done=1 WHERE id=? AND direction=?",
+                          (pid, direction))
+                c.commit()
+                return [], None
             try:
                 p = parse_individual(html, url)
                 _save_person(c, p, pid, url, tree_source=tree_source)
