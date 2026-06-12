@@ -14,11 +14,14 @@ import sys
 import queue
 import threading
 import subprocess
+import webbrowser
 import tkinter as tk
 from tkinter import ttk, filedialog, scrolledtext
 
 from ancestry.paths import ROOT
 from ancestry.gui.state import AppState
+
+_WIKI_PATH = os.path.join(str(ROOT), "WIKI.md")
 
 _TOOLS_DIR = os.path.join(str(ROOT), "ancestry", "tools")
 
@@ -60,6 +63,28 @@ class ToolsTab(ttk.Frame):
                              "Hintergrund, fortsetzbar, jederzeit per ■ stoppbar.",
                   foreground=self._state.colors().get("text_dim", "#888888")
                   ).pack(side="left", padx=(8, 0))
+        ttk.Button(head, text="📖 Anleitung öffnen",
+                   command=self._open_wiki).pack(side="right")
+
+        # ── Anleitung / empfohlener Ablauf ────────────────────────────────
+        guide = ttk.LabelFrame(f, text="📋 Anleitung – empfohlener Ablauf", padding=8)
+        guide.pack(fill="x", padx=14, pady=(2, 6))
+        steps = (
+            "① Start-Tab: GEDCOM + Wurzelperson wählen   "
+            "② Login-Tab: Ancestry-Cookie laden\n"
+            "③ Herunterladen: Matches + Ahnentafeln laden   "
+            "④ Matches-Tab: „🌳 GEDCOM abgleichen\"\n"
+            "⑤ Cluster-Tab: Cluster bilden + Seite zuweisen   "
+            "⑥ Hier: weitere Quellen ergänzen (siehe unten)"
+        )
+        ttk.Label(guide, text=steps, justify="left",
+                  foreground=self._state.colors().get("text", "#333333")).pack(anchor="w")
+        ttk.Label(guide, text="Hinweis: Viele Tools brauchen vorher einen Login im Browser "
+                              "(Ancestry/MyHeritage) bzw. eine gewählte Datei. "
+                              "Vollständige Schritt-für-Schritt-Anleitung: „📖 Anleitung öffnen\".",
+                  justify="left", wraplength=820,
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(anchor="w", pady=(4, 0))
 
         # ── Aufteilung: links Aktionen (scrollbar), rechts Live-Log ───────
         body = ttk.Panedwindow(f, orient="horizontal")
@@ -179,6 +204,19 @@ class ToolsTab(ttk.Frame):
                           lambda: [sys.executable, "-u", _tool("matricula_viewer.py")])
         self._tool_action(sec, "Entity-Browser (Port 5001)", "entity",
                           lambda: [sys.executable, "-u", _tool("entity_browser.py")])
+
+    # ── Anleitung öffnen ───────────────────────────────────────────────────
+    def _open_wiki(self):
+        """Öffnet WIKI.md im Standardprogramm (Windows) bzw. im Browser."""
+        if not os.path.exists(_WIKI_PATH):
+            self._tool_append(f"⚠ Anleitung nicht gefunden: {_WIKI_PATH}\n")
+            return
+        try:
+            os.startfile(_WIKI_PATH)            # type: ignore[attr-defined]  (Windows)
+        except AttributeError:
+            webbrowser.open(f"file://{_WIKI_PATH}")
+        except Exception as exc:
+            self._tool_append(f"⚠ Konnte Anleitung nicht öffnen: {exc}\n")
 
     # ── UI-Bausteine ──────────────────────────────────────────────────────
     def _tool_section(self, parent, title: str) -> ttk.Frame:
