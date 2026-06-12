@@ -50,6 +50,7 @@ _TOOLS = {
     "imp_wikitree": os.path.join(ROOT, "ancestry", "tools", "import_wikitree.py"),
     "imp_webtrees": os.path.join(ROOT, "ancestry", "tools", "import_webtrees.py"),
     "entity_browser": os.path.join(ROOT, "ancestry", "tools", "entity_browser.py"),
+    "ged_slim":       os.path.join(ROOT, "ancestry", "tools", "ged_slim.py"),
 }
 
 # ── Farben (an die Ancestry-Optik angelehnt) ─────────────────────────────────
@@ -1859,6 +1860,35 @@ class DataViewer(tk.Frame):
         tk.Label(wf, text="Tiefe:", bg=C["panel"], fg=C["text"]).pack(side="left")
         tk.Entry(wf, textvariable=self._imp_wk_depth, width=4).pack(side="left", padx=2)
         add_row(3, "WikiTree → DB", "imp_wikitree", self._imp_wikitree_cmd)
+
+        # ── GEDCOM Slim ───────────────────────────────────────────────────
+        tk.Frame(opt, bg=C["muted"], height=1).grid(
+            row=4, column=0, columnspan=5, sticky="ew", pady=(8, 4), padx=6)
+        tk.Label(opt, text="GEDCOM eindampfen",
+                 bg=C["panel"], fg=C["text"], anchor="w", width=22,
+                 font=("Segoe UI", 9)).grid(row=5, column=0, sticky="w", padx=8)
+        tk.Label(opt, text="Öffnet eigene GUI  –  entfernt Quellen-Refs, GPS, URLs",
+                 bg=C["panel"], fg=C["muted"], font=("Segoe UI", 8)
+                 ).grid(row=5, column=1, columnspan=2, sticky="w")
+        slim_btn = tk.Button(opt, text="▶ Öffnen", bg="#5a3d8a", fg="white",
+                             relief="flat", padx=10,
+                             command=self._launch_ged_slim)
+        slim_btn.grid(row=5, column=3, sticky="w", padx=(8, 2))
+        _ToolTip(slim_btn,
+                 "Öffnet GED Slim als eigenständiges Fenster.\n"
+                 "Große GEDCOM-Dateien (300+ MB) auf ~50–80 MB reduzieren.")
+
+    def _launch_ged_slim(self):
+        """Startet ged_slim.py als eigenständiges GUI-Fenster."""
+        tool = _TOOLS.get("ged_slim", "")
+        if not os.path.exists(tool):
+            messagebox.showerror("Nicht gefunden", f"ged_slim.py nicht gefunden:\n{tool}")
+            return
+        try:
+            subprocess.Popen([sys.executable, tool], cwd=ROOT,
+                             start_new_session=True)
+        except Exception as exc:
+            messagebox.showerror("Fehler", str(exc))
 
     def _pick_into(self, var: tk.StringVar, label: str, pattern: str):
         p = filedialog.askopenfilename(
