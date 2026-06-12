@@ -217,6 +217,15 @@ def main():
             _error_tab(tab_dna, "DNA-Tool-Fehler beim Start", exc)
             dna_obj = None
 
+    # ── Ancestry-Login in den Start-Tab einhängen ─────────────────────────────
+    # Der Login lebt jetzt auf dem Start-Tab; das Widget kommt aus dem DNA-Tool
+    # (teilt dessen AppState/Login-Handler), daher erst nach dna_obj einhängen.
+    if start_obj is not None and dna_obj is not None:
+        try:
+            start_obj.mount_login(dna_obj.make_login_widget)
+        except Exception:
+            log.exception("Login-Einhängung in den Start-Tab fehlgeschlagen")
+
     # ── Tab-Wechsel-Event: Status im Start-Tab aktualisieren ──────────────────
     def _on_tab_change(event=None):
         if start_obj is not None:

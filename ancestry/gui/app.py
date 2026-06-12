@@ -30,7 +30,6 @@ from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_
 from ancestry.gui.widgets.log_handler import install_gui_log_handler
 from ancestry.gui.state import AppState
 from ancestry.gui.tabs.stats import StatsTab
-from ancestry.gui.tabs.login import LoginTab
 from ancestry.gui.tabs.cluster import ClusterTab
 from ancestry.gui.tabs.download import DownloadTab
 from ancestry.gui.tabs.matches import MatchesTab
@@ -95,6 +94,11 @@ class AncestryDnaApp(tk.Frame):
         self._startup_gedcom_path: str = gedcom_path
         self._lang: str    = "de"
         self._dark_mode:   bool  = False
+        # Login-State (Cookie-Pfad + manuelle GUID). Der Login lebt jetzt im
+        # Start-Tab; diese Vars werden vom dort eingehängten LoginTab geteilt und
+        # hier weiterhin persistiert (settings.json).
+        self._cookie_file_var = tk.StringVar()
+        self._manual_guid_var = tk.StringVar()
         self.configure(bg=self._active_colors()["bg"])
 
         self._build_style()
@@ -258,21 +262,8 @@ class AncestryDnaApp(tk.Frame):
          self._cluster_tab, self._stats_tab, self._matricula_tab,
          self._persons_tab, self._tools_tab) = (None,) * 8
 
-        # Login-Tab
-        try:
-            self._login_tab = LoginTab(
-                self._nb, self._state,
-                on_login_success=self._on_login_done,
-                on_status=self._set_status,
-                on_switch_tab=lambda idx: self._nb.select(idx),
-            )
-            self._nb.add(self._login_tab, text=self._t("tab_login"))
-            self._lang_nb_tabs.append((self._login_tab, "tab_login"))
-            # Aliase für Settings-Code der noch self._cookie_file_var / _manual_guid_var nutzt
-            self._cookie_file_var = self._login_tab._cookie_file_var
-            self._manual_guid_var = self._login_tab._manual_guid_var
-        except Exception as _exc:
-            self._add_error_tab("tab_login", _exc)
+        # Login lebt jetzt im Start-Tab (siehe make_login_widget); der DNA-App-
+        # Notebook beginnt direkt mit „Herunterladen".
 
         # Download-Tab als eigenständige Klasse
         try:
@@ -303,7 +294,8 @@ class AncestryDnaApp(tk.Frame):
                 cm_ranges        = self._CM_RANGES,
                 on_auto_assign_sides = self._auto_assign_sides,
                 on_gedmatch_bridge   = self._run_gedmatch_bridge,
-                on_goto_download     = lambda: self._nb.select(1),
+                on_goto_download     = lambda: (self._download_tab is not None
+                                                 and self._nb.select(self._download_tab)),
                 on_choose_gedcom     = lambda: self._ensure_gedcom_loaded(
                     self._on_gedcom_loaded_update_header, force_ask=True),
                 on_gedcom_match_all  = self._run_gedcom_match_all,
@@ -397,8 +389,23 @@ class AncestryDnaApp(tk.Frame):
         for kit in (kits or []):
             self._kit_map[kit.name] = kit.guid
             self._db.upsert_kit(kit)
-        self._download_tab.update_kit_combo()
+        if self._download_tab is not None:
+            self._download_tab.update_kit_combo()
         self._save_settings()
+
+    def make_login_widget(self, parent):
+        """Erzeugt das Login-Widget (Cookie-Datei + manuelle Kit-GUID) für die
+        Einbettung im Start-Tab. Teilt die Cookie-/GUID-Vars dieser App, damit
+        der Login-State weiterhin über settings.json persistiert wird."""
+        from ancestry.gui.tabs.login import LoginTab
+        return LoginTab(
+            parent, self._state,
+            on_login_success=self._on_login_done,
+            on_status=self._set_status,
+            on_switch_tab=lambda idx: None,
+            cookie_var=self._cookie_file_var,
+            guid_var=self._manual_guid_var,
+        )
 
     # ── Überlagerung: gemeinsame Vorfahren ─────────────────────────────────────
 

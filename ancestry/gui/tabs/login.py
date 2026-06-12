@@ -37,12 +37,17 @@ class LoginTab(ttk.Frame):
         on_login_success: Callable,
         on_status: Callable[[str], None],
         on_switch_tab: Callable[[int], None],
+        cookie_var: Optional[tk.StringVar] = None,
+        guid_var: Optional[tk.StringVar] = None,
     ):
         super().__init__(parent)
         self._state           = state
         self._on_login_success = on_login_success
         self._on_status        = on_status
         self._on_switch_tab    = on_switch_tab
+        # Optional von der App geteilte Vars (Persistenz über settings.json)
+        self._cookie_file_var = cookie_var if cookie_var is not None else tk.StringVar()
+        self._manual_guid_var = guid_var if guid_var is not None else tk.StringVar()
         self._build()
 
     # ── Aufbau ───────────────────────────────────────────────────────────────
@@ -65,7 +70,6 @@ class LoginTab(ttk.Frame):
             "3. Cookie-Editor → Export → JSON → speichern\n"
             "4. Datei hier auswählen"
         ), foreground="#555555").grid(row=6, column=0, columnspan=3, sticky="w", padx=16)
-        self._cookie_file_var = tk.StringVar()
         ttk.Entry(f, textvariable=self._cookie_file_var, width=36,
                   state="readonly").grid(row=7, column=1, sticky="w", **p)
         _sv = tk.StringVar(value=t("lg.choose"))
@@ -85,7 +89,6 @@ class LoginTab(ttk.Frame):
         lw.append((_sv, "lg.manual"))
         ttk.Label(f, text="URL: ancestry.com/dna/tests/<GUID>/matches",
                   foreground="#555555").grid(row=11, column=0, columnspan=3, sticky="w", padx=16)
-        self._manual_guid_var = tk.StringVar()
         ttk.Entry(f, textvariable=self._manual_guid_var, width=44).grid(
             row=12, column=1, sticky="w", **p)
         _sv = tk.StringVar(value=t("lg.use_guid"))

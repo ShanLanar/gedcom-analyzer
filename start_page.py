@@ -368,6 +368,30 @@ class StartPage(tk.Frame):
         # DNA-Quellen-CSV-Import wurde in den Werkzeuge-Tab verschoben
         # (Ancestry/MyHeritage/GEDmatch). Hier nur noch GEDCOM + Pfade + Login.
 
+        # ── Ancestry-Login ───────────────────────────────────────────────────
+        # Das eigentliche Login-Widget kommt aus dem DNA-Tool und wird von
+        # unified.py via mount_login() hier eingehängt (es teilt dessen State).
+        self._section(parent, "🔑  Ancestry-Login  (Cookie-Datei oder Kit-GUID)")
+        self._login_host = tk.Frame(parent, bg=P["bg2"], padx=6, pady=6)
+        self._login_host.pack(fill="x", pady=(0, 8))
+        tk.Label(self._login_host, text="Login wird beim Start eingehängt …",
+                 bg=P["bg2"], fg=P["dim"], font=("Segoe UI", 8)).pack(anchor="w")
+
+    def mount_login(self, factory):
+        """Hängt das Login-Widget (vom DNA-Tool erzeugt) in den Start-Tab ein."""
+        host = getattr(self, "_login_host", None)
+        if host is None:
+            return
+        for w in host.winfo_children():
+            w.destroy()
+        try:
+            widget = factory(host)
+            widget.pack(fill="both", expand=True)
+        except Exception as exc:
+            tk.Label(host, text=f"Login konnte nicht geladen werden: {exc}",
+                     bg=P["bg2"], fg=P["red"], font=("Segoe UI", 8),
+                     wraplength=480, justify="left").pack(anchor="w")
+
     def _build_right(self, parent):
         # ── Datenbank-Status ─────────────────────────────────────────────────
         self._section(parent, "📊  Datenbank-Status")
