@@ -487,26 +487,52 @@ class DataViewer(tk.Frame):
         self._do_search()
 
     def _ensure_indexes(self):
-        """Create read-optimised indexes on wt_persons if not yet present.
+        """Create read-optimised indexes if not yet present.
 
-        Needs a write connection; silently skips if the DB is locked or absent.
+        Two target DBs:
+          • Crawl-DB (wt_persons)   – Sortier-/Such-Indizes
+          • ancestry_dna.db         – DNA-Join-Indizes (gedcom_links ⋈ matches),
+            ohne die jeder Personen-Klick die ganze matches-Tabelle scannt und
+            die GUI einfriert.
+        Braucht je eine Write-Verbindung; überspringt still, wenn DB fehlt/gesperrt.
         """
-        db_path = self._db_path if self._source == "anverwandte" else ANCESTRY_DB
-        if not os.path.exists(db_path):
-            return
-        try:
-            import sqlite3 as _sq3
-            wc = _sq3.connect(db_path, timeout=3.0)
-            wc.execute(
+        import sqlite3 as _sq3
+
+        def _make(db_path: str, statements: list[str]):
+            if not os.path.exists(db_path):
+                return
+            try:
+                wc = _sq3.connect(db_path, timeout=3.0)
+            except Exception:
+                return
+            for stmt in statements:
+                try:
+                    wc.execute(stmt)
+                except Exception:
+                    # Tabelle/Spalte evtl. (noch) nicht vorhanden – nächste versuchen
+                    pass
+            try:
+                wc.commit()
+            finally:
+                wc.close()
+
+        # Crawl-DB: nur wenn wt_persons dort existiert (anverwandte-Quelle)
+        crawl_db = self._db_path if self._source == "anverwandte" else None
+        if crawl_db:
+            _make(crawl_db, [
                 "CREATE INDEX IF NOT EXISTS idx_wtp_sort "
-                "ON wt_persons(surname, given_name)")
-            wc.execute(
+                "ON wt_persons(surname, given_name)",
                 "CREATE INDEX IF NOT EXISTS idx_wtp_search "
-                "ON wt_persons(surname, given_name, name)")
-            wc.commit()
-            wc.close()
-        except Exception:
-            pass
+                "ON wt_persons(surname, given_name, name)",
+            ])
+
+        # ancestry_dna.db: DNA-Join-Indizes – immer sicherstellen
+        _make(ANCESTRY_DB, [
+            "CREATE INDEX IF NOT EXISTS idx_gl_ged    ON gedcom_links(ged_id)",
+            "CREATE INDEX IF NOT EXISTS idx_gl_guid   ON gedcom_links(match_guid)",
+            "CREATE INDEX IF NOT EXISTS idx_m_guid    ON matches(match_guid)",
+            "CREATE INDEX IF NOT EXISTS idx_m_cluster ON matches(cluster_id)",
+        ])
 
     def _open_db(self):
         if self._source == "anverwandte":
