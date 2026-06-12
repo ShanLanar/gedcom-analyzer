@@ -13,11 +13,49 @@ der Baum auf die jeweils ausgewählte Person beschränkt.
 from __future__ import annotations
 
 import json
+import os
+import re
 import threading
+import webbrowser
 import tkinter as tk
 from tkinter import ttk
 
+from ancestry.paths import ROOT
 from ancestry.gui.state import AppState
+
+# ── Pfarrei-/Konfessions-Lookup (Matricula) ───────────────────────────────────
+# Übernommen aus dem früheren Standalone-Datenviewer: ordnet einem Geburtsort
+# eine Matricula-Pfarrei + Konfession zu. Schema-unabhängig (reine JSON-Datei).
+_PARISH_JSON = os.path.join(str(ROOT), "ancestry", "tools", "matricula_parishes.json")
+_parish_lookup_cache: dict | None = None
+
+
+def _parish_lookup() -> dict:
+    global _parish_lookup_cache
+    if _parish_lookup_cache is None:
+        try:
+            with open(_PARISH_JSON, encoding="utf-8") as f:
+                _parish_lookup_cache = json.load(f)
+        except Exception:
+            _parish_lookup_cache = {}
+    return _parish_lookup_cache
+
+
+def _parish_for(birth_place: str) -> dict | None:
+    """Pfarrei-Info für einen Geburtsort (direkter, Kurz- oder Teil-Match)."""
+    lookup = _parish_lookup()
+    if not birth_place or not lookup:
+        return None
+    place = birth_place.strip().lower()
+    if place in lookup:
+        return lookup[place]
+    short = re.split(r"[,\(]", place)[0].strip()
+    if short and short in lookup:
+        return lookup[short]
+    for key, val in lookup.items():
+        if key and (key in place or place in key):
+            return val
+    return None
 
 # ── helle Karten-Palette ──────────────────────────────────────────────────────
 _CARD_M   = "#cfe0f5"   # männlich  (blau)
@@ -27,6 +65,9 @@ _FOCUS    = "#fff3cd"   # Fokusperson (gelb)
 _LINE     = "#9aa4ae"
 _TXT      = "#1f2327"
 _MUTED    = "#6c7086"
+_KATH     = "#1565c0"   # katholisch (blau)
+_EV       = "#558b2f"   # evangelisch (grün)
+_LINK     = "#1a56c4"   # anklickbare Verknüpfung
 
 _SRC_LABEL = {"": "Alle Quellen", "gedcom": "GEDCOM", "anverwandte": "Webtrees",
               "wikitree": "WikiTree"}
@@ -501,7 +542,75 @@ class PersonsTab(ttk.Frame):
         if p.get("sosa_number"):
             fact("SOSA", p.get("sosa_number"))
 
-        self._pers_render_dna(ged_id)
+        # Zusammengeführte Detail-Abschnitte (früher: separater Datenviewer)
+        self._pers_render_parish(p)        # Kirchspiel / Konfession (Matricula)
+        self._pers_render_xref(ged_id)     # GEDCOM-Verknüpfung (Quellen-Dedup)
+        self._pers_render_dna(ged_id)      # DNA-Matches (Anker)
+
+    # ── Detail-Abschnitt: Kirchspiel / Konfession (Matricula) ──────────────────
+    def _pers_hdr(self, text: str):
+        ttk.Separator(self._pers_detail).pack(fill="x", padx=10, pady=(8, 4))
+        ttk.Label(self._pers_detail, text=text,
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=10)
+
+    def _pers_render_parish(self, p: dict):
+        parish = _parish_for(p.get("birth_place") or "")
+        if not parish:
+            return
+        self._pers_hdr("⛪ Kirchspiel (Matricula)")
+        conf = parish.get("confession", "")
+        conf_label = ("Katholisch" if conf == "kath"
+                      else "Evangelisch" if conf == "ev"
+                      else (conf or "—"))
+        conf_color = (_KATH if conf == "kath" else _EV if conf == "ev" else _TXT)
+        r = ttk.Frame(self._pers_detail); r.pack(fill="x", padx=10, pady=1)
+        ttk.Label(r, text="Konfession", width=10, foreground=_MUTED).pack(side="left")
+        ttk.Label(r, text=conf_label, foreground=conf_color,
+                  font=("Segoe UI", 9, "bold")).pack(side="left")
+        for lbl, key in (("Pfarrei", "parish"), ("Diözese", "diocese")):
+            if parish.get(key):
+                rr = ttk.Frame(self._pers_detail); rr.pack(fill="x", padx=10, pady=1)
+                ttk.Label(rr, text=lbl, width=10, foreground=_MUTED).pack(side="left")
+                ttk.Label(rr, text=str(parish[key]), wraplength=210).pack(side="left")
+        if parish.get("parent_id"):
+            rr = ttk.Frame(self._pers_detail); rr.pack(fill="x", padx=10, pady=1)
+            ttk.Label(rr, text="Mutterpfarrei", width=10, foreground=_MUTED).pack(side="left")
+            ttk.Label(rr, text=str(parish["parent_id"]).replace("-", " ").title(),
+                      wraplength=210).pack(side="left")
+        if parish.get("founded"):
+            rr = ttk.Frame(self._pers_detail); rr.pack(fill="x", padx=10, pady=1)
+            ttk.Label(rr, text="Gegründet", width=10, foreground=_MUTED).pack(side="left")
+            ttk.Label(rr, text=str(parish["founded"])).pack(side="left")
+
+    # ── Detail-Abschnitt: GEDCOM-Verknüpfung (Quellen-Dedup) ───────────────────
+    def _pers_render_xref(self, ged_id: str):
+        try:
+            with self._db._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT ged_id_primary, source_primary, ged_id_other, "
+                    "source_other, status, score FROM gedcom_person_xref "
+                    "WHERE (ged_id_primary=? OR ged_id_other=?) "
+                    "AND status != 'rejected' LIMIT 8",
+                    (ged_id, ged_id)).fetchall()
+        except Exception:
+            return
+        if not rows:
+            return
+        self._pers_hdr("🔗 GEDCOM-Verknüpfung")
+        for r in rows:
+            if str(r["ged_id_primary"]) == str(ged_id):
+                other_id, other_src = r["ged_id_other"], r["source_other"]
+            else:
+                other_id, other_src = r["ged_id_primary"], r["source_primary"]
+            status = r["status"] or "auto"
+            mark = "✓ bestätigt" if status == "confirmed" else "~ automatisch"
+            line = ttk.Frame(self._pers_detail); line.pack(fill="x", padx=10, pady=1)
+            ttk.Label(line, text=_SRC_LABEL.get(other_src, other_src),
+                      width=10, foreground=_MUTED).pack(side="left")
+            lbl = ttk.Label(line, text=f"{other_id}  ({mark})",
+                            foreground=_LINK, cursor="hand2", wraplength=210)
+            lbl.pack(side="left")
+            lbl.bind("<Button-1>", lambda e, i=str(other_id): self._pers_navigate(i))
 
     def _pers_render_dna(self, ged_id: str):
         try:

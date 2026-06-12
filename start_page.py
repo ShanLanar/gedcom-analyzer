@@ -365,45 +365,8 @@ class StartPage(tk.Frame):
                   bg=P["bg3"], fg=P["dim"], font=cfg.FONT_MAIN, relief="flat", padx=8,
                   command=self._apply_paths).pack(side="left", padx=8)
 
-        # ── DNA-Quellen ──────────────────────────────────────────────────────
-        self._section(parent,
-                       "🧬  DNA-Quellen  (optional — nur für den DNA-Match-Analyzer)")
-        dna = tk.Frame(parent, bg=P["bg2"], padx=10, pady=8)
-        dna.pack(fill="x", pady=(0, 8))
-
-        for key, label, filetypes, help_key in [
-            ("ancestry_csv", "Ancestry CSV:", [("CSV","*.csv"),("Alle","*.*")],
-             "ancestry_csv"),
-            ("mh_csv",       "MyHeritage CSV:", [("CSV","*.csv"),("Alle","*.*")],
-             "mh_csv"),
-            ("gedmatch_tsv", "GEDmatch TSV:",
-             [("TSV/CSV","*.tsv *.csv"),("Alle","*.*")], "gedmatch_tsv"),
-        ]:
-            rr = tk.Frame(dna, bg=P["bg2"])
-            rr.pack(fill="x", pady=2)
-            self._lbl(rr, label, 18)
-            saved = cfg.DEFAULT_CONFIG.get(key, "")
-            self._var(key, saved)
-            tk.Entry(rr, textvariable=self._vars[key], bg=P["bg3"], fg=P["fg"],
-                     font=cfg.FONT_MONO, relief="flat", width=40).pack(
-                side="left", padx=4)
-            ft = filetypes
-            tk.Button(rr, text="…", bg=P["bg3"], fg=P["fg"],
-                      font=cfg.FONT_MAIN, relief="flat", padx=6,
-                      command=lambda k=key, f=ft: self._browse_csv(k, f)
-                      ).pack(side="left")
-            self._help_btn(rr, help_key, f"{label.rstrip(':')} — Woher?")
-
-        # Import-Button
-        b2 = tk.Frame(dna, bg=P["bg2"])
-        b2.pack(fill="x", pady=(8, 0))
-        tk.Button(b2, text="⬇ DNA-Quellen importieren",
-                  bg="#1F4E79", fg="#fff", font=cfg.FONT_HEAD, relief="flat", padx=12,
-                  command=self._import_dna).pack(side="left")
-        self._help_btn(b2, "cookie_editor", "Cookie Editor / Login-Hilfe")
-        tk.Label(b2, text="Importiert alle gesetzten CSVs in ancestry_dna.db",
-                 bg=P["bg2"], fg=P["dim"], font=("Segoe UI", 8)).pack(
-            side="left", padx=8)
+        # DNA-Quellen-CSV-Import wurde in den Werkzeuge-Tab verschoben
+        # (Ancestry/MyHeritage/GEDmatch). Hier nur noch GEDCOM + Pfade + Login.
 
     def _build_right(self, parent):
         # ── Datenbank-Status ─────────────────────────────────────────────────
@@ -441,8 +404,6 @@ class StartPage(tk.Frame):
         for txt, bg, cmd, hkey, htitle in [
             ("🏘 Matricula laden",   "#5d4037", self._run_matricula,
              "matricula",    "Matricula — Kirchenbuch-Pfarreien"),
-            ("📊 Datenviewer",       "#2e7d32", self._open_viewer,
-             None, None),
             ("① Erste Schritte",     P["bg3"],  self._open_welcome,
              None, None),
             ("? Hilfe",              P["bg3"],  self._open_help,
@@ -548,14 +509,6 @@ class StartPage(tk.Frame):
             self._vars["gedfile"].set(path)
             self._notify_gedcom_change()
 
-    def _browse_csv(self, key: str, filetypes):
-        cur  = self._vars[key].get()
-        idir = os.path.dirname(cur) if cur else os.path.expanduser("~")
-        path = filedialog.askopenfilename(
-            title="Datei wählen", initialdir=idir, filetypes=filetypes)
-        if path:
-            self._vars[key].set(path)
-
     # ── Synchronisation ───────────────────────────────────────────────────────
 
     def _notify_gedcom_change(self):
@@ -579,10 +532,6 @@ class StartPage(tk.Frame):
         cfg.DEFAULT_CONFIG["exclude_id"] = eid
         cfg.EXCLUDE_ID                   = eid
         save = {"gedfile": ged, "root_id": rid, "exclude_id": eid}
-        for key in ("ancestry_csv", "mh_csv", "gedmatch_tsv"):
-            val = self._vars[key].get().strip()
-            if val:
-                save[key] = val
         cfg.save_overrides(save)
         self._refresh_recent()
         self._notify_gedcom_change()
@@ -612,60 +561,6 @@ class StartPage(tk.Frame):
             finally:
                 self.after(0, lambda: self._btn_load_ged.configure(
                     state="normal", text="▶ GEDCOM laden & analysieren"))
-
-        threading.Thread(target=_run, daemon=True).start()
-
-    def _import_dna(self):
-        self._apply_paths()
-        anc_csv = self._vars["ancestry_csv"].get().strip()
-        mh_csv  = self._vars["mh_csv"].get().strip()
-        ged_tsv = self._vars["gedmatch_tsv"].get().strip()
-
-        if not any([anc_csv, mh_csv, ged_tsv]):
-            self._log_msg("Keine DNA-Quelle gesetzt.", tag="warn")
-            return
-
-        def _run():
-            anc_dir = os.path.join(_ROOT, "ancestry")
-            import sys as _sys
-            if anc_dir not in _sys.path:
-                _sys.path.insert(0, anc_dir)
-
-            if anc_csv and os.path.exists(anc_csv):
-                self._log_msg(f"Ancestry CSV: {os.path.basename(anc_csv)} …", tag="info")
-                try:
-                    from core.database import Database
-                    from core.mta_import import import_ancestry_csv
-                    n = import_ancestry_csv(Database(), anc_csv)
-                    self._log_msg(f"  → {n} Ancestry-Matches importiert.", tag="ok")
-                except Exception as e:
-                    self._log_msg(f"  Ancestry-Fehler: {e}", tag="err")
-
-            if mh_csv and os.path.exists(mh_csv):
-                self._log_msg(f"MH CSV: {os.path.basename(mh_csv)} …", tag="info")
-                try:
-                    from tools.import_mh_csv import main as _mh
-                    import sys as _sys2
-                    _old, _sys2.argv = _sys2.argv, ["import_mh_csv.py", mh_csv]
-                    _mh()
-                    _sys2.argv = _old
-                    self._log_msg("  → MH-Import abgeschlossen.", tag="ok")
-                except Exception as e:
-                    self._log_msg(f"  MH-Fehler: {e}", tag="err")
-
-            if ged_tsv and os.path.exists(ged_tsv):
-                self._log_msg(f"GEDmatch TSV: {os.path.basename(ged_tsv)} …", tag="info")
-                try:
-                    from tools.import_gedmatch import main as _gm
-                    import sys as _sys3
-                    _old, _sys3.argv = _sys3.argv, ["import_gedmatch.py", ged_tsv]
-                    _gm()
-                    _sys3.argv = _old
-                    self._log_msg("  → GEDmatch-Import abgeschlossen.", tag="ok")
-                except Exception as e:
-                    self._log_msg(f"  GEDmatch-Fehler: {e}", tag="err")
-
-            self.after(0, self._refresh_status)
 
         threading.Thread(target=_run, daemon=True).start()
 
@@ -703,12 +598,6 @@ class StartPage(tk.Frame):
             self.after(0, self._refresh_status)
 
         threading.Thread(target=_run, daemon=True).start()
-
-    def _open_viewer(self):
-        import subprocess
-        import sys as _sys
-        subprocess.Popen([_sys.executable, os.path.join(_ROOT, "viewer.py")],
-                         cwd=_ROOT)
 
     def _open_welcome(self):
         # Im eingebetteten Modus: AhnenApp aus dem Geschwister-Tab suchen
