@@ -50,7 +50,8 @@ class DownloadTabMixin:
         self._kit_var = tk.StringVar()
         self._kit_combo = ttk.Combobox(f, textvariable=self._kit_var, width=46, state="readonly")
         self._kit_combo.grid(row=0, column=1, columnspan=2, sticky="w", **p)
-        self._update_kit_combo()
+        # Deferred: get_kits() darf den Programmstart nicht blockieren
+        self.after(0, self._update_kit_combo)
 
         # ── Bereich A: Matches ────────────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(

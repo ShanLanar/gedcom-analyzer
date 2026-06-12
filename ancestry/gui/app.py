@@ -33,6 +33,7 @@ from ancestry.gui.tabs.stats_tab import StatsTabMixin
 from ancestry.gui.tabs.download_tab import DownloadTabMixin
 from ancestry.gui.tabs.analysis_tab import AnalysisTabMixin
 from ancestry.gui.tabs.matches_tab import MatchesTabMixin
+from ancestry.gui.tabs.tools_tab import ToolsTabMixin
 
 log = logging.getLogger(__name__)
 
@@ -43,6 +44,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "tab_matches":  {"de": "  🧬 Matches  ",       "en": "  🧬 Matches  "},
     "tab_cluster":  {"de": "  🌳 Cluster  ",       "en": "  🌳 Cluster  "},
     "tab_stats":    {"de": "  📊 Statistiken  ",   "en": "  📊 Statistics  "},
+    "tab_tools":    {"de": "  🔧 Werkzeuge  ",      "en": "  🔧 Tools  "},
     # Main match table
     "m.name":    {"de": "Name / ID",   "en": "Name / ID"},
     "m.guid":    {"de": "GUID",        "en": "GUID"},
@@ -302,6 +304,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
 class AncestryDnaApp(
         LoginTabMixin, ClusterTabMixin, StatsTabMixin,
         DownloadTabMixin, AnalysisTabMixin, MatchesTabMixin,
+        ToolsTabMixin,
         tk.Frame):
 
     # cM → relationship probability table (Shared cM Project 2020 + DNAPainter)
@@ -548,6 +551,7 @@ class AncestryDnaApp(
             ("_tab_matches",  "tab_matches"),
             ("_tab_cluster",  "tab_cluster"),
             ("_tab_stats",    "tab_stats"),
+            ("_tab_tools",    "tab_tools"),
         ]
         for attr, key in tabs:
             frame = ttk.Frame(self._nb)
@@ -560,6 +564,7 @@ class AncestryDnaApp(
         self._build_tab_matches()
         self._build_tab_cluster()
         self._build_tab_stats()
+        self._build_tab_tools()
 
         self._status_var = tk.StringVar(value="Bereit.")
         ttk.Label(self, textvariable=self._status_var,
