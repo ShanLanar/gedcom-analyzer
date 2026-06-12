@@ -205,6 +205,17 @@ def _sanitize(text: str) -> str:
     return _NN_PATTERN.sub("_____", text or "").strip()
 
 
+def _lighten(hex_color: str, amount: int = 30) -> str:
+    """Return a lighter version of a #RRGGBB color."""
+    try:
+        r = min(255, int(hex_color[1:3], 16) + amount)
+        g = min(255, int(hex_color[3:5], 16) + amount)
+        b = min(255, int(hex_color[5:7], 16) + amount)
+        return f"#{r:02x}{g:02x}{b:02x}"
+    except (ValueError, IndexError):
+        return hex_color
+
+
 # ── Matching-Hilfsfunktionen ────────────────────────────────────────────────
 
 @functools.lru_cache(maxsize=65536)
@@ -2290,8 +2301,22 @@ class DataViewer(tk.Frame):
         b_back = tk.Button(nav, text="◀ Zurück", command=self._go_back)
         b_back.pack(side="left", padx=8, pady=6)
         _ToolTip(b_back, "Zur vorher angezeigten Person zurück")
-        self._tree_canvas = tk.Frame(mid, bg=C["bg"])
-        self._tree_canvas.pack(fill="both", expand=True, padx=8, pady=8)
+        _tc_frame = tk.Frame(mid, bg=C["bg"])
+        _tc_frame.pack(fill="both", expand=True, padx=4, pady=4)
+        self._tree_canvas = tk.Canvas(_tc_frame, bg=C["bg"], highlightthickness=0)
+        _tc_vsb = ttk.Scrollbar(_tc_frame, orient="vertical",
+                                command=self._tree_canvas.yview)
+        _tc_hsb = ttk.Scrollbar(_tc_frame, orient="horizontal",
+                                command=self._tree_canvas.xview)
+        self._tree_canvas.configure(xscrollcommand=_tc_hsb.set,
+                                    yscrollcommand=_tc_vsb.set)
+        _tc_vsb.pack(side="right", fill="y")
+        _tc_hsb.pack(side="bottom", fill="x")
+        self._tree_canvas.pack(fill="both", expand=True)
+        self._tree_canvas.bind("<MouseWheel>",
+            lambda e: self._tree_canvas.yview_scroll(-1*(e.delta//120), "units"))
+        self._tree_canvas.bind("<Shift-MouseWheel>",
+            lambda e: self._tree_canvas.xview_scroll(-1*(e.delta//120), "units"))
 
         # Rechts: Detailpanel
         right = tk.Frame(body, bg=C["panel"], width=380); right.pack(
@@ -2662,236 +2687,402 @@ class DataViewer(tk.Frame):
         if self._history:
             self._navigate(self._history.pop(), push=False)
 
-    # ── Mini-Baum (Mitte) ─────────────────────────────────────────────────────
+    # ── Personen-Batch-Laden ──────────────────────────────────────────────────
+    def _batch_fetch_persons(self, source: str, pids: list) -> dict:
+        """Single-query load for a list of person IDs. Returns {id: dict}."""
+        pids = [str(p) for p in pids if p]
+        if not pids:
+            return {}
+        ph = ",".join("?" * len(pids))
+        try:
+            if source == "anverwandte":
+                if not self._conn:
+                    return {}
+                rows = self._conn.execute(
+                    f"SELECT * FROM wt_persons WHERE id IN ({ph})", pids).fetchall()
+                return {str(r["id"]): dict(r) for r in rows}
+            else:
+                if not self._anc_conn:
+                    return {}
+                rows = self._anc_conn.execute(
+                    f"SELECT * FROM gedcom_persons WHERE ged_id IN ({ph})", pids).fetchall()
+                return {str(r["ged_id"]): dict(r) for r in rows}
+        except Exception:
+            return {}
+
+    # ── Canvas-Stammbaum ──────────────────────────────────────────────────────
     def _render_tree(self, pid: str):
-        for w in self._tree_canvas.winfo_children():
-            w.destroy()
+        tc = self._tree_canvas
+        tc.delete("all")
+        tc.update_idletasks()
+        cw = max(tc.winfo_width(), 900)
 
-        # Side-by-side: show anverwandte + GEDCOM columns when a match exists
-        if self._source == "anverwandte":
-            ged_id, _ = self._mapping_for(str(pid))
-            if ged_id:
-                hdr_row = tk.Frame(self._tree_canvas, bg=C["bg"])
-                hdr_row.pack(fill="x", padx=4, pady=(4, 0))
-                tk.Label(hdr_row, text="◀ Anverwandte", bg=C["bg"], fg=C["accent"],
-                         font=("Segoe UI", 9, "bold")).pack(side="left", padx=8)
-                tk.Label(hdr_row, text="GEDCOM ▶", bg=C["bg"], fg=C["dna"],
-                         font=("Segoe UI", 9, "bold")).pack(side="right", padx=8)
-                cols = tk.Frame(self._tree_canvas, bg=C["bg"])
-                cols.pack(fill="both", expand=True)
-                left = tk.Frame(cols, bg=C["bg"])
-                left.pack(side="left", fill="both", expand=True, padx=4)
-                tk.Frame(cols, bg=C["muted"], width=1).pack(side="left", fill="y", pady=4)
-                right = tk.Frame(cols, bg=C["bg"])
-                right.pack(side="right", fill="both", expand=True, padx=4)
-                self._render_one_tree(left, "anverwandte", pid)
-                self._render_one_tree(right, "gedcom", ged_id)
-                return
-
-        self._render_one_tree(self._tree_canvas, self._source, pid)
-
-    def _render_one_tree(self, container: tk.Widget, source: str, pid: str):
-        """Render a family tree for `pid` into `container` using `source` DB."""
-        def card(par, xid, highlight=False, small=False):
-            if source == "gedcom":
-                return self._person_card_ged(par, xid, highlight=highlight, small=small)
-            return self._person_card(par, xid, highlight=highlight, small=small)
-
+        source = self._source
         p = self._person_for(source, pid)
         if not p:
-            tk.Label(container, text="Person nicht gefunden.",
-                     bg=C["bg"], fg=C["muted"]).pack(pady=20)
+            tc.create_text(cw // 2, 60, text="Person nicht gefunden.",
+                           fill=C["muted"], font=("Segoe UI", 10))
+            tc.configure(scrollregion=(0, 0, cw, 120))
             return
 
-        grandparents: list[str] = []
-
-        # Both sources use stored JSON when available
         parents  = _loads(p.get("parents_json"))
         spouses  = _loads(p.get("spouses_json"))
         children = _loads(p.get("children_json"))
         siblings = _loads(p.get("siblings_json"))
-        for par in parents:
-            par_data = self._person_for(source, par)
-            if par_data:
-                grandparents.extend(_loads(par_data.get("parents_json")))
 
-        # SOSA fallback for GEDCOM persons imported before family JSON was stored
+        # SOSA fallback for GEDCOM persons without stored family JSON
         if not parents and source == "gedcom":
             sosa, _ = self._sosa_map.get(pid, (0, ""))
             if sosa:
-                father_id = self._sosa_rev.get(sosa * 2)
-                mother_id = self._sosa_rev.get(sosa * 2 + 1)
-                parents   = [g for g in [father_id, mother_id] if g]
-                for gs in [sosa * 4, sosa * 4 + 1, sosa * 4 + 2, sosa * 4 + 3]:
-                    gp = self._sosa_rev.get(gs)
-                    if gp:
-                        grandparents.append(gp)
+                f_id = self._sosa_rev.get(sosa * 2)
+                m_id = self._sosa_rev.get(sosa * 2 + 1)
+                parents = [g for g in [f_id, m_id] if g]
+                for gs in [sosa*4, sosa*4+1, sosa*4+2, sosa*4+3]:
+                    pass  # grandparents fetched below via parents
                 if sosa > 1:
-                    child_sosa = sosa // 2
-                    child_id   = self._sosa_rev.get(child_sosa)
-                    children   = [child_id] if child_id else []
-                    co_sosa    = child_sosa * 2 + (1 if sosa % 2 == 0 else 0)
-                    co_id      = self._sosa_rev.get(co_sosa)
-                    spouses    = [co_id] if co_id and co_id != pid else []
+                    ch_sosa = sosa // 2
+                    ch_id = self._sosa_rev.get(ch_sosa)
+                    children = [ch_id] if ch_id else []
+                    co_sosa = ch_sosa * 2 + (1 if sosa % 2 == 0 else 0)
+                    co_id = self._sosa_rev.get(co_sosa)
+                    spouses = [co_id] if co_id and co_id != pid else []
                 else:
-                    children = []
-                    spouses  = []
+                    children, spouses = [], []
 
-        if grandparents:
-            tk.Label(container, text="Großeltern",
-                     bg=C["bg"], fg=C["muted"]).pack(pady=(4, 0))
-            gprow = tk.Frame(container, bg=C["bg"]); gprow.pack()
-            for gp in grandparents[:8]:
-                card(gprow, gp, small=True).pack(side="left", padx=4, pady=2)
-            if len(grandparents) > 8:
-                tk.Label(gprow, text=f"+{len(grandparents)-8}",
-                         bg=C["bg"], fg=C["muted"]).pack(side="left")
-            tk.Label(container, text="│", bg=C["bg"], fg=C["muted"]).pack()
+        # Collect grandparents via parents
+        grandparents: list[str] = []
+        par_gp_map: dict[str, list[str]] = {}  # parent_id -> [grandparent_ids]
+        for par in parents:
+            par_data = self._person_for(source, par)
+            gps: list[str] = []
+            if par_data:
+                gps = _loads(par_data.get("parents_json"))
+                if not gps and source == "gedcom":
+                    par_sosa, _ = self._sosa_map.get(par, (0, ""))
+                    if par_sosa:
+                        for gs in [par_sosa*2, par_sosa*2+1]:
+                            gp = self._sosa_rev.get(gs)
+                            if gp:
+                                gps.append(gp)
+            par_gp_map[par] = gps
+            grandparents.extend(gps)
 
-        if parents:
-            tk.Label(container, text="Eltern",
-                     bg=C["bg"], fg=C["muted"]).pack(pady=(0, 0))
-            prow = tk.Frame(container, bg=C["bg"]); prow.pack()
-            for par in parents:
-                card(prow, par).pack(side="left", padx=6, pady=4)
-            tk.Label(container, text="│", bg=C["bg"], fg=C["muted"]).pack()
+        # Visible subsets
+        sib_left  = [s for s in siblings[:3] if s != pid][:3]
+        sib_right = [s for s in siblings[3:6] if s != pid][:3]
+        chi_show  = children[:8]
+        gp_show   = list(dict.fromkeys(grandparents))[:8]
+        sp_show   = [s for s in spouses[:2] if s]
 
-        crow = tk.Frame(container, bg=C["bg"]); crow.pack(pady=4)
-        card(crow, pid, highlight=True).pack(side="left", padx=6)
-        for sp in spouses:
-            tk.Label(crow, text="⚭", bg=C["bg"], fg=C["muted"],
-                     font=("Segoe UI", 14)).pack(side="left")
-            card(crow, sp).pack(side="left", padx=6)
+        # Batch-fetch all persons in one query each
+        all_ids = list(dict.fromkeys(
+            [pid] + parents + sp_show + chi_show +
+            sib_left + sib_right + gp_show
+        ))
+        persons = self._batch_fetch_persons(source, all_ids)
 
-        child_label = ("Nachkomme (Ahnenreihe)" if source != "anverwandte" and len(children) == 1
-                       else f"Kinder ({len(children)})")
-        if children:
-            tk.Label(container, text="│", bg=C["bg"], fg=C["muted"]).pack()
-            tk.Label(container, text=child_label,
-                     bg=C["bg"], fg=C["muted"]).pack()
-            kwrap = tk.Frame(container, bg=C["bg"]); kwrap.pack()
-            for i, ch in enumerate(children[:24]):
-                if i % 8 == 0:
-                    krow = tk.Frame(kwrap, bg=C["bg"]); krow.pack()
-                card(krow, ch, small=True).pack(side="left", padx=4, pady=4)
-            if len(children) > 24:
-                tk.Label(kwrap, text=f"… +{len(children)-24} weitere",
-                         bg=C["bg"], fg=C["muted"]).pack()
+        # ── Layout constants ───────────────────────────────────────────────
+        CW, CH = 120, 82   # full card width / height
+        SW, SH = 90,  64   # small card
+        HG     = 14        # horizontal gap between cards
+        CONN   = 24        # connector segment height
 
-            grandchildren: list[str] = []
+        # Build row list and compute Y positions
+        rows: list[str] = []
+        if gp_show:   rows.append("gp")
+        if parents:   rows.append("par")
+        rows.append("foc")
+        if chi_show:  rows.append("chi")
+
+        y_pos: dict[str, int] = {}
+        cur_y = 28
+        for row in rows:
+            y_pos[row] = cur_y
+            rh = SH if row in ("gp", "chi") else CH
+            cur_y += rh + CONN + 14
+        total_h = cur_y + 20
+
+        cx = cw // 2
+
+        # ── Person data helpers ────────────────────────────────────────────
+        def _pdata(xid: str) -> dict:
+            return persons.get(str(xid)) or {}
+
+        def _pname(xid: str) -> tuple[str, str]:
+            d = _pdata(xid)
             if source == "anverwandte":
-                for ch in children:
-                    ch_data = self._person_for(source, ch)
-                    if ch_data:
-                        grandchildren.extend(_loads(ch_data.get("children_json")))
-            if grandchildren:
-                tk.Label(container, text="│", bg=C["bg"], fg=C["muted"]).pack()
-                tk.Label(container, text=f"Enkelkinder ({len(grandchildren)})",
-                         bg=C["bg"], fg=C["muted"]).pack()
-                ekwrap = tk.Frame(container, bg=C["bg"]); ekwrap.pack()
-                for i, ek in enumerate(grandchildren[:16]):
-                    if i % 8 == 0:
-                        ekrow = tk.Frame(ekwrap, bg=C["bg"]); ekrow.pack()
-                    card(ekrow, ek, small=True).pack(side="left", padx=3, pady=2)
-                if len(grandchildren) > 16:
-                    tk.Label(ekwrap, text=f"… +{len(grandchildren)-16} weitere",
-                             bg=C["bg"], fg=C["muted"]).pack()
+                n = _sanitize(d.get("name") or
+                              f"{d.get('given_name','')}{d.get('surname','')}".strip())
+                yr = _years(d.get("birth_year", ""), d.get("death_year", ""))
+            else:
+                n  = _sanitize(
+                    f"{d.get('given_name','')}{d.get('surname','')}".strip())
+                yr = _years(str(d.get("birth_year") or ""),
+                            str(d.get("death_year") or ""))
+            return n.strip(), yr
 
-        if siblings:
-            tk.Label(container, text=f"Geschwister: {len(siblings)}",
-                     bg=C["bg"], fg=C["muted"]).pack(pady=(10, 0))
+        def _psex(xid: str) -> str:
+            return _pdata(xid).get("sex", "")
 
-    def _label_for_ged(self, ged_id: str) -> str:
-        """Display name for a GEDCOM person (used in side-by-side view)."""
-        if not ged_id:
-            return ged_id
-        g = self._person_for("gedcom", ged_id)
-        if g:
-            name = _sanitize(
-                f"{g.get('given_name') or ''} {g.get('surname') or ''}".strip())
-            yrs = _years(str(g.get("birth_year") or ""), str(g.get("death_year") or ""))
-            return (name + (f"\n{yrs}" if yrs else "")) or ged_id
-        return ged_id
+        # ── Card drawing ───────────────────────────────────────────────────
+        def draw_card(x: int, y: int, xid: str, small: bool = False,
+                      highlight: bool = False) -> tuple[int, int, int]:
+            """Draw person card. Returns (mid_x, top_y, bot_y)."""
+            w = SW if small else CW
+            h = SH if small else CH
+            sex  = _psex(xid)
+            name, yrs = _pname(xid)
 
-    def _person_card_ged(self, parent, ged_id: str, highlight=False, small=False) -> tk.Widget:
-        """Person card for a GEDCOM person (right column in side-by-side view)."""
-        g   = self._person_for("gedcom", ged_id)
-        sex = (g or {}).get("sex", "")
-        bg  = C["card_m"] if sex == "M" else C["card_f"] if sex == "F" else C["card"]
-        outer_bg = C["accent"] if highlight else bg
-        frame = tk.Frame(parent, bg=outer_bg, bd=0)
-        inner = tk.Frame(frame, bg=bg)
-        inner.pack(padx=2, pady=2)
-        lbl_text = self._label_for_ged(ged_id)
-        # Relationship label on full-size cards
-        if not small:
-            sosa, gsex = self._sosa_map.get(ged_id, (0, ""))
-            rel = _sosa_to_rel(sosa, gsex or sex)
-            if rel:
-                lbl_text = lbl_text + f"\n{rel}"
-        w = 14 if small else 18
-        btn = tk.Label(inner, text=lbl_text, bg=bg, fg="white",
-                       width=w, justify="center", cursor="hand2",
-                       font=("Segoe UI", 7 if small else 9),
-                       padx=4, pady=4, wraplength=130)
-        btn.pack()
-        btn.bind("<Button-1>", lambda _, i=ged_id: self._navigate_ged(i))
-        return frame
+            base = (C["card_m"] if sex == "M" else
+                    C["card_f"] if sex == "F" else C["card"])
+            avt  = _lighten(base, 28)
 
-    def _person_card(self, parent, pid: str, highlight=False, small=False) -> tk.Widget:
-        p   = self._person(pid)
-        sex = (p or {}).get("sex", "") if p else ""
-        bg  = C["card_m"] if sex == "M" else C["card_f"] if sex == "F" else C["card"]
+            ged_m: str | None = None
+            is_fz = False
+            cluster: int | None = None
+            if source == "anverwandte":
+                ged_m, is_fz = self._mapping_for(str(xid))
+                if ged_m:
+                    cluster = self._cluster_map.get(ged_m)
 
-        # GEDCOM-Mapping-Overlay-Farbe (nur Anverwandte-Modus)
-        ged_id: str | None  = None
-        is_fuzzy: bool      = False
-        cluster: int | None = None
-        if self._source == "anverwandte":
-            ged_id, is_fuzzy = self._mapping_for(str(pid))
-            if ged_id:
-                cluster = self._cluster_map.get(ged_id)
+            if highlight:
+                bdr = C["accent"]
+            elif cluster is not None:
+                bdr = C["cluster"]
+            elif ged_m and not is_fz:
+                bdr = C["mapped"]
+            elif is_fz:
+                bdr = C["fuzzy"]
+            else:
+                bdr = base
 
-        border_color = (C["cluster"] if cluster is not None else
-                        C["mapped"]  if ged_id and not is_fuzzy else
-                        C["fuzzy"]   if is_fuzzy else None)
+            tag = f"p_{xid}"
 
-        if highlight:
-            outer_bg = C["accent"]
-        elif border_color:
-            outer_bg = border_color
+            # Border rect → card background
+            tc.create_rectangle(x, y, x+w, y+h,
+                                fill=bdr, outline="", tags=tag)
+            tc.create_rectangle(x+2, y+2, x+w-2, y+h-2,
+                                fill=base, outline="", tags=tag)
+
+            # Avatar strip (top ~38 % of card)
+            avt_h = max(20, int(h * 0.38))
+            tc.create_rectangle(x+2, y+2, x+w-2, y+2+avt_h,
+                                fill=avt, outline="", tags=tag)
+
+            # Silhouette: head oval + shoulder arc
+            hx = x + w // 2
+            hr = max(6, int(w * 0.09))
+            tc.create_oval(hx-hr, y+4, hx+hr, y+4+hr*2,
+                           fill=base, outline="", tags=tag)
+            bw = max(9, int(w * 0.19))
+            tc.create_oval(hx-bw, y+avt_h-4,
+                           hx+bw, y+avt_h+max(4, int(avt_h*0.25)),
+                           fill=base, outline="", tags=tag)
+
+            # Name (wrapping text below avatar)
+            fsz = 7 if small else 9
+            ty  = y + avt_h + 5
+            tc.create_text(hx, ty, text=name, fill="white",
+                           font=("Segoe UI", fsz), anchor="n",
+                           width=w - 8, tags=tag)
+
+            # Years (bottom)
+            if yrs:
+                tc.create_text(hx, y+h-3, text=yrs, fill=C["muted"],
+                               font=("Segoe UI", 6 if small else 7),
+                               anchor="s", tags=tag)
+
+            # Mapping badge (top-right corner)
+            if source == "anverwandte" and not highlight:
+                badge = ("◆" if cluster is not None else
+                         "✓" if ged_m and not is_fz else
+                         "~" if is_fz else "")
+                if badge:
+                    tc.create_text(x+w-3, y+3, text=badge, fill="white",
+                                   font=("Segoe UI", 7, "bold"),
+                                   anchor="ne", tags=tag)
+
+            tc.tag_bind(tag, "<Button-1>",
+                        lambda e, i=xid: self._navigate(i))
+            tc.tag_bind(tag, "<Enter>",
+                        lambda e: tc.configure(cursor="hand2"))
+            tc.tag_bind(tag, "<Leave>",
+                        lambda e: tc.configure(cursor=""))
+
+            return x + w//2, y, y + h
+
+        # ── Line helpers ───────────────────────────────────────────────────
+        def vline(x: int, y1: int, y2: int):
+            if y1 != y2:
+                tc.create_line(x, y1, x, y2, fill=C["muted"], width=1, dash=(2, 3))
+
+        def hline(y: int, x1: int, x2: int):
+            if x1 != x2:
+                tc.create_line(min(x1, x2), y, max(x1, x2), y,
+                               fill=C["muted"], width=1)
+
+        def row_label(y: int, text: str):
+            tc.create_text(6, y, text=text, fill=C["muted"],
+                           font=("Segoe UI", 8, "bold"), anchor="nw")
+
+        # ── Focal row (siblings left | focal | siblings right) ─────────────
+        foc_y   = y_pos["foc"]
+        foc_row = sib_left + [pid] + sib_right
+        n_foc   = len(foc_row)
+        foc_idx = len(sib_left)   # index of focal person in foc_row
+
+        foc_row_w   = n_foc * CW + (n_foc - 1) * HG
+        # Focal card left-edge relative to row start
+        focal_left  = foc_idx * (CW + HG)
+        # Place row so that focal card center = cx
+        row_start_x = cx - focal_left - CW // 2
+
+        foc_mids: dict[str, int] = {}
+        foc_tops: dict[str, int] = {}
+        foc_bots: dict[str, int] = {}
+        for i, xid in enumerate(foc_row):
+            rx = row_start_x + i * (CW + HG)
+            mx, ty, by = draw_card(rx, foc_y, xid, highlight=(xid == pid))
+            foc_mids[xid] = mx
+            foc_tops[xid] = ty
+            foc_bots[xid] = by
+
+        focal_mid_x = foc_mids[pid]
+        focal_bot_y = foc_bots[pid]
+        focal_top_y = foc_tops[pid]
+
+        if sib_left or sib_right:
+            row_label(foc_y, f"Geschwister ({len(siblings)})  /  Fokus")
         else:
-            outer_bg = bg
+            row_label(foc_y, "Fokus")
 
-        frame = tk.Frame(parent, bg=outer_bg, bd=0)
-        inner = tk.Frame(frame, bg=bg)
-        inner.pack(padx=2, pady=2)
+        # Spouses to the right of sibling row
+        sp_mids: dict[str, int] = {}
+        if sp_show:
+            sp_x = row_start_x + n_foc * (CW + HG) + 6
+            for i, sp in enumerate(sp_show):
+                sym_x = sp_x + i * (CW + HG + 22)
+                tc.create_text(sym_x + 10, foc_y + CH // 2, text="⚭",
+                               fill=C["muted"], font=("Segoe UI", 14))
+                mx, _, _ = draw_card(sym_x + 22, foc_y, sp)
+                sp_mids[sp] = mx
 
-        lbl_text = self._label_for(pid)
-        # Badge: GED + Cluster
-        badge = ""
-        if cluster is not None:
-            badge = f" ◆C{cluster}"
-        elif ged_id and not is_fuzzy:
-            badge = " ✓"
-        elif is_fuzzy:
-            badge = " ~"
-        if badge:
-            lbl_text = lbl_text.rstrip() + badge
-        # Relationship label on full-size cards
-        if not small:
-            rel = self._rel_for_wt(str(pid))
-            if rel:
-                lbl_text = lbl_text + f"\n{rel}"
+        # ── Parent row ────────────────────────────────────────────────────
+        par_mids: dict[str, int] = {}
+        if parents:
+            par_y  = y_pos["par"]
+            n_par  = len(parents)
+            par_tw = n_par * CW + (n_par - 1) * HG
+            par_sx = cx - par_tw // 2
+            for i, par in enumerate(parents):
+                rx = par_sx + i * (CW + HG)
+                mx, _, _ = draw_card(rx, par_y, par)
+                par_mids[par] = mx
 
-        w = 14 if small else 18
-        btn = tk.Label(inner, text=lbl_text, bg=bg, fg="white",
-                       width=w, justify="center", cursor="hand2",
-                       font=("Segoe UI", 7 if small else 9),
-                       padx=4, pady=4, wraplength=130)
-        btn.pack()
-        btn.bind("<Button-1>", lambda _, i=pid: self._navigate(i))
-        return frame
+            row_label(par_y, "Eltern")
+
+            # Connectors: parents → focal
+            conn_mid_y = par_y + CH + CONN // 2
+            if len(parents) == 2:
+                px0, px1 = par_mids[parents[0]], par_mids[parents[1]]
+                vline(px0, par_y + CH, conn_mid_y)
+                vline(px1, par_y + CH, conn_mid_y)
+                hline(conn_mid_y, px0, px1)
+                bar_cx = (px0 + px1) // 2
+                vline(bar_cx, conn_mid_y, focal_top_y)
+            elif len(parents) == 1:
+                vline(par_mids[parents[0]], par_y + CH, focal_top_y)
+
+            # ── Grandparent row ───────────────────────────────────────────
+            if gp_show:
+                gp_y  = y_pos["gp"]
+                n_gp  = len(gp_show)
+                gp_tw = n_gp * SW + (n_gp - 1) * HG
+                gp_sx = cx - gp_tw // 2
+                gp_mids: dict[str, int] = {}
+                for i, gp in enumerate(gp_show):
+                    rx = gp_sx + i * (SW + HG)
+                    mx, _, _ = draw_card(rx, gp_y, gp, small=True)
+                    gp_mids[gp] = mx
+
+                row_label(gp_y, "Großeltern")
+
+                # Connectors: grandparents → parents
+                for par in parents:
+                    par_gps = [g for g in par_gp_map.get(par, [])
+                               if g in gp_mids]
+                    if not par_gps:
+                        continue
+                    pmx = par_mids[par]
+                    gp_mxs = [gp_mids[g] for g in par_gps]
+                    gp_conn_y = gp_y + SH + CONN // 2
+                    if len(gp_mxs) >= 2:
+                        vline(gp_mxs[0], gp_y + SH, gp_conn_y)
+                        vline(gp_mxs[-1], gp_y + SH, gp_conn_y)
+                        hline(gp_conn_y, gp_mxs[0], gp_mxs[-1])
+                        bar_cx2 = (gp_mxs[0] + gp_mxs[-1]) // 2
+                        vline(bar_cx2, gp_conn_y, par_y)
+                    elif len(gp_mxs) == 1:
+                        vline(gp_mxs[0], gp_y + SH, par_y)
+
+        # Connector: siblings share a horizontal bar linked to parent connector
+        if sib_left or sib_right:
+            sib_ids = [s for s in (sib_left + sib_right) if s in foc_mids]
+            all_in_row = [s for s in foc_row if s in foc_mids]
+            if all_in_row:
+                bar_y = focal_top_y - CONN // 2
+                left_x  = foc_mids[all_in_row[0]]
+                right_x = foc_mids[all_in_row[-1]]
+                hline(bar_y, left_x, right_x)
+                for xid in all_in_row:
+                    vline(foc_mids[xid], bar_y, foc_tops[xid])
+                # Connect bar to parent connector line
+                if parents:
+                    if len(parents) == 2:
+                        bar_cx = (par_mids[parents[0]] + par_mids[parents[1]]) // 2
+                    else:
+                        bar_cx = par_mids[parents[0]] if parents else focal_mid_x
+                    conn_mid_y2 = y_pos["par"] + CH + CONN // 2
+                    vline(bar_cx, conn_mid_y2, bar_y)
+
+        # ── Children row ──────────────────────────────────────────────────
+        if chi_show:
+            chi_y  = y_pos["chi"]
+            n_chi  = len(chi_show)
+            chi_tw = n_chi * SW + (n_chi - 1) * HG
+            chi_sx = focal_mid_x - chi_tw // 2
+            chi_mids: list[int] = []
+            for i, ch in enumerate(chi_show):
+                rx = chi_sx + i * (SW + HG)
+                mx, _, _ = draw_card(rx, chi_y, ch, small=True)
+                chi_mids.append(mx)
+
+            more_chi = len(children) - len(chi_show)
+            if more_chi > 0:
+                tc.create_text(chi_sx + n_chi * (SW + HG) + 6,
+                               chi_y + SH // 2,
+                               text=f"+{more_chi} weitere",
+                               fill=C["muted"], font=("Segoe UI", 8), anchor="w")
+
+            row_label(chi_y, f"Kinder ({len(children)})")
+
+            # Connector: focal → children
+            chi_conn_y = focal_bot_y + CONN // 2
+            vline(focal_mid_x, focal_bot_y, chi_conn_y)
+            if chi_mids:
+                hline(chi_conn_y, chi_mids[0], chi_mids[-1])
+                for mx in chi_mids:
+                    vline(mx, chi_conn_y, chi_y)
+
+        # ── Update scroll region ──────────────────────────────────────────
+        tc.update_idletasks()
+        bbox = tc.bbox("all")
+        if bbox:
+            pad = 24
+            tc.configure(scrollregion=(
+                bbox[0]-pad, bbox[1]-pad, bbox[2]+pad, bbox[3]+pad))
+        else:
+            tc.configure(scrollregion=(0, 0, cw, total_h))
 
     # ── GEDCOM-Sub-Detail (eingerückte Zeile angeklickt) ─────────────────────
     def _render_gedcom_sub_detail(self, ged_id: str):
