@@ -1548,6 +1548,21 @@ class DataViewer(tk.Frame):
         btn_start.pack(side="left", padx=(0, 4))
         btn_stop.pack(side="left")
 
+        # GEDCOM-Export der gecrawlten Personen
+        tk.Frame(opt, bg=C["muted"], height=1).grid(
+            row=4, column=0, columnspan=3, sticky="ew", pady=(6, 4), padx=6)
+        ef = tk.Frame(opt, bg=C["panel"]); ef.grid(
+            row=5, column=0, columnspan=3, sticky="w", padx=8, pady=(0, 6))
+        tk.Label(ef, text="Gecrawlten Baum als GEDCOM speichern:",
+                 bg=C["panel"], fg=C["text"]).pack(side="left")
+        gx = tk.Button(ef, text="💾 GEDCOM exportieren", bg="#5a3d8a", fg="white",
+                       relief="flat", padx=10,
+                       command=lambda: self._wt_export_gedcom(log))
+        gx.pack(side="left", padx=8)
+        _ToolTip(gx, "Schreibt die im gewählten Profil gecrawlten Personen als "
+                     ".ged-Datei (Personen + Familien). Danach z. B. mit GED Slim "
+                     "verkleinern oder in andere Programme laden.")
+
     def _wt_cmd(self) -> list[str]:
         cmd = [sys.executable, "-u", _TOOLS["webtrees"], "crawl",
                "--profile", self._wt_profile.get()]
@@ -1556,6 +1571,22 @@ class DataViewer(tk.Frame):
         if self._wt_reset_stale.get():
             cmd.append("--reset-stale")
         return cmd
+
+    def _wt_export_gedcom(self, log: tk.Text):
+        profile = self._wt_profile.get()
+        out = filedialog.asksaveasfilename(
+            title="GEDCOM speichern unter",
+            defaultextension=".ged",
+            initialfile=f"{profile}.ged",
+            filetypes=[("GEDCOM", "*.ged"), ("Alle Dateien", "*.*")])
+        if not out:
+            return
+        cmd = [sys.executable, "-u", _TOOLS["webtrees"], "export-gedcom",
+               "--profile", profile, "--out", out]
+        # Reusable hidden buttons (export has no own start/stop controls)
+        if not hasattr(self, "_wt_exp_btns"):
+            self._wt_exp_btns = (tk.Button(self), tk.Button(self))
+        self._tool_start("wt_export", cmd, log, *self._wt_exp_btns)
 
     # ── Tab: Matricula ────────────────────────────────────────────────────────
 

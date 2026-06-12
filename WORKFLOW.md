@@ -47,6 +47,16 @@ python ancestry/tools/import_webtrees.py
 ```
 - `--no-link` — ohne GEDCOM-Abgleich importieren
 
+### 3. (optional) Als GEDCOM-Datei exportieren
+Schreibt die gecrawlten Personen samt abgeleiteten Familien als `.ged`-Datei
+(z. B. um sie mit GED Slim zu verkleinern oder in andere Programme zu laden).
+Auch direkt im Viewer: Tab „Webtrees Crawler" › „💾 GEDCOM exportieren".
+```bash
+python ancestry/tools/crawl_webtrees.py export-gedcom --profile anverwandte --out anverwandte.ged
+```
+- `--db <pfad>` — bestimmte Crawl-DB statt Profil
+- `--tree-source <name>` — nur Personen einer Quelle exportieren
+
 ---
 
 ## B) Kirchenbücher (Matricula-Online, Bistum Osnabrück)

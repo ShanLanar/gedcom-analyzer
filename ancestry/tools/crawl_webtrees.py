@@ -989,6 +989,190 @@ def list_profiles():
             print(f"  {k}: {v}")
 
 
+# ── GEDCOM-Export ─────────────────────────────────────────────────────────────
+
+def _ged_name(p: dict) -> str:
+    """'Vorname /Nachname/' aus given_name/surname, Fallback = name-Feld."""
+    given = (p.get("given_name") or "").strip()
+    surn  = (p.get("surname") or "").strip()
+    if given or surn:
+        return f"{given} /{surn}/".strip()
+    raw = (p.get("name") or "").strip()
+    if not raw:
+        return "Unbekannt"
+    # Steht im name-Feld schon ein /Nachname/? Dann unverändert lassen.
+    if "/" in raw:
+        return raw
+    parts = raw.split()
+    if len(parts) == 1:
+        return f"/{parts[0]}/"
+    return f"{' '.join(parts[:-1])} /{parts[-1]}/"
+
+
+def _ged_event(tag: str, date: str, place: str) -> list[str]:
+    lines = [f"1 {tag}"]
+    if date:
+        lines.append(f"2 DATE {date}")
+    if place:
+        lines.append(f"2 PLAC {place}")
+    return lines if len(lines) > 1 else []
+
+
+def export_gedcom(db_path: Path, out_path: str,
+                  tree_source: str | None = None) -> tuple[int, int]:
+    """Schreibt die in `db_path` gecrawlten Personen als GEDCOM-5.5.1-Datei.
+
+    Baut FAM-Records aus parents_json/spouses_json. Es werden NUR Personen
+    referenziert, die auch tatsächlich gecrawlt wurden (keine offenen Refs).
+    Rückgabe: (anzahl_personen, anzahl_familien).
+    """
+    if not Path(db_path).exists():
+        raise FileNotFoundError(f"Datenbank nicht gefunden: {db_path}")
+
+    conn = sqlite3.connect(str(db_path))
+    conn.row_factory = sqlite3.Row
+    q = "SELECT * FROM wt_persons"
+    params: tuple = ()
+    if tree_source:
+        q += " WHERE tree_source = ?"
+        params = (tree_source,)
+    rows = conn.execute(q, params).fetchall()
+    conn.close()
+
+    persons = {r["id"]: dict(r) for r in rows if r["id"]}
+    if not persons:
+        raise ValueError("Keine Personen in der Datenbank (erst crawlen).")
+
+    def _ids(p: dict, col: str) -> list[str]:
+        try:
+            vals = json.loads(p.get(col) or "[]")
+        except (json.JSONDecodeError, TypeError):
+            return []
+        # Nur gecrawlte IDs → keine offenen GEDCOM-Referenzen
+        return [v for v in vals if v in persons]
+
+    # ── Familien aus Eltern-/Partner-Verknüpfungen ableiten ──────────────
+    families: dict[str, dict] = {}
+    parentset_to_fam: dict[frozenset, str] = {}
+    seq = 0
+
+    def family_for(parent_ids: list[str]) -> str:
+        nonlocal seq
+        key = frozenset(parent_ids)
+        if key in parentset_to_fam:
+            return parentset_to_fam[key]
+        seq += 1
+        fid = f"F{seq}"
+        fam = {"husb": None, "wife": None, "chil": set()}
+        for pid in parent_ids:
+            sex = persons[pid].get("sex")
+            if sex == "M" and not fam["husb"]:
+                fam["husb"] = pid
+            elif sex == "F" and not fam["wife"]:
+                fam["wife"] = pid
+            elif not fam["husb"]:
+                fam["husb"] = pid
+            elif not fam["wife"]:
+                fam["wife"] = pid
+        families[fid] = fam
+        parentset_to_fam[key] = fid
+        return fid
+
+    # 1. Kind → Elternfamilie
+    for pid, p in persons.items():
+        par = _ids(p, "parents_json")
+        if par:
+            families[family_for(par)]["chil"].add(pid)
+
+    # 2. Paare ohne (gecrawlte) Kinder trotzdem als Familie führen
+    for pid, p in persons.items():
+        for sp in _ids(p, "spouses_json"):
+            family_for([pid, sp])
+
+    # FAMC/FAMS-Zuordnung
+    from collections import defaultdict as _dd
+    famc: dict[str, list[str]] = _dd(list)
+    fams: dict[str, list[str]] = _dd(list)
+    for fid, fam in families.items():
+        if fam["husb"]:
+            fams[fam["husb"]].append(fid)
+        if fam["wife"]:
+            fams[fam["wife"]].append(fid)
+        for ch in fam["chil"]:
+            famc[ch].append(fid)
+
+    # ── Schreiben ────────────────────────────────────────────────────────
+    out: list[str] = [
+        "0 HEAD",
+        "1 SOUR gedcom-analyzer-crawler",
+        "2 VERS 1.0",
+        "2 NAME webtrees-Crawler (crawl_webtrees.py)",
+        "1 GEDC",
+        "2 VERS 5.5.1",
+        "2 FORM LINEAGE-LINKED",
+        "1 CHAR UTF-8",
+        "1 LANG German",
+    ]
+
+    for pid, p in sorted(persons.items()):
+        out.append(f"0 @{pid}@ INDI")
+        out.append(f"1 NAME {_ged_name(p)}")
+        sex = p.get("sex")
+        if sex in ("M", "F"):
+            out.append(f"1 SEX {sex}")
+        out.extend(_ged_event("BIRT",
+                              p.get("birth_date") or p.get("birth_year") or "",
+                              p.get("birth_place") or ""))
+        out.extend(_ged_event("DEAT",
+                              p.get("death_date") or p.get("death_year") or "",
+                              p.get("death_place") or ""))
+        for fid in famc.get(pid, []):
+            out.append(f"1 FAMC @{fid}@")
+        for fid in fams.get(pid, []):
+            out.append(f"1 FAMS @{fid}@")
+        # Matricula-Kirchenbuchbelege als NOTE bewahren
+        try:
+            mat = json.loads(p.get("matricula_json") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            mat = []
+        for m in mat:
+            if isinstance(m, dict):
+                ref = (m.get("ref") or "").strip()
+                url = (m.get("url_old") or "").strip()
+                note = " ".join(x for x in [
+                    "Matricula:", ref, url] if x).strip()
+            else:
+                note = str(m).strip()
+            if note and note != "Matricula:":
+                out.append(f"1 NOTE {note[:240]}")
+        if p.get("url"):
+            out.append(f"1 SOUR @S1@")
+            out.append(f"2 PAGE {p['url']}")
+
+    for fid, fam in sorted(families.items(), key=lambda kv: int(kv[0][1:])):
+        out.append(f"0 @{fid}@ FAM")
+        if fam["husb"]:
+            out.append(f"1 HUSB @{fam['husb']}@")
+        if fam["wife"]:
+            out.append(f"1 WIFE @{fam['wife']}@")
+        for ch in sorted(fam["chil"]):
+            out.append(f"1 CHIL @{ch}@")
+
+    out += [
+        "0 @S1@ SOUR",
+        "1 TITL Webtrees-Stammbaum (gecrawlt)",
+        "1 AUTH crawl_webtrees.py",
+    ]
+    out.append("0 TRLR")
+
+    with open(out_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(out) + "\n")
+
+    print(f"GEDCOM gespeichert: {out_path}")
+    print(f"  {len(persons)} Personen, {len(families)} Familien")
+    return len(persons), len(families)
+
+
 def main(argv):
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser()
@@ -1040,6 +1224,17 @@ def main(argv):
     sub.add_parser("matricula", help="Matricula-Belege + reparierte URLs ausgeben")
     sub.add_parser("profiles", help="Alle gespeicherten Profile auflisten")
     sub.add_parser("list-sites", help="Alle lokalen webtrees-DBs auflisten")
+
+    ge = sub.add_parser("export-gedcom",
+                        help="Gecrawlte Personen als GEDCOM-Datei (.ged) exportieren")
+    ge.add_argument("--out", default=None,
+                    help="Ausgabedatei (.ged); Default: <db-name>.ged")
+    ge.add_argument("--db", default=None,
+                    help="Pfad zur SQLite-DB (sonst über --profile oder Default)")
+    ge.add_argument("--profile", default=None,
+                    help="Profil-DB verwenden (z.B. anverwandte)")
+    ge.add_argument("--tree-source", default=None,
+                    help="Nur Personen dieser tree_source exportieren")
 
     args = ap.parse_args(argv[1:])
 
@@ -1161,6 +1356,35 @@ def main(argv):
               discover=args.discover,
               extra_seeds=args.extra_seeds,
               reset_stale=args.reset_stale)
+
+    elif args.cmd == "export-gedcom":
+        # DB-Pfad bestimmen: --db > --profile > Default
+        db_path = None
+        if args.db:
+            db_path = Path(args.db)
+        elif args.profile:
+            profiles = _load_profiles()
+            prof = profiles.get(args.profile)
+            if not prof:
+                print(f"Profil '{args.profile}' nicht gefunden. Verfügbar: "
+                      f"{list(profiles.keys())}")
+                sys.exit(1)
+            if prof.get("db"):
+                db_path = Path(prof["db"])
+            elif prof.get("seed_url"):
+                db_path = _db_path_for_url(prof["seed_url"])
+            if args.profile == "anverwandte" and (db_path is None or not db_path.exists()):
+                legacy = SCRIPT_DIR / "webtrees_crawl.db"
+                if legacy.exists():
+                    db_path = legacy
+        if db_path is None:
+            db_path = DB_PATH
+        out_path = args.out or str(Path(db_path).with_suffix(".ged"))
+        try:
+            export_gedcom(db_path, out_path, tree_source=args.tree_source)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"Fehler: {exc}")
+            sys.exit(1)
 
     elif args.cmd == "matricula":
         matricula_report()
