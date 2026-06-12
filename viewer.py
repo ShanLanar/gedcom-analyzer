@@ -1,5 +1,15 @@
 #!/usr/bin/env python3
 """
+⚠️  VERALTET / DEPRECATED — dieses Standalone-Programm wurde in die Haupt-App
+    integriert. Bitte stattdessen die vereinte App starten:
+
+        python main.py
+
+    Der Personen-/Stammbaum-Browser steckt jetzt dort im Reiter „👪 Personen",
+    die Sammel-/Import-Tools im Reiter „🔧 Werkzeuge". viewer.py bleibt nur noch
+    als Referenz erhalten und wird nicht mehr gepflegt.
+
+────────────────────────────────────────────────────────────────────────────
 Genealogie-Datenviewer — durchsucht und navigiert die gesammelten Personen-
 daten in einer Baum-/Detailansicht (ähnlich der Ancestry-Personenseite).
 
