@@ -23,9 +23,9 @@ def wikitree_extend_match(db, test_guid: str, match_guid: str,
     Rückgabe: Liste von find_ancestor_lineage()-Ergebnissen, eines pro Ahn.
     """
     try:
-        from core.wikitree import find_ancestor_lineage
+        from ancestry.core.wikitree import find_ancestor_lineage
     except ImportError:
-        from wikitree import find_ancestor_lineage
+        from ancestry.core.wikitree import find_ancestor_lineage
 
     def p(msg):
         if progress_cb:

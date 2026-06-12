@@ -565,7 +565,7 @@ class MatchesTab(ttk.Frame):
 
         def _worker():
             try:
-                from core import bridge
+                from ancestry.core import bridge
                 bridge.ensure_tables(self._state.db)
                 # GEDCOM-Personen importieren, falls leer
                 if bridge.get_gedcom_person_count(self._state.db) == 0:
@@ -591,7 +591,7 @@ class MatchesTab(ttk.Frame):
         self._ged_link_status.set(
             f"{hits} Treffer von {len(rows)} Vorfahren  ·  {match.display_name}")
         try:
-            from core.bridge import path_to_sosa
+            from ancestry.core.bridge import path_to_sosa
         except ImportError:
             path_to_sosa = lambda p: ""  # noqa: E731
         for r in rows:
@@ -1175,7 +1175,7 @@ class MatchesTab(ttk.Frame):
         """Shared-cM-Project-Verteilung als Einzeiler, z.B.
         '70% 2. Cousin · 19% Halb-1C · 11% …'."""
         try:
-            from core.shared_cm import summary_line
+            from ancestry.core.shared_cm import summary_line
             return summary_line(cm, top=3) if cm and cm > 0 else "—"
         except ImportError:
             return "—"
@@ -1190,7 +1190,7 @@ class MatchesTab(ttk.Frame):
         w = c.winfo_width() or 260
         h = c.winfo_height() or 52
         try:
-            from core.shared_cm import relationship_probabilities
+            from ancestry.core.shared_cm import relationship_probabilities
             probs = relationship_probabilities(cm, top=3)
             scored = [(p["probability"], p["labels"][0]) for p in probs]
         except ImportError:

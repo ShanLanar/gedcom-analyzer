@@ -27,7 +27,7 @@ def run_gui(gedcom_path: str = ""):
               "Bitte Python mit Tk-Unterstützung installieren.", file=sys.stderr)
         sys.exit(1)
 
-    from gui.app import AncestryDnaApp
+    from ancestry.gui.app import AncestryDnaApp
     app = AncestryDnaApp(gedcom_path=gedcom_path)
     app.mainloop()
 
@@ -35,10 +35,10 @@ def run_gui(gedcom_path: str = ""):
 def run_cli(args: argparse.Namespace):
     """Führt einen Download ohne GUI aus (Headless-Modus)."""
     log = get_logger("cli")
-    from core.auth import AncestryAuth
-    from core.api import AncestryApiClient
-    from core.database import Database
-    from core.scraper import Scraper
+    from ancestry.core.auth import AncestryAuth
+    from ancestry.core.api import AncestryApiClient
+    from ancestry.core.database import Database
+    from ancestry.core.scraper import Scraper
     import threading
 
     auth = AncestryAuth()

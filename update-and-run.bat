@@ -29,6 +29,10 @@ if defined REPO_DIR if "%REPO_DIR:~-1%"=="\" set "REPO_DIR=%REPO_DIR:~0,-1%"
 if not defined REPO_DIR set "REPO_DIR=C:\gedcom-analyzer"
 if not exist "%REPO_DIR%\.git" set "REPO_DIR=C:\gedcom-analyzer"
 set "REPO_URL=https://github.com/ShanLanar/gedcom-analyzer.git"
+REM UTF-8 erzwingen: Tools/App geben Emojis aus; Windows-Konsole ist sonst
+REM cp1252 -> UnicodeEncodeError. Wird an alle Kindprozesse vererbt.
+set "PYTHONUTF8=1"
+set "PYTHONIOENCODING=utf-8"
 REM Branch beim ERST-Clone. Bei vorhandenem Repo wird der aktuell ausgecheckte
 REM Branch automatisch erkannt (siehe unten).
 set "DEFAULT_BRANCH=main"

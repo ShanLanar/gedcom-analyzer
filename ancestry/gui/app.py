@@ -545,7 +545,7 @@ class AncestryDnaApp(tk.Frame):
                 lo = float(lo_var.get() or 0); hi = float(hi_var.get() or 9999)
             except ValueError:
                 lo, hi = 20.0, 400.0
-            from core.treematch import cluster_confidence
+            from ancestry.core.treematch import cluster_confidence
             clusters = self._db.get_shared_clusters(test_guid, lo, hi)
             tv.delete(*tv.get_children()); store.clear()
             for i, c in enumerate(clusters, 1):
@@ -576,7 +576,7 @@ class AncestryDnaApp(tk.Frame):
 
             def _after_load(ged):
                 import threading
-                from core.treematch import Person
+                from ancestry.core.treematch import Person
                 index, amap = ged["index"], ged["amap"]
 
                 def _worker():
@@ -738,7 +738,7 @@ class AncestryDnaApp(tk.Frame):
         """Verschmilzt die Ahnentafeln aller Cluster-Mitglieder zu einem
         kombinierten Cluster-Stammbaum und zeigt Konvergenz + Andockpunkt."""
         import threading
-        from core.treematch import Person, merge_person_list, render_kinship
+        from ancestry.core.treematch import Person, merge_person_list, render_kinship
         guids = [g for g, _n, _cm in cluster["members"]]
         cm_by_member = {g: cm for g, _n, cm in cluster["members"]}
         name_by_member = {g: n for g, n, _cm in cluster["members"]}
@@ -802,7 +802,7 @@ class AncestryDnaApp(tk.Frame):
                     if own:
                         path = amap.get(own.ref)
                         if path is None:   # Seitenverwandter → zur direkten Linie hoch
-                            from core.treematch import mrca_on_direct_line
+                            from ancestry.core.treematch import mrca_on_direct_line
                             _mid, mpath = mrca_on_direct_line(
                                 own.ref, ged.get("individuals", {}),
                                 ged.get("families", {}), amap)
@@ -910,7 +910,7 @@ class AncestryDnaApp(tk.Frame):
             return
         def _after_load(ged):
             import threading
-            from core.treematch import Person, render_kinship, mrca_on_direct_line
+            from ancestry.core.treematch import Person, render_kinship, mrca_on_direct_line
             index, amap = ged["index"], ged["amap"]
             indi, fams = ged.get("individuals", {}), ged.get("families", {})
 
@@ -1081,7 +1081,7 @@ class AncestryDnaApp(tk.Frame):
 
         def _worker():
             try:
-                from core.treematch import (load_gedcom_full, TreeIndex,
+                from ancestry.core.treematch import (load_gedcom_full, TreeIndex,
                                             build_ancestor_map, find_root_candidate)
                 people, individuals, families = load_gedcom_full(path)
             except Exception as e:
@@ -1155,7 +1155,7 @@ class AncestryDnaApp(tk.Frame):
 
         def _worker():
             try:
-                from core import bridge
+                from ancestry.core import bridge
                 bridge.ensure_tables(self._db)
                 if bridge.get_gedcom_person_count(self._db) == 0:
                     bridge.import_gedcom_persons(
@@ -1198,7 +1198,7 @@ class AncestryDnaApp(tk.Frame):
 
         def _worker():
             try:
-                from core import bridge as _bridge
+                from ancestry.core import bridge as _bridge
                 import os as _os
                 import importlib.util as _ilu
                 # GEDCOM-Endogamie aus dem Haupt-Analyzer (tasks ist installiert)
@@ -1233,7 +1233,7 @@ class AncestryDnaApp(tk.Frame):
     def _open_xref_review(self):
         """Fenster zum Prüfen grenzwertiger Duplikat-Verknüpfungen (gedcom_person_xref)."""
         try:
-            from core import bridge
+            from ancestry.core import bridge
         except Exception as e:
             messagebox.showerror("Duplikate", f"bridge nicht ladbar: {e}"); return
 
@@ -1306,7 +1306,7 @@ class AncestryDnaApp(tk.Frame):
 
         def _worker():
             try:
-                from core import ml_origin as _ml
+                from ancestry.core import ml_origin as _ml
                 cb = lambda m: self.after(0, lambda mm=m: self._ged_link_status.set(mm))
                 if not _ml.load():
                     cb("ML: trainiere Modell auf GEDCOM …")
@@ -1341,7 +1341,7 @@ class AncestryDnaApp(tk.Frame):
 
         def _worker(mguid=match.match_guid, mname=match.display_name):
             try:
-                from core import bridge as _bridge
+                from ancestry.core import bridge as _bridge
                 results = _bridge.wikitree_extend_match(
                     self._db, test_guid, mguid,
                     progress_cb=lambda m: self.after(
@@ -1376,7 +1376,7 @@ class AncestryDnaApp(tk.Frame):
 
         def _worker():
             try:
-                from core import bridge as _bridge
+                from ancestry.core import bridge as _bridge
                 results = _bridge.infer_match_origins(
                     self._db, test_guid,
                     progress_cb=lambda m, **kw: self.after(
@@ -1430,7 +1430,7 @@ class AncestryDnaApp(tk.Frame):
         if not rows:
             messagebox.showinfo("Keine Daten", "Keine Shared Matches in der Datenbank.")
             return
-        from models import SharedMatch
+        from ancestry.models import SharedMatch
         shared = [SharedMatch.from_db_row(dict(r)) for r in rows]
         matches = {m.match_guid: m.display_name for m in self._db.get_matches(test_guid=test_guid)}
 
@@ -1464,7 +1464,7 @@ class AncestryDnaApp(tk.Frame):
             with self._db._cursor() as cur:
                 cur.execute("SELECT * FROM shared_matches WHERE test_guid=? ORDER BY shared_cm_b DESC",
                             (test_guid,))
-                from models import SharedMatch
+                from ancestry.models import SharedMatch
                 shared = [SharedMatch.from_db_row(dict(r)) for r in cur.fetchall()]
             name_map = {m.match_guid: m.display_name for m in matches}
 
@@ -1906,7 +1906,7 @@ class AncestryDnaApp(tk.Frame):
                                        "Bitte GEDCOM laden und Wurzelperson angeben.")
                 return
             try:
-                from core.bridge import infer_side_from_links
+                from ancestry.core.bridge import infer_side_from_links
             except ImportError:
                 messagebox.showerror("Fehler", "bridge.py nicht ladbar.")
                 return
@@ -2051,7 +2051,7 @@ class AncestryDnaApp(tk.Frame):
         if not p:
             return
         try:
-            from core.gedcom_export import export_gedcom
+            from ancestry.core.gedcom_export import export_gedcom
             # Enrich groups with ancestor data
             enriched = []
             for g in groups:
@@ -2076,7 +2076,7 @@ class AncestryDnaApp(tk.Frame):
         if not p:
             return
         try:
-            from core.mta_import import parse_mta_csv
+            from ancestry.core.mta_import import parse_mta_csv
             rows = parse_mta_csv(p)
         except Exception as e:
             messagebox.showerror("Import-Fehler", str(e))

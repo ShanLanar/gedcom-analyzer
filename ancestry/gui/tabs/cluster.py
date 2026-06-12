@@ -274,7 +274,7 @@ class ClusterTab(ttk.Frame):
             possible = n * (n - 1) / 2
             density  = (_edge_counts.get(cid, 0) / possible) if possible > 0 else 0.0
             try:
-                from core.treematch import cluster_confidence
+                from ancestry.core.treematch import cluster_confidence
                 med_cm = sum(m["cm"] for m in members) / n if n else 0.0
                 conf   = cluster_confidence(n, density, median_cm=med_cm)
                 r = conf.get("realness", 0)

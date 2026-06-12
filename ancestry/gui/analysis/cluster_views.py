@@ -14,7 +14,7 @@ from ancestry.gui.widgets.theme import COLORS
 
 def show_cluster_tree_win(app, cluster, rows, n_with_ped, has_ged, name_by_member):
     """Kombinierter Cluster-Stammbaum: verschmolzene Ahnen aller Mitglieder."""
-    from core.treematch import render_kinship, cm_to_mrca, cluster_confidence
+    from ancestry.core.treematch import render_kinship, cm_to_mrca, cluster_confidence
 
     win = tk.Toplevel(app)
     win.title("Kombinierter Cluster-Stammbaum")
@@ -173,7 +173,7 @@ def show_cluster_tree_win(app, cluster, rows, n_with_ped, has_ged, name_by_membe
 
 def show_cluster_relationships(app, test_guid, cluster):
     """Interne Beziehungs-Struktur: paarweise cM zwischen Cluster-Mitgliedern."""
-    from core.treematch import pair_relationship
+    from ancestry.core.treematch import pair_relationship
 
     guids = [g for g, _n, _cm in cluster["members"]]
     name = {g: n for g, n, _cm in cluster["members"]}
@@ -216,7 +216,7 @@ def show_cluster_relationships(app, test_guid, cluster):
 
 def show_cluster_dock(app, cluster, hits, n_with_ped):
     """Zeigt, wo die Cluster-Mitglieder in deinem Baum andocken."""
-    from core.treematch import render_kinship
+    from ancestry.core.treematch import render_kinship
 
     win = tk.Toplevel(app)
     win.title("Cluster-Linie → Andockpunkt in deinem Baum")

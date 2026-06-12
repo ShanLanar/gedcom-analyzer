@@ -27,6 +27,18 @@ def _tool(name: str) -> str:
     return os.path.join(_TOOLS_DIR, name)
 
 
+def _utf8_env() -> dict:
+    """Erzwingt UTF-8-stdout in Tool-Subprozessen.
+
+    Viele Tools geben Emojis/Unicode aus; unter Windows ist die Konsole sonst
+    cp1252 und der Prozess stirbt mit UnicodeEncodeError. PYTHONUTF8/-IOENCODING
+    schalten den Kind-Prozess auf UTF-8."""
+    env = dict(os.environ)
+    env["PYTHONUTF8"] = "1"
+    env["PYTHONIOENCODING"] = "utf-8"
+    return env
+
+
 class ToolsTab(ttk.Frame):
     """Werkzeuge-/Import-Tab des Ancestry-DNA-Tools."""
 
@@ -261,7 +273,7 @@ class ToolsTab(ttk.Frame):
             return
         try:
             subprocess.Popen([sys.executable, script], cwd=str(ROOT),
-                             start_new_session=True)
+                             start_new_session=True, env=_utf8_env())
             self._tool_append(f"▶ Eigenes Fenster gestartet: {os.path.basename(script)}\n")
         except Exception as exc:
             self._tool_append(f"⚠ Fehler: {exc}\n")
@@ -281,7 +293,8 @@ class ToolsTab(ttk.Frame):
         try:
             proc = subprocess.Popen(
                 cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                text=True, encoding="utf-8", errors="replace", cwd=str(ROOT))
+                text=True, encoding="utf-8", errors="replace", cwd=str(ROOT),
+                env=_utf8_env())
         except Exception as exc:
             self._tool_append(f"⚠ Fehler: {exc}\n")
             btn_start.configure(state="normal")

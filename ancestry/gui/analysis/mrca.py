@@ -38,7 +38,7 @@ def show_mrca_analysis(app, match=None):
         return
 
     try:
-        from core.treematch import cm_to_mrca
+        from ancestry.core.treematch import cm_to_mrca
     except ImportError:
         cm_to_mrca = None
 

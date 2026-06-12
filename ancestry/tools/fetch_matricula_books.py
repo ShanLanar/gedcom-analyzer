@@ -10,7 +10,7 @@ Ausgabe in matricula_parishes.db:
   kirchenbuecher  – ein Datensatz pro Buch
 
 Lookup-Funktion für andere Tools:
-  from tools.fetch_matricula_books import find_kirchenbuch
+  from ancestry.tools.fetch_matricula_books import find_kirchenbuch
   rows = find_kirchenbuch(db, parish_id="ostercappeln", year=1812, book_type="Taufe")
 
 Start:

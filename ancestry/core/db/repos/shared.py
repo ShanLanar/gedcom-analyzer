@@ -133,7 +133,7 @@ class SharedRepo:
                                              r["has_common_ancestor"] or 0,
                                              r["linked_in_tree"] or 0)
 
-        from core.treematch import endogamy_flag
+        from ancestry.core.treematch import endogamy_flag
         out = []
         for root, members in comps.items():
             n = len(members)

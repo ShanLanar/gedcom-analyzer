@@ -54,10 +54,10 @@ def _sklearn():
 def _region_of(birth_place: str):
     """Region aus Geburtsort ableiten (gleiche Logik wie die Regel-Inferenz)."""
     try:
-        from core.bridge import _extract_region
+        from ancestry.core.bridge import _extract_region
     except Exception:
         try:
-            from bridge import _extract_region
+            from ancestry.core.bridge import _extract_region
         except Exception:
             def _extract_region(s):  # einfacher Fallback
                 parts = [p.strip() for p in (s or "").split(",") if p.strip()]
@@ -102,9 +102,9 @@ def train(db, min_region: int = 20, sources=None, dedupe: bool = True,
     p("Lese Personen (quellenbewusst, dedupliziert) …")
     if dedupe:
         try:
-            from core.bridge import iter_unique_persons
+            from ancestry.core.bridge import iter_unique_persons
         except ImportError:
-            from bridge import iter_unique_persons
+            from ancestry.core.bridge import iter_unique_persons
         rows = [r for r in iter_unique_persons(db, sources=sources)
                 if (r.get("surname") or "").strip() and (r.get("birth_place") or "").strip()]
     else:
