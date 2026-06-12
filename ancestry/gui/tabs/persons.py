@@ -72,6 +72,10 @@ _LINK     = "#1a56c4"   # anklickbare Verknüpfung
 _SRC_LABEL = {"": "Alle Quellen", "gedcom": "GEDCOM", "anverwandte": "Webtrees",
               "wikitree": "WikiTree"}
 
+# Konfessions-Filter: Label → interner Schlüssel ('' = alle, 'unbekannt' = keine Pfarrei)
+_CONF_LABELS = {"": "Alle Konfessionen", "kath": "Katholisch",
+                "ev": "Evangelisch", "unbekannt": "Unbekannt"}
+
 
 def _years(b, d) -> str:
     b = str(b or "").strip()
@@ -138,6 +142,13 @@ class PersonsTab(ttk.Frame):
                               values=list(_SRC_LABEL.values()))
         src_cb.pack(side="left", padx=4)
         src_cb.bind("<<ComboboxSelected>>", lambda _: self._pers_reload_list())
+        # Konfessions-Filter (aus Geburtsort via Matricula-Pfarrei)
+        self._pers_conf = tk.StringVar(value="Alle Konfessionen")
+        conf_cb = ttk.Combobox(bar, textvariable=self._pers_conf, width=13,
+                               state="readonly",
+                               values=list(_CONF_LABELS.values()))
+        conf_cb.pack(side="left", padx=4)
+        conf_cb.bind("<<ComboboxSelected>>", lambda _: self._pers_reload_list())
 
         cols = ("name", "years")
         self._pers_list = ttk.Treeview(left, columns=cols, show="headings",
@@ -162,6 +173,11 @@ class PersonsTab(ttk.Frame):
         nav = ttk.Frame(mid); nav.pack(fill="x")
         ttk.Button(nav, text="◀ Zurück", command=self._pers_go_back).pack(
             side="left", pady=(0, 4))
+        ttk.Label(nav, text="  Generationen:").pack(side="left")
+        self._pers_depth = tk.IntVar(value=2)
+        depth_sb = ttk.Spinbox(nav, from_=1, to=5, width=3, textvariable=self._pers_depth,
+                               command=self._pers_redraw_tree)
+        depth_sb.pack(side="left", padx=(2, 8))
         cwrap = ttk.Frame(mid); cwrap.pack(fill="both", expand=True)
         self._pers_canvas = tk.Canvas(cwrap, bg="#ffffff", highlightthickness=0)
         cvsb = ttk.Scrollbar(cwrap, orient="vertical",
@@ -209,9 +225,17 @@ class PersonsTab(ttk.Frame):
             self.after(0, self._pers_reload_list)
         threading.Thread(target=_bg, daemon=True, name="pers-init").start()
 
+    def _pers_conf_key(self) -> str:
+        label = self._pers_conf.get() if hasattr(self, "_pers_conf") else ""
+        for k, v in _CONF_LABELS.items():
+            if v == label:
+                return k
+        return ""
+
     def _pers_reload_list(self, *_):
         q = (self._pers_search.get() or "").strip()
         src = self._pers_source_key()
+        conf = self._pers_conf_key()
         gen = getattr(self, "_pers_list_gen", 0) + 1
         self._pers_list_gen = gen
 
@@ -223,20 +247,31 @@ class PersonsTab(ttk.Frame):
                 conds.append("(given_name LIKE ? OR surname LIKE ?)")
                 params += [f"%{q}%", f"%{q}%"]
             where = ("WHERE " + " AND ".join(conds)) if conds else ""
+            # Bei Konfessionsfilter mehr Zeilen holen (Filterung erfolgt in Python)
+            limit = 4000 if conf else 600
             sql = (f"SELECT ged_id, given_name, surname, birth_year, death_year, "
-                   f"sex FROM gedcom_persons {where} "
-                   f"ORDER BY surname, given_name LIMIT 600")
+                   f"sex, birth_place FROM gedcom_persons {where} "
+                   f"ORDER BY surname, given_name LIMIT {limit}")
             try:
                 with self._db._cursor() as cur:
                     rows = cur.execute(sql, params).fetchall()
             except Exception as exc:
                 self.after(0, lambda e=exc: self._pers_count.set(f"⚠ {e}"))
                 return
-            data = [(r["ged_id"],
-                     f"{(r['given_name'] or '').strip()} {(r['surname'] or '').strip()}".strip()
-                     or r["ged_id"],
-                     _years(r["birth_year"], r["death_year"]))
-                    for r in rows]
+            data = []
+            for r in rows:
+                if conf:
+                    info = _parish_for(r["birth_place"] or "")
+                    person_conf = (info or {}).get("confession", "") or "unbekannt"
+                    if person_conf != conf:
+                        continue
+                data.append((
+                    r["ged_id"],
+                    f"{(r['given_name'] or '').strip()} {(r['surname'] or '').strip()}".strip()
+                    or r["ged_id"],
+                    _years(r["birth_year"], r["death_year"])))
+                if len(data) >= 600:
+                    break
             self.after(0, lambda: self._pers_fill_list(data, gen))
         threading.Thread(target=_fetch, daemon=True, name="pers-list").start()
 
@@ -285,8 +320,25 @@ class PersonsTab(ttk.Frame):
         if push and self._pers_current and self._pers_current != ged_id:
             self._pers_history.append(self._pers_current)
         self._pers_current = ged_id
-        self._pers_render_tree(ged_id)
-        self._pers_render_detail(ged_id)
+        try:
+            self._pers_render_tree(ged_id)
+        except Exception as exc:
+            self._pers_canvas.delete("all")
+            self._pers_canvas.create_text(
+                30, 30, anchor="nw", fill="#b00020",
+                text=f"Stammbaum konnte nicht gezeichnet werden:\n{exc}")
+        try:
+            self._pers_render_detail(ged_id)
+        except Exception:
+            pass
+
+    def _pers_redraw_tree(self, *_):
+        """Zeichnet den Baum der aktuellen Person neu (z. B. nach Tiefenänderung)."""
+        if self._pers_current:
+            try:
+                self._pers_render_tree(self._pers_current)
+            except Exception:
+                pass
 
     def _pers_go_back(self):
         if self._pers_history:
@@ -297,54 +349,53 @@ class PersonsTab(ttk.Frame):
         tc = self._pers_canvas
         tc.delete("all")
         tc.update_idletasks()
-        cw = max(tc.winfo_width(), 820)
+        try:
+            depth = max(1, min(5, int(self._pers_depth.get())))
+        except Exception:
+            depth = 2
 
-        p = self._pers_get(ged_id)
-        if not p:
-            tc.create_text(cw // 2, 60, text="Person nicht gefunden.",
+        focus = self._pers_get(ged_id)
+        if not focus:
+            tc.create_text(60, 50, anchor="nw", text="Person nicht gefunden.",
                            fill=_MUTED, font=("Segoe UI", 10))
-            tc.configure(scrollregion=(0, 0, cw, 120))
+            tc.configure(scrollregion=(0, 0, 820, 120))
             return
 
-        parents  = _loads(p.get("parents_json"))
-        spouses  = _loads(p.get("spouses_json"))
-        children = _loads(p.get("children_json"))
-        siblings = _loads(p.get("siblings_json"))
+        # ── Vorfahren in Sosa-Slots sammeln: anc[(gen, slot)] = ged_id ──
+        # gen 1 = Eltern (slot 0=Vater, 1=Mutter); pro Generation 2^gen Slots.
+        anc: dict = {}
+        for i, pid in enumerate(_loads(focus.get("parents_json"))[:2]):
+            if pid:
+                anc[(1, i)] = pid
+        for g in range(1, depth):
+            for slot in range(2 ** g):
+                pid = anc.get((g, slot))
+                if not pid:
+                    continue
+                pd = self._pers_get(pid)
+                for i, gp in enumerate((_loads(pd.get("parents_json")) if pd else [])[:2]):
+                    if gp:
+                        anc[(g + 1, 2 * slot + i)] = gp
 
-        # Großeltern je Elternteil sammeln
-        grandparents: list[str] = []
-        par_gp_map: dict[str, list[str]] = {}
-        for par in parents:
-            pd = self._pers_get(par)
-            gps = _loads(pd.get("parents_json")) if pd else []
-            par_gp_map[par] = gps
-            grandparents.extend(gps)
+        siblings = [s for s in _loads(focus.get("siblings_json")) if s != ged_id]
+        spouses  = [s for s in _loads(focus.get("spouses_json")) if s]
+        children = _loads(focus.get("children_json"))
 
-        sib_l = [s for s in siblings[:3] if s != ged_id][:3]
-        sib_r = [s for s in siblings[3:6] if s != ged_id][:3]
-        chi   = children[:8]
-        gp_sh = list(dict.fromkeys(grandparents))[:8]
-        sp_sh = [s for s in spouses[:2] if s]
-
-        all_ids = list(dict.fromkeys(
-            [ged_id] + parents + sp_sh + chi + sib_l + sib_r + gp_sh))
+        all_ids = [ged_id] + list(anc.values()) + siblings[:6] + spouses[:2] + children[:12]
+        all_ids = [str(i) for i in all_ids if i]
         persons = self._pers_batch(all_ids)
 
-        CW, CH = 120, 80
-        SW, SH = 92, 62
-        HG, CONN = 14, 24
-
-        rows: list[str] = []
-        if gp_sh:   rows.append("gp")
-        if parents: rows.append("par")
-        rows.append("foc")
-        if chi:     rows.append("chi")
-        y_pos, cur_y = {}, 26
-        for row in rows:
-            y_pos[row] = cur_y
-            cur_y += (SH if row in ("gp", "chi") else CH) + CONN + 14
-        total_h = cur_y + 16
-        cx = cw // 2
+        # DNA-Treffer vorab bestimmen (eine Abfrage statt pro Karte)
+        dna_ids = set()
+        if all_ids:
+            try:
+                ph = ",".join("?" * len(all_ids))
+                with self._db._cursor() as cur:
+                    dna_ids = {str(r[0]) for r in cur.execute(
+                        f"SELECT DISTINCT ged_id FROM gedcom_links WHERE ged_id IN ({ph})",
+                        all_ids).fetchall()}
+            except Exception:
+                dna_ids = set()
 
         def pdata(xid):
             return persons.get(str(xid)) or self._pers_get(xid) or {}
@@ -354,166 +405,119 @@ class PersonsTab(ttk.Frame):
             n = f"{(d.get('given_name') or '').strip()} {(d.get('surname') or '').strip()}".strip()
             return (n or str(xid)), _years(d.get("birth_year"), d.get("death_year"))
 
-        def draw_card(x, y, xid, small=False, focus=False):
-            w = SW if small else CW
-            h = SH if small else CH
-            sex = pdata(xid).get("sex", "")
-            name, yrs = pname(xid)
+        # ── Geometrie ──
+        SW, SH = 96, 56
+        CW, CH = 132, 78
+        ROW = max(SH, CH) + 46
+        HGAP = 14
+        slots_bottom = 2 ** depth
+        canvas_w = max(tc.winfo_width(), slots_bottom * (SW + HGAP) + 40, 860)
+        y_focus = 36 + depth * ROW
+
+        def label(x, y, text):
+            tc.create_text(x, y, text=text, fill=_MUTED, anchor="nw",
+                           font=("Segoe UI", 8, "bold"))
+
+        def draw_card(cx_center, top_y, xid, focus_card=False):
+            w = CW if focus_card else SW
+            h = CH if focus_card else SH
+            x = cx_center - w // 2
+            d = pdata(xid)
+            sex = d.get("sex", "")
             base = _CARD_M if sex == "M" else _CARD_F if sex == "F" else _CARD_N
-            if focus:
+            if focus_card:
                 base = _FOCUS
-            avt = _lighten(base, 14)
+            is_dna = str(xid) in dna_ids
+            outline = "#0aa6a6" if is_dna else "#b9c2cc"
             tag = f"pp_{xid}"
-            tc.create_rectangle(x, y, x+w, y+h, fill="#b9c2cc", outline="", tags=tag)
-            tc.create_rectangle(x+2, y+2, x+w-2, y+h-2, fill=base, outline="", tags=tag)
-            avt_h = max(20, int(h*0.38))
-            tc.create_rectangle(x+2, y+2, x+w-2, y+2+avt_h, fill=avt, outline="", tags=tag)
-            hx = x + w//2
-            hr = max(6, int(w*0.09))
-            tc.create_oval(hx-hr, y+4, hx+hr, y+4+hr*2, fill="#ffffff",
-                           outline="#9aa4ae", tags=tag)
-            bw = max(9, int(w*0.19))
-            tc.create_oval(hx-bw, y+avt_h-4, hx+bw, y+avt_h+max(4, int(avt_h*0.25)),
-                           fill="#ffffff", outline="#9aa4ae", tags=tag)
-            fsz = 7 if small else 9
-            tc.create_text(hx, y+avt_h+5, text=name, fill=_TXT,
-                           font=("Segoe UI", fsz), anchor="n", width=w-8, tags=tag)
+            tc.create_rectangle(x, top_y, x + w, top_y + h, fill=base,
+                                outline=outline, width=3 if is_dna else 1, tags=tag)
+            name, yrs = pname(xid)
+            fsz = 9 if focus_card else 8
+            tc.create_text(x + w // 2, top_y + 6, text=name, fill=_TXT, anchor="n",
+                           width=w - 8, font=("Segoe UI", fsz), tags=tag)
+            if is_dna:
+                tc.create_text(x + w - 4, top_y + 4, text="🧬", anchor="ne",
+                               font=("Segoe UI", 8), tags=tag)
             if yrs:
-                tc.create_text(hx, y+h-3, text=yrs, fill=_MUTED,
-                               font=("Segoe UI", 6 if small else 7),
-                               anchor="s", tags=tag)
+                tc.create_text(x + w // 2, top_y + h - 4, text=yrs, fill=_MUTED,
+                               anchor="s", font=("Segoe UI", 7), tags=tag)
             tc.tag_bind(tag, "<Button-1>", lambda e, i=xid: self._pers_navigate(i))
             tc.tag_bind(tag, "<Enter>", lambda e: tc.configure(cursor="hand2"))
             tc.tag_bind(tag, "<Leave>", lambda e: tc.configure(cursor=""))
-            return x+w//2, y, y+h
+            return cx_center, top_y, top_y + h
 
-        def vline(x, y1, y2):
-            if y1 != y2:
-                tc.create_line(x, y1, x, y2, fill=_LINE, dash=(2, 3))
+        def connect(x1, y1, x2, y2):
+            if (x1, y1) != (x2, y2):
+                tc.create_line(x1, y1, x2, y2, fill=_LINE)
 
-        def hline(y, x1, x2):
-            if x1 != x2:
-                tc.create_line(min(x1, x2), y, max(x1, x2), y, fill=_LINE)
-
-        def label(y, text):
-            tc.create_text(6, y, text=text, fill=_MUTED,
-                           font=("Segoe UI", 8, "bold"), anchor="nw")
-
-        # Fokuszeile (Geschwister | Fokus | Geschwister)
-        foc_y = y_pos["foc"]
+        # ── Fokus-Reihe (Geschwister | Fokus | Geschwister) + Partner ──
+        sib_l = siblings[:3][::-1]
+        sib_r = siblings[3:6]
         foc_row = sib_l + [ged_id] + sib_r
-        n_foc = len(foc_row)
-        foc_idx = len(sib_l)
-        focal_left = foc_idx * (CW + HG)
-        row_start = cx - focal_left - CW//2
-        foc_mids, foc_tops = {}, {}
+        foc_n = len(foc_row)
+        start_x = canvas_w // 2 - (foc_n * (CW + HGAP)) // 2 + CW // 2
+        focus_mid = focus_top = focus_bot = None
         for i, xid in enumerate(foc_row):
-            rx = row_start + i * (CW + HG)
-            mx, ty, _ = draw_card(rx, foc_y, xid, focus=(xid == ged_id))
-            foc_mids[xid] = mx; foc_tops[xid] = ty
-        focal_mid = foc_mids[ged_id]
-        focal_top = foc_tops[ged_id]
-        focal_bot = foc_y + CH
-        label(foc_y, f"Geschwister ({len(siblings)}) · Fokus" if siblings else "Fokus")
+            cxx = start_x + i * (CW + HGAP)
+            mid, top, bot = draw_card(cxx, y_focus, xid, focus_card=(xid == ged_id))
+            if xid == ged_id:
+                focus_mid, focus_top, focus_bot = mid, top, bot
+        if focus_mid is None:
+            focus_mid, focus_top, focus_bot = canvas_w // 2, y_focus, y_focus + CH
+        label(6, y_focus, f"Geschwister ({len(siblings)}) · Fokus" if siblings else "Fokus")
+        for j, sp in enumerate(spouses[:2]):
+            sx = start_x + foc_n * (CW + HGAP) + j * (CW + HGAP + 20)
+            tc.create_text(sx - HGAP, y_focus + CH // 2, text="⚭", fill=_MUTED,
+                           font=("Segoe UI", 13))
+            draw_card(sx + CW // 2, y_focus, sp)
 
-        # Partner rechts
-        if sp_sh:
-            sp_x = row_start + n_foc * (CW + HG) + 6
-            for i, sp in enumerate(sp_sh):
-                sym = sp_x + i * (CW + HG + 22)
-                tc.create_text(sym+10, foc_y+CH//2, text="⚭", fill=_MUTED,
-                               font=("Segoe UI", 14))
-                draw_card(sym+22, foc_y, sp)
+        # ── Vorfahren-Pyramide ──
+        pos = {}
+        for g in range(1, depth + 1):
+            n = 2 ** g
+            slot_w = canvas_w / n
+            for slot in range(n):
+                pid = anc.get((g, slot))
+                if not pid:
+                    continue
+                pos[(g, slot)] = draw_card(slot_w * (slot + 0.5), y_focus - g * ROW, pid)
+        for (g, slot), (mx, ty, by) in pos.items():
+            if g == 1:
+                cm, ct = focus_mid, focus_top
+            else:
+                cpos = pos.get((g - 1, slot // 2))
+                if not cpos:
+                    continue
+                cm, ct = cpos[0], cpos[1]
+            connect(mx, by, cm, ct)
+        for g in range(1, depth + 1):
+            if any((g, s) in pos for s in range(2 ** g)):
+                label(6, y_focus - g * ROW, "Eltern" if g == 1 else f"{g}. Generation ↑")
 
-        # Elternzeile
-        par_mids = {}
-        if parents:
-            par_y = y_pos["par"]
-            n_par = len(parents)
-            par_sx = cx - (n_par*CW + (n_par-1)*HG)//2
-            for i, par in enumerate(parents):
-                rx = par_sx + i*(CW+HG)
-                mx, _, _ = draw_card(rx, par_y, par)
-                par_mids[par] = mx
-            label(par_y, "Eltern")
-            mid_y = par_y + CH + CONN//2
-            if len(parents) == 2:
-                a, b = par_mids[parents[0]], par_mids[parents[1]]
-                vline(a, par_y+CH, mid_y); vline(b, par_y+CH, mid_y)
-                hline(mid_y, a, b); vline((a+b)//2, mid_y, focal_top)
-            elif len(parents) == 1:
-                vline(par_mids[parents[0]], par_y+CH, focal_top)
-
-            # Großeltern
-            if gp_sh:
-                gp_y = y_pos["gp"]
-                n_gp = len(gp_sh)
-                gp_sx = cx - (n_gp*SW + (n_gp-1)*HG)//2
-                gp_mids = {}
-                for i, gp in enumerate(gp_sh):
-                    rx = gp_sx + i*(SW+HG)
-                    mx, _, _ = draw_card(rx, gp_y, gp, small=True)
-                    gp_mids[gp] = mx
-                label(gp_y, "Großeltern")
-                for par in parents:
-                    mxs = [gp_mids[g] for g in par_gp_map.get(par, []) if g in gp_mids]
-                    if not mxs:
-                        continue
-                    gy = gp_y + SH + CONN//2
-                    if len(mxs) >= 2:
-                        vline(mxs[0], gp_y+SH, gy); vline(mxs[-1], gp_y+SH, gy)
-                        hline(gy, mxs[0], mxs[-1])
-                        vline((mxs[0]+mxs[-1])//2, gy, par_y)
-                    else:
-                        vline(mxs[0], gp_y+SH, par_y)
-
-        # Geschwister-Querbalken
-        if sib_l or sib_r:
-            in_row = [s for s in foc_row if s in foc_mids]
-            if in_row:
-                bar_y = focal_top - CONN//2
-                hline(bar_y, foc_mids[in_row[0]], foc_mids[in_row[-1]])
-                for xid in in_row:
-                    vline(foc_mids[xid], bar_y, foc_tops[xid])
-                if parents:
-                    if len(parents) == 2:
-                        bcx = (par_mids[parents[0]] + par_mids[parents[1]])//2
-                    else:
-                        bcx = par_mids[parents[0]]
-                    vline(bcx, y_pos["par"]+CH+CONN//2, bar_y)
-
-        # Kinder
-        if chi:
-            chi_y = y_pos["chi"]
-            n_chi = len(chi)
-            chi_sx = focal_mid - (n_chi*SW + (n_chi-1)*HG)//2
-            mids = []
+        # ── Kinder ──
+        if children:
+            chi = children[:12]
+            n = len(chi)
+            sx = int(focus_mid) - (n * (SW + HGAP)) // 2 + SW // 2
+            yy = y_focus + ROW
+            label(6, yy, f"Kinder ({len(children)})")
             for i, ch in enumerate(chi):
-                rx = chi_sx + i*(SW+HG)
-                mx, _, _ = draw_card(rx, chi_y, ch, small=True)
-                mids.append(mx)
-            if len(children) > len(chi):
-                tc.create_text(chi_sx + n_chi*(SW+HG) + 6, chi_y+SH//2,
-                               text=f"+{len(children)-len(chi)} weitere",
-                               fill=_MUTED, font=("Segoe UI", 8), anchor="w")
-            label(chi_y, f"Kinder ({len(children)})")
-            cy = focal_bot + CONN//2
-            vline(focal_mid, focal_bot, cy)
-            if mids:
-                hline(cy, mids[0], mids[-1])
-                for mx in mids:
-                    vline(mx, cy, chi_y)
+                mid, top, _ = draw_card(sx + i * (SW + HGAP), yy, ch)
+                connect(focus_mid, focus_bot, mid, top)
+            if len(children) > n:
+                tc.create_text(sx + n * (SW + HGAP), yy + SH // 2, anchor="w",
+                               text=f"+{len(children)-n} weitere", fill=_MUTED,
+                               font=("Segoe UI", 8))
 
         tc.update_idletasks()
         bbox = tc.bbox("all")
         if bbox:
-            pad = 22
-            tc.configure(scrollregion=(bbox[0]-pad, bbox[1]-pad,
-                                       bbox[2]+pad, bbox[3]+pad))
+            pad = 24
+            tc.configure(scrollregion=(bbox[0]-pad, bbox[1]-pad, bbox[2]+pad, bbox[3]+pad))
         else:
-            tc.configure(scrollregion=(0, 0, cw, total_h))
+            tc.configure(scrollregion=(0, 0, canvas_w, y_focus + 2 * ROW))
 
-    # ── Detail + DNA-Matches ──────────────────────────────────────────────
     def _pers_render_detail(self, ged_id: str):
         for w in self._pers_detail.winfo_children():
             w.destroy()
