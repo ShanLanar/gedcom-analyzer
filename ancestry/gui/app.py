@@ -150,7 +150,8 @@ class AncestryDnaApp(tk.Frame):
 
         vm = tk.Menu(mb, tearoff=False)
         vm.add_command(label=self._t("mn.refresh_t"), command=self._refresh_match_table)
-        vm.add_command(label=self._t("mn.recalc_cl"), command=lambda: self._cluster_tab.refresh())
+        vm.add_command(label=self._t("mn.recalc_cl"),
+                       command=lambda: self._cluster_tab and self._cluster_tab.refresh())
         vm.add_separator()
         vm.add_command(label=self._t("mn.language"),  command=self._toggle_lang)
         vm.add_command(label=self._t("mn.darkmode"),  command=self._toggle_theme)
@@ -215,6 +216,26 @@ class AncestryDnaApp(tk.Frame):
 
     # ── Hauptlayout ───────────────────────────────────────────────────────────
 
+    def _add_error_tab(self, key: str, exc: Exception):
+        """Fügt einen Platzhalter-Reiter mit Fehlertext ein, statt die gesamte
+        App-Init abzubrechen, wenn ein einzelner Reiter nicht aufgebaut werden
+        kann. Die übrigen Reiter bleiben nutzbar."""
+        log.exception("Reiter '%s' konnte nicht aufgebaut werden", key)
+        try:
+            ph = ttk.Frame(self._nb)
+            ttk.Label(
+                ph,
+                text=("⚠ Dieser Reiter konnte nicht geladen werden.\n\n"
+                      f"{type(exc).__name__}: {exc}\n\n"
+                      "Die übrigen Reiter funktionieren normal.\n"
+                      "Details stehen im Log."),
+                foreground="#b00020", justify="left", padding=24,
+            ).pack(anchor="nw")
+            self._nb.add(ph, text=self._t(key))
+            self._lang_nb_tabs.append((ph, key))
+        except Exception:
+            log.exception("Konnte Platzhalter-Reiter '%s' nicht anlegen", key)
+
     def _build_main(self):
         hf = tk.Frame(self, bg=COLORS["primary"])
         hf.pack(fill="x")
@@ -230,102 +251,134 @@ class AncestryDnaApp(tk.Frame):
         self._nb = ttk.Notebook(self)
         self._nb.pack(fill="both", expand=True, padx=8, pady=8)
 
+        # Jeder Reiter wird einzeln abgesichert: schlägt der Aufbau eines
+        # Reiters fehl (z. B. wegen Datenlage), kommt ein Platzhalter statt
+        # eines Komplettabsturzes der App. Tab-Attribute werden vorab auf None
+        # gesetzt, damit Querverweise getattr-sicher sind.
+        (self._login_tab, self._download_tab, self._matches_tab,
+         self._cluster_tab, self._stats_tab, self._matricula_tab,
+         self._persons_tab, self._tools_tab) = (None,) * 8
+
         # Login-Tab
-        self._login_tab = LoginTab(
-            self._nb, self._state,
-            on_login_success=self._on_login_done,
-            on_status=self._set_status,
-            on_switch_tab=lambda idx: self._nb.select(idx),
-        )
-        self._nb.add(self._login_tab, text=self._t("tab_login"))
-        self._lang_nb_tabs.append((self._login_tab, "tab_login"))
-        # Aliase für Settings-Code der noch self._cookie_file_var / _manual_guid_var nutzt
-        self._cookie_file_var = self._login_tab._cookie_file_var
-        self._manual_guid_var = self._login_tab._manual_guid_var
+        try:
+            self._login_tab = LoginTab(
+                self._nb, self._state,
+                on_login_success=self._on_login_done,
+                on_status=self._set_status,
+                on_switch_tab=lambda idx: self._nb.select(idx),
+            )
+            self._nb.add(self._login_tab, text=self._t("tab_login"))
+            self._lang_nb_tabs.append((self._login_tab, "tab_login"))
+            # Aliase für Settings-Code der noch self._cookie_file_var / _manual_guid_var nutzt
+            self._cookie_file_var = self._login_tab._cookie_file_var
+            self._manual_guid_var = self._login_tab._manual_guid_var
+        except Exception as _exc:
+            self._add_error_tab("tab_login", _exc)
 
         # Download-Tab als eigenständige Klasse
-        self._download_tab = DownloadTab(
-            self._nb, self._state,
-            on_refresh_matches    = self._refresh_match_table,
-            on_refresh_stats      = self._refresh_stats,
-            on_refresh_kit_combos = self._update_matches_kit_combo,
-            set_status            = self._set_status,
-        )
-        self._nb.add(self._download_tab, text=self._t("tab_download"))
-        self._lang_nb_tabs.append((self._download_tab, "tab_download"))
-        # Aliase für Code der noch self._kit_var / self._names_stop_btn direkt nutzt
-        self._kit_var        = self._download_tab._kit_var
-        self._names_stop_btn = self._download_tab._names_stop_btn
+        try:
+            self._download_tab = DownloadTab(
+                self._nb, self._state,
+                on_refresh_matches    = self._refresh_match_table,
+                on_refresh_stats      = self._refresh_stats,
+                on_refresh_kit_combos = self._update_matches_kit_combo,
+                set_status            = self._set_status,
+            )
+            self._nb.add(self._download_tab, text=self._t("tab_download"))
+            self._lang_nb_tabs.append((self._download_tab, "tab_download"))
+            # Aliase für Code der noch self._kit_var / self._names_stop_btn direkt nutzt
+            self._kit_var        = self._download_tab._kit_var
+            self._names_stop_btn = self._download_tab._names_stop_btn
+        except Exception as _exc:
+            self._add_error_tab("tab_download", _exc)
 
         # Matches-Tab als eigenständige Klasse
-        self._matches_tab = MatchesTab(
-            self._nb, self._state,
-            get_test_guid    = lambda: self._state.current_test_guid or self._get_kit_guid(),
-            get_gedcom       = lambda: getattr(self, "_gedcom", None),
-            load_ui_settings = self._load_ui_settings,
-            save_ui_settings = self._save_ui_settings,
-            set_status       = self._set_status,
-            cm_ranges        = self._CM_RANGES,
-            on_auto_assign_sides = self._auto_assign_sides,
-            on_gedmatch_bridge   = self._run_gedmatch_bridge,
-            on_goto_download     = lambda: self._nb.select(1),
-            on_choose_gedcom     = lambda: self._ensure_gedcom_loaded(
-                self._on_gedcom_loaded_update_header, force_ask=True),
-            on_gedcom_match_all  = self._run_gedcom_match_all,
-            on_endogamy_transfer = self._run_endogamy_transfer,
-            on_xref_review       = self._open_xref_review,
-            on_ml_origin         = self._run_ml_origin,
-            on_wikitree_extend   = self._run_wikitree_extend,
-            on_origin_inference  = self._run_origin_inference,
-            on_gedcom_header_update = self._on_gedcom_loaded_update_header,
-        )
-        self._nb.add(self._matches_tab, text=self._t("tab_matches"))
-        self._lang_nb_tabs.append((self._matches_tab, "tab_matches"))
-        # Aliase für Code der die Matches-Tab-Widgets noch direkt nutzt
-        self._matches_kit_var   = self._matches_tab._matches_kit_var
-        self._matches_kit_combo = self._matches_tab._matches_kit_combo
-        self._ged_link_status   = self._matches_tab._ged_link_status
-        self._ged_file_var      = self._matches_tab._ged_file_var
+        try:
+            self._matches_tab = MatchesTab(
+                self._nb, self._state,
+                get_test_guid    = lambda: self._state.current_test_guid or self._get_kit_guid(),
+                get_gedcom       = lambda: getattr(self, "_gedcom", None),
+                load_ui_settings = self._load_ui_settings,
+                save_ui_settings = self._save_ui_settings,
+                set_status       = self._set_status,
+                cm_ranges        = self._CM_RANGES,
+                on_auto_assign_sides = self._auto_assign_sides,
+                on_gedmatch_bridge   = self._run_gedmatch_bridge,
+                on_goto_download     = lambda: self._nb.select(1),
+                on_choose_gedcom     = lambda: self._ensure_gedcom_loaded(
+                    self._on_gedcom_loaded_update_header, force_ask=True),
+                on_gedcom_match_all  = self._run_gedcom_match_all,
+                on_endogamy_transfer = self._run_endogamy_transfer,
+                on_xref_review       = self._open_xref_review,
+                on_ml_origin         = self._run_ml_origin,
+                on_wikitree_extend   = self._run_wikitree_extend,
+                on_origin_inference  = self._run_origin_inference,
+                on_gedcom_header_update = self._on_gedcom_loaded_update_header,
+            )
+            self._nb.add(self._matches_tab, text=self._t("tab_matches"))
+            self._lang_nb_tabs.append((self._matches_tab, "tab_matches"))
+            # Aliase für Code der die Matches-Tab-Widgets noch direkt nutzt
+            self._matches_kit_var   = self._matches_tab._matches_kit_var
+            self._matches_kit_combo = self._matches_tab._matches_kit_combo
+            self._ged_link_status   = self._matches_tab._ged_link_status
+            self._ged_file_var      = self._matches_tab._ged_file_var
+        except Exception as _exc:
+            self._add_error_tab("tab_matches", _exc)
 
         # Cluster-Tab als eigenständige Klasse
-        self._cluster_tab = ClusterTab(
-            self._nb, self._state,
-            get_test_guid    = lambda: self._state.current_test_guid or self._get_kit_guid(),
-            get_current_guid = self._current_guid,
-            load_ui_settings = self._load_ui_settings,
-            save_ui_settings = self._save_ui_settings,
-            set_status       = self._set_status,
-            on_show_timeline = self._show_cluster_timeline,
-            on_assign_side   = self._assign_cluster_side,
-        )
-        self._nb.add(self._cluster_tab, text=self._t("tab_cluster"))
-        self._lang_nb_tabs.append((self._cluster_tab, "tab_cluster"))
+        try:
+            self._cluster_tab = ClusterTab(
+                self._nb, self._state,
+                get_test_guid    = lambda: self._state.current_test_guid or self._get_kit_guid(),
+                get_current_guid = self._current_guid,
+                load_ui_settings = self._load_ui_settings,
+                save_ui_settings = self._save_ui_settings,
+                set_status       = self._set_status,
+                on_show_timeline = self._show_cluster_timeline,
+                on_assign_side   = self._assign_cluster_side,
+            )
+            self._nb.add(self._cluster_tab, text=self._t("tab_cluster"))
+            self._lang_nb_tabs.append((self._cluster_tab, "tab_cluster"))
+        except Exception as _exc:
+            self._add_error_tab("tab_cluster", _exc)
 
         # Stats-Tab als eigenständige Klasse
-        self._stats_tab = StatsTab(
-            self._nb, self._state,
-            get_test_guid=lambda: self._state.current_test_guid or self._get_kit_guid(),
-        )
-        self._nb.add(self._stats_tab, text=self._t("tab_stats"))
-        self._lang_nb_tabs.append((self._stats_tab, "tab_stats"))
+        try:
+            self._stats_tab = StatsTab(
+                self._nb, self._state,
+                get_test_guid=lambda: self._state.current_test_guid or self._get_kit_guid(),
+            )
+            self._nb.add(self._stats_tab, text=self._t("tab_stats"))
+            self._lang_nb_tabs.append((self._stats_tab, "tab_stats"))
+        except Exception as _exc:
+            self._add_error_tab("tab_stats", _exc)
 
         # Matricula-Tab: Kirchenbuch-Scans, läuft als Subprozess parallel zu DNA-Downloads
-        self._matricula_tab = MatriculaTab(
-            self._nb, self._state,
-            set_status=self._set_status,
-        )
-        self._nb.add(self._matricula_tab, text=self._t("tab_matricula"))
-        self._lang_nb_tabs.append((self._matricula_tab, "tab_matricula"))
+        try:
+            self._matricula_tab = MatriculaTab(
+                self._nb, self._state,
+                set_status=self._set_status,
+            )
+            self._nb.add(self._matricula_tab, text=self._t("tab_matricula"))
+            self._lang_nb_tabs.append((self._matricula_tab, "tab_matricula"))
+        except Exception as _exc:
+            self._add_error_tab("tab_matricula", _exc)
 
         # Personen-Tab: durchsuchbarer Personen-/Stammbaum-Browser inkl. DNA-Matches
-        self._persons_tab = PersonsTab(self._nb, self._state)
-        self._nb.add(self._persons_tab, text=self._t("tab_persons"))
-        self._lang_nb_tabs.append((self._persons_tab, "tab_persons"))
+        try:
+            self._persons_tab = PersonsTab(self._nb, self._state)
+            self._nb.add(self._persons_tab, text=self._t("tab_persons"))
+            self._lang_nb_tabs.append((self._persons_tab, "tab_persons"))
+        except Exception as _exc:
+            self._add_error_tab("tab_persons", _exc)
 
         # Werkzeuge-Tab: externe Sammel-/Import-Tools mit Start/Stop + Live-Log
-        self._tools_tab = ToolsTab(self._nb, self._state)
-        self._nb.add(self._tools_tab, text=self._t("tab_tools"))
-        self._lang_nb_tabs.append((self._tools_tab, "tab_tools"))
+        try:
+            self._tools_tab = ToolsTab(self._nb, self._state)
+            self._nb.add(self._tools_tab, text=self._t("tab_tools"))
+            self._lang_nb_tabs.append((self._tools_tab, "tab_tools"))
+        except Exception as _exc:
+            self._add_error_tab("tab_tools", _exc)
 
         self._status_var = tk.StringVar(value="Bereit.")
         ttk.Label(self, textvariable=self._status_var,
@@ -351,7 +404,8 @@ class AncestryDnaApp(tk.Frame):
     # ── Überlagerung: gemeinsame Vorfahren ─────────────────────────────────────
 
     def _current_guid(self):
-        return self._download_tab.get_kit_guid() or self._state.current_test_guid
+        dl = self._download_tab.get_kit_guid() if self._download_tab else None
+        return dl or self._state.current_test_guid
 
     # ── Namenskarte.com helper ────────────────────────────────────────────────
 
@@ -1400,7 +1454,8 @@ class AncestryDnaApp(tk.Frame):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _refresh_stats(self):
-        self._stats_tab.refresh()
+        if self._stats_tab is not None:
+            self._stats_tab.refresh()
 
     # ─────────────────────────────────────────────────────────────────────────
     # Export
@@ -1658,7 +1713,7 @@ class AncestryDnaApp(tk.Frame):
         self._download_tab.on_progress(fetched, total, label)
 
     def _get_kit_guid(self) -> Optional[str]:
-        if hasattr(self, "_download_tab"):
+        if getattr(self, "_download_tab", None) is not None:
             return self._download_tab.get_kit_guid()
         return None
 
@@ -2206,14 +2261,16 @@ class AncestryDnaApp(tk.Frame):
             log.warning('Einstellungen konnten nicht gespeichert werden: %s', e)
 
     def _on_close(self):
-        dl_running = self._download_tab.is_running()
-        mat_running = self._matricula_tab.is_running()
+        dl_running = self._download_tab.is_running() if self._download_tab else False
+        mat_running = self._matricula_tab.is_running() if self._matricula_tab else False
         if dl_running or mat_running or (self._scraper and self._scraper.is_running()):
             what = "Matricula-Scan" if mat_running and not dl_running else "Download"
             if not messagebox.askyesno("Beenden?", f"{what} läuft noch. Wirklich beenden?"):
                 return
-            self._download_tab.stop_download()
-            self._matricula_tab._stop_scan()
+            if self._download_tab:
+                self._download_tab.stop_download()
+            if self._matricula_tab:
+                self._matricula_tab._stop_scan()
             if self._scraper:
                 self._scraper.stop()
         self.shutdown()
