@@ -4,6 +4,7 @@ Quellen-Deduplikation (gedcom_person_xref) für das Bridge-Modul.
 """
 
 import re
+import json
 import logging
 from collections import defaultdict
 
@@ -48,6 +49,12 @@ CREATE TABLE IF NOT EXISTS gedcom_persons (
     ged_file     TEXT NOT NULL DEFAULT '',
     sosa_number  INTEGER NOT NULL DEFAULT 0,
     source       TEXT NOT NULL DEFAULT 'gedcom',   -- gedcom | anverwandte | wikitree
+    -- Familienbeziehungen als JSON-Listen von ged_id (für den Stammbaum-Tab);
+    -- leer, wenn der Import ohne families-Dict lief.
+    parents_json  TEXT NOT NULL DEFAULT '[]',
+    spouses_json  TEXT NOT NULL DEFAULT '[]',
+    children_json TEXT NOT NULL DEFAULT '[]',
+    siblings_json TEXT NOT NULL DEFAULT '[]',
     loaded_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 CREATE INDEX IF NOT EXISTS idx_gp_koelner_year
@@ -111,6 +118,12 @@ def ensure_tables(db) -> None:
             cur.execute("ALTER TABLE gedcom_person_xref ADD COLUMN status TEXT NOT NULL DEFAULT 'auto'")
         except Exception:
             pass  # column already exists
+        # Migration: Familienbeziehungs-Spalten (Stammbaum-Tab)
+        for _col in ("parents_json", "spouses_json", "children_json", "siblings_json"):
+            try:
+                cur.execute(f"ALTER TABLE gedcom_persons ADD COLUMN {_col} TEXT NOT NULL DEFAULT '[]'")
+            except Exception:
+                pass  # column already exists
 
 
 # ── Import ─────────────────────────────────────────────────────────────────────
@@ -132,6 +145,42 @@ def _build_sosa_map(root_id: str, individuals: dict, families: dict) -> dict:
     return result
 
 
+def _build_relationship_map(individuals: dict, families: dict) -> dict:
+    """{ged_id: {parents, spouses, children, siblings}} aus FAMC/FAMS + HUSB/WIFE/CHIL.
+
+    Beziehungen werden als deduplizierte ged_id-Listen abgelegt; verbraucht vom
+    Stammbaum-Tab (parents_json/…). Reihenfolge stabil (Eltern: Vater, Mutter)."""
+    rel: dict = {}
+
+    def _slot(pid: str) -> dict:
+        return rel.setdefault(pid, {"parents": [], "spouses": [],
+                                    "children": [], "siblings": []})
+
+    def _add(lst: list, val) -> None:
+        if val and val not in lst:
+            lst.append(val)
+
+    for pid, ind in individuals.items():
+        slot = _slot(pid)
+        # Familien, in denen die Person Kind ist → Eltern + Geschwister
+        for fam_id in (ind.get("FAMC") or []):
+            fam = families.get(fam_id) or {}
+            _add(slot["parents"], fam.get("HUSB"))
+            _add(slot["parents"], fam.get("WIFE"))
+            for sib in (fam.get("CHIL") or []):
+                if sib != pid:
+                    _add(slot["siblings"], sib)
+        # Familien, in denen die Person Partner ist → Partner + Kinder
+        for fam_id in (ind.get("FAMS") or []):
+            fam = families.get(fam_id) or {}
+            for partner in (fam.get("HUSB"), fam.get("WIFE")):
+                if partner and partner != pid:
+                    _add(slot["spouses"], partner)
+            for child in (fam.get("CHIL") or []):
+                _add(slot["children"], child)
+    return rel
+
+
 def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
                           root_id: str = "", families: dict | None = None) -> int:
     """Löscht und füllt gedcom_persons aus einem GEDCOM-Individuals-Dict.
@@ -141,6 +190,8 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
     sosa_map: dict = {}
     if root_id and families:
         sosa_map = _build_sosa_map(root_id, individuals, families)
+
+    rel_map = _build_relationship_map(individuals, families) if families else {}
 
     rows = []
     for ged_id, ind in individuals.items():
@@ -164,6 +215,10 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
             "death_place":  (deat.get("PLAC") or "").strip(),
             "ged_file":     ged_file,
             "sosa_number":  sosa_map.get(ged_id, 0),
+            "parents_json":  json.dumps((rel_map.get(ged_id) or {}).get("parents", [])),
+            "spouses_json":  json.dumps((rel_map.get(ged_id) or {}).get("spouses", [])),
+            "children_json": json.dumps((rel_map.get(ged_id) or {}).get("children", [])),
+            "siblings_json": json.dumps((rel_map.get(ged_id) or {}).get("siblings", [])),
         })
     with db._cursor() as cur:
         # Nur die EIGENEN GEDCOM-Personen ersetzen – Anverwandte/WikiTree bleiben
@@ -172,10 +227,12 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
             """INSERT OR REPLACE INTO gedcom_persons
                (ged_id, given_name, surname, surname_norm, koelner_code,
                 sex, birth_year, birth_qual, birth_place,
-                death_year, death_place, ged_file, sosa_number)
+                death_year, death_place, ged_file, sosa_number,
+                parents_json, spouses_json, children_json, siblings_json)
                VALUES (:ged_id, :given_name, :surname, :surname_norm, :koelner_code,
                        :sex, :birth_year, :birth_qual, :birth_place,
-                       :death_year, :death_place, :ged_file, :sosa_number)""",
+                       :death_year, :death_place, :ged_file, :sosa_number,
+                       :parents_json, :spouses_json, :children_json, :siblings_json)""",
             rows,
         )
     log.info("bridge: %d GEDCOM-Personen importiert (Sosa: %d)",

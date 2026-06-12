@@ -35,6 +35,8 @@ from ancestry.gui.tabs.cluster import ClusterTab
 from ancestry.gui.tabs.download import DownloadTab
 from ancestry.gui.tabs.matches import MatchesTab
 from ancestry.gui.tabs.matricula import MatriculaTab
+from ancestry.gui.tabs.persons import PersonsTab
+from ancestry.gui.tabs.tools import ToolsTab
 
 log = logging.getLogger(__name__)
 
@@ -298,6 +300,16 @@ class AncestryDnaApp(tk.Frame):
         )
         self._nb.add(self._matricula_tab, text=self._t("tab_matricula"))
         self._lang_nb_tabs.append((self._matricula_tab, "tab_matricula"))
+
+        # Personen-Tab: durchsuchbarer Personen-/Stammbaum-Browser inkl. DNA-Matches
+        self._persons_tab = PersonsTab(self._nb, self._state)
+        self._nb.add(self._persons_tab, text=self._t("tab_persons"))
+        self._lang_nb_tabs.append((self._persons_tab, "tab_persons"))
+
+        # Werkzeuge-Tab: externe Sammel-/Import-Tools mit Start/Stop + Live-Log
+        self._tools_tab = ToolsTab(self._nb, self._state)
+        self._nb.add(self._tools_tab, text=self._t("tab_tools"))
+        self._lang_nb_tabs.append((self._tools_tab, "tab_tools"))
 
         self._status_var = tk.StringVar(value="Bereit.")
         ttk.Label(self, textvariable=self._status_var,
@@ -1125,7 +1137,8 @@ class AncestryDnaApp(tk.Frame):
                 bridge.ensure_tables(self._db)
                 if bridge.get_gedcom_person_count(self._db) == 0:
                     bridge.import_gedcom_persons(
-                        self._db, ged["individuals"], ged.get("path", ""))
+                        self._db, ged["individuals"], ged.get("path", ""),
+                        families=ged.get("families") or {})
                 total = bridge.run_match_all(self._db, test_guid)
                 self.after(0, lambda: self._ged_link_status.set(
                     f"Bulk-Abgleich fertig: {total} Treffer gesamt"))

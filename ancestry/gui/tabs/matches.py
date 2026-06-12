@@ -570,7 +570,8 @@ class MatchesTab(ttk.Frame):
                 # GEDCOM-Personen importieren, falls leer
                 if bridge.get_gedcom_person_count(self._state.db) == 0:
                     n = bridge.import_gedcom_persons(
-                        self._state.db, ged["individuals"], ged.get("path", ""))
+                        self._state.db, ged["individuals"], ged.get("path", ""),
+                        families=ged.get("families") or {})
                     log.info("bridge: %d Personen importiert", n)
                 rows = bridge.run_match_for_match(self._state.db, test_guid, match.match_guid)
                 self.after(0, lambda: self._fill_ged_link_tree(rows, match))

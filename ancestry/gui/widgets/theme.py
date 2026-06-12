@@ -33,7 +33,9 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "tab_matches":  {"de": "  🧬 Matches  ",       "en": "  🧬 Matches  "},
     "tab_cluster":  {"de": "  🌳 Cluster  ",       "en": "  🌳 Cluster  "},
     "tab_stats":    {"de": "  📊 Statistiken  ",   "en": "  📊 Statistics  "},
+    "tab_persons":  {"de": "  👪 Personen  ",       "en": "  👪 Persons  "},
     "tab_matricula":{"de": "  ⛪ Matricula  ",      "en": "  ⛪ Matricula  "},
+    "tab_tools":    {"de": "  🔧 Werkzeuge  ",      "en": "  🔧 Tools  "},
     # Matricula-Tab
     "mat.next":     {"de": "Nächste Pfarrei:",      "en": "Next parish:"},
     "mat.booktype": {"de": "Buchtyp:",              "en": "Book type:"},
