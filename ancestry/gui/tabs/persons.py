@@ -97,6 +97,28 @@ def _loads(s) -> list:
         return []
 
 
+def _kinship_from_sosa(sosa) -> str:
+    """Verwandtschaftsgrad zur Wurzelperson aus der Sosa-Stradonitz-Nummer.
+
+    Sosa 1 = Wurzel, 2=Vater, 3=Mutter, 4=Vaters Vater … Die Binärdarstellung
+    (ohne führende 1) ergibt den F/M-Pfad (0=Vater, 1=Mutter), den render_kinship
+    in eine deutsche Bezeichnung übersetzt. Nicht-Vorfahren (sosa 0) → ''."""
+    try:
+        n = int(sosa or 0)
+    except (TypeError, ValueError):
+        return ""
+    if n < 1:
+        return ""
+    if n == 1:
+        return "Wurzelperson"
+    path = "".join("F" if b == "0" else "M" for b in bin(n)[3:])
+    try:
+        from ancestry.core.treematch import render_kinship
+        return render_kinship(path)
+    except Exception:
+        return ""
+
+
 def _lighten(hex_color: str, amount: int = 24) -> str:
     try:
         r = min(255, int(hex_color[1:3], 16) + amount)
@@ -150,13 +172,15 @@ class PersonsTab(ttk.Frame):
         conf_cb.pack(side="left", padx=4)
         conf_cb.bind("<<ComboboxSelected>>", lambda _: self._pers_reload_list())
 
-        cols = ("name", "years")
+        cols = ("name", "years", "rel")
         self._pers_list = ttk.Treeview(left, columns=cols, show="headings",
                                        selectmode="browse", height=20)
         self._pers_list.heading("name", text="Name")
         self._pers_list.heading("years", text="Jahre")
-        self._pers_list.column("name", width=190, stretch=True)
-        self._pers_list.column("years", width=92, anchor="center", stretch=False)
+        self._pers_list.heading("rel", text="Verwandtschaft")
+        self._pers_list.column("name", width=170, stretch=True)
+        self._pers_list.column("years", width=82, anchor="center", stretch=False)
+        self._pers_list.column("rel", width=120, stretch=True)
         psb = ttk.Scrollbar(left, orient="vertical",
                             command=self._pers_list.yview)
         self._pers_list.configure(yscrollcommand=psb.set)
@@ -250,7 +274,7 @@ class PersonsTab(ttk.Frame):
             # Bei Konfessionsfilter mehr Zeilen holen (Filterung erfolgt in Python)
             limit = 4000 if conf else 600
             sql = (f"SELECT ged_id, given_name, surname, birth_year, death_year, "
-                   f"sex, birth_place FROM gedcom_persons {where} "
+                   f"sex, birth_place, sosa_number FROM gedcom_persons {where} "
                    f"ORDER BY surname, given_name LIMIT {limit}")
             try:
                 with self._db._cursor() as cur:
@@ -269,7 +293,8 @@ class PersonsTab(ttk.Frame):
                     r["ged_id"],
                     f"{(r['given_name'] or '').strip()} {(r['surname'] or '').strip()}".strip()
                     or r["ged_id"],
-                    _years(r["birth_year"], r["death_year"])))
+                    _years(r["birth_year"], r["death_year"]),
+                    _kinship_from_sosa(r["sosa_number"])))
                 if len(data) >= 600:
                     break
             self.after(0, lambda: self._pers_fill_list(data, gen))
@@ -279,8 +304,8 @@ class PersonsTab(ttk.Frame):
         if getattr(self, "_pers_list_gen", 0) != gen:
             return
         self._pers_list.delete(*self._pers_list.get_children())
-        for ged_id, name, years in data:
-            self._pers_list.insert("", "end", iid=ged_id, values=(name, years))
+        for ged_id, name, years, rel in data:
+            self._pers_list.insert("", "end", iid=ged_id, values=(name, years, rel))
         self._pers_count.set(f"{len(data)} Personen"
                              + (" (max. 600)" if len(data) >= 600 else ""))
 
@@ -531,6 +556,10 @@ class PersonsTab(ttk.Frame):
         meta = f"{ged_id} · {p.get('sex') or '?'} · {_SRC_LABEL.get(p.get('source',''), p.get('source',''))}"
         ttk.Label(self._pers_detail, text=meta, foreground=_MUTED).pack(
             anchor="w", padx=10)
+        kin = _kinship_from_sosa(p.get("sosa_number"))
+        if kin:
+            ttk.Label(self._pers_detail, text=f"⛓ {kin}", foreground=_LINK,
+                      font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10)
 
         def fact(lbl, val):
             if not val:
@@ -548,8 +577,37 @@ class PersonsTab(ttk.Frame):
 
         # Zusammengeführte Detail-Abschnitte (früher: separater Datenviewer)
         self._pers_render_parish(p)        # Kirchspiel / Konfession (Matricula)
+        self._pers_render_relations(p)     # Eltern/Partner/Kinder/Geschwister (Links)
         self._pers_render_xref(ged_id)     # GEDCOM-Verknüpfung (Quellen-Dedup)
         self._pers_render_dna(ged_id)      # DNA-Matches (Anker)
+
+    # ── Detail-Abschnitt: Beziehungen (anklickbar) ────────────────────────────
+    def _pers_render_relations(self, p: dict):
+        groups = [
+            ("Elternteil", _loads(p.get("parents_json"))),
+            ("Partner",    _loads(p.get("spouses_json"))),
+            ("Kind",       _loads(p.get("children_json"))),
+            ("Geschwister", _loads(p.get("siblings_json"))),
+        ]
+        if not any(ids for _, ids in groups):
+            return
+        self._pers_hdr("👪 Beziehungen")
+        batch = self._pers_batch([i for _, ids in groups for i in ids])
+
+        def _name(xid):
+            d = batch.get(str(xid)) or {}
+            n = f"{(d.get('given_name') or '').strip()} {(d.get('surname') or '').strip()}".strip()
+            yrs = _years(d.get("birth_year"), d.get("death_year"))
+            return (n or str(xid)) + (f" ({yrs})" if yrs else "")
+
+        for label, ids in groups:
+            for xid in ids:
+                row = ttk.Frame(self._pers_detail); row.pack(fill="x", padx=10, pady=1)
+                ttk.Label(row, text=label, width=10, foreground=_MUTED).pack(side="left")
+                lk = ttk.Label(row, text=_name(xid), foreground=_LINK,
+                               cursor="hand2", wraplength=210)
+                lk.pack(side="left")
+                lk.bind("<Button-1>", lambda e, i=str(xid): self._pers_navigate(i))
 
     # ── Detail-Abschnitt: Kirchspiel / Konfession (Matricula) ──────────────────
     def _pers_hdr(self, text: str):
