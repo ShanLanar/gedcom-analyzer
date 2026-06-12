@@ -20,9 +20,12 @@ from __future__ import annotations
 import functools
 import json
 import os
+import queue
 import re
 import sqlite3
+import subprocess
 import sys
+import threading
 import tkinter as tk
 from collections import deque
 from tkinter import ttk, messagebox
@@ -31,6 +34,14 @@ ROOT = os.path.dirname(os.path.abspath(__file__))
 CRAWL_DB      = os.path.join(ROOT, "ancestry", "tools", "webtrees_crawl.db")
 ANCESTRY_DB   = os.path.join(ROOT, "ancestry", "ancestry_dna.db")
 PARISH_JSON   = os.path.join(ROOT, "ancestry", "tools", "matricula_parishes.json")
+PARISH_DB     = os.path.join(ROOT, "ancestry", "tools", "matricula_parishes.db")
+PROFILES_JSON = os.path.join(ROOT, "ancestry", "tools", "webtrees_profiles.json")
+_TOOLS = {
+    "webtrees":   os.path.join(ROOT, "ancestry", "tools", "crawl_webtrees.py"),
+    "mat_books":  os.path.join(ROOT, "ancestry", "tools", "fetch_matricula_books.py"),
+    "mat_scan":   os.path.join(ROOT, "ancestry", "tools", "scan_matricula_kirchspiel.py"),
+    "myheritage": os.path.join(ROOT, "ancestry", "tools", "fetch_mh_shared_matches.py"),
+}
 
 # ── Farben (an die Ancestry-Optik angelehnt) ─────────────────────────────────
 C = {
@@ -1213,6 +1224,300 @@ class DataViewer(tk.Frame):
         self._do_search()
 
     # ── Bulk-Confirm-Fenster ──────────────────────────────────────────────────
+    # ── Tools-Fenster ────────────────────────────────────────────────────────
+
+    def _show_tools_window(self):
+        """Startet externe Tools (Webtrees, Matricula, MyHeritage) mit GUI."""
+        win = tk.Toplevel(self.winfo_toplevel())
+        win.title("Tools")
+        win.geometry("820x620")
+        win.configure(bg=C["bg"])
+
+        nb = ttk.Notebook(win)
+        nb.pack(fill="both", expand=True, padx=8, pady=8)
+
+        self._tool_procs: dict[str, subprocess.Popen | None] = {}
+
+        self._build_webtrees_tab(nb)
+        self._build_matricula_tab(nb)
+        self._build_myheritage_tab(nb)
+
+    # ── gemeinsame Hilfs-Methode ──────────────────────────────────────────────
+
+    def _tool_log_widget(self, parent) -> tk.Text:
+        """Erzeugt ein dunkles Log-Textfeld mit Scrollbar."""
+        f = tk.Frame(parent, bg=C["bg"])
+        f.pack(fill="both", expand=True, padx=6, pady=(4, 6))
+        sb = tk.Scrollbar(f)
+        sb.pack(side="right", fill="y")
+        log = tk.Text(f, bg="#1a1a1a", fg="#d4d4d4", font=("Consolas", 8),
+                      wrap="word", yscrollcommand=sb.set, state="disabled")
+        log.pack(fill="both", expand=True)
+        sb.config(command=log.yview)
+        return log
+
+    def _tool_append(self, log: tk.Text, text: str):
+        log.configure(state="normal")
+        log.insert("end", text)
+        log.see("end")
+        log.configure(state="disabled")
+
+    def _tool_start(self, key: str, cmd: list[str], log: tk.Text,
+                    btn_start: tk.Button, btn_stop: tk.Button):
+        """Startet einen Subprocess und streamt stdout in den Log."""
+        if self._tool_procs.get(key):
+            return
+        self._tool_append(log, f"▶ {' '.join(cmd)}\n\n")
+        btn_start.configure(state="disabled")
+        btn_stop.configure(state="normal")
+        q: queue.Queue[str | None] = queue.Queue()
+
+        def _reader(proc: subprocess.Popen):
+            assert proc.stdout
+            for line in proc.stdout:
+                q.put(line)
+            proc.wait()
+            q.put(None)  # sentinel
+
+        try:
+            proc = subprocess.Popen(
+                cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                cwd=ROOT,
+            )
+        except Exception as exc:
+            self._tool_append(log, f"⚠ Fehler: {exc}\n")
+            btn_start.configure(state="normal")
+            btn_stop.configure(state="disabled")
+            return
+
+        self._tool_procs[key] = proc
+        threading.Thread(target=_reader, args=(proc,), daemon=True).start()
+
+        def _poll():
+            while True:
+                try:
+                    line = q.get_nowait()
+                except queue.Empty:
+                    break
+                if line is None:
+                    rc = proc.returncode
+                    self._tool_append(log, f"\n✓ Fertig (RC {rc})\n")
+                    self._tool_procs[key] = None
+                    btn_start.configure(state="normal")
+                    btn_stop.configure(state="disabled")
+                    return
+                self._tool_append(log, line)
+            log.after(400, _poll)
+
+        log.after(400, _poll)
+
+    def _tool_stop(self, key: str, log: tk.Text,
+                   btn_start: tk.Button, btn_stop: tk.Button):
+        proc = self._tool_procs.get(key)
+        if proc:
+            proc.terminate()
+            self._tool_append(log, "\n■ Gestoppt.\n")
+            self._tool_procs[key] = None
+        btn_start.configure(state="normal")
+        btn_stop.configure(state="disabled")
+
+    # ── Tab: Webtrees ─────────────────────────────────────────────────────────
+
+    def _build_webtrees_tab(self, nb: ttk.Notebook):
+        tab = tk.Frame(nb, bg=C["bg"]); nb.add(tab, text="Webtrees Crawler")
+
+        opt = tk.Frame(tab, bg=C["panel"]); opt.pack(fill="x", padx=6, pady=6)
+
+        # Profile
+        tk.Label(opt, text="Profil:", bg=C["panel"], fg=C["text"]).grid(
+            row=0, column=0, sticky="w", padx=8, pady=4)
+        profiles = ["anverwandte"]
+        try:
+            data = json.loads(open(PROFILES_JSON, encoding="utf-8").read())
+            profiles = list(data.keys())
+        except Exception:
+            pass
+        self._wt_profile = tk.StringVar(value=profiles[0] if profiles else "anverwandte")
+        ttk.Combobox(opt, textvariable=self._wt_profile, values=profiles,
+                     state="readonly", width=22).grid(row=0, column=1, sticky="w", padx=4)
+
+        # Optionen
+        self._wt_discover    = tk.BooleanVar(value=True)
+        self._wt_reset_stale = tk.BooleanVar(value=False)
+        tk.Checkbutton(opt, text="--discover (vollständiger Baum)",
+                       variable=self._wt_discover,
+                       bg=C["panel"], fg=C["text"], selectcolor=C["bg"]).grid(
+            row=1, column=0, columnspan=2, sticky="w", padx=8)
+        tk.Checkbutton(opt, text="--reset-stale (veraltete Seiten neu holen)",
+                       variable=self._wt_reset_stale,
+                       bg=C["panel"], fg=C["text"], selectcolor=C["bg"]).grid(
+            row=2, column=0, columnspan=2, sticky="w", padx=8)
+
+        # Buttons
+        bf = tk.Frame(opt, bg=C["panel"]); bf.grid(row=3, column=0, columnspan=3,
+                                                    sticky="w", padx=8, pady=6)
+        log = self._tool_log_widget(tab)
+        btn_stop  = tk.Button(bf, text="■ Stop",  state="disabled",
+                              bg="#7a2020", fg="white", relief="flat", padx=10,
+                              command=lambda: self._tool_stop("wt", log, btn_start, btn_stop))
+        btn_start = tk.Button(bf, text="▶ Start", bg=C["accent"], fg="white",
+                              relief="flat", padx=10,
+                              command=lambda: self._tool_start(
+                                  "wt", self._wt_cmd(), log, btn_start, btn_stop))
+        btn_start.pack(side="left", padx=(0, 4))
+        btn_stop.pack(side="left")
+
+    def _wt_cmd(self) -> list[str]:
+        cmd = [sys.executable, "-u", _TOOLS["webtrees"], "crawl",
+               "--profile", self._wt_profile.get()]
+        if self._wt_discover.get():
+            cmd.append("--discover")
+        if self._wt_reset_stale.get():
+            cmd.append("--reset-stale")
+        return cmd
+
+    # ── Tab: Matricula ────────────────────────────────────────────────────────
+
+    def _build_matricula_tab(self, nb: ttk.Notebook):
+        tab = tk.Frame(nb, bg=C["bg"]); nb.add(tab, text="Matricula Download")
+
+        opt = tk.Frame(tab, bg=C["panel"]); opt.pack(fill="x", padx=6, pady=6)
+
+        # Pfarrei
+        tk.Label(opt, text="Pfarrei:", bg=C["panel"], fg=C["text"]).grid(
+            row=0, column=0, sticky="w", padx=8, pady=4)
+        parishes = self._load_parishes()
+        self._mat_parish = tk.StringVar(value=parishes[0] if parishes else "")
+        cb = ttk.Combobox(opt, textvariable=self._mat_parish,
+                          values=parishes, width=38)
+        cb.grid(row=0, column=1, columnspan=3, sticky="w", padx=4)
+
+        # Buchtyp
+        tk.Label(opt, text="Buchtyp:", bg=C["panel"], fg=C["text"]).grid(
+            row=1, column=0, sticky="w", padx=8, pady=4)
+        self._mat_booktype = tk.StringVar(value="")
+        ttk.Combobox(opt, textvariable=self._mat_booktype, width=14,
+                     values=["", "Taufe", "Heirat", "Tod", "Konfirmation"],
+                     state="readonly").grid(row=1, column=1, sticky="w", padx=4)
+
+        # Jahr
+        tk.Label(opt, text="Jahr von:", bg=C["panel"], fg=C["text"]).grid(
+            row=1, column=2, sticky="w", padx=(12, 4))
+        self._mat_year_from = tk.StringVar()
+        tk.Entry(opt, textvariable=self._mat_year_from, width=6).grid(
+            row=1, column=3, sticky="w")
+        tk.Label(opt, text="bis:", bg=C["panel"], fg=C["text"]).grid(
+            row=1, column=4, sticky="w", padx=(6, 4))
+        self._mat_year_to = tk.StringVar()
+        tk.Entry(opt, textvariable=self._mat_year_to, width=6).grid(
+            row=1, column=5, sticky="w")
+
+        # Optionen
+        self._mat_retranscribe = tk.BooleanVar(value=False)
+        tk.Checkbutton(opt, text="--retranscribe (nur Re-Transkription, kein Web-Abruf)",
+                       variable=self._mat_retranscribe,
+                       bg=C["panel"], fg=C["text"], selectcolor=C["bg"]).grid(
+            row=2, column=0, columnspan=6, sticky="w", padx=8)
+
+        # Buttons — zwei Stufen: erst Bücherverzeichnis, dann Scan
+        bf = tk.Frame(opt, bg=C["panel"]); bf.grid(row=3, column=0, columnspan=6,
+                                                    sticky="w", padx=8, pady=6)
+        log = self._tool_log_widget(tab)
+
+        btn_stop2  = tk.Button(bf, text="■", state="disabled",
+                               bg="#7a2020", fg="white", relief="flat", padx=6)
+        btn_stop1  = tk.Button(bf, text="■", state="disabled",
+                               bg="#7a2020", fg="white", relief="flat", padx=6)
+        btn_books  = tk.Button(bf, text="1. Bücherverzeichnis holen",
+                               bg=C["card"], fg=C["text"], relief="flat", padx=10)
+        btn_scan   = tk.Button(bf, text="2. Seiten scannen (Claude Vision)",
+                               bg=C["accent"], fg="white", relief="flat", padx=10)
+
+        btn_stop1.configure(command=lambda: self._tool_stop(
+            "mat_books", log, btn_books, btn_stop1))
+        btn_stop2.configure(command=lambda: self._tool_stop(
+            "mat_scan", log, btn_scan, btn_stop2))
+        btn_books.configure(command=lambda: self._tool_start(
+            "mat_books", self._mat_books_cmd(), log, btn_books, btn_stop1))
+        btn_scan.configure(command=lambda: self._tool_start(
+            "mat_scan", self._mat_scan_cmd(), log, btn_scan, btn_stop2))
+
+        btn_books.pack(side="left", padx=(0, 2))
+        btn_stop1.pack(side="left", padx=(0, 8))
+        btn_scan.pack(side="left", padx=(0, 2))
+        btn_stop2.pack(side="left")
+
+    def _load_parishes(self) -> list[str]:
+        try:
+            import sqlite3 as _sq
+            db = _sq.connect(PARISH_DB)
+            rows = db.execute("SELECT id, name FROM parishes ORDER BY name").fetchall()
+            db.close()
+            return [f"{name}  [{pid}]" for pid, name in rows]
+        except Exception:
+            return []
+
+    def _mat_parish_id(self) -> str:
+        v = self._mat_parish.get().strip()
+        # Extract id from "Name  [id]" format
+        import re as _re
+        m = _re.search(r'\[([^\]]+)\]$', v)
+        return m.group(1) if m else v
+
+    def _mat_books_cmd(self) -> list[str]:
+        pid = self._mat_parish_id()
+        cmd = [sys.executable, "-u", _TOOLS["mat_books"]]
+        if pid:
+            cmd += ["--parish", pid]
+        return cmd
+
+    def _mat_scan_cmd(self) -> list[str]:
+        pid = self._mat_parish_id()
+        cmd = [sys.executable, "-u", _TOOLS["mat_scan"], "--parish", pid or ""]
+        bt = self._mat_booktype.get()
+        if bt:
+            cmd += ["--book-type", bt]
+        yf = self._mat_year_from.get().strip()
+        if yf.isdigit():
+            cmd += ["--year-from", yf]
+        yt = self._mat_year_to.get().strip()
+        if yt.isdigit():
+            cmd += ["--year-to", yt]
+        if self._mat_retranscribe.get():
+            cmd.append("--retranscribe")
+        return cmd
+
+    # ── Tab: MyHeritage Matches ───────────────────────────────────────────────
+
+    def _build_myheritage_tab(self, nb: ttk.Notebook):
+        tab = tk.Frame(nb, bg=C["bg"]); nb.add(tab, text="MyHeritage Matches")
+
+        info = tk.Frame(tab, bg=C["panel"]); info.pack(fill="x", padx=6, pady=6)
+        tk.Label(info, bg=C["panel"], fg=C["muted"], justify="left",
+                 text=(
+                     "Lädt gemeinsame DNA-Matches von MyHeritage herunter.\n"
+                     "Voraussetzung: Chrome muss mit Remote-Debugging gestartet sein:\n\n"
+                     '  chrome.exe --remote-debugging-port=9222 '
+                     '--user-data-dir="%TEMP%\\chrome-cdp"'
+                 )).pack(anchor="w", padx=10, pady=8)
+
+        bf = tk.Frame(info, bg=C["panel"]); bf.pack(anchor="w", padx=10, pady=(0, 8))
+        log = self._tool_log_widget(tab)
+
+        btn_stop  = tk.Button(bf, text="■ Stop", state="disabled",
+                              bg="#7a2020", fg="white", relief="flat", padx=10,
+                              command=lambda: self._tool_stop("mh", log, btn_start, btn_stop))
+        btn_start = tk.Button(bf, text="▶ MyHeritage Matches starten",
+                              bg=C["accent"], fg="white", relief="flat", padx=10,
+                              command=lambda: self._tool_start(
+                                  "mh", [sys.executable, "-u", _TOOLS["myheritage"]],
+                                  log, btn_start, btn_stop))
+        btn_start.pack(side="left", padx=(0, 4))
+        btn_stop.pack(side="left")
+
+    # ── Bulk-Fenster ──────────────────────────────────────────────────────────
+
     def _show_bulk_window(self):
         """Zeigt alle offenen Auto- und Fuzzy-Matches zum Bulk-Bestätigen/-Ablehnen."""
         if not self._anc_conn:
@@ -1424,6 +1729,8 @@ class DataViewer(tk.Frame):
                   bg=C["panel"], fg=C["text"], relief="flat").pack(side="left", padx=2)
         tk.Button(top, text="⚡ Bulk", command=self._show_bulk_window,
                   bg=C["panel"], fg=C["dna"], relief="flat").pack(side="left", padx=2)
+        tk.Button(top, text="🔧 Tools", command=self._show_tools_window,
+                  bg=C["panel"], fg=C["text"], relief="flat").pack(side="left", padx=2)
         self._undo_btn = tk.Button(top, text="↩ Rückgängig", command=self._undo_last,
                                    bg=C["panel"], fg=C["muted"], relief="flat",
                                    state="disabled")
