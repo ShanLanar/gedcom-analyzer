@@ -5,7 +5,7 @@ Umgebungsvariable überschreibbar. Die Verzeichnisse werden beim Import
 angelegt, damit ein frisches Clone ohne manuelle Schritte startfähig ist.
 
     GENEA_DATA_DIR     Wurzel für Laufzeitdaten   (default: <repo>/data)
-    ANCESTRY_DB        SQLite-Hauptdatenbank      (default: <repo>/ancestry_dna.db)
+    ANCESTRY_DB        SQLite-Hauptdatenbank      (default: <repo>/ancestry/ancestry_dna.db)
     MATRICULA_ARCHIVE  Kirchenbuch-Scans          (default: ~/matricula_images)
 """
 from __future__ import annotations
@@ -23,7 +23,11 @@ CACHE_DIR    = DATA_DIR / "cache"
 
 # Die Haupt-DB bleibt im Repo-Root — bestehende Installationen erwarten sie
 # dort; ein Umzug nach data/db/ bekäme eine eigene Migration (s. Konzept M3).
-DB_PATH = Path(os.environ.get("ANCESTRY_DB", str(ROOT / "ancestry_dna.db")))
+# Hauptdatenbank: <repo>/ancestry/ancestry_dna.db — derselbe Ort, den die Tools
+# (import_webtrees, download_*, …) und der Start-Tab nutzen. WICHTIG: nicht auf
+# die Repo-Wurzel zeigen, sonst öffnet die GUI eine andere (leere) Datei als die,
+# in der die heruntergeladenen Matches liegen.
+DB_PATH = Path(os.environ.get("ANCESTRY_DB", str(ROOT / "ancestry" / "ancestry_dna.db")))
 
 MATRICULA_ARCHIVE = Path(os.environ.get(
     "MATRICULA_ARCHIVE", str(Path.home() / "matricula_images")))
