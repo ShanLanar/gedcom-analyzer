@@ -382,6 +382,44 @@ def _rel_degree_label(dist_a: int, dist_b: int) -> str:
     return f"{base}, {suffix}"
 
 
+class _ToolTip:
+    """Hover-Tooltip — erscheint nach 500 ms Verzögerung unter dem Widget."""
+    _DELAY = 500
+
+    def __init__(self, widget: tk.Widget, text: str):
+        self._w, self._text = widget, text
+        self._job: str | None  = None
+        self._tw:  tk.Toplevel | None = None
+        widget.bind("<Enter>",  self._schedule, add="+")
+        widget.bind("<Leave>",  self._cancel,   add="+")
+        widget.bind("<Button>", self._cancel,   add="+")
+
+    def _schedule(self, _=None):
+        self._cancel()
+        self._job = self._w.after(self._DELAY, self._show)
+
+    def _cancel(self, _=None):
+        if self._job:
+            self._w.after_cancel(self._job)
+            self._job = None
+        if self._tw:
+            self._tw.destroy()
+            self._tw = None
+
+    def _show(self):
+        if self._tw:
+            return
+        x = self._w.winfo_rootx() + 20
+        y = self._w.winfo_rooty() + self._w.winfo_height() + 4
+        self._tw = tw = tk.Toplevel(self._w)
+        tw.wm_overrideredirect(True)
+        tw.wm_geometry(f"+{x}+{y}")
+        tw.attributes("-topmost", True)
+        tk.Label(tw, text=self._text, wraplength=320, justify="left",
+                 bg="#1e2435", fg="#e8eaed", font=("Segoe UI", 9),
+                 padx=10, pady=6, bd=1, relief="solid").pack()
+
+
 class DataViewer(tk.Frame):
     """Eigenständig (master=None) oder eingebettet (master=<Frame>)."""
 
@@ -1236,23 +1274,8 @@ class DataViewer(tk.Frame):
     # ── Tools-Fenster ────────────────────────────────────────────────────────
 
     def _show_tools_window(self):
-        """Startet externe Tools (Webtrees, Matricula, MyHeritage …) mit GUI."""
-        win = tk.Toplevel(self.winfo_toplevel())
-        win.title("Tools — Daten sammeln & importieren")
-        win.geometry("940x700")
-        win.configure(bg=C["bg"])
-
-        nb = ttk.Notebook(win)
-        nb.pack(fill="both", expand=True, padx=8, pady=8)
-
-        self._tool_procs: dict[str, subprocess.Popen | None] = {}
-
-        self._build_overview_tab(nb)
-        self._build_webtrees_tab(nb)
-        self._build_matricula_tab(nb)
-        self._build_myheritage_tab(nb)
-        self._build_import_tab(nb)
-        self._build_viewer_tab(nb)
+        """Springt direkt zum Werkzeuge-Tab (bleibt für Rückwärtskompatibilität)."""
+        self._nb.select(self._tools_tab)
 
     # ── gemeinsame Hilfs-Methoden ─────────────────────────────────────────────
 
@@ -1347,6 +1370,57 @@ class DataViewer(tk.Frame):
     def _tool_open_url(self, url: str, delay_ms: int = 1500):
         """Öffnet eine lokale Viewer-URL im Browser (nach kurzer Server-Anlaufzeit)."""
         self.after(delay_ms, lambda: webbrowser.open(url))
+
+    # ── Werkzeuge-Tab (Haupt-Tab des Notebooks) ────────────────────────────────
+
+    def _build_tools_tab(self, frame: tk.Frame):
+        """Pipeline-Leiste oben + 6 Sub-Reiter darunter."""
+        # ── Pipeline-Leiste ─────────────────────────────────────────────────
+        bar = tk.Frame(frame, bg=C["panel"])
+        bar.pack(fill="x")
+        tk.Frame(frame, bg=C["card"], height=1).pack(fill="x")
+
+        # Sub-Notebook (wird zuerst erzeugt, damit Pipeline-Closures greifen)
+        inner = ttk.Notebook(frame)
+        inner.pack(fill="both", expand=True, padx=6, pady=(4, 8))
+
+        self._build_overview_tab(inner)    # 0  ℹ Übersicht
+        self._build_webtrees_tab(inner)    # 1  Webtrees Crawler
+        self._build_matricula_tab(inner)   # 2  Matricula Download
+        self._build_myheritage_tab(inner)  # 3  MyHeritage Matches
+        self._build_import_tab(inner)      # 4  Importe
+        self._build_viewer_tab(inner)      # 5  Web-Viewer
+
+        # Pipeline-Leiste befüllen (inner existiert jetzt → Closures OK)
+        STAGES = [
+            ("⬇",  "Webtrees\nCrawl",           "#3d5f8a", 1,
+             "Öffentliche Stammbäume crawlen\n(crawl_webtrees.py)"),
+            ("📥", "Import\nin DB",              "#2e6b3e", 4,
+             "Heruntergeladene Daten in ancestry_dna.db übernehmen"),
+            ("⛪", "Matricula\nKirchenbücher",   "#1a4f8a", 2,
+             "Kirchenbücher scannen + mit Claude Vision transkribieren\nVoraussetzung: ANTHROPIC_API_KEY"),
+            ("🧬", "MyHeritage\nDNA-Matches",    "#006f6f", 3,
+             "Matchliste herunterladen + Shared Matches laden\nVoraussetzung: Chrome mit Remote-Debugging"),
+            ("📊", "Auswertung\n& Web-Viewer",   "#5a1a8a", 5,
+             "Matricula-Viewer (5000) und Entity-Browser (5001) öffnen"),
+        ]
+        tk.Label(bar, text="  Workflow: ", bg=C["panel"], fg=C["muted"],
+                 font=("Segoe UI", 8, "bold")).pack(side="left", padx=(10, 4), pady=8)
+        for i, (icon, label, color, idx, tip) in enumerate(STAGES):
+            if i > 0:
+                tk.Label(bar, text=" →", bg=C["panel"], fg=C["muted"],
+                         font=("Segoe UI", 11, "bold")).pack(side="left")
+            btn = tk.Button(bar, text=f"{icon}  {label}",
+                            bg=color, fg="white",
+                            font=("Segoe UI", 8, "bold"),
+                            relief="flat", bd=0,
+                            padx=10, pady=6, cursor="hand2", justify="center",
+                            command=lambda i=idx: inner.select(i))
+            btn.pack(side="left", padx=2, pady=6)
+            _ToolTip(btn, tip)
+        tk.Label(bar, text="  Klick = direkt zum Schritt",
+                 bg=C["panel"], fg=C["muted"], font=("Segoe UI", 8)).pack(
+            side="left", padx=8)
 
     # ── Tab: Übersicht ────────────────────────────────────────────────────────
 
@@ -1839,6 +1913,70 @@ class DataViewer(tk.Frame):
         add_server(1, "Entity-Browser  (localhost:5001)", "entity_browser",
                    "entity_browser", "http://127.0.0.1:5001")
 
+    # ── Hilfe-Tab ─────────────────────────────────────────────────────────────
+
+    def _build_help_tab(self, frame: tk.Frame):
+        """Schnellreferenz & Workflow-Dokumentation."""
+        sb = tk.Scrollbar(frame); sb.pack(side="right", fill="y")
+        txt = tk.Text(frame, bg=C["bg"], fg=C["text"], font=("Segoe UI", 10),
+                      wrap="word", yscrollcommand=sb.set, relief="flat",
+                      padx=18, pady=14, spacing1=2, spacing3=4)
+        txt.pack(fill="both", expand=True, padx=6, pady=6)
+        sb.config(command=txt.yview)
+
+        txt.tag_configure("h",   font=("Segoe UI", 13, "bold"),
+                          foreground=C["accent"], spacing1=14, spacing3=4)
+        txt.tag_configure("h2",  font=("Segoe UI", 10, "bold"),
+                          foreground=C["link"], spacing1=8, spacing3=2)
+        txt.tag_configure("dim", foreground=C["muted"])
+        txt.tag_configure("mono", font=("Consolas", 9), foreground="#c8e6c9")
+
+        def ln(text="", tag=None):
+            txt.insert("end", text + "\n", tag or ())
+
+        ln("Genealogie-Datenviewer — Schnellreferenz", "h")
+        ln("Webtrees-Crawler, GEDCOM, Matricula-Kirchenbücher und DNA-Matches "
+           "in einer Oberfläche. Die drei Haupt-Tabs strukturieren die Arbeit:")
+        ln()
+        ln("🌳 Personen & DNA", "h")
+        ln("Quellen:", "h2")
+        ln("  • Anverwandte (Crawl) — gecrawlte Personen aus stammbaum.anverwandte.info")
+        ln("  • GEDCOM / extern     — eigene Personen aus der importierten GEDCOM-Datei")
+        ln("Farb-Legende:", "h2")
+        ln("  🧬 DNA-Match · blaugrün   = Person hat DNA-Treffer in der DB", "dim")
+        ln("  ◆ DNA-Cluster · lila      = einem DNA-Cluster zugeordnet", "dim")
+        ln("  ✓ Im GEDCOM · dunkelgrün  = Verknüpfung mit GEDCOM-Person bestätigt", "dim")
+        ln("  ~ Fuzzy-Match · braun     = automatischer Treffer (unbestätigt)", "dim")
+        ln("  ✝ Kath. · blau / Ev. · grün = konfessionelle Zuordnung aus Matricula", "dim")
+        ln("Klick auf eine Person:", "h2")
+        ln("  → Minibaum (Mitte): Eltern, Partner, Kinder, Geschwister")
+        ln("  → Detailpanel (rechts): Lebensdaten, GEDCOM-Verknüpfung, alle DNA-Matches")
+        ln("  → Verknüpfung ✓ bestätigen oder ✗ ablehnen direkt im Detailpanel")
+        ln("  → DNA-Matches-Tabelle zeigt alle Treffer mit cM und geschätztem Verwandtschaftsgrad")
+        ln()
+        ln("🔧 Werkzeuge & Import", "h")
+        ln("Pipeline (Klick auf farbige Schaltflächen = direkt zum Schritt):", "h2")
+        ln("  1. ⬇ Webtrees Crawl  — öffentliche Bäume laden")
+        ln("       python ancestry/tools/crawl_webtrees.py crawl --profile anverwandte --discover", "mono")
+        ln("  2. 📥 Import in DB   — Crawl-Ergebnis übernehmen")
+        ln("       python ancestry/tools/import_webtrees.py", "mono")
+        ln("  3. ⛪ Matricula       — Kirchenbücher scannen  (ANTHROPIC_API_KEY nötig)")
+        ln("       0. Pfarrei-Katalog (einmalig)  →  1. Bücherverzeichnis  →  2. Seiten-Scan", "dim")
+        ln("  4. 🧬 MyHeritage DNA  — Matchliste + Shared Matches")
+        ln("       Voraussetzung: chrome.exe --remote-debugging-port=9222", "dim")
+        ln("  5. 📊 Auswertung/Viewer — Matricula-Viewer (5000) + Entity-Browser (5001)")
+        ln()
+        ln("❓ Hilfe & Workflow", "h")
+        ln("Dieser Tab. Die ausführliche Pipeline-Dokumentation mit allen Kommandos "
+           "und Voraussetzungen steht in WORKFLOW.md im Projektordner.", "dim")
+        ln()
+        ln("Tastenkürzel", "h")
+        ln("  Enter im Suchfeld  = Suche starten")
+        ln("  🔄 (Aktualisieren)  = Datenbank neu einlesen (für laufende Crawls)")
+        ln("  ⚡ Bulk             = Auto-/Fuzzy-Matches auf einmal bestätigen/ablehnen")
+
+        txt.configure(state="disabled")
+
     # ── Bulk-Fenster ──────────────────────────────────────────────────────────
 
     def _show_bulk_window(self):
@@ -2000,8 +2138,23 @@ class DataViewer(tk.Frame):
 
     # ── UI-Aufbau ───────────────────────────────────────────────────────────
     def _build(self):
-        # Zeile 1: Quelle, Filter, Suche, Aktionen
-        top = tk.Frame(self, bg=C["panel"]); top.pack(fill="x")
+        self._tool_procs: dict[str, subprocess.Popen | None] = {}
+
+        # Statuszeile ganz unten — muss VOR dem Notebook gepackt werden
+        self._status = tk.StringVar(value="")
+        tk.Label(self, textvariable=self._status, bg=C["bg"], fg=C["muted"],
+                 anchor="w").pack(fill="x", side="bottom")
+
+        # ── Haupt-Notebook ─────────────────────────────────────────────────
+        self._nb = ttk.Notebook(self)
+        self._nb.pack(fill="both", expand=True)
+
+        # ── Tab 1: Personen & DNA ───────────────────────────────────────────
+        pt = tk.Frame(self._nb, bg=C["bg"])
+        self._nb.add(pt, text="  🌳  Personen & DNA  ")
+
+        # Toolbar (Parent: pt)
+        top = tk.Frame(pt, bg=C["panel"]); top.pack(fill="x")
         tk.Label(top, text="Quelle:", bg=C["panel"], fg=C["text"]).pack(
             side="left", padx=(10, 4), pady=6)
         self._src_var = tk.StringVar(value="Anverwandte (Crawl)")
@@ -2010,6 +2163,8 @@ class DataViewer(tk.Frame):
                            values=["Anverwandte (Crawl)", "GEDCOM / extern"])
         src.pack(side="left", pady=6)
         src.bind("<<ComboboxSelected>>", self._on_source_change)
+        _ToolTip(src, "Anverwandte: gecrawlte Personen aus stammbaum.anverwandte.info\n"
+                      "GEDCOM / extern: eigene Personen aus der importierten GEDCOM-Datei")
 
         tk.Label(top, text="Filter:", bg=C["panel"], fg=C["text"]).pack(
             side="left", padx=(12, 4))
@@ -2020,6 +2175,10 @@ class DataViewer(tk.Frame):
                                    _FILTER_FUZZY, _FILTER_UNMAP])
         flt.pack(side="left", pady=6)
         flt.bind("<<ComboboxSelected>>", lambda _: self._do_search())
+        _ToolTip(flt, "🧬 DNA-Match    = Person ist mit einem DNA-Treffer verknüpft\n"
+                      "✓ Im GEDCOM     = Verknüpfung mit eigener GEDCOM-Person bestätigt\n"
+                      "~ Fuzzy-Match   = automatischer Treffer (unbestätigt)\n"
+                      "○ Nicht im GEDCOM = noch keine Verknüpfung")
 
         tk.Label(top, text="Konfession:", bg=C["panel"], fg=C["text"]).pack(
             side="left", padx=(10, 4))
@@ -2029,15 +2188,17 @@ class DataViewer(tk.Frame):
                             values=[_CONF_ALL, _CONF_KATH, _CONF_EV, _CONF_UNK])
         conf.pack(side="left", pady=6)
         conf.bind("<<ComboboxSelected>>", lambda _: self._do_search())
+        _ToolTip(conf, "Konfessionelle Zuordnung aus dem Matricula-Kirchspiel-Lookup")
 
         tk.Label(top, text="DNA-Quelle:", bg=C["panel"], fg=C["text"]).pack(
             side="left", padx=(10, 4))
         self._dna_src_var = tk.StringVar(value="Alle")
         self._dna_src_box = ttk.Combobox(top, textvariable=self._dna_src_var, width=13,
-                                          state="readonly",
-                                          values=["Alle"])
+                                          state="readonly", values=["Alle"])
         self._dna_src_box.pack(side="left", pady=6)
         self._dna_src_box.bind("<<ComboboxSelected>>", lambda _: self._do_search())
+        _ToolTip(self._dna_src_box, "Nur DNA-Matches einer bestimmten Plattform anzeigen\n"
+                                    "(MyHeritage, GEDmatch, Ancestry …)")
 
         tk.Label(top, text="Suche:", bg=C["panel"], fg=C["text"]).pack(
             side="left", padx=(10, 4))
@@ -2045,26 +2206,39 @@ class DataViewer(tk.Frame):
         e = tk.Entry(top, textvariable=self._search_var, width=22)
         e.pack(side="left", pady=6)
         e.bind("<Return>", lambda _: self._do_search())
-        tk.Button(top, text="🔍", command=self._do_search).pack(side="left", padx=2)
-        tk.Button(top, text="🔄", command=self._reopen,
-                  bg=C["panel"], fg=C["text"], relief="flat").pack(side="left", padx=4)
-        tk.Button(top, text="📊 Statistik", command=self._show_stats_window,
-                  bg=C["panel"], fg=C["text"], relief="flat").pack(side="left", padx=2)
-        tk.Button(top, text="⚡ Bulk", command=self._show_bulk_window,
-                  bg=C["panel"], fg=C["dna"], relief="flat").pack(side="left", padx=2)
-        tk.Button(top, text="🔧 Tools", command=self._show_tools_window,
-                  bg=C["panel"], fg=C["text"], relief="flat").pack(side="left", padx=2)
+
+        b_search = tk.Button(top, text="🔍", command=self._do_search)
+        b_search.pack(side="left", padx=2)
+        _ToolTip(b_search, "Suche starten (auch Enter im Suchfeld)")
+
+        b_refresh = tk.Button(top, text="🔄", command=self._reopen,
+                              bg=C["panel"], fg=C["text"], relief="flat")
+        b_refresh.pack(side="left", padx=4)
+        _ToolTip(b_refresh, "Datenbank neu einlesen — nützlich wenn der Crawler\n"
+                             "gerade im Hintergrund läuft und neue Personen ergänzt")
+
+        b_stats = tk.Button(top, text="📊 Statistik", command=self._show_stats_window,
+                            bg=C["panel"], fg=C["text"], relief="flat")
+        b_stats.pack(side="left", padx=2)
+        _ToolTip(b_stats, "Statistiken: Personen, GEDCOM-Abdeckung, DNA-Matches")
+
+        b_bulk = tk.Button(top, text="⚡ Bulk", command=self._show_bulk_window,
+                           bg=C["panel"], fg=C["dna"], relief="flat")
+        b_bulk.pack(side="left", padx=2)
+        _ToolTip(b_bulk, "Bulk-Aktionen: Auto-/Fuzzy-Matches auf einmal\nbestätigen oder ablehnen")
+
         self._undo_btn = tk.Button(top, text="↩ Rückgängig", command=self._undo_last,
                                    bg=C["panel"], fg=C["muted"], relief="flat",
                                    state="disabled")
         self._undo_btn.pack(side="left", padx=4)
+        _ToolTip(self._undo_btn, "Letzte Verknüpfungs-Aktion rückgängig machen")
 
         self._stats = tk.StringVar(value="")
         tk.Label(top, textvariable=self._stats, bg=C["panel"], fg=C["accent"],
                  font=("Segoe UI", 9, "bold")).pack(side="right", padx=12)
 
-        # Mapping-Legende
-        leg = tk.Frame(self, bg=C["bg"]); leg.pack(fill="x")
+        # Farb-Legende (Parent: pt)
+        leg = tk.Frame(pt, bg=C["bg"]); leg.pack(fill="x")
         for color, label in (
             (C["dna"],     "🧬 DNA-Match"),
             (C["cluster"], "◆ DNA-Cluster"),
@@ -2079,8 +2253,8 @@ class DataViewer(tk.Frame):
             tk.Label(leg, text=label, bg=C["bg"], fg=C["muted"],
                      font=("Segoe UI", 8)).pack(side="left")
 
-        # Hauptbereich: links Liste, Mitte Baum, rechts Detail
-        body = tk.Frame(self, bg=C["bg"]); body.pack(fill="both", expand=True)
+        # Hauptbereich: links Liste, Mitte Baum, rechts Detail (Parent: pt)
+        body = tk.Frame(pt, bg=C["bg"]); body.pack(fill="both", expand=True)
 
         # Links: Suchergebnisse
         left = tk.Frame(body, bg=C["panel"], width=440); left.pack(
@@ -2102,30 +2276,28 @@ class DataViewer(tk.Frame):
         self._list.column("status", width=56,  anchor="center", stretch=False)
         self._list.pack(fill="both", expand=True, padx=6, pady=6)
         self._list.bind("<<TreeviewSelect>>", self._on_list_select)
-
-        # Treeview-Tags für Farbkodierung
-        self._list.tag_configure("mapped",   foreground=C["mapped"])
-        self._list.tag_configure("fuzzy",    foreground=C["fuzzy"])
-        self._list.tag_configure("cluster",  foreground=C["cluster"])
-        self._list.tag_configure("dna",      foreground=C["dna"])
-        self._list.tag_configure("kath",     foreground=C["kath"])
-        self._list.tag_configure("ev",       foreground=C["ev"])
-        self._list.tag_configure("sub",      foreground=C["muted"])
+        self._list.tag_configure("mapped",  foreground=C["mapped"])
+        self._list.tag_configure("fuzzy",   foreground=C["fuzzy"])
+        self._list.tag_configure("cluster", foreground=C["cluster"])
+        self._list.tag_configure("dna",     foreground=C["dna"])
+        self._list.tag_configure("kath",    foreground=C["kath"])
+        self._list.tag_configure("ev",      foreground=C["ev"])
+        self._list.tag_configure("sub",     foreground=C["muted"])
 
         # Mitte: navigierbarer Mini-Baum
-        mid = tk.Frame(body, bg=C["bg"]); mid.pack(side="left", fill="both",
-                                                   expand=True)
+        mid = tk.Frame(body, bg=C["bg"]); mid.pack(side="left", fill="both", expand=True)
         nav = tk.Frame(mid, bg=C["bg"]); nav.pack(fill="x")
-        tk.Button(nav, text="◀ Zurück", command=self._go_back).pack(
-            side="left", padx=8, pady=6)
+        b_back = tk.Button(nav, text="◀ Zurück", command=self._go_back)
+        b_back.pack(side="left", padx=8, pady=6)
+        _ToolTip(b_back, "Zur vorher angezeigten Person zurück")
         self._tree_canvas = tk.Frame(mid, bg=C["bg"])
         self._tree_canvas.pack(fill="both", expand=True, padx=8, pady=8)
 
-        # Rechts: Detailpanel (scrollbar)
-        right = tk.Frame(body, bg=C["panel"], width=360); right.pack(
+        # Rechts: Detailpanel
+        right = tk.Frame(body, bg=C["panel"], width=380); right.pack(
             side="right", fill="y"); right.pack_propagate(False)
         self._detail_canvas = tk.Canvas(right, bg=C["panel"],
-                                        highlightthickness=0, width=360)
+                                        highlightthickness=0, width=380)
         dsb = ttk.Scrollbar(right, orient="vertical",
                             command=self._detail_canvas.yview)
         self._detail = tk.Frame(self._detail_canvas, bg=C["panel"])
@@ -2136,10 +2308,15 @@ class DataViewer(tk.Frame):
         self._detail_canvas.pack(side="left", fill="both", expand=True)
         dsb.pack(side="right", fill="y")
 
-        # Statuszeile
-        self._status = tk.StringVar(value="")
-        tk.Label(self, textvariable=self._status, bg=C["bg"], fg=C["muted"],
-                 anchor="w").pack(fill="x", side="bottom")
+        # ── Tab 2: Werkzeuge & Import ───────────────────────────────────────
+        self._tools_tab = tk.Frame(self._nb, bg=C["bg"])
+        self._nb.add(self._tools_tab, text="  🔧  Werkzeuge & Import  ")
+        self._build_tools_tab(self._tools_tab)
+
+        # ── Tab 3: Hilfe & Workflow ─────────────────────────────────────────
+        ht = tk.Frame(self._nb, bg=C["bg"])
+        self._nb.add(ht, text="  ❓  Hilfe & Workflow  ")
+        self._build_help_tab(ht)
 
     # ── Datenquellen-Wechsel ─────────────────────────────────────────────────
     def _on_source_change(self, _=None):
@@ -2807,6 +2984,57 @@ class DataViewer(tk.Frame):
         self._status.set(f"GEDCOM: {ged_id}")
 
     # ── Detailpanel (rechts) ──────────────────────────────────────────────────
+    def _render_dna_matches(self, ged_id: str):
+        """Rendert alle DNA-Matches einer GEDCOM-Person als Tabelle im Detailpanel."""
+        if not self._anc_conn or not ged_id:
+            return
+        try:
+            rows = self._anc_conn.execute(
+                "SELECT m.name, m.shared_cm, m.source, m.cluster_id "
+                "FROM gedcom_links gl "
+                "JOIN matches m ON m.match_guid = gl.match_guid "
+                "WHERE gl.ged_id = ? "
+                "ORDER BY CAST(m.shared_cm AS REAL) DESC "
+                "LIMIT 30",
+                (ged_id,)
+            ).fetchall()
+        except Exception:
+            return
+        if not rows:
+            return
+
+        # Abschnitt-Header
+        hf = tk.Frame(self._detail, bg=C["panel"]); hf.pack(fill="x", padx=12, pady=(10, 2))
+        tk.Label(hf, text="🧬  DNA-Matches", bg=C["panel"], fg=C["accent"],
+                 font=("Segoe UI", 10, "bold")).pack(side="left")
+        tk.Label(hf, text=f"  {len(rows)} Treffer", bg=C["panel"], fg=C["muted"],
+                 font=("Segoe UI", 8)).pack(side="left")
+
+        # Spaltenköpfe
+        ch = tk.Frame(self._detail, bg=C["card"]); ch.pack(fill="x", padx=12)
+        tk.Label(ch, text="Name", bg=C["card"], fg=C["muted"],
+                 width=23, anchor="w", font=("Segoe UI", 8, "bold")).pack(side="left", padx=(4, 0))
+        tk.Label(ch, text="cM", bg=C["card"], fg=C["muted"],
+                 width=6, anchor="e", font=("Segoe UI", 8, "bold")).pack(side="left")
+        tk.Label(ch, text="  Verwandtschaft", bg=C["card"], fg=C["muted"],
+                 anchor="w", font=("Segoe UI", 8, "bold")).pack(side="left")
+
+        # Datenzeilen (alternierend eingefärbt)
+        for i, r in enumerate(rows):
+            cm  = float(r["shared_cm"]) if r["shared_cm"] is not None else 0.0
+            rel = _cm_to_rel(cm)
+            bg  = C["panel"] if i % 2 == 0 else C["bg"]
+            rf  = tk.Frame(self._detail, bg=bg); rf.pack(fill="x", padx=12)
+            src = (r["source"] or "")[:6]
+            nm  = (r["name"]   or "—")[:26]
+            nm_s = f"{nm}  [{src}]" if src else nm
+            tk.Label(rf, text=nm_s, bg=bg, fg=C["text"],
+                     width=23, anchor="w", font=("Segoe UI", 8)).pack(side="left", padx=(4, 0))
+            tk.Label(rf, text=f"{cm:.0f}", bg=bg, fg=C["dna"],
+                     width=6, anchor="e", font=("Segoe UI", 8, "bold")).pack(side="left")
+            tk.Label(rf, text=f"  {rel}", bg=bg, fg=C["muted"],
+                     anchor="w", font=("Segoe UI", 8)).pack(side="left")
+
     def _render_detail(self, pid: str):
         for w in self._detail.winfo_children():
             w.destroy()
@@ -2889,15 +3117,8 @@ class DataViewer(tk.Frame):
                           command=lambda wi=wt_id, gi=ged_id: self._reject_match(wi, gi)
                           ).pack(side="left")
 
-            if dna_info:
-                fd = tk.Frame(self._detail, bg=C["panel"])
-                fd.pack(fill="x", padx=12, pady=1)
-                tk.Label(fd, text="DNA-Match", bg=C["panel"], fg=C["muted"],
-                         width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
-                _cm_s2 = f"{dna_info[0]:.1f} cM  ({_cm_to_rel(dna_info[0])})" if dna_info[0] is not None else "? cM"
-                tk.Label(fd, text=f"🧬 {_cm_s2}  —  {dna_info[1]}",
-                         bg=C["panel"], fg=C["dna"], anchor="w",
-                         font=("Segoe UI", 8, "bold"), wraplength=240).pack(side="left")
+            if ged_id:
+                self._render_dna_matches(ged_id)
             if cluster is not None:
                 f3 = tk.Frame(self._detail, bg=C["panel"])
                 f3.pack(fill="x", padx=12, pady=1)
@@ -3036,20 +3257,10 @@ class DataViewer(tk.Frame):
                      bg=C["panel"], fg=C["muted"], anchor="w").pack(
                 fill="x", padx=12)
 
-            # DNA-Match + Cluster anzeigen (für GEDCOM-Personen direkt)
+            # DNA-Matches + Cluster anzeigen (für GEDCOM-Personen direkt)
             ged_id_p = str(p.get("ged_id", ""))
-            dna_info = self._dna_map.get(ged_id_p)
             cluster  = self._cluster_map.get(ged_id_p)
-            if dna_info or cluster is not None:
-                hdr("DNA-Verknüpfung")
-            if dna_info:
-                fd = tk.Frame(self._detail, bg=C["panel"]); fd.pack(fill="x", padx=12, pady=1)
-                tk.Label(fd, text="DNA-Match", bg=C["panel"], fg=C["muted"],
-                         width=11, anchor="w", font=("Segoe UI", 8)).pack(side="left")
-                _cm_s = f"{dna_info[0]:.1f} cM" if dna_info[0] is not None else "? cM"
-                tk.Label(fd, text=f"🧬 {_cm_s}  —  {dna_info[1]}",
-                         bg=C["panel"], fg=C["dna"], anchor="w",
-                         font=("Segoe UI", 8, "bold")).pack(side="left")
+            self._render_dna_matches(ged_id_p)
             if cluster is not None:
                 f3 = tk.Frame(self._detail, bg=C["panel"])
                 f3.pack(fill="x", padx=12, pady=1)
