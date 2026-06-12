@@ -53,33 +53,8 @@ class LoginTab(ttk.Frame):
         lw = self._state.lang_widgets
         p  = {"padx": 16, "pady": 8}
 
-        _sv = tk.StringVar(value=t("lg.meth1"))
-        ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
-            row=0, column=0, columnspan=3, sticky="w", **p)
-        lw.append((_sv, "lg.meth1"))
-
-        _sv = tk.StringVar(value=t("lg.email"))
-        ttk.Label(f, textvariable=_sv).grid(row=1, column=0, sticky="e", **p)
-        lw.append((_sv, "lg.email"))
-        self._email_var = tk.StringVar()
-        ttk.Entry(f, textvariable=self._email_var, width=36).grid(
-            row=1, column=1, sticky="w", **p)
-
-        _sv = tk.StringVar(value=t("lg.password"))
-        ttk.Label(f, textvariable=_sv).grid(row=2, column=0, sticky="e", **p)
-        lw.append((_sv, "lg.password"))
-        self._pw_var = tk.StringVar()
-        ttk.Entry(f, textvariable=self._pw_var, show="•", width=36).grid(
-            row=2, column=1, sticky="w", **p)
-
-        _sv = tk.StringVar(value=t("lg.login_btn"))
-        ttk.Button(f, textvariable=_sv, command=self._do_login).grid(
-            row=3, column=1, sticky="w", **p)
-        lw.append((_sv, "lg.login_btn"))
-
-        ttk.Separator(f, orient="horizontal").grid(
-            row=4, column=0, columnspan=3, sticky="ew", padx=16, pady=12)
-
+        # Methode 1 (E-Mail/Passwort) entfernt: Ancestry blockiert den
+        # automatischen Passwort-Login. Nur Cookie-Datei + manuelle Kit-GUID.
         _sv = tk.StringVar(value=t("lg.meth2"))
         ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
             row=5, column=0, columnspan=3, sticky="w", **p)
@@ -125,14 +100,6 @@ class LoginTab(ttk.Frame):
         f.columnconfigure(1, weight=1)
 
     # ── Login-Logik ───────────────────────────────────────────────────────────
-
-    def _do_login(self):
-        e, pw = self._email_var.get().strip(), self._pw_var.get()
-        if not e or not pw:
-            messagebox.showwarning("Eingabe fehlt", "E-Mail und Passwort eingeben.")
-            return
-        threading.Thread(target=self._login_thread, args=(e, pw, "password"),
-                         daemon=True).start()
 
     def _do_login_cookies(self):
         path = self._cookie_file_var.get().strip()

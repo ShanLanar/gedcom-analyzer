@@ -176,7 +176,6 @@ class AncestryDnaApp(tk.Frame):
         am.add_command(label=self._t("mn.reset_nm"),    command=self._reset_name_attempts)
         am.add_separator()
         am.add_command(label=self._t("mn.refresh_lk"),  command=self._refresh_links)
-        am.add_command(label=self._t("mn.chg_ged"),     command=self._change_gedcom_settings)
         am.add_separator()
         am.add_command(label=self._t("mn.surnames"),    command=self._show_surname_analysis)
         am.add_command(label=self._t("mn.places"),      command=self._show_place_analysis)
@@ -199,12 +198,12 @@ class AncestryDnaApp(tk.Frame):
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
                          (8,"mn.seg_triang"),
                          (10,"mn.reset_sh"),(11,"mn.reset_nm"),(13,"mn.refresh_lk"),
-                         (14,"mn.chg_ged"),(16,"mn.surnames"),(17,"mn.places"),
-                         (18,"mn.mrca"),(19,"mn.net_graph"),
-                         (21,"mn.exp_ged"),(22,"mn.imp_mta"),
-                         (24,"mn.ped_gaps"),(25,"mn.ped_chart"),(26,"mn.auto_sides"),
-                         (27,"mn.endo_score"),(28,"mn.pop_stats"),
-                         (30,"mn.dashboard"),(31,"mn.copilot_cl")]:
+                         (15,"mn.surnames"),(16,"mn.places"),
+                         (17,"mn.mrca"),(18,"mn.net_graph"),
+                         (20,"mn.exp_ged"),(21,"mn.imp_mta"),
+                         (23,"mn.ped_gaps"),(24,"mn.ped_chart"),(25,"mn.auto_sides"),
+                         (26,"mn.endo_score"),(27,"mn.pop_stats"),
+                         (29,"mn.dashboard"),(30,"mn.copilot_cl")]:
             self._lang_menus.append((am, idx, key))
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
