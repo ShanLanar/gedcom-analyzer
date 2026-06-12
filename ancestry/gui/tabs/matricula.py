@@ -11,6 +11,7 @@ Pfarrei automatisch die nächste offene gestartet (Warteschlangen-Prinzip).
 
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import subprocess
@@ -22,6 +23,8 @@ from typing import Callable, Optional
 
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
+
+log = logging.getLogger(__name__)
 from ancestry.tools import matricula_status as mstat
 
 
@@ -118,7 +121,12 @@ class MatriculaTab(ttk.Frame):
                             font=("Consolas", 9), state="disabled")
         self._log.pack(fill="both", expand=True, padx=14, pady=(4, 10))
 
-        self.refresh_parishes()
+        # Defensiv: ein Fehler beim Pfarrei-Laden darf die gesamte App-Init
+        # nicht abbrechen (z. B. fehlendes Matricula-Schema).
+        try:
+            self.refresh_parishes()
+        except Exception:
+            log.exception("refresh_parishes beim Tab-Aufbau fehlgeschlagen")
 
     # ── Pfarrei-Status ────────────────────────────────────────────────────────
 

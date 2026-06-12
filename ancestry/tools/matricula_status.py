@@ -72,6 +72,10 @@ def get_parish_status(db_path: Path | str | None = None) -> list[dict]:
             GROUP BY p.id, p.name
             ORDER BY p.name
         """).fetchall()
+    except sqlite3.OperationalError:
+        # Matricula-Schema (parishes/kirchenbuecher) noch nicht angelegt –
+        # Katalog wurde nie importiert. Leer statt Absturz.
+        return []
     finally:
         db.close()
 
