@@ -26,9 +26,10 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import webbrowser
 import tkinter as tk
 from collections import deque
-from tkinter import ttk, messagebox
+from tkinter import ttk, messagebox, filedialog
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 CRAWL_DB      = os.path.join(ROOT, "ancestry", "tools", "webtrees_crawl.db")
@@ -37,10 +38,18 @@ PARISH_JSON   = os.path.join(ROOT, "ancestry", "tools", "matricula_parishes.json
 PARISH_DB     = os.path.join(ROOT, "ancestry", "tools", "matricula_parishes.db")
 PROFILES_JSON = os.path.join(ROOT, "ancestry", "tools", "webtrees_profiles.json")
 _TOOLS = {
-    "webtrees":   os.path.join(ROOT, "ancestry", "tools", "crawl_webtrees.py"),
-    "mat_books":  os.path.join(ROOT, "ancestry", "tools", "fetch_matricula_books.py"),
-    "mat_scan":   os.path.join(ROOT, "ancestry", "tools", "scan_matricula_kirchspiel.py"),
-    "myheritage": os.path.join(ROOT, "ancestry", "tools", "fetch_mh_shared_matches.py"),
+    "webtrees":     os.path.join(ROOT, "ancestry", "tools", "crawl_webtrees.py"),
+    "mat_catalog":  os.path.join(ROOT, "ancestry", "tools", "scrape_matricula_osnabrueck.py"),
+    "mat_books":    os.path.join(ROOT, "ancestry", "tools", "fetch_matricula_books.py"),
+    "mat_scan":     os.path.join(ROOT, "ancestry", "tools", "scan_matricula_kirchspiel.py"),
+    "mat_viewer":   os.path.join(ROOT, "ancestry", "tools", "matricula_viewer.py"),
+    "myheritage":   os.path.join(ROOT, "ancestry", "tools", "fetch_mh_shared_matches.py"),
+    "mh_download":  os.path.join(ROOT, "ancestry", "tools", "download_myheritage.py"),
+    "imp_mh_csv":   os.path.join(ROOT, "ancestry", "tools", "import_mh_csv.py"),
+    "imp_gedmatch": os.path.join(ROOT, "ancestry", "tools", "import_gedmatch.py"),
+    "imp_wikitree": os.path.join(ROOT, "ancestry", "tools", "import_wikitree.py"),
+    "imp_webtrees": os.path.join(ROOT, "ancestry", "tools", "import_webtrees.py"),
+    "entity_browser": os.path.join(ROOT, "ancestry", "tools", "entity_browser.py"),
 }
 
 # ── Farben (an die Ancestry-Optik angelehnt) ─────────────────────────────────
@@ -1227,10 +1236,10 @@ class DataViewer(tk.Frame):
     # ── Tools-Fenster ────────────────────────────────────────────────────────
 
     def _show_tools_window(self):
-        """Startet externe Tools (Webtrees, Matricula, MyHeritage) mit GUI."""
+        """Startet externe Tools (Webtrees, Matricula, MyHeritage …) mit GUI."""
         win = tk.Toplevel(self.winfo_toplevel())
-        win.title("Tools")
-        win.geometry("820x620")
+        win.title("Tools — Daten sammeln & importieren")
+        win.geometry("940x700")
         win.configure(bg=C["bg"])
 
         nb = ttk.Notebook(win)
@@ -1238,11 +1247,22 @@ class DataViewer(tk.Frame):
 
         self._tool_procs: dict[str, subprocess.Popen | None] = {}
 
+        self._build_overview_tab(nb)
         self._build_webtrees_tab(nb)
         self._build_matricula_tab(nb)
         self._build_myheritage_tab(nb)
+        self._build_import_tab(nb)
+        self._build_viewer_tab(nb)
 
-    # ── gemeinsame Hilfs-Methode ──────────────────────────────────────────────
+    # ── gemeinsame Hilfs-Methoden ─────────────────────────────────────────────
+
+    def _tool_help(self, parent, lines: list[str]):
+        """Erklär-Panel oben in einem Tab (Was tut das Tool / Voraussetzungen)."""
+        f = tk.Frame(parent, bg=C["card"])
+        f.pack(fill="x", padx=6, pady=(6, 0))
+        tk.Label(f, text="\n".join(lines), bg=C["card"], fg=C["text"],
+                 justify="left", anchor="w", wraplength=890,
+                 font=("Segoe UI", 9)).pack(anchor="w", padx=10, pady=8)
 
     def _tool_log_widget(self, parent) -> tk.Text:
         """Erzeugt ein dunkles Log-Textfeld mit Scrollbar."""
@@ -1265,6 +1285,8 @@ class DataViewer(tk.Frame):
     def _tool_start(self, key: str, cmd: list[str], log: tk.Text,
                     btn_start: tk.Button, btn_stop: tk.Button):
         """Startet einen Subprocess und streamt stdout in den Log."""
+        if not cmd:
+            return  # z. B. Pflichtfeld leer — Hinweis kam schon per Dialog
         if self._tool_procs.get(key):
             return
         self._tool_append(log, f"▶ {' '.join(cmd)}\n\n")
@@ -1322,10 +1344,82 @@ class DataViewer(tk.Frame):
         btn_start.configure(state="normal")
         btn_stop.configure(state="disabled")
 
+    def _tool_open_url(self, url: str, delay_ms: int = 1500):
+        """Öffnet eine lokale Viewer-URL im Browser (nach kurzer Server-Anlaufzeit)."""
+        self.after(delay_ms, lambda: webbrowser.open(url))
+
+    # ── Tab: Übersicht ────────────────────────────────────────────────────────
+
+    def _build_overview_tab(self, nb: ttk.Notebook):
+        tab = tk.Frame(nb, bg=C["bg"]); nb.add(tab, text="ℹ Übersicht")
+
+        sb = tk.Scrollbar(tab); sb.pack(side="right", fill="y")
+        txt = tk.Text(tab, bg=C["bg"], fg=C["text"], font=("Segoe UI", 10),
+                      wrap="word", yscrollcommand=sb.set, relief="flat",
+                      padx=16, pady=12, spacing1=2, spacing3=4)
+        txt.pack(fill="both", expand=True, padx=6, pady=6)
+        sb.config(command=txt.yview)
+
+        txt.tag_configure("h",  font=("Segoe UI", 12, "bold"), foreground=C["accent"],
+                          spacing1=12, spacing3=4)
+        txt.tag_configure("b",  font=("Segoe UI", 10, "bold"), foreground=C["link"])
+        txt.tag_configure("dim", foreground=C["muted"])
+        txt.tag_configure("code", font=("Consolas", 9), foreground="#c8e6c9")
+
+        def line(text="", tag=None):
+            txt.insert("end", text + "\n", tag or ())
+
+        line("Was kann dieses Fenster?", "h")
+        line("Hier startest du alle Sammel- und Import-Werkzeuge direkt per Knopf — "
+             "ohne Kommandozeile. Jeder Tab erklärt oben, was er tut und was er "
+             "voraussetzt. Die Ausgabe der Programme läuft live im schwarzen "
+             "Log-Feld mit.")
+        line()
+        line("Empfohlene Reihenfolge", "h")
+
+        line("A · Stammbaum (Webtrees)", "b")
+        line("  1. Webtrees Crawler  – lädt öffentliche Bäume (anverwandte.info) herunter")
+        line("  2. Importe › Webtrees → DB  – übernimmt die Personen in die Hauptdatenbank")
+        line()
+        line("B · Kirchenbücher (Matricula)", "b")
+        line("  0. Pfarrei-Katalog  – EINMALIG: baut die Liste aller Pfarreien auf")
+        line("  1. Bücherverzeichnis holen  – welche Taufe/Heirat/Tod-Bücher gibt es?")
+        line("  2. Seiten scannen (Claude Vision)  – liest die alten Seiten als Text")
+        line("       Voraussetzung: Umgebungsvariable ANTHROPIC_API_KEY gesetzt", "dim")
+        line("  3. Web-Viewer › Matricula  – Seiten + Transkripte ansehen/korrigieren")
+        line()
+        line("C · DNA (MyHeritage / GEDmatch)", "b")
+        line("  1. MyHeritage › Matchliste herunterladen  (Chrome mit Remote-Debugging)")
+        line("  2. Importe › MyHeritage-CSV bzw. GEDmatch-TSV  – in die DB übernehmen")
+        line()
+        line("D · Auswertung / Pflege", "b")
+        line("  • Web-Viewer › Entity-Browser  – Quellen zusammenführen & prüfen")
+        line()
+        line("Tipp", "h")
+        line("Tools, die das Internet brauchen (Crawler, Matricula, MyHeritage), "
+             "können je nach Umfang lange laufen. Du kannst sie jederzeit mit „■ Stop“ "
+             "abbrechen und später fortsetzen — der Fortschritt wird in den Datenbanken "
+             "gespeichert.")
+        line()
+        line("Ausführliche Doku: WORKFLOW.md im Projektordner.", "dim")
+
+        txt.configure(state="disabled")
+
     # ── Tab: Webtrees ─────────────────────────────────────────────────────────
 
     def _build_webtrees_tab(self, nb: ttk.Notebook):
         tab = tk.Frame(nb, bg=C["bg"]); nb.add(tab, text="Webtrees Crawler")
+
+        self._tool_help(tab, [
+            "Lädt öffentliche Webtrees-Stammbäume (z. B. stammbaum.anverwandte.info) "
+            "Person für Person herunter und speichert sie lokal in webtrees_crawl.db.",
+            "Höflicher Crawler: 4–6 Sek. Pause, max. 300 Seiten/Lauf, fortsetzbar.",
+            "",
+            "--discover    : kompletten Baum aufdecken (neue Personen verfolgen)",
+            "--reset-stale : veraltete Seiten erneut abrufen",
+            "",
+            "Danach: Tab „Importe“ › „Webtrees → DB“, um die Personen zu übernehmen.",
+        ])
 
         opt = tk.Frame(tab, bg=C["panel"]); opt.pack(fill="x", padx=6, pady=6)
 
@@ -1382,6 +1476,16 @@ class DataViewer(tk.Frame):
     def _build_matricula_tab(self, nb: ttk.Notebook):
         tab = tk.Frame(nb, bg=C["bg"]); nb.add(tab, text="Matricula Download")
 
+        self._tool_help(tab, [
+            "Kirchenbücher von Matricula-Online (Bistum Osnabrück).  Reihenfolge:",
+            "  0. Pfarrei-Katalog  – EINMALIG, baut die Pfarrei-Liste auf (füllt das Auswahlfeld)",
+            "  1. Bücherverzeichnis  – welche Taufe/Heirat/Tod-Bücher hat die Pfarrei?",
+            "  2. Seiten scannen     – Claude Vision liest die Seiten als Text  (braucht ANTHROPIC_API_KEY)",
+            "",
+            "Buchtyp/Jahr leer = alles. --retranscribe transkribiert bereits geladene "
+            "Bilder neu, ohne erneuten Web-Abruf.",
+        ])
+
         opt = tk.Frame(tab, bg=C["panel"]); opt.pack(fill="x", padx=6, pady=6)
 
         # Pfarrei
@@ -1425,24 +1529,35 @@ class DataViewer(tk.Frame):
                                                     sticky="w", padx=8, pady=6)
         log = self._tool_log_widget(tab)
 
+        btn_stop0  = tk.Button(bf, text="■", state="disabled",
+                               bg="#7a2020", fg="white", relief="flat", padx=6)
         btn_stop2  = tk.Button(bf, text="■", state="disabled",
                                bg="#7a2020", fg="white", relief="flat", padx=6)
         btn_stop1  = tk.Button(bf, text="■", state="disabled",
                                bg="#7a2020", fg="white", relief="flat", padx=6)
+        btn_cat    = tk.Button(bf, text="0. Pfarrei-Katalog (einmalig)",
+                               bg=C["card"], fg=C["text"], relief="flat", padx=10)
         btn_books  = tk.Button(bf, text="1. Bücherverzeichnis holen",
                                bg=C["card"], fg=C["text"], relief="flat", padx=10)
         btn_scan   = tk.Button(bf, text="2. Seiten scannen (Claude Vision)",
                                bg=C["accent"], fg="white", relief="flat", padx=10)
 
+        btn_stop0.configure(command=lambda: self._tool_stop(
+            "mat_catalog", log, btn_cat, btn_stop0))
         btn_stop1.configure(command=lambda: self._tool_stop(
             "mat_books", log, btn_books, btn_stop1))
         btn_stop2.configure(command=lambda: self._tool_stop(
             "mat_scan", log, btn_scan, btn_stop2))
+        btn_cat.configure(command=lambda: self._tool_start(
+            "mat_catalog", [sys.executable, "-u", _TOOLS["mat_catalog"]],
+            log, btn_cat, btn_stop0))
         btn_books.configure(command=lambda: self._tool_start(
             "mat_books", self._mat_books_cmd(), log, btn_books, btn_stop1))
         btn_scan.configure(command=lambda: self._tool_start(
             "mat_scan", self._mat_scan_cmd(), log, btn_scan, btn_stop2))
 
+        btn_cat.pack(side="left", padx=(0, 2))
+        btn_stop0.pack(side="left", padx=(0, 8))
         btn_books.pack(side="left", padx=(0, 2))
         btn_stop1.pack(side="left", padx=(0, 8))
         btn_scan.pack(side="left", padx=(0, 2))
@@ -1493,28 +1608,236 @@ class DataViewer(tk.Frame):
     def _build_myheritage_tab(self, nb: ttk.Notebook):
         tab = tk.Frame(nb, bg=C["bg"]); nb.add(tab, text="MyHeritage Matches")
 
-        info = tk.Frame(tab, bg=C["panel"]); info.pack(fill="x", padx=6, pady=6)
-        tk.Label(info, bg=C["panel"], fg=C["muted"], justify="left",
-                 text=(
-                     "Lädt gemeinsame DNA-Matches von MyHeritage herunter.\n"
-                     "Voraussetzung: Chrome muss mit Remote-Debugging gestartet sein:\n\n"
-                     '  chrome.exe --remote-debugging-port=9222 '
-                     '--user-data-dir="%TEMP%\\chrome-cdp"'
-                 )).pack(anchor="w", padx=10, pady=8)
+        self._tool_help(tab, [
+            "DNA-Matches von MyHeritage laden.  Zwei Schritte:",
+            "  1. Matchliste herunterladen  – holt deine Match-Liste (download_myheritage.py)",
+            "  2. Gemeinsame Matches        – pro Match die „shared matches“ (braucht eine CSV-Datei)",
+            "",
+            "Voraussetzung: angemeldetes Chrome mit Remote-Debugging:",
+            '   chrome.exe --remote-debugging-port=9222 --user-data-dir="%TEMP%\\chrome-cdp"',
+        ])
 
-        bf = tk.Frame(info, bg=C["panel"]); bf.pack(anchor="w", padx=10, pady=(0, 8))
+        opt = tk.Frame(tab, bg=C["panel"]); opt.pack(fill="x", padx=6, pady=6)
+
+        # Schritt 1 – Matchliste
+        self._mh_only_new     = tk.BooleanVar(value=False)
+        self._mh_no_segments  = tk.BooleanVar(value=False)
+        tk.Label(opt, text="Schritt 1 – Matchliste:", bg=C["panel"], fg=C["link"],
+                 font=("Segoe UI", 9, "bold")).grid(row=0, column=0, columnspan=3,
+                 sticky="w", padx=8, pady=(6, 0))
+        tk.Checkbutton(opt, text="--only-new (nur neue Matches)",
+                       variable=self._mh_only_new, bg=C["panel"], fg=C["text"],
+                       selectcolor=C["bg"]).grid(row=1, column=0, sticky="w", padx=8)
+        tk.Checkbutton(opt, text="--no-segments (schneller, ohne Segmentdetails)",
+                       variable=self._mh_no_segments, bg=C["panel"], fg=C["text"],
+                       selectcolor=C["bg"]).grid(row=1, column=1, columnspan=2, sticky="w")
+        tk.Label(opt, text="Min. cM:", bg=C["panel"], fg=C["text"]).grid(
+            row=2, column=0, sticky="w", padx=8)
+        self._mh_min_cm = tk.StringVar(value="8")
+        tk.Entry(opt, textvariable=self._mh_min_cm, width=6).grid(
+            row=2, column=1, sticky="w")
+
+        # Schritt 2 – Shared matches (CSV)
+        tk.Label(opt, text="Schritt 2 – CSV-Datei:", bg=C["panel"], fg=C["link"],
+                 font=("Segoe UI", 9, "bold")).grid(row=3, column=0, columnspan=3,
+                 sticky="w", padx=8, pady=(8, 0))
+        self._mh_csv = tk.StringVar()
+        tk.Entry(opt, textvariable=self._mh_csv, width=44).grid(
+            row=4, column=0, columnspan=2, sticky="w", padx=8)
+        tk.Button(opt, text="…", bg=C["card"], fg=C["text"], relief="flat", padx=8,
+                  command=self._mh_pick_csv).grid(row=4, column=2, sticky="w", padx=4)
+
+        bf = tk.Frame(opt, bg=C["panel"]); bf.grid(row=5, column=0, columnspan=4,
+                                                   sticky="w", padx=8, pady=8)
         log = self._tool_log_widget(tab)
 
-        btn_stop  = tk.Button(bf, text="■ Stop", state="disabled",
-                              bg="#7a2020", fg="white", relief="flat", padx=10,
-                              command=lambda: self._tool_stop("mh", log, btn_start, btn_stop))
-        btn_start = tk.Button(bf, text="▶ MyHeritage Matches starten",
-                              bg=C["accent"], fg="white", relief="flat", padx=10,
-                              command=lambda: self._tool_start(
-                                  "mh", [sys.executable, "-u", _TOOLS["myheritage"]],
-                                  log, btn_start, btn_stop))
-        btn_start.pack(side="left", padx=(0, 4))
-        btn_stop.pack(side="left")
+        btn_stop1 = tk.Button(bf, text="■", state="disabled",
+                              bg="#7a2020", fg="white", relief="flat", padx=6)
+        btn_stop2 = tk.Button(bf, text="■", state="disabled",
+                              bg="#7a2020", fg="white", relief="flat", padx=6)
+        btn_dl    = tk.Button(bf, text="1. Matchliste herunterladen",
+                              bg=C["accent"], fg="white", relief="flat", padx=10)
+        btn_sh    = tk.Button(bf, text="2. Gemeinsame Matches",
+                              bg=C["card"], fg=C["text"], relief="flat", padx=10)
+
+        btn_stop1.configure(command=lambda: self._tool_stop(
+            "mh_dl", log, btn_dl, btn_stop1))
+        btn_stop2.configure(command=lambda: self._tool_stop(
+            "mh", log, btn_sh, btn_stop2))
+        btn_dl.configure(command=lambda: self._tool_start(
+            "mh_dl", self._mh_download_cmd(), log, btn_dl, btn_stop1))
+        btn_sh.configure(command=lambda: self._mh_start_shared(log, btn_sh, btn_stop2))
+
+        btn_dl.pack(side="left", padx=(0, 2))
+        btn_stop1.pack(side="left", padx=(0, 8))
+        btn_sh.pack(side="left", padx=(0, 2))
+        btn_stop2.pack(side="left")
+
+    def _mh_pick_csv(self):
+        p = filedialog.askopenfilename(
+            title="MyHeritage Match-CSV wählen",
+            filetypes=[("CSV-Dateien", "*.csv"), ("Alle Dateien", "*.*")])
+        if p:
+            self._mh_csv.set(p)
+
+    def _mh_download_cmd(self) -> list[str]:
+        cmd = [sys.executable, "-u", _TOOLS["mh_download"]]
+        if self._mh_only_new.get():
+            cmd.append("--only-new")
+        if self._mh_no_segments.get():
+            cmd.append("--no-segments")
+        cm = self._mh_min_cm.get().strip()
+        if cm:
+            cmd += ["--min-cm", cm]
+        return cmd
+
+    def _mh_start_shared(self, log, btn, btn_stop):
+        csv = self._mh_csv.get().strip()
+        if not csv or not os.path.exists(csv):
+            messagebox.showinfo(
+                "CSV fehlt",
+                "Für „Gemeinsame Matches“ wird eine Match-CSV benötigt.\n"
+                "Bitte oben unter Schritt 2 eine Datei auswählen.")
+            return
+        self._tool_start(
+            "mh", [sys.executable, "-u", _TOOLS["myheritage"], "--csv", csv],
+            log, btn, btn_stop)
+
+    # ── Tab: Importe ──────────────────────────────────────────────────────────
+
+    def _build_import_tab(self, nb: ttk.Notebook):
+        tab = tk.Frame(nb, bg=C["bg"]); nb.add(tab, text="Importe")
+
+        self._tool_help(tab, [
+            "Übernimmt heruntergeladene/gecrawlte Daten in die Hauptdatenbank "
+            "(ancestry_dna.db).  Dubletten werden gegen das GEDCOM abgeglichen und "
+            "NICHT überschrieben.",
+            "",
+            "Reihenfolge im Workflow: erst sammeln (andere Tabs), dann hier importieren.",
+        ])
+
+        opt = tk.Frame(tab, bg=C["panel"]); opt.pack(fill="x", padx=6, pady=6)
+        log = self._tool_log_widget(tab)
+
+        def add_row(r: int, label: str, key: str, build_cmd):
+            tk.Label(opt, text=label, bg=C["panel"], fg=C["text"],
+                     anchor="w", width=22).grid(row=r, column=0, sticky="w",
+                                                padx=8, pady=4)
+            btn_stop = tk.Button(opt, text="■", state="disabled", bg="#7a2020",
+                                 fg="white", relief="flat", padx=6)
+            btn = tk.Button(opt, text="▶ Start", bg=C["accent"], fg="white",
+                            relief="flat", padx=10)
+            btn_stop.configure(command=lambda: self._tool_stop(key, log, btn, btn_stop))
+            btn.configure(command=lambda: self._tool_start(
+                key, build_cmd(), log, btn, btn_stop))
+            btn.grid(row=r, column=3, sticky="w", padx=(8, 2))
+            btn_stop.grid(row=r, column=4, sticky="w")
+            return btn
+
+        # Webtrees → DB
+        self._imp_wt_nolink = tk.BooleanVar(value=False)
+        tk.Checkbutton(opt, text="--no-link (kein GEDCOM-Abgleich)",
+                       variable=self._imp_wt_nolink, bg=C["panel"], fg=C["text"],
+                       selectcolor=C["bg"]).grid(row=0, column=1, columnspan=2, sticky="w")
+        add_row(0, "Webtrees → DB", "imp_webtrees", lambda: (
+            [sys.executable, "-u", _TOOLS["imp_webtrees"]]
+            + (["--no-link"] if self._imp_wt_nolink.get() else [])))
+
+        # MyHeritage CSV
+        self._imp_mh_file = tk.StringVar()
+        ef = tk.Frame(opt, bg=C["panel"]); ef.grid(row=1, column=1, columnspan=2, sticky="w")
+        tk.Entry(ef, textvariable=self._imp_mh_file, width=30).pack(side="left")
+        tk.Button(ef, text="…", bg=C["card"], fg=C["text"], relief="flat", padx=6,
+                  command=lambda: self._pick_into(self._imp_mh_file, "CSV", "*.csv")
+                  ).pack(side="left", padx=4)
+        add_row(1, "MyHeritage-CSV → DB", "imp_mh_csv", lambda: (
+            [sys.executable, "-u", _TOOLS["imp_mh_csv"]]
+            + ([self._imp_mh_file.get().strip()] if self._imp_mh_file.get().strip() else [])))
+
+        # GEDmatch TSV
+        self._imp_gm_file = tk.StringVar()
+        gf = tk.Frame(opt, bg=C["panel"]); gf.grid(row=2, column=1, columnspan=2, sticky="w")
+        tk.Entry(gf, textvariable=self._imp_gm_file, width=30).pack(side="left")
+        tk.Button(gf, text="…", bg=C["card"], fg=C["text"], relief="flat", padx=6,
+                  command=lambda: self._pick_into(self._imp_gm_file, "TSV/CSV", "*.*")
+                  ).pack(side="left", padx=4)
+        add_row(2, "GEDmatch-TSV → DB", "imp_gedmatch", lambda: (
+            [sys.executable, "-u", _TOOLS["imp_gedmatch"]]
+            + ([self._imp_gm_file.get().strip()] if self._imp_gm_file.get().strip() else [])))
+
+        # WikiTree
+        self._imp_wk_key = tk.StringVar()
+        self._imp_wk_depth = tk.StringVar(value="6")
+        wf = tk.Frame(opt, bg=C["panel"]); wf.grid(row=3, column=1, columnspan=2, sticky="w")
+        tk.Label(wf, text="ID:", bg=C["panel"], fg=C["text"]).pack(side="left")
+        tk.Entry(wf, textvariable=self._imp_wk_key, width=16).pack(side="left", padx=(2, 8))
+        tk.Label(wf, text="Tiefe:", bg=C["panel"], fg=C["text"]).pack(side="left")
+        tk.Entry(wf, textvariable=self._imp_wk_depth, width=4).pack(side="left", padx=2)
+        add_row(3, "WikiTree → DB", "imp_wikitree", self._imp_wikitree_cmd)
+
+    def _pick_into(self, var: tk.StringVar, label: str, pattern: str):
+        p = filedialog.askopenfilename(
+            title=f"{label}-Datei wählen",
+            filetypes=[(label, pattern), ("Alle Dateien", "*.*")])
+        if p:
+            var.set(p)
+
+    def _imp_wikitree_cmd(self) -> list[str]:
+        key = self._imp_wk_key.get().strip()
+        if not key:
+            messagebox.showinfo("WikiTree-ID fehlt",
+                                "Bitte eine WikiTree-ID angeben, z. B. Kovermann-123.")
+            return []
+        cmd = [sys.executable, "-u", _TOOLS["imp_wikitree"], key]
+        depth = self._imp_wk_depth.get().strip()
+        if depth.isdigit():
+            cmd += ["--depth", depth]
+        return cmd
+
+    # ── Tab: Web-Viewer ───────────────────────────────────────────────────────
+
+    def _build_viewer_tab(self, nb: ttk.Notebook):
+        tab = tk.Frame(nb, bg=C["bg"]); nb.add(tab, text="Web-Viewer")
+
+        self._tool_help(tab, [
+            "Startet lokale Web-Oberflächen.  Der Server läuft im Log unten; der "
+            "Browser öffnet sich nach ein paar Sekunden automatisch.  Zum Beenden "
+            "„■ Stop“ drücken.",
+            "",
+            "• Matricula-Viewer (Port 5000): gescannte Kirchenbuch-Seiten + Transkripte "
+            "ansehen und korrigieren.",
+            "• Entity-Browser (Port 5001): alle Quellen (DNA, Baum, Matricula) "
+            "zusammenführen und prüfen.",
+        ])
+
+        opt = tk.Frame(tab, bg=C["panel"]); opt.pack(fill="x", padx=6, pady=6)
+        log = self._tool_log_widget(tab)
+
+        def add_server(r, label, key, tool, url):
+            tk.Label(opt, text=label, bg=C["panel"], fg=C["text"], anchor="w",
+                     width=30).grid(row=r, column=0, sticky="w", padx=8, pady=6)
+            btn_stop = tk.Button(opt, text="■ Stop", state="disabled", bg="#7a2020",
+                                 fg="white", relief="flat", padx=8)
+            btn = tk.Button(opt, text="▶ Starten & öffnen", bg=C["accent"],
+                            fg="white", relief="flat", padx=10)
+            btn_stop.configure(command=lambda: self._tool_stop(key, log, btn, btn_stop))
+
+            def _go():
+                self._tool_start(key, [sys.executable, "-u", _TOOLS[tool]],
+                                 log, btn, btn_stop)
+                if self._tool_procs.get(key):
+                    self._tool_open_url(url)
+            btn.configure(command=_go)
+            btn.grid(row=r, column=1, sticky="w", padx=(8, 2))
+            btn_stop.grid(row=r, column=2, sticky="w")
+            tk.Button(opt, text="↗ Browser", bg=C["card"], fg=C["text"], relief="flat",
+                      padx=8, command=lambda: webbrowser.open(url)).grid(
+                row=r, column=3, sticky="w", padx=6)
+
+        add_server(0, "Matricula-Viewer  (localhost:5000)", "mat_viewer",
+                   "mat_viewer", "http://127.0.0.1:5000")
+        add_server(1, "Entity-Browser  (localhost:5001)", "entity_browser",
+                   "entity_browser", "http://127.0.0.1:5001")
 
     # ── Bulk-Fenster ──────────────────────────────────────────────────────────
 
