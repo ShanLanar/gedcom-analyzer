@@ -11,14 +11,23 @@ if "%~1"=="__fromtemp" goto :main_start
 set "SELFCOPY=%TEMP%\gedcom-updater"
 if not exist "%SELFCOPY%" mkdir "%SELFCOPY%" >nul 2>&1
 copy /y "%~f0" "%SELFCOPY%\update-and-run.bat" >nul
-call "%SELFCOPY%\update-and-run.bat" __fromtemp
+REM Ursprungsordner (wo diese .bat liegt) an die Temp-Kopie weiterreichen,
+REM damit REPO_DIR dem tatsaechlichen Speicherort folgt (kein fester Pfad).
+call "%SELFCOPY%\update-and-run.bat" __fromtemp "%~dp0"
 exit /b %errorlevel%
 
 :main_start
 cd /d "%~dp0" >nul 2>&1
 
 REM === Konfiguration ============================================================
-set "REPO_DIR=C:\gedcom-analyzer"
+REM REPO_DIR folgt dem Ordner, aus dem die .bat gestartet wurde (via %~2 von der
+REM Selbstkopie). Ist das bereits ein Git-Repo, wird DORT aktualisiert – egal wo
+REM es liegt (z. B. C:\Test\gedcom-analyzer). Nur fuer den ERST-Clone (Ordner ist
+REM noch kein Repo) gilt das Standardziel C:\gedcom-analyzer.
+set "REPO_DIR=%~2"
+if defined REPO_DIR if "%REPO_DIR:~-1%"=="\" set "REPO_DIR=%REPO_DIR:~0,-1%"
+if not defined REPO_DIR set "REPO_DIR=C:\gedcom-analyzer"
+if not exist "%REPO_DIR%\.git" set "REPO_DIR=C:\gedcom-analyzer"
 set "REPO_URL=https://github.com/ShanLanar/gedcom-analyzer.git"
 REM Branch beim ERST-Clone. Bei vorhandenem Repo wird der aktuell ausgecheckte
 REM Branch automatisch erkannt (siehe unten).

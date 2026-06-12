@@ -43,6 +43,22 @@ log = logging.getLogger(__name__)
 
 class AncestryDnaApp(tk.Frame):
 
+    # cM-Bereiche → wahrscheinliche Verwandtschaft (lo, hi, Label, Generation).
+    # Einzige Quelle der Wahrheit auch für analysis/mrca.py.
+    _CM_RANGES = [
+        (2600, 3900, "Elternteil / Kind",               1),
+        (1700, 2600, "Halbgeschwister / Großelternteil", 2),
+        (1200, 1700, "Halbgeschwister / Großelternteil", 2),
+        ( 550, 1200, "Onkel/Tante · 1. Cousin",         2),
+        ( 330,  550, "1. Cousin",                        3),
+        ( 200,  330, "1. Cousin 1× entf. · 2. Cousin",  3),
+        ( 100,  200, "2. Cousin",                        4),
+        (  55,  100, "2. Cousin 1× entf. · 3. Cousin",  4),
+        (  20,   55, "3. Cousin · 4. Cousin",            5),
+        (   7,   20, "4. Cousin · 5. Cousin",            6),
+        (   3,    7, "5. Cousin und weiter",              7),
+    ]
+
     def __init__(self, master=None, gedcom_path: str = ""):
         # Dual-Modus: master=None -> eigenes Fenster (Standalone, abwärtskompatibel),
         # master=<Frame/Notebook-Tab> -> eingebettet in die vereinte App.
@@ -1948,12 +1964,12 @@ class AncestryDnaApp(tk.Frame):
 
     def _assign_cluster_side(self):
         """Weist allen Mitgliedern des gewählten Clusters eine Seite zu."""
-        sel = self._cluster_list.selection()
+        sel = self._cluster_tab.get_cluster_list_selection()
         if not sel:
             messagebox.showinfo("Kein Cluster", "Bitte Cluster auswählen.")
             return
         cid = int(sel[0])
-        members = self._clusters.get(cid, [])
+        members = self._cluster_tab.get_clusters().get(cid, [])
         if not members:
             return
         test_guid = self._current_guid()
