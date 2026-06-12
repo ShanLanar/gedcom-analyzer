@@ -1103,14 +1103,20 @@ class AncestryDnaApp(tk.Frame):
 
     def _refresh_match_table(self, *_):
         """Delegation stub — aktualisiert die Match-Tabelle im Matches-Tab."""
+        if getattr(self, "_matches_tab", None) is None:
+            return  # Tab noch nicht aufgebaut (Aufruf während früherem Tab-Init)
         self._matches_tab.refresh()
 
     def _update_matches_kit_combo(self):
         """Delegation stub — befüllt den Kit-Selektor im Matches-Tab."""
+        if getattr(self, "_matches_tab", None) is None:
+            return  # Tab noch nicht aufgebaut; after(300, …) füllt später nach
         self._matches_tab.update_kit_combo()
 
     def _load_gedcom_link_panel(self, match: "DnaMatch"):
         """Delegation stub — füllt den GEDCOM-Treffer-Tab im Matches-Tab."""
+        if getattr(self, "_matches_tab", None) is None:
+            return
         self._matches_tab.load_gedcom_link_panel(match)
 
     @property
