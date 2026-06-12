@@ -189,6 +189,37 @@ def test_score_about_year_wider_tolerance():
     assert score >= MIN_LINK_SCORE
 
 
+def test_score_place_bonus_increases_score():
+    # Phonetischer Treffer (Meyer/Maier) ohne Jahr gibt Raum für Orts-Bonus
+    ged = _ged("Maier", "")
+    score_no_place, _ = compute_link_score("", "Meyer", None, ged)
+    score_with_place, _ = compute_link_score(
+        "", "Meyer", None, ged,
+        ped_place="Schwagstorf", ged_place="Schwagstorf, Niedersachsen",
+    )
+    assert score_with_place > score_no_place
+
+
+def test_score_different_place_no_bonus():
+    # Sehr unterschiedliche Orte geben keinen Bonus
+    ged = _ged("Müller", "Hans", 1850)
+    score_no_place, _ = compute_link_score("Hans", "Müller", 1850, ged)
+    score_diff_place, _ = compute_link_score(
+        "Hans", "Müller", 1850, ged,
+        ped_place="München", ged_place="Hamburg",
+    )
+    assert score_diff_place == score_no_place
+
+
+def test_score_empty_place_ignored():
+    ged = _ged("Schmidt", "Franz", 1800)
+    score_base, _ = compute_link_score("Franz", "Schmidt", 1800, ged)
+    score_one_side, _ = compute_link_score(
+        "Franz", "Schmidt", 1800, ged, ped_place="Berlin", ged_place="",
+    )
+    assert score_one_side == score_base
+
+
 # ── GEDCOM-Import ─────────────────────────────────────────────────────────────
 
 _SAMPLE_INDIVIDUALS = {

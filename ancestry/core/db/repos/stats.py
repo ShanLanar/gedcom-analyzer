@@ -1,8 +1,11 @@
 from __future__ import annotations
+import logging
 from typing import Optional, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ancestry.core.database import Database
+
+log = logging.getLogger(__name__)
 
 
 class StatsRepo:
@@ -73,7 +76,8 @@ class StatsRepo:
                     SELECT COUNT(DISTINCT match_guid) FROM gedcom_links {where}
                 """, params)
                 r["gedcom_linked"] = cur.fetchone()[0]
-            except Exception:
+            except Exception as e:
+                log.debug("gedcom_persons/gedcom_linked nicht verfügbar: %s", e)
                 r["gedcom_persons"] = 0
                 r["gedcom_linked"] = 0
 
@@ -97,6 +101,36 @@ class StatsRepo:
                 """)
                 r["kit_breakdown"] = [(row[0] or row[1][:16], row[2])
                                       for row in cur.fetchall()]
-            except Exception:
+            except Exception as e:
+                log.debug("kit_breakdown nicht verfügbar: %s", e)
                 r["kit_breakdown"] = []
+
+            # ── Generation length (avg years per generation in match pedigrees) ──
+            # For each pair of consecutive generations in the same match-pedigree,
+            # compute the average birth-year gap.  Only years in a plausible range
+            # (15–55 years per generation) are included to filter noise.
+            try:
+                cur.execute(f"""
+                    SELECT AVG(gap) FROM (
+                        SELECT
+                            CAST(p1.birth_year AS INTEGER)
+                            - CAST(p2.birth_year AS INTEGER) AS gap
+                        FROM match_pedigree p1
+                        JOIN match_pedigree p2
+                          ON  p2.test_guid  = p1.test_guid
+                          AND p2.match_guid = p1.match_guid
+                          AND p2.generation = p1.generation + 1
+                        WHERE p1.birth_year != '' AND p1.birth_year IS NOT NULL
+                          AND p2.birth_year != '' AND p2.birth_year IS NOT NULL
+                          AND CAST(p1.birth_year AS INTEGER) BETWEEN 1500 AND 2024
+                          AND CAST(p2.birth_year AS INTEGER) BETWEEN 1500 AND 2024
+                          {ped_cond.replace('AND test_guid=?', 'AND p1.test_guid=?')}
+                    ) WHERE gap BETWEEN 15 AND 55
+                """, params)
+                row = cur.fetchone()
+                r["gen_length"] = round(row[0], 1) if row and row[0] else None
+            except Exception as e:
+                log.debug("gen_length-Berechnung: %s", e)
+                r["gen_length"] = None
+
         return r

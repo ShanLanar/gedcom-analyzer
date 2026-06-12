@@ -182,6 +182,12 @@ def _open_parish_db() -> sqlite3.Connection:
         db.commit()
     except Exception:
         pass
+    # Migration: Seitenanzahl pro Buch persistieren (Basis für Fertig-Status)
+    try:
+        db.execute("ALTER TABLE kirchenbuecher ADD COLUMN total_pages INTEGER")
+        db.commit()
+    except Exception:
+        pass
     return db
 
 
@@ -429,9 +435,27 @@ def _scan_book(
     print(f"\n  Buch: {book_id}  [{book_type}  {book['year_from'] or '?'}–{book['year_to'] or '?'}]")
     print(f"  URL:  {book_url}")
 
+    # Buchseite laden — direkt ?pg=1 damit der Viewer und sein Pagination-UI
+    # vollständig geladen sind (nötig für _detect_page_count)
+    pg1_url = f"{book_url.rstrip('/')}/?pg=1"
+    try:
+        pw_page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
+    except Exception:
+        pw_page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
+    time.sleep(pause)
+
+    # ── Seitenanzahl ermitteln ────────────────────────────────────────────────
+    total_pages = _detect_page_count(pw_page)
+    if total_pages is None:
+        print("  ⚠ Konnte Seitenanzahl nicht ermitteln — überspringe Buch")
+        return 0, 0
+    with parish_db:
+        parish_db.execute("UPDATE kirchenbuecher SET total_pages=? WHERE book_id=?",
+                          (total_pages, book_id))
+
     # ── Seiten bestimmen ─────────────────────────────────────────────────────
     if retranscribe:
-        # Alle lokal archivierten Seiten dieses Buchs scannen (kein Browser nötig)
+        # Alle lokal archivierten Seiten dieses Buchs scannen
         parts        = book_id.split("/")
         parish_slug  = parts[-2] if len(parts) >= 2 else book_id
         book_slug    = parts[-1]
@@ -455,15 +479,7 @@ def _scan_book(
         done_pages: set[int] = set()
         page_range = [int(p.stem) for p in archived]
     else:
-        # Navigate to page 1 and optionally detect total for display
-        pg1_url = f"{book_url.rstrip('/')}/?pg=1"
-        try:
-            pw_page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
-        except Exception:
-            pw_page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
-        time.sleep(pause)
-
-        total_pages = _try_detect_page_count(pw_page)
+        print(f"  {total_pages} Seiten gefunden")
         done_pages = {
             row[0]
             for row in parish_db.execute(
@@ -471,11 +487,9 @@ def _scan_book(
                 (book_id,),
             ).fetchall()
         }
-        if total_pages:
-            print(f"  {total_pages} Seiten erkannt, {len(done_pages)} bereits fertig")
-        else:
-            print(f"  Seitenanzahl unbekannt — inkrementeller Scan "
-                  f"({len(done_pages)} bereits fertig)")
+        remaining = total_pages - len(done_pages)
+        print(f"  {len(done_pages)} bereits fertig, {remaining} verbleibend")
+        page_range = list(range(1, total_pages + 1))
 
     # Seiten mit manuellen Viewer-Korrekturen nie überschreiben
     try:
@@ -495,30 +509,17 @@ def _scan_book(
     scanned = 0
     new_entries = 0
 
-    if retranscribe:
-        # page_range already set above
-        _iter = page_range
-    elif total_pages:
-        _iter = range(1, total_pages + 1)
-    else:
-        _iter = None  # incremental: open-ended while loop below
-
-    def _do_page(page_nr: int) -> bool:
-        """Process one page. Returns False when end-of-book detected."""
-        nonlocal scanned, new_entries
-
+    for page_nr in page_range:
         if page_nr in done_pages:
-            return True
+            continue
         if page_nr in corrected_pages:
-            return True
+            continue
 
-        total_str = f"/{total_pages}" if total_pages else ""
-        print(f"    Seite {page_nr:4d}{total_str} ", end="", flush=True)
+        print(f"    Seite {page_nr:4d}/{total_pages} ", end="", flush=True)
 
         arch_file = _archive_path(archive_dir, book_id, page_nr)
-        image_url: str | None = None
-        image_bytes: bytes | None = None
 
+        # Bild holen: erst lokales Archiv, dann Matricula
         if arch_file.exists():
             image_bytes = arch_file.read_bytes()
             image_url   = str(arch_file)
@@ -526,18 +527,15 @@ def _scan_book(
         else:
             if pw_page is None:
                 print("⚠ kein Bild (kein Browser und kein Archiv)")
-                return True
+                continue
+            # Seite 1 wurde bereits für _detect_page_count geladen — Screenshot
+            # direkt machen ohne erneutes goto (Netzwerk sparen).
             if page_nr == 1 and not retranscribe:
                 image_url, image_bytes = _capture_current_page(pw_page, book_url, 1)
             else:
-                # Before loading, note the current URL so we can detect end-of-book
                 image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
-                # End-of-book: Matricula clamps URL back to last valid page
-                actual_pg = re.search(r'[?&]pg=(\d+)', pw_page.url)
-                if actual_pg and int(actual_pg.group(1)) < page_nr:
-                    print(f"\n  Ende des Buches nach Seite {int(actual_pg.group(1))}")
-                    return False  # stop loop
             if image_bytes is not None:
+                # Archivieren
                 arch_file.parent.mkdir(parents=True, exist_ok=True)
                 arch_file.write_bytes(image_bytes)
                 print("💾 ", end="", flush=True)
@@ -551,10 +549,12 @@ def _scan_book(
                        VALUES (?,?,?,?,'error',datetime('now'),'kein Bild')""",
                     (book_id, page_nr, image_url or "", ""),
                 )
-            return True
+            continue
 
+        # Claude Vision
         entries = _transcribe_page(image_bytes, book_type, dry_run)
         count   = _save_entries(main_db, book_id, page_nr, book_type, entries)
+
         print(f"→ {count:3d} Einträge")
 
         with parish_db:
@@ -564,184 +564,42 @@ def _scan_book(
                    VALUES (?,?,?,?,'done',?,datetime('now'))""",
                 (book_id, page_nr, image_url or "", str(arch_file), count),
             )
+
         scanned     += 1
         new_entries += count
         time.sleep(pause * 0.5)
-        return True
-
-    if _iter is not None:
-        for page_nr in _iter:
-            if not _do_page(page_nr):
-                break
-    else:
-        # Incremental: scan until _do_page detects URL clamp (end-of-book)
-        page_nr = 1
-        while _do_page(page_nr):
-            page_nr += 1
 
     return scanned, new_entries
 
 
-def _try_detect_page_count(page) -> int | None:
-    """Quick DOM probe for total page count — optional, used for display only."""
+def _detect_page_count(page) -> int | None:
+    """
+    Liest die Gesamtseitenanzahl aus dem Matricula-Viewer.
+    URL-Schema: .../D1_001_1/?pg=1  → Viewer zeigt z.B. "1 / 248"
+    """
+    # Direkt aus DOM — Matricula rendert die Seitenzahl in einem
+    # Pagination-Element (Input-Feld oder Text-Span)
     try:
-        return page.evaluate("""
+        result = page.evaluate("""
         () => {
+            // Input[max] — häufigste Form
             const inp = document.querySelector('input[max]');
-            if (inp && parseInt(inp.max) > 0) return parseInt(inp.max);
-            const sel = document.querySelector('select[name="pg"],select[name="page"]');
-            if (sel && sel.options.length > 1) return sel.options.length;
-            let maxPg = 0;
-            for (const el of document.querySelectorAll('[href],[data-href],[onclick]')) {
-                for (const attr of el.attributes) {
-                    const m = attr.value.match(/[?&]pg=(\\d+)/);
-                    if (m) { const n = parseInt(m[1]); if (n > maxPg) maxPg = n; }
-                }
-            }
-            if (maxPg > 0) return maxPg;
-            const html = document.documentElement.innerHTML;
-            const m = html.match(/"(?:total_?pages?|page_?count|numPages)"\\s*:\\s*(\\d+)/i);
-            if (m && parseInt(m[1]) > 0) return parseInt(m[1]);
+            if (inp && inp.max) return parseInt(inp.max);
+            // Span/div mit "X / Y"-Format
+            const all = document.body.innerText;
+            const m = all.match(/\\b(\\d+)\\s*\\/\\s*(\\d+)\\b/);
+            if (m) return parseInt(m[2]);
+            // Anzahl ?pg=-Links (Thumbnailleiste)
+            const pgs = document.querySelectorAll('a[href*="?pg="]');
+            if (pgs.length > 1) return pgs.length;
             return null;
         }
-        """) or None
+        """)
+        if result:
+            return int(result)
     except Exception:
-        return None
-
-
-def _navigate_and_detect(page, pg1_url: str, book_url: str, pause: float) -> int | None:
-    """
-    Navigiert zu pg1_url und ermittelt die Gesamtseitenanzahl.
-
-    Strategie:
-    1. Network-Interception: fängt API-Antworten ab, die total_pages enthalten
-    2. DOM-Fallback: sucht im gerenderten HTML nach Pagination-Elementen
-    3. Debug-Ausgabe wenn alles scheitert
-    """
-    _found: dict[str, int | None] = {"total": None}
-
-    def _on_response(response) -> None:
-        if _found["total"]:
-            return
-        ct = response.headers.get("content-type", "")
-        if "json" not in ct:
-            return
-        try:
-            data = response.json()
-        except Exception:
-            return
-        if not isinstance(data, dict):
-            return
-        for key in ("total_pages", "totalPages", "page_count", "pageCount",
-                    "numPages", "num_pages", "count", "total"):
-            v = data.get(key)
-            if v and isinstance(v, int) and v > 0:
-                _found["total"] = v
-                return
-        # nested: {"meta": {"total": N}}
-        for sub in data.values():
-            if isinstance(sub, dict):
-                for key in ("total_pages", "totalPages", "page_count", "total"):
-                    v = sub.get(key)
-                    if v and isinstance(v, int) and v > 0:
-                        _found["total"] = v
-                        return
-
-    page.on("response", _on_response)
-    try:
-        try:
-            page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
-        except Exception:
-            page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
-        time.sleep(pause)
-
-        if _found["total"]:
-            return _found["total"]
-
-        # DOM fallback — try several common pagination patterns including raw HTML
-        try:
-            result = page.evaluate("""
-            () => {
-                const inp = document.querySelector('input[max]');
-                if (inp && parseInt(inp.max) > 0) return parseInt(inp.max);
-
-                const sel = document.querySelector('select[name="pg"],select[name="page"]');
-                if (sel && sel.options.length > 1) return sel.options.length;
-
-                const viewer = document.querySelector(
-                    '[data-total-pages],[data-page-count],[data-pages],[data-num-pages]');
-                if (viewer) {
-                    const v = viewer.dataset.totalPages || viewer.dataset.pageCount
-                            || viewer.dataset.pages    || viewer.dataset.numPages;
-                    if (v && parseInt(v) > 0) return parseInt(v);
-                }
-
-                // Find max ?pg= number across ALL elements and ALL attributes
-                let maxPg = 0;
-                for (const el of document.querySelectorAll('[href],[src],[data-href],[onclick],[data-url]')) {
-                    for (const attr of el.attributes) {
-                        const m = attr.value.match(/[?&]pg=(\d+)/);
-                        if (m) { const n = parseInt(m[1]); if (n > maxPg) maxPg = n; }
-                    }
-                }
-                if (maxPg > 0) return maxPg;
-
-                // Script tags: look for page count as JSON or assignment
-                const html = document.documentElement.innerHTML;
-                const patterns = [
-                    /"(?:total_?pages?|page_?count|numPages|anzahl_?seiten|num_?pages?)"\\s*:\\s*(\\d+)/i,
-                    /totalPages\\s*[=:]\\s*(\\d+)/i,
-                    /pageCount\\s*[=:]\\s*(\\d+)/i,
-                    /numPages\\s*[=:]\\s*(\\d+)/i,
-                    /\\.pages_?count\\s*=\\s*(\\d+)/i,
-                    /"pages"\\s*:\\s*(\\d+)/i,
-                ];
-                for (const p of patterns) {
-                    const m = html.match(p);
-                    if (m && parseInt(m[1]) > 0) return parseInt(m[1]);
-                }
-
-                const text = (document.body && document.body.innerText) || '';
-                const m = text.match(/\\b(\\d+)\\s*[/|von|of]+\\s*(\\d+)\\b/i);
-                if (m && parseInt(m[2]) > 0) return parseInt(m[2]);
-
-                return null;
-            }
-            """)
-            if result and int(result) > 0:
-                return int(result)
-        except Exception as e:
-            print(f"[DOM-Fehler: {e}] ", end="")
-
-        # Last resort: dump a snippet of the raw HTML for diagnosis
-        try:
-            title = page.title()
-            url   = page.url
-            print(f"\n  [debug] Geladene URL : {url}")
-            print(f"  [debug] Seitentitel  : {title!r}")
-            html_snippet = page.content()
-            # Search raw HTML for any page-count-like patterns
-            candidates = re.findall(
-                r'(?:total_?pages?|page_?count|numPages|anzahl|seiten)\D{0,20}?(\d+)',
-                html_snippet, re.IGNORECASE)
-            if candidates:
-                print(f"  [debug] Seitenanzahl-Kandidaten im HTML: {candidates[:10]}")
-            else:
-                body_text = page.inner_text("body") or ""
-                nums = re.findall(r'\b(\d{2,4})\b', body_text)
-                unique_nums = sorted({int(n) for n in nums if 10 <= int(n) <= 9999})
-                print(f"  [debug] DOM-Zahlen: {unique_nums[:30]}")
-                # Show first 500 chars of body for structure clues
-                print(f"  [debug] Body-Anfang: {body_text[:300]!r}")
-        except Exception:
-            pass
-
-        return None
-    finally:
-        try:
-            page.remove_listener("response", _on_response)
-        except Exception:
-            pass
+        pass
+    return None
 
 
 def _capture_current_page(
@@ -943,10 +801,11 @@ def scan_kirchspiel(
             total_entries += entries
     else:
         with sync_playwright() as pw:
-            launch_kwargs: dict = {"headless": headless, "args": ["--ignore-certificate-errors"]}
-            if os.path.exists(CHROME_PATH):
-                launch_kwargs["executable_path"] = CHROME_PATH
-            browser = pw.chromium.launch(**launch_kwargs)
+            browser = pw.chromium.launch(
+                executable_path=CHROME_PATH,
+                headless=headless,
+                args=["--ignore-certificate-errors"],
+            )
             ctx = browser.new_context(
                 ignore_https_errors=True,
                 user_agent=(

@@ -6,69 +6,79 @@ Genealogie-Suite — vereintes Hauptfenster (3 Reiter)
   🌳 Stammbaum    – GEDCOM-Analyzer (main.py / AhnenApp)
   🧬 DNA-Matches  – DNA-Match-Analyzer (ancestry/gui/app.py / AncestryDnaApp)
 
-GEDCOM-Pfad und Root-ID werden im Start-Reiter gesetzt und live in
-beide Analyse-Reiter propagiert. Theme (hell/dunkel) ist über den
-Toggle-Button umschaltbar und wird in config_user.json gespeichert.
+Die drei Reiter teilen dasselbe Dark-Theme (cfg-Farben).
+GEDCOM-Pfad und Root-ID, die im Start-Tab gesetzt werden, werden live in
+beide Analyse-Reiter propagiert.
+
+Die drei Reiter teilen dasselbe Dark-Theme (cfg-Farben).
+GEDCOM-Pfad und Root-ID, die im Start-Tab gesetzt werden, werden live in
+beide Analyse-Reiter propagiert.
 """
 from __future__ import annotations
 
 import logging
 import os
 import sys
-import subprocess
+import importlib
+import pkgutil
 import traceback
 import tkinter as tk
 from tkinter import ttk
 
 log = logging.getLogger(__name__)
 
-ROOT         = os.path.dirname(os.path.abspath(__file__))
-ANCESTRY_DIR = os.path.join(ROOT, "ancestry")
-
-if ROOT not in sys.path:
-    sys.path.insert(0, ROOT)
-if ANCESTRY_DIR not in sys.path:
-    sys.path.append(ANCESTRY_DIR)
+ROOT = os.path.dirname(os.path.abspath(__file__))
 
 
-# ── Import-Helfer ───────────────────────────────────────────────────────────────
+# ── Import-Helfer ──────────────────────────────────────────────────────────────
 
-def _load_ahnen_app():
+def _eager_import_analyzer():
+    """Lädt Root-config + alle tasks./lib.-Module."""
     if ROOT not in sys.path:
         sys.path.insert(0, ROOT)
     import config as _root_config          # noqa: F401
     from config import apply_overrides
     apply_overrides()
     from main import AhnenApp
+
+    for pkg in ("tasks", "lib"):
+        pkg_dir = os.path.join(ROOT, pkg)
+        if not os.path.isdir(pkg_dir):
+            continue
+        for mod in pkgutil.walk_packages([pkg_dir], prefix=f"{pkg}."):
+            try:
+                importlib.import_module(mod.name)
+            except Exception as e:
+                log.debug("Modul übersprungen %s: %s", mod.name, e)
     return AhnenApp
 
 
 def _load_dna_app():
+    """DNA-App laden (ancestry.endpoints statt config — kein Swap mehr nötig)."""
     from ancestry.gui.app import AncestryDnaApp
     return AncestryDnaApp
 
 
-# ── Reiter-Fehlerplatzhalter ─────────────────────────────────────────────────
+# ── Reiter-Fehlerplatzhalter ───────────────────────────────────────────────────
 
 def _error_tab(parent: tk.Frame, title: str, exc: Exception) -> None:
-    import config as _cfg
     msg = f"⚠  {title}\n\n{type(exc).__name__}: {exc}\n\n{traceback.format_exc()}"
-    tk.Label(parent, text=msg, justify="left", fg=_cfg.RED,
+    tk.Label(parent, text=msg, justify="left", fg="#ff5555",
              font=("Consolas", 9), wraplength=900, anchor="nw",
-             bg=_cfg.BG).pack(fill="both", expand=True, padx=20, pady=20)
+             bg="#1e1e2e").pack(fill="both", expand=True, padx=20, pady=20)
 
 
-# ── Theme-bewusstes ttk-Styling ──────────────────────────────────────────────
+# ── Dark-Theme für ttk.Notebook ───────────────────────────────────────────────
 
-def _apply_notebook_style(root: tk.Tk, cfg) -> None:
-    """Passt ttk-Stile an das aktuelle Farbschema (hell oder dunkel) an."""
-    BG  = cfg.BG
-    BG2 = cfg.BG2
-    BG3 = cfg.BG3
-    ACC = cfg.ACCENT
-    FG  = cfg.FG
-    DIM = cfg.FG_DIM
-
+def _apply_notebook_style(root: tk.Tk) -> None:
+    """Färbt Notebook-Reiter im Dark-Theme ein."""
+    # Farben direkt (vor config-Import, der tiefer im main-Block erfolgt)
+    BG    = "#1e1e2e"
+    BG2   = "#2a2a3e"
+    BG3   = "#232336"
+    ACC   = "#7c7cf8"   # noqa: F841
+    FG    = "#cdd6f4"
+    DIM   = "#6c7086"
     style = ttk.Style(root)
     try:
         style.theme_use("clam")
@@ -87,8 +97,6 @@ def _apply_notebook_style(root: tk.Tk, cfg) -> None:
               expand=[("selected", [0, 0, 0, 2])])
     style.configure("TFrame",   background=BG)
     style.configure("TLabel",   background=BG,  foreground=FG)
-    style.configure("TButton",  background=BG2, foreground=FG,
-                    borderwidth=0, relief="flat")
     style.configure("TCombobox",
                     fieldbackground=BG3, background=BG3,
                     foreground=FG, arrowcolor=FG)
@@ -98,52 +106,48 @@ def _apply_notebook_style(root: tk.Tk, cfg) -> None:
                     background=BG2, troughcolor=BG, arrowcolor=DIM, borderwidth=0)
     style.configure("Accent.Horizontal.TProgressbar",
                     background=ACC, troughcolor=BG2, borderwidth=0)
-    style.configure("Header.TLabel",
-                    background=cfg.BG2, foreground=cfg.FG,
-                    font=cfg.FONT_HEAD, padding=[12, 6])
 
+    # Titelzeile & Fenster-Hintergrund
     root.configure(bg=BG)
-    root.option_add("*Background",        BG)
-    root.option_add("*Foreground",        FG)
-    root.option_add("*Font",              "Segoe\\ UI 10")
-    root.option_add("*highlightThickness","0")
-    if cfg.THEME == "light":
-        root.option_add("*selectBackground", ACC)
-        root.option_add("*selectForeground", "#ffffff")
+    root.option_add("*Background",       BG)
+    root.option_add("*Foreground",       FG)
+    root.option_add("*Font",             "Segoe\\ UI 10")
+    root.option_add("*highlightThickness", "0")
 
 
-# ── Hauptfunktion ────────────────────────────────────────────────────────────
+# ── Hauptfunktion ──────────────────────────────────────────────────────────────
 
 def main():
-    import config as cfg
-    import threading as _threading
+    # ── Imports ────────────────────────────────────────────────────────────────
+    AhnenApp = None
+    _ahnen_exc: Exception = RuntimeError("not loaded")
+    try:
+        AhnenApp = _eager_import_analyzer()
+        _ahnen_exc = None
+    except Exception as exc:
+        log.exception("Analyzer-Import fehlgeschlagen")
+        _ahnen_exc = exc
 
-    # ── Tk-Fenster SOFORT anzeigen ────────────────────────────────────────────
+    AncestryDnaApp = None
+    _dna_exc: Exception = RuntimeError("not loaded")
+    try:
+        AncestryDnaApp = _load_dna_app()
+        _dna_exc = None
+    except Exception as exc:
+        log.exception("DNA-App-Import fehlgeschlagen")
+        _dna_exc = exc
+
+    import config as cfg  # Root-config (Farben, Pfade)
+
+    # ── Tk-Fenster ─────────────────────────────────────────────────────────────
     root = tk.Tk()
     root.title("Genealogie-Suite")
     root.geometry("1380x880")
     root.minsize(1100, 700)
 
-    _apply_notebook_style(root, cfg)
+    _apply_notebook_style(root)
 
-    # ── Globaler Header mit Theme-Toggle ─────────────────────────────────────
-    hdr = tk.Frame(root, bg=cfg.BG2, pady=4)
-    hdr.pack(fill="x")
-    tk.Label(hdr, text="Genealogie-Suite",
-             bg=cfg.BG2, fg=cfg.ACCENT, font=cfg.FONT_HEAD).pack(side="left", padx=14)
-
-    def _toggle_theme():
-        new = "dark" if cfg.THEME == "light" else "light"
-        cfg.save_overrides({"theme": new})
-        subprocess.Popen([sys.executable] + sys.argv, cwd=ROOT)
-        root.after(300, root.destroy)
-
-    theme_icon = "🌙  Dunkel" if cfg.THEME == "light" else "☀  Hell"
-    tk.Button(hdr, text=theme_icon, bg=cfg.BG3, fg=cfg.FG,
-              font=cfg.FONT_MAIN, relief="flat", padx=10, pady=2,
-              command=_toggle_theme).pack(side="right", padx=10)
-
-    # ── Notebook mit 3 Reitern ────────────────────────────────────────────────
+    # ── Notebook mit 3 Reitern ─────────────────────────────────────────────────
     nb = ttk.Notebook(root)
     nb.pack(fill="both", expand=True)
 
@@ -152,148 +156,83 @@ def main():
     tab_dna   = ttk.Frame(nb, style="TFrame")
 
     nb.add(tab_start, text="  🏠 Start  ")
-    nb.add(tab_ged,   text="  🌳 Stammbaum  ")
+    nb.add(tab_ged,   text="  🌳 Stammbaum-Auswertung  ")
     nb.add(tab_dna,   text="  🧬 DNA-Matches  ")
 
-    # ── Lazy-State ────────────────────────────────────────────────────────────
-    _s = {
-        "AhnenApp":       None,  # gesetzt vom Import-Thread
-        "AncestryDnaApp": None,
-        "ahnen_exc":      None,
-        "dna_exc":        None,
-        "ahnen_obj":      None,  # gesetzt nach Instantiierung
-        "dna_obj":        None,
-        "ged_built":      False,
-        "dna_built":      False,
-        "imports_done":   False,
-    }
+    # ── Start-Reiter (Zuerst, damit on_gedcom_change-Callback gebaut werden kann)
+    ahnen_obj: AhnenApp | None = None       # type: ignore[valid-type]
+    dna_obj:   AncestryDnaApp | None = None  # type: ignore[valid-type]
 
-    # Platzhalter in den schweren Reitern
-    def _placeholder(parent, label):
-        f = tk.Frame(parent, bg=cfg.BG)
-        f.pack(fill="both", expand=True)
-        tk.Label(f, text=f"⏳  {label} wird geladen …",
-                 bg=cfg.BG, fg=cfg.FG_DIM,
-                 font=("Segoe UI", 12)).place(relx=0.5, rely=0.5, anchor="center")
-        return f
-
-    _ged_ph = _placeholder(tab_ged, "Stammbaum-Analyzer")
-    _dna_ph = _placeholder(tab_dna, "DNA-Match-Analyzer")
-
-    # ── Gedcom-Änderung propagieren ───────────────────────────────────────────
     def _on_gedcom_change(ged_path: str, root_id: str):
-        if _s["ahnen_obj"] is not None:
+        """Propagiert Pfad-Änderungen vom Start-Tab in beide Analyse-Tabs."""
+        if ahnen_obj is not None:
             try:
-                _s["ahnen_obj"]._path_var.set(ged_path)
-                _s["ahnen_obj"]._root_id_var.set(root_id)
+                ahnen_obj._path_var.set(ged_path)
+                ahnen_obj._root_id_var.set(root_id)
             except Exception:
                 pass
-        if _s["dna_obj"] is not None:
+        if dna_obj is not None:
             try:
-                _s["dna_obj"]._set_gedcom(ged_path)
+                dna_obj._set_gedcom(ged_path)
             except Exception:
                 pass
 
-    # ── Start-Reiter (synchron, schnell) ─────────────────────────────────────
-    start_obj = None
     from start_page import StartPage
     try:
-        start_obj = StartPage(master=tab_start, on_gedcom_change=_on_gedcom_change)
-        try:
-            start_obj._vars["gedfile"].set(cfg.DEFAULT_CONFIG.get("gedfile", ""))
-            start_obj._vars["root_id"].set(cfg.DEFAULT_CONFIG.get("root_id", ""))
-            start_obj._vars["exclude_id"].set(cfg.DEFAULT_CONFIG.get("exclude_id", ""))
-        except Exception:
-            pass
+        start_obj = StartPage(master=tab_start,
+                               on_gedcom_change=_on_gedcom_change)
     except Exception as exc:
         log.exception("StartPage fehlgeschlagen")
         _error_tab(tab_start, "Start-Seite konnte nicht geladen werden", exc)
+        start_obj = None
 
-    # ── Tab-Aufbau-Funktionen (laufen im Hauptthread) ─────────────────────────
-    def _build_ged_tab():
-        if _s["ged_built"]:
-            return
-        _s["ged_built"] = True
-        _ged_ph.destroy()
-        if _s["AhnenApp"] is None:
-            _error_tab(tab_ged, "GEDCOM-Analyzer konnte nicht geladen werden",
-                       _s["ahnen_exc"] or RuntimeError("not loaded"))
-            return
+    # ── Stammbaum-Reiter ──────────────────────────────────────────────────────
+    if AhnenApp is None:
+        _error_tab(tab_ged, "GEDCOM-Analyzer konnte nicht geladen werden", _ahnen_exc)
+    else:
         try:
-            obj = _s["AhnenApp"](master=tab_ged)
-            _s["ahnen_obj"] = obj
+            ahnen_obj = AhnenApp(master=tab_ged)
+            # Start-Tab mit aktuellem GEDCOM-Pfad des Analyzers synchronisieren
             if start_obj is not None:
                 try:
-                    obj._path_var.set(start_obj._vars.get("gedfile", tk.StringVar()).get())
-                    obj._root_id_var.set(start_obj._vars.get("root_id", tk.StringVar()).get())
+                    ged_path = cfg.DEFAULT_CONFIG.get("gedfile", "")
+                    start_obj._vars["gedfile"].set(ged_path)
+                    start_obj._vars["root_id"].set(cfg.DEFAULT_CONFIG.get("root_id", ""))
+                    start_obj._vars["exclude_id"].set(
+                        cfg.DEFAULT_CONFIG.get("exclude_id", ""))
                 except Exception:
                     pass
         except Exception as exc:
             log.exception("AhnenApp-Init fehlgeschlagen")
             _error_tab(tab_ged, "GEDCOM-Analyzer-Fehler beim Start", exc)
 
-    def _build_dna_tab():
-        if _s["dna_built"]:
-            return
-        _s["dna_built"] = True
-        _dna_ph.destroy()
-        if _s["AncestryDnaApp"] is None:
-            _error_tab(tab_dna, "DNA-Tool konnte nicht geladen werden",
-                       _s["dna_exc"] or RuntimeError("not loaded"))
-            return
+    # ── DNA-Reiter ────────────────────────────────────────────────────────────
+    if AncestryDnaApp is None:
+        _error_tab(tab_dna, "DNA-Tool konnte nicht geladen werden", _dna_exc)
+    else:
         try:
-            _s["dna_obj"] = _s["AncestryDnaApp"](master=tab_dna)
+            dna_obj = AncestryDnaApp(master=tab_dna)
         except Exception as exc:
             log.exception("AncestryDnaApp-Init fehlgeschlagen")
             _error_tab(tab_dna, "DNA-Tool-Fehler beim Start", exc)
+            dna_obj = None
 
-    # ── Tab-Wechsel → bei Bedarf Tab aufbauen ────────────────────────────────
+    # ── Tab-Wechsel-Event: Status im Start-Tab aktualisieren ──────────────────
     def _on_tab_change(event=None):
-        idx = nb.index(nb.select())
-        if idx == 1 and not _s["ged_built"]:
-            if _s["imports_done"]:
-                _build_ged_tab()
-            # else: Importe noch nicht fertig → Platzhalter bleibt sichtbar
-        elif idx == 2 and not _s["dna_built"]:
-            if _s["imports_done"]:
-                _build_dna_tab()
-        if start_obj is not None and idx == 0:
+        if start_obj is not None:
             try:
-                start_obj._refresh_status()
+                idx = nb.index(nb.select())
+                if idx == 0:
+                    start_obj._refresh_status()
             except Exception:
                 pass
-
     nb.bind("<<NotebookTabChanged>>", _on_tab_change)
-
-    # ── Hintergrund-Import-Thread ─────────────────────────────────────────────
-    def _bg_imports():
-        try:
-            _s["AhnenApp"] = _load_ahnen_app()
-        except Exception as exc:
-            log.exception("Analyzer-Import fehlgeschlagen")
-            _s["ahnen_exc"] = exc
-        try:
-            _s["AncestryDnaApp"] = _load_dna_app()
-        except Exception as exc:
-            log.exception("DNA-App-Import fehlgeschlagen")
-            _s["dna_exc"] = exc
-        _s["imports_done"] = True
-        # Falls der User bereits auf einen Tab geklickt hat, jetzt aufbauen
-        def _build_pending():
-            idx = nb.index(nb.select())
-            if idx == 1 and not _s["ged_built"]:
-                _build_ged_tab()
-            elif idx == 2 and not _s["dna_built"]:
-                _build_dna_tab()
-        root.after(0, _build_pending)
-
-    _threading.Thread(target=_bg_imports, daemon=True).start()
 
     # ── Fenster schließen ─────────────────────────────────────────────────────
     def _on_close():
-        if _s["dna_obj"] is not None:
+        if dna_obj is not None:
             try:
-                _s["dna_obj"].shutdown()
+                dna_obj.shutdown()
             except Exception:
                 pass
         root.destroy()

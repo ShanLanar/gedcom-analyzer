@@ -31,7 +31,7 @@ class MatchesRepo:
                     ethnicity_regions, last_login, fetched_at, raw_json,
                     match_cluster_code, created_date,
                     tag_surname, tag_gender, tag_path, tags_json, meiosis, ignored,
-                    paternal_maternal
+                    paternal_maternal, source
                 ) VALUES (
                     :match_guid, :test_guid, :display_name,
                     :shared_cm, :shared_segments, :longest_segment,
@@ -41,7 +41,7 @@ class MatchesRepo:
                     :ethnicity_regions, :last_login, :fetched_at, :raw_json,
                     :match_cluster_code, :created_date,
                     :tag_surname, :tag_gender, :tag_path, :tags_json, :meiosis, :ignored,
-                    :paternal_maternal
+                    :paternal_maternal, :source
                 )
                 ON CONFLICT(match_guid) DO UPDATE SET
                     display_name = CASE
@@ -78,6 +78,12 @@ class MatchesRepo:
                         WHEN paternal_maternal IS NULL OR paternal_maternal = ''
                         THEN excluded.paternal_maternal
                         ELSE paternal_maternal
+                    END,
+                    -- Preserve non-default source (ftdna, myheritage, …); only overwrite if still default
+                    source = CASE
+                        WHEN source IS NULL OR source = '' OR source = 'ancestry'
+                        THEN excluded.source
+                        ELSE source
                     END
             """, d)
             cur.execute(
@@ -337,7 +343,8 @@ class MatchesRepo:
                     (test_guid,),
                 ).fetchall()
             return {r[0]: r[1] for r in rows}
-        except Exception:
+        except Exception as e:
+            log.debug("get_bridge_hit_counts %s: %s", test_guid, e)
             return {}
 
     def get_unfetched_match_guids(self, test_guid: str,

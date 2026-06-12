@@ -16,8 +16,9 @@ dependencies = [
 viewer   = ["flask>=3.0"]
 scraping = ["playwright>=1.40"]
 vision   = ["anthropic>=0.40"]
+ml       = ["scikit-learn>=1.0"]
 dev      = ["pytest>=8.0", "pytest-cov>=5.0", "ruff>=0.6"]
-all      = ["gedcom-analyzer[viewer,scraping,vision,dev]"]
+all      = ["gedcom-analyzer[viewer,scraping,vision,ml,dev]"]
 
 [tool.setuptools]
 # Hinweis: 'tasks' und 'lib' sind generische Top-Level-Namen — nur editable
@@ -28,6 +29,8 @@ packages = [
     "ancestry.core.db",
     "ancestry.core.db.repos",
     "ancestry.gui",
+    "ancestry.gui.tabs",
+    "ancestry.gui.widgets",
     "ancestry.models",
     "ancestry.tools",
     "ancestry.utils",

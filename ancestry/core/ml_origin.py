@@ -23,6 +23,7 @@ API:
     apply_to_matches(db, test_guid, progress_cb=None) -> int
 """
 from __future__ import annotations
+import hashlib
 import os
 import pickle
 import logging
@@ -32,6 +33,7 @@ from collections import Counter, defaultdict
 log = logging.getLogger(__name__)
 
 MODEL_PATH = Path(__file__).resolve().parent.parent / "origin_model.pkl"
+HASH_PATH  = MODEL_PATH.with_suffix(".sha256")
 
 _MODEL = None  # im Speicher gehaltenes geladenes Modell
 
@@ -95,13 +97,13 @@ def train(db, min_region: int = 20, sources=None, dedupe: bool = True,
     def p(m):
         if progress_cb:
             try: progress_cb(m)
-            except Exception: pass
+            except Exception as e: log.debug("progress_cb train: %s", e)
 
     p("Lese Personen (quellenbewusst, dedupliziert) …")
     if dedupe:
         try:
             from core.bridge import iter_unique_persons
-        except Exception:
+        except ImportError:
             from bridge import iter_unique_persons
         rows = [r for r in iter_unique_persons(db, sources=sources)
                 if (r.get("surname") or "").strip() and (r.get("birth_place") or "").strip()]
@@ -150,8 +152,10 @@ def train(db, min_region: int = 20, sources=None, dedupe: bool = True,
 
     payload = {"pipe": pipe, "regions": sorted(keep),
                "n_train": len(y), "train_acc": train_acc}
-    with open(MODEL_PATH, "wb") as f:
-        pickle.dump(payload, f)
+    raw = pickle.dumps(payload)
+    digest = hashlib.sha256(raw).hexdigest()
+    MODEL_PATH.write_bytes(raw)
+    HASH_PATH.write_text(digest + "\n", encoding="ascii")
     global _MODEL
     _MODEL = payload
     p(f"Modell gespeichert: {MODEL_PATH}")
@@ -167,15 +171,21 @@ def load() -> bool:
     if not MODEL_PATH.exists():
         return False
     try:
-        with open(MODEL_PATH, "rb") as f:
-            _MODEL = pickle.load(f)
+        raw = MODEL_PATH.read_bytes()
+        if HASH_PATH.exists():
+            expected = HASH_PATH.read_text(encoding="ascii").strip()
+            actual   = hashlib.sha256(raw).hexdigest()
+            if actual != expected:
+                log.error("ml_origin: SHA-256-Prüfsumme stimmt nicht — Modell verworfen.")
+                return False
+        _MODEL = pickle.loads(raw)  # noqa: S301 — nach Hash-Verifikation sicher
         return True
     except Exception as e:
         log.warning("ml_origin: Modell laden fehlgeschlagen: %s", e)
         return False
 
 
-def predict_region(surname: str, birth_year=None, top: int = 3):
+def predict_region(surname: str, birth_year=None, top: int = 3) -> list[tuple[str, float]]:
     """Top-k (Region, Wahrscheinlichkeit) für einen Nachnamen."""
     if not load():
         return []
@@ -199,7 +209,7 @@ def apply_to_matches(db, test_guid: str, progress_cb=None) -> int:
     def p(m):
         if progress_cb:
             try: progress_cb(m)
-            except Exception: pass
+            except Exception as e: log.debug("progress_cb apply: %s", e)
 
     with db._cursor() as cur:
         rows = cur.execute(

@@ -26,303 +26,20 @@ from ancestry.core.scraper import Scraper, DownloadResult
 from ancestry.core.export import export_csv, export_shared_csv, export_xlsx
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.models import DnaKit, DnaMatch, SharedMatch
-from ancestry.gui._colors import COLORS, _COLORS_DARK as COLORS_DARK, _is_dark_theme
-from ancestry.gui.tabs.login_tab import LoginTabMixin
-from ancestry.gui.tabs.cluster_tab import ClusterTabMixin
-from ancestry.gui.tabs.stats_tab import StatsTabMixin
-from ancestry.gui.tabs.download_tab import DownloadTabMixin
-from ancestry.gui.tabs.analysis_tab import AnalysisTabMixin
-from ancestry.gui.tabs.matches_tab import MatchesTabMixin
-from ancestry.gui.tabs.tools_tab import ToolsTabMixin
-from ancestry.gui.tabs.persons_tab import PersonsTabMixin
+from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_style, translate
+from ancestry.gui.widgets.log_handler import install_gui_log_handler
+from ancestry.gui.state import AppState
+from ancestry.gui.tabs.stats import StatsTab
+from ancestry.gui.tabs.login import LoginTab
+from ancestry.gui.tabs.cluster import ClusterTab
+from ancestry.gui.tabs.download import DownloadTab
+from ancestry.gui.tabs.matches import MatchesTab
+from ancestry.gui.tabs.matricula import MatriculaTab
 
 log = logging.getLogger(__name__)
 
-TRANSLATIONS: dict[str, dict[str, str]] = {
-    # Tabs
-    "tab_login":    {"de": "  🔑 Login  ",        "en": "  🔑 Login  "},
-    "tab_download": {"de": "  ⬇ Herunterladen  ", "en": "  ⬇ Download  "},
-    "tab_matches":  {"de": "  🧬 Matches  ",       "en": "  🧬 Matches  "},
-    "tab_cluster":  {"de": "  🌳 Cluster  ",       "en": "  🌳 Cluster  "},
-    "tab_stats":    {"de": "  📊 Statistiken  ",   "en": "  📊 Statistics  "},
-    "tab_persons":  {"de": "  👪 Personen  ",       "en": "  👪 People  "},
-    "tab_tools":    {"de": "  🔧 Werkzeuge  ",      "en": "  🔧 Tools  "},
-    # Main match table
-    "m.name":    {"de": "Name / ID",   "en": "Name / ID"},
-    "m.guid":    {"de": "GUID",        "en": "GUID"},
-    "m.src":     {"de": "Quelle",      "en": "Source"},
-    "m.note":    {"de": "Bemerkung",   "en": "Note"},
-    "m.cm":      {"de": "cM",          "en": "cM"},
-    "m.seg":     {"de": "Seg.",        "en": "Seg."},
-    "m.rel":     {"de": "Beziehung",   "en": "Relationship"},
-    "m.tree":    {"de": "Stammbaum",   "en": "Tree"},
-    "m.ca":      {"de": "Vorfahre",    "en": "Ancestor"},
-    "m.ged":     {"de": "🌳",           "en": "🌳"},
-    "m.starred": {"de": "⭐",           "en": "⭐"},
-    # Cluster list
-    "cl.cid":   {"de": "Cluster",   "en": "Cluster"},
-    "cl.count": {"de": "Matches",   "en": "Matches"},
-    "cl.maxcm": {"de": "Max cM",    "en": "Max cM"},
-    "cl.top":   {"de": "Top-Match", "en": "Top Match"},
-    # Cluster members
-    "mb.name": {"de": "Name",      "en": "Name"},
-    "mb.cm":   {"de": "cM",        "en": "cM"},
-    "mb.rel":  {"de": "Beziehung", "en": "Relationship"},
-    "mb.baum": {"de": "Baum",      "en": "Tree"},
-    "mb.src":  {"de": "Quelle",    "en": "Source"},
-    # Pairwise
-    "pw.a":  {"de": "Match A",      "en": "Match A"},
-    "pw.b":  {"de": "Match B",      "en": "Match B"},
-    "pw.cm": {"de": "Gemeinsam cM", "en": "Shared cM"},
-    # GEDCOM comparison window
-    "gc.cluster": {"de": "Cluster",   "en": "Cluster"},
-    "gc.link":    {"de": "Verknüpft", "en": "Linked"},
-    "gc.match":   {"de": "Match",     "en": "Match"},
-    "gc.cm":      {"de": "cM",        "en": "cM"},
-    "gc.anchor":  {"de": "Anknüpfung in deinem Baum", "en": "Anchor in your tree"},
-    "gc.abirth":  {"de": "* Anknüpfung", "en": "* Anchor"},
-    "gc.kin":     {"de": "Deine Linie",  "en": "Your line"},
-    "gc.line":    {"de": "Match-Linie",  "en": "Match line"},
-    "gc.score":   {"de": "Sicherheit",   "en": "Confidence"},
-    # Cluster tree analysis window
-    "ct.count":   {"de": "Anz.",       "en": "Count"},
-    "ct.person":  {"de": "Person",     "en": "Person"},
-    "ct.birth":   {"de": "* Jahr",     "en": "* Year"},
-    "ct.place":   {"de": "Geburtsort", "en": "Birth place"},
-    "ct.gen":     {"de": "Gen.",       "en": "Gen."},
-    "ct.matches": {"de": "In welchen Matches", "en": "In which matches"},
-    # Match-Tab Filterleiste
-    "mf.search":  {"de": "Suche:",                  "en": "Search:"},
-    "mf.rel":     {"de": "  Beziehung:",            "en": "  Relationship:"},
-    "mf.mincm":   {"de": "  min cM:",               "en": "  min cM:"},
-    "mf.starred": {"de": "Markierte",               "en": "Starred"},
-    "mf.tree":    {"de": "Mit Stammbaum",           "en": "With tree"},
-    "mf.endo":    {"de": "🔇 Rauschen ausblenden",  "en": "🔇 Hide noise"},
-    # Cluster-Tab Steuerung
-    "cl.prim_from":  {"de": "Primäre cM von:",  "en": "Primary cM from:"},
-    "cl.prim_to":    {"de": "bis:",             "en": "to:"},
-    "cl.shared_min": {"de": "Min. cM Shared:",  "en": "Min. cM shared:"},
-    "cl.calc_btn":   {"de": "🔄 Cluster berechnen",  "en": "🔄 Calculate clusters"},
-    "cl.tree_btn":   {"de": "🌳 Stammbaum-Analyse",  "en": "🌳 Tree analysis"},
-    "cl.frm_left":   {"de": "Cluster",               "en": "Cluster"},
-    "cl.frm_mid":    {"de": "Cluster-Mitglieder",    "en": "Cluster members"},
-    "cl.frm_right":  {"de": "Gegenseitige cM (Mitglieder untereinander)",
-                      "en": "Pairwise cM (members)"},
-    # GEDCOM-Abgleich Filterleiste
-    "gc.f.search":  {"de": "Suche:",            "en": "Search:"},
-    "gc.f.new":     {"de": "nur neue Leads",    "en": "new leads only"},
-    "gc.f.direct":  {"de": "nur direkte Linie", "en": "direct line only"},
-    "gc.f.mincm":   {"de": "ab cM:",            "en": "from cM:"},
-    "gc.f.cluster": {"de": "Cluster:",          "en": "Cluster:"},
-    "gc.linked":    {"de": "✓ im Baum",         "en": "✓ in tree"},
-    "gc.new":       {"de": "neu?",              "en": "new?"},
-    "gc.tree_btn":  {"de": "🌳 Stammbaum-Analyse für diesen Cluster",
-                     "en": "🌳 Cluster tree analysis"},
-    # Login tab
-    "lg.meth1":     {"de": "Methode 1: Automatischer Login",       "en": "Method 1: Automatic Login"},
-    "lg.email":     {"de": "E-Mail:",                              "en": "E-Mail:"},
-    "lg.password":  {"de": "Passwort:",                            "en": "Password:"},
-    "lg.login_btn": {"de": "Einloggen",                            "en": "Log in"},
-    "lg.meth2":     {"de": "Methode 2: Cookie-Datei (empfohlen)",  "en": "Method 2: Cookie File (recommended)"},
-    "lg.choose":    {"de": "Datei wählen …",                       "en": "Choose file …"},
-    "lg.login_ck":  {"de": "Mit Cookies einloggen",                "en": "Log in with cookies"},
-    "lg.manual":    {"de": "Manuelle Kit-GUID",                    "en": "Manual Kit GUID"},
-    "lg.use_guid":  {"de": "GUID übernehmen",                      "en": "Use GUID"},
-    # Download tab
-    "dl.kit":       {"de": "DNA-Kit:",                             "en": "DNA Kit:"},
-    "dl.sec_a":     {"de": "A: Matches herunterladen",             "en": "A: Download Matches"},
-    "dl.filter":    {"de": "Filter:",                              "en": "Filter:"},
-    "dl.f_all":     {"de": "Alle",                                 "en": "All"},
-    "dl.f_star":    {"de": "Markierte",                            "en": "Starred"},
-    "dl.f_close":   {"de": "Nahe",                                 "en": "Close"},
-    "dl.f_distant": {"de": "Entfernte",                            "en": "Distant"},
-    "dl.sort":      {"de": "Sortierung:",                          "en": "Sort:"},
-    "dl.s_rel":     {"de": "Nach Beziehung",                       "en": "By relationship"},
-    "dl.s_cm":      {"de": "Nach cM",                              "en": "By cM"},
-    "dl.start_m":   {"de": "▶ Matches starten",                    "en": "▶ Start matches"},
-    "dl.stop":      {"de": "⏹ Stoppen",                            "en": "⏹ Stop"},
-    "dl.only_new":  {"de": "✨ Nur neue (inkrementell)",            "en": "✨ New only (incremental)"},
-    "dl.full_names":{"de": "👤 Volle Namen versuchen (oft von Ancestry blockiert)",
-                     "en": "👤 Try full names (often blocked by Ancestry)"},
-    "dl.sec_a2":    {"de": "A2: Namen & Stammbaum nachladen",      "en": "A2: Reload Names & Tree"},
-    "dl.min_cm":    {"de": "Nur ab (cM):",                         "en": "Only from (cM):"},
-    "dl.depth":     {"de": "Tiefe (Generationen):",                "en": "Depth (generations):"},
-    "dl.reload_all":{"de": "🔄 Alle neu laden",                    "en": "🔄 Reload all"},
-    "dl.start_nm":  {"de": "▶ Namen & Stammbaum laden",            "en": "▶ Load names & tree"},
-    "dl.start_anc": {"de": "▶ Vorfahren & Orte laden",             "en": "▶ Load ancestors & places"},
-    "dl.start_ped": {"de": "▶ Ahnentafeln laden",                  "en": "▶ Load pedigrees"},
-    "dl.sec_b":     {"de": "B: Shared Matches herunterladen",      "en": "B: Download Shared Matches"},
-    "dl.prim_min":  {"de": "Nur primäre Matches ab (cM):",         "en": "Only primary matches from (cM):"},
-    "dl.skip_ex":   {"de": "Bereits geholte überspringen",         "en": "Skip already fetched"},
-    "dl.start_sh":  {"de": "▶ Shared Matches starten",             "en": "▶ Start shared matches"},
-    "dl.progress":  {"de": "Fortschritt:",                         "en": "Progress:"},
-    "dl.log":       {"de": "Protokoll:",                           "en": "Log:"},
-    # Match detail panel inner tabs
-    "md.tab_info":  {"de": "Info & Notiz",                         "en": "Info & Note"},
-    "md.tab_shared":{"de": "Shared Matches",                       "en": "Shared Matches"},
-    # Match detail field labels (colon included)
-    "md.cm":        {"de": "cM:",                                  "en": "cM:"},
-    "md.seg":       {"de": "Segmente:",                            "en": "Segments:"},
-    "md.longseg":   {"de": "Längstes Seg.:",                       "en": "Longest seg.:"},
-    "md.rel":       {"de": "Beziehung:",                           "en": "Relationship:"},
-    "md.conf":      {"de": "Konfidenz:",                           "en": "Confidence:"},
-    "md.tree_lbl":  {"de": "Stammbaum:",                           "en": "Tree:"},
-    "md.anc":       {"de": "Gem. Vorfahre:",                       "en": "Com. Ancestor:"},
-    "md.sex":       {"de": "Geschlecht:",                          "en": "Gender:"},
-    "md.last":      {"de": "Letzter Login:",                       "en": "Last Login:"},
-    "md.pedigree":  {"de": "Ahnentafel:",                          "en": "Pedigree:"},
-    "md.origin":    {"de": "Herkunft:",                            "en": "Origin:"},
-    "md.rel_cm":    {"de": "Beziehung (cM):",                      "en": "Relationship (cM):"},
-    "md.ml_origin": {"de": "Herkunft (ML):",                       "en": "Origin (ML):"},
-    "md.note":      {"de": "Notiz:",                               "en": "Note:"},
-    "md.save_note": {"de": "💾 Notiz speichern",                   "en": "💾 Save note"},
-    "md.open_anc":  {"de": "🔗 In Ancestry öffnen",                "en": "🔗 Open in Ancestry"},
-    # Statistics tab
-    "st.refresh":   {"de": "↻ Aktualisieren",                     "en": "↻ Refresh"},
-    "st.kz":        {"de": "Kennzahlen",                           "en": "Key Figures"},
-    "st.total":     {"de": "Gesamtzahl Matches:",                  "en": "Total matches:"},
-    "st.max_cm":    {"de": "Höchste cM:",                          "en": "Highest cM:"},
-    "st.avg_cm":    {"de": "Ø cM:",                                "en": "Avg. cM:"},
-    "st.starred":   {"de": "Markierte:",                           "en": "Starred:"},
-    "st.with_tree": {"de": "Mit Stammbaum:",                       "en": "With tree:"},
-    "st.with_note": {"de": "Mit Notiz:",                           "en": "With note:"},
-    "st.shared_tot":{"de": "Shared-Match-Einträge:",               "en": "Shared match entries:"},
-    "st.shared_pri":{"de": "Primäre m. Shared:",                   "en": "Primary w. shared:"},
-    "st.rel_dist":  {"de": "Beziehungsverteilung (Top 10)",        "en": "Relationship distribution (top 10)"},
-    "st.rel":       {"de": "Beziehung",                            "en": "Relationship"},
-    "st.count":     {"de": "Anzahl",                               "en": "Count"},
-    "st.ped_kz":    {"de": "Ahnentafel-Vollständigkeit",           "en": "Pedigree completeness"},
-    "st.ped_loaded":{"de": "Ahnentafeln geladen:",                 "en": "Pedigrees loaded:"},
-    "st.ped_depth": {"de": "Ø Generationstiefe:",                  "en": "Avg. generation depth:"},
-    "st.ped_surn":  {"de": "Unterschiedliche Nachnamen:",          "en": "Distinct surnames:"},
-    "st.ged_kz":    {"de": "GEDCOM-Brücke",                        "en": "GEDCOM Bridge"},
-    "st.ged_pers":  {"de": "GEDCOM-Personen:",                     "en": "GEDCOM persons:"},
-    "st.ged_linked":{"de": "Matches mit Treffer:",                  "en": "Matches with hits:"},
-    "st.side_kz":   {"de": "Seitenzuweisung",                      "en": "Side Assignment"},
-    "st.side_pat":  {"de": "🔵 Väterlich:",                        "en": "🔵 Paternal:"},
-    "st.side_mat":  {"de": "🔴 Mütterlich:",                       "en": "🔴 Maternal:"},
-    "st.side_open": {"de": "❓ Nicht zugewiesen:",                  "en": "❓ Unassigned:"},
-    "st.kit_kz":    {"de": "Kits & Matches",                       "en": "Kits & Matches"},
-    # Menu bar — cascade labels
-    "mn.file":      {"de": "Datei",                                "en": "File"},
-    "mn.view":      {"de": "Ansicht",                              "en": "View"},
-    "mn.analysis":  {"de": "Auswertung",                           "en": "Analysis"},
-    "mn.help":      {"de": "Hilfe",                                "en": "Help"},
-    # File menu items
-    "mn.exp_csv":   {"de": "Matches als CSV …",                    "en": "Matches as CSV …"},
-    "mn.exp_xlsx":  {"de": "Matches als XLSX …",                   "en": "Matches as XLSX …"},
-    "mn.exp_sh_csv":{"de": "Shared Matches als CSV …",             "en": "Shared matches as CSV …"},
-    "mn.exp_all":   {"de": "Alles als XLSX (2 Blätter)…",          "en": "All as XLSX (2 sheets)…"},
-    "mn.imp_names": {"de": "Namen importieren (JSON/CSV) …",       "en": "Import names (JSON/CSV) …"},
-    "mn.quit":      {"de": "Beenden",                              "en": "Quit"},
-    # View menu items
-    "mn.refresh_t": {"de": "Tabelle aktualisieren",                "en": "Refresh table"},
-    "mn.recalc_cl": {"de": "Cluster neu berechnen",                "en": "Recalculate clusters"},
-    "mn.language":  {"de": "🌐 Sprache: Deutsch / English",        "en": "🌐 Language: Deutsch / English"},
-    # Analysis menu items
-    "mn.anc_groups":{"de": "Gemeinsame Vorfahren (Überlagerung) …","en": "Common ancestors (overlay) …"},
-    "mn.exp_anc":   {"de": "Vorfahren-Gruppen als CSV …",          "en": "Ancestor groups as CSV …"},
-    "mn.pedigree":  {"de": "Ahnentafel des Matches anzeigen …",    "en": "Show match pedigree …"},
-    "mn.ped_overlay":{"de": "Pedigree-Überlagerung (Cluster) …",   "en": "Pedigree overlay (cluster) …"},
-    "mn.own_tree":  {"de": "Eigenen Baum (GEDCOM) abgleichen …",   "en": "Match own tree (GEDCOM) …"},
-    "mn.sh_cluster":{"de": "Shared-Cluster (Triangulation) …",     "en": "Shared cluster (triangulation) …"},
-    "mn.reset_sh":  {"de": "Shared Matches zurücksetzen (neu laden) …",
-                     "en": "Reset shared matches (reload) …"},
-    "mn.reset_nm":  {"de": "Namens-Versuche zurücksetzen (alle erneut) …",
-                     "en": "Reset name attempts (all again) …"},
-    "mn.refresh_lk":{"de": "Verknüpfungen aktualisieren (View in tree) …",
-                     "en": "Update links (view in tree) …"},
-    "mn.chg_ged":   {"de": "GEDCOM / Wurzelperson ändern …",       "en": "Change GEDCOM / root person …"},
-    # Help menu items
-    "mn.about":     {"de": "Über …",                               "en": "About …"},
-    # New analysis windows
-    "mn.surnames":  {"de": "Nachname-Analyse (Namenskarte) …",     "en": "Surname analysis (name map) …"},
-    "mn.places":    {"de": "Geburtsort-Analyse …",                 "en": "Birth place analysis …"},
-    "mn.mrca":      {"de": "MRCA-Wahrscheinlichkeit …",            "en": "MRCA probability …"},
-    "mn.net_graph": {"de": "Cluster-Netzwerkgraph …",              "en": "Cluster network graph …"},
-    # Dark mode
-    "mn.darkmode":  {"de": "🌙 Dunkelmodus",                       "en": "🌙 Dark mode"},
-    # New export/analysis menu items
-    "mn.exp_ged":   {"de": "Vorfahren als GEDCOM exportieren …",   "en": "Export ancestors as GEDCOM …"},
-    "mn.imp_mta":   {"de": "MyTrueAncestry CSV importieren …",     "en": "Import MyTrueAncestry CSV …"},
-    "mn.ped_gaps":  {"de": "Ahnentafel-Lücken analysieren …",      "en": "Pedigree gap analysis …"},
-    "mn.auto_sides":{"de": "Seiten automatisch zuweisen (Mutter-Kit)…",
-                     "en": "Auto-assign sides (mother kit)…"},
-    "mn.endo_score":{"de": "Endogamie-Score-Analyse …",            "en": "Endogamy score analysis …"},
-    "mn.cl_timeline":{"de": "Cluster-Zeitachse …",                 "en": "Cluster timeline …"},
-    # Quick-filter chips
-    "mf.chip_star": {"de": "★ Markierte",    "en": "★ Starred"},
-    "mf.chip_tree": {"de": "🌳 Mit Baum",    "en": "🌳 With tree"},
-    "mf.chip_200":  {"de": ">200 cM",        "en": ">200 cM"},
-    "mf.chip_pat":  {"de": "🔵 Väterlich",   "en": "🔵 Paternal"},
-    "mf.chip_mat":  {"de": "🔴 Mütterlich",  "en": "🔴 Maternal"},
-    # Empty state
-    "mf.empty":     {"de": "📭  Noch keine Matches geladen",       "en": "📭  No matches loaded yet"},
-    "mf.empty_hint":{"de": "→ Tab »Herunterladen« öffnen",         "en": "→ Open »Download« tab"},
-    # Download dashboard
-    "dl.pause":     {"de": "⏸ Pause",        "en": "⏸ Pause"},
-    "dl.resume":    {"de": "▶ Fortsetzen",   "en": "▶ Resume"},
-    "dl.eta":       {"de": "Verbleibend:",   "en": "Remaining:"},
-    "dl.dash_mat":  {"de": "🧬 Matches",     "en": "🧬 Matches"},
-    "dl.dash_tree": {"de": "🌳 Mit Baum",    "en": "🌳 With tree"},
-    "dl.dash_sh":   {"de": "👥 Shared",      "en": "👥 Shared"},
-    "dl.dash_err":  {"de": "❌ Fehler",      "en": "❌ Errors"},
-    # Detail panel
-    "md.rel_prob":  {"de": "Beziehungswahrscheinlichkeit",         "en": "Relationship probability"},
-    "md.checklist": {"de": "Forschungs-Checkliste",                "en": "Research checklist"},
-    "md.chk0":      {"de": "Baum angeschaut",                      "en": "Tree reviewed"},
-    "md.chk1":      {"de": "Nachricht gesendet",                   "en": "Message sent"},
-    "md.chk2":      {"de": "Gemeinsame Vorfahren geprüft",         "en": "Common ancestors checked"},
-    "md.chk3":      {"de": "In Cluster eingeordnet",               "en": "Assigned to cluster"},
-    "md.chk4":      {"de": "Seite zugewiesen (v/m)",               "en": "Side assigned (p/m)"},
-    "md.fs_link":   {"de": "🔍 FamilySearch …",                    "en": "🔍 FamilySearch …"},
-    "md.tab_gedcom":{"de": "🌳 GEDCOM-Treffer",                   "en": "🌳 GEDCOM Hits"},
-    "md.tab_ancestors":{"de": "👨‍👩‍👧 Gemeinsame Vorfahren",           "en": "👨‍👩‍👧 Common Ancestors"},
-    "md.anc_none":  {"de": "Keine gemeinsamen Vorfahren von Ancestry heruntergeladen.",
-                     "en": "No common ancestors downloaded from Ancestry."},
-    "md.ged_none":  {"de": "Kein GEDCOM geladen – Analyse → Eigenen Baum abgleichen", "en": "No GEDCOM loaded – Analysis → Match own tree"},
-    "md.ged_no_ped":{"de": "Keine Ahnentafel-Daten für diesen Match.", "en": "No pedigree data for this match."},
-    "md.ged_searching": {"de": "Suche …", "en": "Searching …"},
-    "md.ged_run_all":   {"de": "🔄 Alle Matches abgleichen", "en": "🔄 Match all"},
-    # Cluster tab
-    "cl.quality":   {"de": "Güte",           "en": "Quality"},
-    "cl.desc":      {"de": "Cluster-Beschreibung:",                "en": "Cluster description:"},
-    "cl.timeline":  {"de": "📅 Zeitachse",   "en": "📅 Timeline"},
-    "cl.assign_side": {"de": "⚡ Seite zuweisen", "en": "⚡ Assign side"},
-    # Statistics tab
-    "st.with_tree_pct": {"de": "Mit Baum %:", "en": "With tree %:"},
-    "st.side_pct":      {"de": "Seite bekannt %:", "en": "Side known %:"},
-    "st.endo_pct":      {"de": "Cluster bekannt %:", "en": "Cluster known %:"},
-    # Matches tab — kit bar
-    "mf.kit":           {"de": "Kit:",              "en": "Kit:"},
-    "mf.sides":         {"de": "⚡ Seiten ableiten","en": "⚡ Assign sides"},
-    # GEDCOM link panel buttons
-    "md.ged_origin":    {"de": "🗺 Herkunft ableiten",        "en": "🗺 Infer origins"},
-    "md.ged_endogamy":  {"de": "🧬 Endogamie übertragen",     "en": "🧬 Transfer endogamy"},
-}
 
-
-
-class AncestryDnaApp(
-        LoginTabMixin, ClusterTabMixin, StatsTabMixin,
-        DownloadTabMixin, AnalysisTabMixin, MatchesTabMixin,
-        PersonsTabMixin, ToolsTabMixin,
-        tk.Frame):
-
-    # cM → relationship probability table (Shared cM Project 2020 + DNAPainter)
-    _CM_RANGES = [
-        (2600, 3900, "Elternteil / Kind",               1),
-        (1700, 2600, "Halbgeschwister / Großelternteil", 2),
-        (1200, 1700, "Halbgeschwister / Großelternteil", 2),
-        ( 550, 1200, "Onkel/Tante · 1. Cousin",         2),
-        ( 330,  550, "1. Cousin",                        3),
-        ( 200,  330, "1. Cousin 1× entf. · 2. Cousin",  3),
-        ( 100,  200, "2. Cousin",                        4),
-        (  55,  100, "2. Cousin 1× entf. · 3. Cousin",  4),
-        (  20,   55, "3. Cousin · 4. Cousin",            5),
-        (   7,   20, "4. Cousin · 5. Cousin",            6),
-        (   3,    7, "5. Cousin und weiter",              7),
-    ]
+class AncestryDnaApp(tk.Frame):
 
     def __init__(self, master=None, gedcom_path: str = ""):
         # Dual-Modus: master=None -> eigenes Fenster (Standalone, abwärtskompatibel),
@@ -338,42 +55,39 @@ class AncestryDnaApp(
             _root.minsize(960, 620)
         self.pack(fill="both", expand=True)
 
-        self._auth    : Optional[AncestryAuth]      = None
-        self._client  : Optional[AncestryApiClient] = None
-        self._scraper : Optional[Scraper]           = None
-        self._db      : Database                    = Database(str(DB_PATH))
-        self._kit_map : dict[str, str]              = {}
-        self._matches_kit_guid_map: dict[str, str]  = {}
-        self._matches : list[DnaMatch]              = []
-        self._selected_match : Optional[DnaMatch]   = None
-        self._current_test_guid : Optional[str]     = None
-        self._startup_gedcom_path: str              = gedcom_path
+        self._state = AppState(
+            db=Database(str(DB_PATH)),
+            startup_gedcom_path=gedcom_path,
+        )
 
-        self._lang: str = "de"
-        self._lang_headings:       list = []   # (tv, col, key) tuples
-        self._lang_nb_tabs:        list = []   # (frame, key) tuples
-        self._lang_widgets:        list = []   # (widget_or_sv, key[, suffix]) tuples
-        self._lang_menus:          list = []   # (menu, index, key) tuples
-        self._theme_widgets:       list = []   # (widget, attr, color_key) tuples
-        self._lang_inner_nb_tabs:  list = []   # (notebook, frame, key) tuples
-        _saved_dark = self._load_ui_settings().get("dark_mode")
-        self._dark_mode: bool = bool(_saved_dark) if _saved_dark is not None else _is_dark_theme()
+        # Aliase für bestehenden Code — zeigen auf state-Felder (kein Copy)
+        self._db      = self._state.db
+        self._auth    = None  # wird über _state.auth gesetzt wenn nötig
+        self._client  = None
+        self._scraper = None  # für nicht-Download-Scraper (refresh_links, cluster)
+        self._kit_map               = self._state.kit_map
+        self._lang_headings         = self._state.lang_headings
+        self._lang_nb_tabs          = self._state.lang_nb_tabs
+        self._lang_widgets          = self._state.lang_widgets
+        self._lang_menus            = self._state.lang_menus
+        self._lang_inner_nb_tabs    = self._state.lang_inner_nb_tabs
+        self._pause_event           = self._state.pause_event
+        self._dl_counters           = self._state.dl_counters
+
+        self._startup_gedcom_path: str = gedcom_path
+        self._lang: str    = "de"
+        self._dark_mode:   bool  = False
         self.configure(bg=self._active_colors()["bg"])
-        self._pause_event:         threading.Event = threading.Event()
-        self._pause_event.set()  # not paused initially
-        self._dl_counters = {"matches": 0, "trees": 0, "shared": 0, "errors": 0}
-        self._dl_t0: float = 0.0
-        self._dl_total: int = 1
 
         self._build_style()
         self._build_menu()
         self._build_main()
+        self._refresh_match_table()
 
         if not self._embedded:
             self.winfo_toplevel().protocol("WM_DELETE_WINDOW", self._on_close)
         self.after(200, self._load_settings)
         self.after(300, self._update_matches_kit_combo)
-        self.after(350, self._refresh_match_table)
         self.after(400, self._load_lang_setting)
 
     def mainloop(self, *a, **k):
@@ -383,65 +97,14 @@ class AncestryDnaApp(
     # ── Styling ───────────────────────────────────────────────────────────────
 
     def _build_style(self):
-        s = ttk.Style(self)
-        s.theme_use("clam")
-        C = self._active_colors()
-        s.configure("TNotebook",         background=C["bg"])
-        s.configure("TNotebook.Tab",     padding=[14, 6],
-                    background=C["light"], foreground=C["text"],
-                    font=("Segoe UI", 10))
-        s.map("TNotebook.Tab",
-              background=[("selected", C["primary"])],
-              foreground=[("selected", C["white"])])
-        s.configure("TFrame",            background=C["bg"])
-        s.configure("TLabel",            background=C["bg"],
-                    foreground=C["text"], font=("Segoe UI", 10))
-        s.configure("Header.TLabel",     background=C["primary"],
-                    foreground=C["white"], font=("Segoe UI", 13, "bold"), padding=10)
-        s.configure("Bold.TLabel",       background=C["bg"],
-                    font=("Segoe UI", 10, "bold"))
-        s.configure("Success.TLabel",    background=C["bg"],
-                    foreground=C["success"], font=("Segoe UI", 10, "bold"))
-        s.configure("Warning.TLabel",    background=C["bg"],
-                    foreground=C["warning"], font=("Segoe UI", 10, "bold"))
-        s.configure("TButton",           font=("Segoe UI", 10), padding=6)
-        s.configure("TProgressbar",      troughcolor=C["light"],
-                    background=C["accent"])
-        s.configure("Treeview",          rowheight=24, font=("Segoe UI", 9))
-        s.configure("Treeview.Heading",  font=("Segoe UI", 9, "bold"),
-                    background=C["primary"], foreground=C["white"])
+        apply_style(self, self._active_colors())
 
     # ── Theme / Dark mode ─────────────────────────────────────────────────────
 
     def _toggle_theme(self):
         self._dark_mode = not self._dark_mode
         self._build_style()
-        self._apply_theme()
         self._save_ui_settings(dark_mode=self._dark_mode)
-
-    def _apply_theme(self):
-        """Update all registered non-ttk widgets to the current theme palette."""
-        C = self._active_colors()
-        for widget, attr, key in self._theme_widgets:
-            try:
-                widget.configure(**{attr: C[key]})
-            except Exception:
-                pass
-        # Canvases: redraw with new background
-        if hasattr(self, "_ring_canvas") and hasattr(self, "_stat_vars"):
-            self._ring_canvas.configure(bg=C["bg"])
-            if hasattr(self, "_last_stats"):
-                self._draw_stat_rings(self._last_stats)
-        if hasattr(self, "_rel_prob_canvas"):
-            self._rel_prob_canvas.configure(bg=C["bg"])
-        # Chip buttons: reset to idle state colors
-        if hasattr(self, "_chip_btns") and hasattr(self, "_chip_vars"):
-            for key_btn, btn in self._chip_btns.items():
-                v = self._chip_vars.get(key_btn)
-                if v and v.get():
-                    btn.configure(bg=C["primary"], fg=C["white"])
-                else:
-                    btn.configure(bg=C["light"], fg=C["text"])
 
     def _active_colors(self):
         return COLORS_DARK if self._dark_mode else COLORS
@@ -469,7 +132,7 @@ class AncestryDnaApp(
 
         vm = tk.Menu(mb, tearoff=False)
         vm.add_command(label=self._t("mn.refresh_t"), command=self._refresh_match_table)
-        vm.add_command(label=self._t("mn.recalc_cl"), command=self._refresh_cluster)
+        vm.add_command(label=self._t("mn.recalc_cl"), command=lambda: self._cluster_tab.refresh())
         vm.add_separator()
         vm.add_command(label=self._t("mn.language"),  command=self._toggle_lang)
         vm.add_command(label=self._t("mn.darkmode"),  command=self._toggle_theme)
@@ -488,6 +151,7 @@ class AncestryDnaApp(
         am.add_separator()
         am.add_command(label=self._t("mn.own_tree"),    command=self._match_own_tree)
         am.add_command(label=self._t("mn.sh_cluster"),  command=self._show_shared_clusters)
+        am.add_command(label=self._t("mn.seg_triang"),  command=self._show_triangulation)
         am.add_separator()
         am.add_command(label=self._t("mn.reset_sh"),    command=self._reset_shared_matches)
         am.add_command(label=self._t("mn.reset_nm"),    command=self._reset_name_attempts)
@@ -504,16 +168,24 @@ class AncestryDnaApp(
         am.add_command(label=self._t("mn.imp_mta"),     command=self._import_mta)
         am.add_separator()
         am.add_command(label=self._t("mn.ped_gaps"),    command=self._show_pedigree_gaps)
+        am.add_command(label=self._t("mn.ped_chart"),  command=self._show_pedigree_chart)
         am.add_command(label=self._t("mn.auto_sides"),  command=self._auto_assign_sides)
         am.add_command(label=self._t("mn.endo_score"),  command=self._show_endogamy_analysis)
+        am.add_command(label=self._t("mn.pop_stats"),   command=self._show_population_stats)
+        am.add_separator()
+        am.add_command(label=self._t("mn.dashboard"),   command=self._show_research_dashboard)
+        am.add_command(label=self._t("mn.copilot_cl"),  command=self._copilot_explain_cluster)
         mb.add_cascade(label=self._t("mn.analysis"), menu=am)
         for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
-                         (9,"mn.reset_sh"),(10,"mn.reset_nm"),(12,"mn.refresh_lk"),
-                         (13,"mn.chg_ged"),(15,"mn.surnames"),(16,"mn.places"),
-                         (17,"mn.mrca"),(18,"mn.net_graph"),
-                         (20,"mn.exp_ged"),(21,"mn.imp_mta"),
-                         (23,"mn.ped_gaps"),(24,"mn.auto_sides"),(25,"mn.endo_score")]:
+                         (8,"mn.seg_triang"),
+                         (10,"mn.reset_sh"),(11,"mn.reset_nm"),(13,"mn.refresh_lk"),
+                         (14,"mn.chg_ged"),(16,"mn.surnames"),(17,"mn.places"),
+                         (18,"mn.mrca"),(19,"mn.net_graph"),
+                         (21,"mn.exp_ged"),(22,"mn.imp_mta"),
+                         (24,"mn.ped_gaps"),(25,"mn.ped_chart"),(26,"mn.auto_sides"),
+                         (27,"mn.endo_score"),(28,"mn.pop_stats"),
+                         (30,"mn.dashboard"),(31,"mn.copilot_cl")]:
             self._lang_menus.append((am, idx, key))
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
@@ -526,63 +198,614 @@ class AncestryDnaApp(
     # ── Hauptlayout ───────────────────────────────────────────────────────────
 
     def _build_main(self):
-        hf = tk.Frame(self, bg=self._active_colors()["primary"])
-        self._theme_widgets.append((hf, "bg", "primary"))
+        hf = tk.Frame(self, bg=COLORS["primary"])
         hf.pack(fill="x")
         ttk.Label(hf, text="🧬  Ancestry DNA Tool",
                   style="Header.TLabel").pack(side="left", fill="x", expand=True)
-        _C = self._active_colors()
         self._lang_btn = tk.Button(
             hf, text="🌐 → EN", font=("Segoe UI", 10, "bold"),
-            bg=_C["accent"], fg=_C["white"],
-            activebackground=_C["primary"], activeforeground=_C["white"],
+            bg="#2E75B6", fg="white", activebackground="#1F4E79", activeforeground="white",
             relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
             command=self._toggle_lang)
         self._lang_btn.pack(side="right", padx=10, pady=4)
-        self._theme_widgets.append((self._lang_btn, "bg", "accent"))
-        self._theme_widgets.append((self._lang_btn, "fg", "white"))
-        self._theme_widgets.append((self._lang_btn, "activebackground", "primary"))
-        self._theme_widgets.append((self._lang_btn, "activeforeground", "white"))
 
         self._nb = ttk.Notebook(self)
         self._nb.pack(fill="both", expand=True, padx=8, pady=8)
 
-        tabs = [
-            ("_tab_login",    "tab_login"),
-            ("_tab_download", "tab_download"),
-            ("_tab_matches",  "tab_matches"),
-            ("_tab_cluster",  "tab_cluster"),
-            ("_tab_stats",    "tab_stats"),
-            ("_tab_persons",  "tab_persons"),
-            ("_tab_tools",    "tab_tools"),
-        ]
-        for attr, key in tabs:
-            frame = ttk.Frame(self._nb)
-            setattr(self, attr, frame)
-            self._nb.add(frame, text=self._t(key))
-            self._lang_nb_tabs.append((frame, key))
+        # Login-Tab
+        self._login_tab = LoginTab(
+            self._nb, self._state,
+            on_login_success=self._on_login_done,
+            on_status=self._set_status,
+            on_switch_tab=lambda idx: self._nb.select(idx),
+        )
+        self._nb.add(self._login_tab, text=self._t("tab_login"))
+        self._lang_nb_tabs.append((self._login_tab, "tab_login"))
+        # Aliase für Settings-Code der noch self._cookie_file_var / _manual_guid_var nutzt
+        self._cookie_file_var = self._login_tab._cookie_file_var
+        self._manual_guid_var = self._login_tab._manual_guid_var
 
-        self._build_tab_login()
-        self._build_tab_download()
-        self._build_tab_matches()
-        self._build_tab_cluster()
-        self._build_tab_stats()
-        self._build_tab_persons()
-        self._build_tab_tools()
+        # Download-Tab als eigenständige Klasse
+        self._download_tab = DownloadTab(
+            self._nb, self._state,
+            on_refresh_matches    = self._refresh_match_table,
+            on_refresh_stats      = self._refresh_stats,
+            on_refresh_kit_combos = self._update_matches_kit_combo,
+            set_status            = self._set_status,
+        )
+        self._nb.add(self._download_tab, text=self._t("tab_download"))
+        self._lang_nb_tabs.append((self._download_tab, "tab_download"))
+        # Aliase für Code der noch self._kit_var / self._names_stop_btn direkt nutzt
+        self._kit_var        = self._download_tab._kit_var
+        self._names_stop_btn = self._download_tab._names_stop_btn
+
+        # Matches-Tab als eigenständige Klasse
+        self._matches_tab = MatchesTab(
+            self._nb, self._state,
+            get_test_guid    = lambda: self._state.current_test_guid or self._get_kit_guid(),
+            get_gedcom       = lambda: getattr(self, "_gedcom", None),
+            load_ui_settings = self._load_ui_settings,
+            save_ui_settings = self._save_ui_settings,
+            set_status       = self._set_status,
+            cm_ranges        = self._CM_RANGES,
+            on_auto_assign_sides = self._auto_assign_sides,
+            on_gedmatch_bridge   = self._run_gedmatch_bridge,
+            on_goto_download     = lambda: self._nb.select(1),
+            on_choose_gedcom     = lambda: self._ensure_gedcom_loaded(
+                self._on_gedcom_loaded_update_header, force_ask=True),
+            on_gedcom_match_all  = self._run_gedcom_match_all,
+            on_endogamy_transfer = self._run_endogamy_transfer,
+            on_xref_review       = self._open_xref_review,
+            on_ml_origin         = self._run_ml_origin,
+            on_wikitree_extend   = self._run_wikitree_extend,
+            on_origin_inference  = self._run_origin_inference,
+            on_gedcom_header_update = self._on_gedcom_loaded_update_header,
+        )
+        self._nb.add(self._matches_tab, text=self._t("tab_matches"))
+        self._lang_nb_tabs.append((self._matches_tab, "tab_matches"))
+        # Aliase für Code der die Matches-Tab-Widgets noch direkt nutzt
+        self._matches_kit_var   = self._matches_tab._matches_kit_var
+        self._matches_kit_combo = self._matches_tab._matches_kit_combo
+        self._ged_link_status   = self._matches_tab._ged_link_status
+        self._ged_file_var      = self._matches_tab._ged_file_var
+
+        # Cluster-Tab als eigenständige Klasse
+        self._cluster_tab = ClusterTab(
+            self._nb, self._state,
+            get_test_guid    = lambda: self._state.current_test_guid or self._get_kit_guid(),
+            get_current_guid = self._current_guid,
+            load_ui_settings = self._load_ui_settings,
+            save_ui_settings = self._save_ui_settings,
+            set_status       = self._set_status,
+            on_show_timeline = self._show_cluster_timeline,
+            on_assign_side   = self._assign_cluster_side,
+        )
+        self._nb.add(self._cluster_tab, text=self._t("tab_cluster"))
+        self._lang_nb_tabs.append((self._cluster_tab, "tab_cluster"))
+
+        # Stats-Tab als eigenständige Klasse
+        self._stats_tab = StatsTab(
+            self._nb, self._state,
+            get_test_guid=lambda: self._state.current_test_guid or self._get_kit_guid(),
+        )
+        self._nb.add(self._stats_tab, text=self._t("tab_stats"))
+        self._lang_nb_tabs.append((self._stats_tab, "tab_stats"))
+
+        # Matricula-Tab: Kirchenbuch-Scans, läuft als Subprozess parallel zu DNA-Downloads
+        self._matricula_tab = MatriculaTab(
+            self._nb, self._state,
+            set_status=self._set_status,
+        )
+        self._nb.add(self._matricula_tab, text=self._t("tab_matricula"))
+        self._lang_nb_tabs.append((self._matricula_tab, "tab_matricula"))
 
         self._status_var = tk.StringVar(value="Bereit.")
         ttk.Label(self, textvariable=self._status_var,
                   relief="sunken", anchor="w", padding=(6, 2)).pack(fill="x", side="bottom")
 
     # ─────────────────────────────────────────────────────────────────────────
-    # TAB 1: LOGIN  →  login_tab.LoginTabMixin
+    # TAB 1: LOGIN  →  siehe ancestry/gui/tabs/login.py
     # ─────────────────────────────────────────────────────────────────────────
 
-    # ─────────────────────────────────────────────────────────────────────────
-    # TAB 2: HERUNTERLADEN
-    # ─────────────────────────────────────────────────────────────────────────
+    def _on_login_done(self, auth, client, kits):
+        """Callback von LoginTab nach erfolgreichem Login."""
+        if auth:
+            self._auth   = auth
+            self._client = client
+            self._state.auth   = auth
+            self._state.client = client
+        for kit in (kits or []):
+            self._kit_map[kit.name] = kit.guid
+            self._db.upsert_kit(kit)
+        self._download_tab.update_kit_combo()
+        self._save_settings()
+
+    # ── Überlagerung: gemeinsame Vorfahren ─────────────────────────────────────
+
+    def _current_guid(self):
+        return self._download_tab.get_kit_guid() or self._state.current_test_guid
+
+    # ── Namenskarte.com helper ────────────────────────────────────────────────
+
+    def _open_namenskarte(self, surname: str):
+        from ancestry.gui.analysis.names import open_namenskarte
+        open_namenskarte(self, surname)
 
     # ── Nachname-Analyse ──────────────────────────────────────────────────────
+
+    def _show_surname_analysis(self):
+        from ancestry.gui.analysis.names import show_surname_analysis
+        show_surname_analysis(self)
+
+    # ── Geburtsort-Analyse ────────────────────────────────────────────────────
+
+    def _show_place_analysis(self):
+        from ancestry.gui.analysis.names import show_place_analysis
+        show_place_analysis(self)
+
+    # ── MRCA-Wahrscheinlichkeit ───────────────────────────────────────────────
+
+    def _show_mrca_analysis(self, match=None):
+        from ancestry.gui.analysis.mrca import show_mrca_analysis
+        show_mrca_analysis(self, match)
+
+    # ── Cluster-Netzwerkgraph (Canvas) ────────────────────────────────────────
+
+    def _show_network_graph(self):
+        from ancestry.gui.analysis.mrca import show_network_graph
+        show_network_graph(self)
+
+    def _show_ancestor_groups(self):
+        from ancestry.gui.analysis.pedigree import show_ancestor_groups
+        show_ancestor_groups(self)
+
+    def _export_ancestor_groups(self):
+        guid = self._current_guid()
+        if not guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+        groups = self._db.get_ancestor_groups(guid, min_matches=2)
+        if not groups:
+            messagebox.showinfo("Keine Daten", "Noch keine geteilten Vorfahren gefunden.")
+            return
+        path = filedialog.asksaveasfilename(
+            title="Vorfahren-Gruppen speichern", defaultextension=".csv",
+            filetypes=[("CSV","*.csv")])
+        if not path:
+            return
+        import csv
+        with open(path, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f, quoting=csv.QUOTE_ALL)
+            w.writerow(["Gemeinsamer Vorfahr","*Jahr","Anzahl Matches","Match","cM","Pfad"])
+            for g in groups:
+                for guid_m, name, pth, cm in sorted(g["matches"], key=lambda x:-(x[3] or 0)):
+                    w.writerow([g["ancestor_name"], g["birth_year"], g["count"],
+                                name or guid_m, f"{cm:.0f}" if cm else "", pth or ""])
+        messagebox.showinfo("Export", f"{len(groups)} Vorfahren-Gruppen gespeichert.")
+        self._set_status(f"Vorfahren-Gruppen exportiert: {len(groups)}")
+
+    # ── Ahnentafel eines Matches ────────────────────────────────────────────────
+
+    def _show_match_pedigree(self):
+        if not self._selected_match:
+            messagebox.showinfo("Kein Match", "Bitte zuerst einen Match in der Tabelle wählen.")
+            return
+        guid = self._selected_match.match_guid
+        test_guid = self._current_guid()
+        rows = self._db.get_pedigree_for_match(test_guid, guid)
+        if not rows:
+            messagebox.showinfo("Keine Ahnentafel",
+                "Für diesen Match ist noch keine Ahnentafel geladen.\n"
+                "Erst '▶ Ahnentafeln laden' ausführen (Match braucht einen Baum).")
+            return
+
+        # Gemeinsame Vorfahren (= wo der Match in DEINEM Baum hängt)
+        common = self._db.get_ancestors_for_match(guid)
+
+        win = tk.Toplevel(self)
+        win.title(f"Ahnentafel – {self._selected_match.display_name}")
+        win.geometry("800x600")
+        ttk.Label(win, text=(f"{len(rows)} Vorfahren von "
+                             f"{self._selected_match.display_name}:"),
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
+
+        # ── Anknüpfungspunkt zu deinem Baum ─────────────────────────────────────
+        if common:
+            box = ttk.LabelFrame(win, text="🔗 Verbindung zu deinem Baum")
+            box.pack(fill="x", padx=10, pady=(0,6))
+            for a in common:
+                yr = a.get("birth_year") or "?"
+                mine = a.get("kinship_path_sample") or "?"
+                rel = a.get("relationship_to_sample") or ""
+                ttk.Label(box, text=(f"  • {a.get('ancestor_name','?')} (*{yr}) – "
+                                     f"deine Linie: {mine}"
+                                     + (f"  ({rel})" if rel else ""))).pack(anchor="w")
+        else:
+            ttk.Label(win, text="(Kein gemeinsamer Vorfahr geladen – ggf. "
+                                "'▶ Vorfahren & Orte laden' ausführen.)",
+                      foreground="#888888").pack(anchor="w", padx=12)
+
+        # Namen+Jahr der gemeinsamen Vorfahren zum Markieren in der Tafel
+        common_keys = set()
+        for a in common:
+            nm = (a.get("ancestor_name") or "").lower()
+            common_keys.add((nm, (a.get("birth_year") or "")))
+
+        cols = ("gen", "rel", "name", "birth", "death")
+        tv = ttk.Treeview(win, columns=cols, show="headings")
+        for c,(lbl,w) in {"gen":("Gen.",45), "rel":("Linie",90),
+                          "name":("Name",300), "birth":("* Geburt",150),
+                          "death":("† Tod",150)}.items():
+            tv.heading(c, text=lbl)
+            tv.column(c, width=w, anchor=("w" if c in ("name","birth","death") else "center"))
+        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=6)
+        sb = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        sb.pack(side="right", fill="y", pady=6); tv.configure(yscrollcommand=sb.set)
+        tv.tag_configure("common", background="#fff3b0")  # gemeinsamer Vorfahr
+
+        def _rel(path):
+            if path == "":
+                return "Match"
+            return path  # z.B. FMF
+
+        def _is_common(name, year):
+            nl = name.lower()
+            for cn, cy in common_keys:
+                if not cn:
+                    continue
+                # Treffer wenn Nachname enthalten und Jahr passt (oder Jahr fehlt)
+                if (nl in cn or cn in nl) and (not year or not cy or year == cy):
+                    return True
+            return False
+
+        for r in rows:
+            name = (f"{r['given_name']} {r['surname']}".strip()) or "(lebend/privat)"
+            b = " ".join(x for x in (r["birth_date"] or r["birth_year"],
+                                     r["birth_place"]) if x).strip()
+            d = " ".join(x for x in (r["death_date"] or r["death_year"],
+                                     r["death_place"]) if x).strip()
+            tags = ("common",) if _is_common(name, r["birth_year"] or "") else ()
+            tv.insert("", "end", values=(r["generation"], _rel(r["ahnen_path"]),
+                                         name, b, d), tags=tags)
+
+    def _show_pedigree_overlay(self):
+        from ancestry.gui.analysis.pedigree import show_pedigree_overlay
+        show_pedigree_overlay(self)
+
+    def _show_shared_clusters(self):
+        """Triangulations-Cluster aus den Shared Matches (Connected Components)."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            return
+
+        win = tk.Toplevel(self)
+        win.title("Shared-Cluster – Triangulationsgruppen")
+        win.geometry("820x600")
+
+        top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
+        ttk.Label(top, text="cM-Fenster:", style="Bold.TLabel").pack(side="left")
+        lo_var = tk.StringVar(value="20"); hi_var = tk.StringVar(value="400")
+        ttk.Entry(top, textvariable=lo_var, width=6).pack(side="left", padx=4)
+        ttk.Label(top, text="bis").pack(side="left")
+        ttk.Entry(top, textvariable=hi_var, width=6).pack(side="left", padx=4)
+        ttk.Label(top, text="cM   (sehr enge/weite Matches verbinden alles)").pack(side="left")
+
+        info = ttk.Label(win, text="", style="Bold.TLabel")
+        info.pack(anchor="w", padx=10, pady=(4,2))
+
+        pane = ttk.PanedWindow(win, orient="vertical"); pane.pack(fill="both", expand=True, padx=10, pady=6)
+        tframe = ttk.Frame(pane); pane.add(tframe, weight=2)
+        bframe = ttk.Frame(pane); pane.add(bframe, weight=3)
+
+        tv = ttk.Treeview(tframe, columns=("cluster","size","dens","conf"),
+                          show="headings", selectmode="browse")
+        for col,(lbl,w) in {"cluster":("Cluster",100),"size":("Mitglieder",80),
+                            "dens":("Dichte",70),"conf":("Echt-Güte",110)}.items():
+            tv.heading(col, text=lbl); tv.column(col, width=w, anchor="center")
+        tv.pack(side="left", fill="both", expand=True)
+        sb = ttk.Scrollbar(tframe, orient="vertical", command=tv.yview); sb.pack(side="right", fill="y")
+        tv.configure(yscrollcommand=sb.set)
+
+        ttk.Label(bframe, text="Mitglieder des Clusters:", style="Bold.TLabel").pack(anchor="w", pady=(4,2))
+        detail = tk.Text(bframe, height=10, wrap="word", font=("Segoe UI", 9))
+        detail.pack(fill="both", expand=True)
+
+        store = {}
+        def reload(*_):
+            try:
+                lo = float(lo_var.get() or 0); hi = float(hi_var.get() or 9999)
+            except ValueError:
+                lo, hi = 20.0, 400.0
+            from core.treematch import cluster_confidence
+            clusters = self._db.get_shared_clusters(test_guid, lo, hi)
+            tv.delete(*tv.get_children()); store.clear()
+            for i, c in enumerate(clusters, 1):
+                conf = cluster_confidence(c["size"], c.get("density", 0),
+                                          c.get("median_cm", 0),
+                                          endogamy_score=c.get("endogamy", 0),
+                                          n_confirmed=c.get("n_thrulines", 0)
+                                                      + c.get("n_linked", 0))
+                c["_conf"] = conf
+                iid = tv.insert("", "end", values=(
+                    f"Cluster {i}", c["size"], f"{c.get('density',0):.2f}",
+                    f"{conf['realness']*100:.0f}% ({conf['label']})"))
+                store[iid] = c
+            info.configure(text=(f"{len(clusters)} Cluster gefunden "
+                                 f"({lo:.0f}–{hi:.0f} cM)." if clusters else
+                                 "Keine Cluster – erst Shared Matches laden (Schritt B)."))
+        ttk.Button(top, text="↻", width=3, command=reload).pack(side="left", padx=8)
+
+        def dock_in_tree():
+            sel = tv.selection()
+            if not sel:
+                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                return
+            c = store.get(sel[0])
+            if not c:
+                return
+            guids = [g for g, _n, _cm in c["members"]]
+
+            def _after_load(ged):
+                import threading
+                from core.treematch import Person
+                index, amap = ged["index"], ged["amap"]
+
+                def _worker():
+                    # Jedes Cluster-Mitglied einzeln gegen den eigenen Baum matchen.
+                    # Aggregiert nach Person in DEINEM Baum: wie viele Mitglieder
+                    # treffen sie? (Schreibvarianten egal – dein Baum ist Referenz.)
+                    agg = {}      # own.ref -> {"own","members":set,"best":score}
+                    n_with_ped = 0
+                    for guid in guids:
+                        rows = self._db.get_pedigree_for_match(test_guid, guid)
+                        rows = [r for r in rows if (r["generation"] or 0) >= 2]
+                        if rows:
+                            n_with_ped += 1
+                        seen = set()
+                        for r in rows:
+                            q = Person(r["given_name"], r["surname"],
+                                       r["birth_year"], r["birth_place"])
+                            if not q.stoks:
+                                continue
+                            own, score = index.best_match(q, min_score=0.6)
+                            if not own or own.ref in seen:
+                                continue
+                            seen.add(own.ref)
+                            e = agg.setdefault(own.ref,
+                                {"own": own, "members": set(), "best": 0.0})
+                            e["members"].add(guid)
+                            e["best"] = max(e["best"], score)
+                    hits = []
+                    for ref, e in agg.items():
+                        path = amap.get(ref)
+                        hits.append((len(e["members"]), e["best"],
+                                     e["own"].display, e["own"], path))
+                    # Direktlinie + von meisten Mitgliedern geteilt + jüngster zuerst
+                    hits.sort(key=lambda h: (h[4] is None,
+                                             len(h[4]) if h[4] else 99,
+                                             -h[0], -h[1]))
+                    self.after(0, lambda: self._show_cluster_dock(c, hits, n_with_ped))
+
+                threading.Thread(target=_worker, daemon=True,
+                                 name="cluster-dock").start()
+
+            self._set_status("Suche Cluster-Linie in deinem Baum …")
+            self._ensure_gedcom_loaded(_after_load)
+
+        ttk.Button(top, text="🔗 Cluster-Linie in meinem Baum suchen",
+                   command=dock_in_tree).pack(side="left", padx=8)
+
+        def deepen_cluster():
+            sel = tv.selection()
+            if not sel:
+                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                return
+            c = store.get(sel[0])
+            if not c:
+                return
+            guids = [g for g, _n, _cm in c["members"]]
+            if not messagebox.askyesno(
+                    "Cluster tiefer laden",
+                    f"Für {len(guids)} Cluster-Matches tiefere Ahnentafeln "
+                    f"(bis 8 Generationen) laden?\n\n"
+                    "Nötig für entfernte Cousins (gemeinsamer Vorfahr >5 Gen.).\n"
+                    "Dauert etwas (mehrere Calls pro Match)."):
+                return
+            if not self._client:
+                messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+                return
+            self._scraper = Scraper(self._client, self._db,
+                                    on_progress=self._on_progress,
+                                    on_status=lambda m: self.after(0, lambda: self._set_status(m)),
+                                    on_done=lambda r: self.after(0, lambda: messagebox.showinfo(
+                                        "Tiefe Ahnentafeln", r.message + "\n\nJetzt erneut "
+                                        "'Cluster-Linie suchen'.")))
+            self._scraper.start_deepen_pedigrees(test_guid, guids)
+
+        ttk.Button(top, text="⤓ Cluster tiefer laden (8 Gen.)",
+                   command=deepen_cluster).pack(side="left", padx=4)
+
+        def combined_tree():
+            sel = tv.selection()
+            if not sel:
+                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                return
+            c = store.get(sel[0])
+            if not c:
+                return
+            self._build_cluster_tree(test_guid, c)
+
+        ttk.Button(top, text="🌳 Cluster-Stammbaum kombinieren",
+                   command=combined_tree).pack(side="left", padx=4)
+
+        def internal_rels():
+            sel = tv.selection()
+            if not sel:
+                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                return
+            c = store.get(sel[0])
+            if not c:
+                return
+            self._show_cluster_relationships(test_guid, c)
+
+        ttk.Button(top, text="👥 Beziehungen im Cluster",
+                   command=internal_rels).pack(side="left", padx=4)
+
+        def on_sel(_):
+            sel = tv.selection()
+            if not sel: return
+            c = store.get(sel[0]); detail.delete("1.0","end")
+            if not c: return
+            guids = [g for g, _n, _cm in c["members"]]
+            conf = c.get("_conf", {})
+            detail.insert("end",
+                f"Echt-Güte: {conf.get('realness',0)*100:.0f}% "
+                f"({conf.get('label','?')}) · Dichte {c.get('density',0):.2f} "
+                f"({c.get('edges',0)} Verbindungen) · Median {c.get('median_cm',0):.0f} cM, "
+                f"{c.get('median_segments',0)} Segm., längstes {c.get('median_longest',0):.0f} cM\n")
+            nt, nl = c.get("n_thrulines", 0), c.get("n_linked", 0)
+            if nt or nl:
+                detail.insert("end",
+                    f"✓ Bestätigt: {nt} mit ThruLine, {nl} in deinem Baum verknüpft "
+                    f"→ Linie zu dir belegt\n")
+            if conf.get("note"):
+                detail.insert("end", f"⚠ {conf['note']}\n")
+            detail.insert("end", f"\n{c['size']} Matches in dieser Gruppe "
+                                 f"(wahrscheinlich gemeinsame Ahnenlinie):\n")
+            seg = c.get("seg_by_member", {})
+            for guid, name, cm in c["members"]:
+                s, lg = seg.get(guid, (0, 0))
+                detail.insert("end", f"  • {name or guid[:8]}   {(cm or 0):.0f} cM"
+                                     f"  ({s} Segm., längstes {lg:.0f})\n")
+
+            # Gemeinsame Vorfahren-Linien INNERHALB des Clusters – das ist die
+            # belastbare Linie, die bei dir andocken muss.
+            detail.insert("end", "\n── Gemeinsame Vorfahren im Cluster "
+                                 "(von ≥2 Mitgliedern geteilt) ──\n")
+            found = False
+            for mode, titel in (("person", "Personen"), ("surname", "Nachnamen"),
+                                ("place", "Orte")):
+                groups = self._db.get_pedigree_groups(
+                    test_guid, min_matches=2, mode=mode, only_guids=guids)
+                if not groups:
+                    continue
+                found = True
+                detail.insert("end", f"\n{titel}:\n")
+                for g in groups[:12]:
+                    detail.insert("end", f"  • {g['label']} {g['detail']}"
+                                         f"  ({g['count']}/{c['size']} Matches)\n")
+            if not found:
+                detail.insert("end", "  (keine geteilten Vorfahren – ggf. erst "
+                                     "Ahnentafeln für diese Matches laden)\n")
+        tv.bind("<<TreeviewSelect>>", on_sel)
+        reload()
+
+    def _show_triangulation(self):
+        """Segment-Triangulation: TGs aus DNA-Segmenten + Shared-Match-Bestätigung."""
+        from ancestry.gui.analysis.triangulation_view import show_triangulation
+        show_triangulation(self)
+
+    def _build_cluster_tree(self, test_guid, cluster):
+        """Verschmilzt die Ahnentafeln aller Cluster-Mitglieder zu einem
+        kombinierten Cluster-Stammbaum und zeigt Konvergenz + Andockpunkt."""
+        import threading
+        from core.treematch import Person, merge_person_list, render_kinship
+        guids = [g for g, _n, _cm in cluster["members"]]
+        cm_by_member = {g: cm for g, _n, cm in cluster["members"]}
+        name_by_member = {g: n for g, n, _cm in cluster["members"]}
+        ged = getattr(self, "_gedcom", None)
+        self._set_status("Kombiniere Cluster-Stammbaum …")
+
+        def _worker():
+            persons = []
+            member_rows = {}   # guid -> {ahnen_path: row}  (für Eltern-Lookup)
+            n_with_ped = 0
+            for guid in guids:
+                rows = [r for r in self._db.get_pedigree_for_match(test_guid, guid)
+                        if (r["generation"] or 0) >= 2]
+                if rows:
+                    n_with_ped += 1
+                member_rows[guid] = {r["ahnen_path"]: r for r in rows}
+                for r in rows:
+                    p = Person(r["given_name"], r["surname"],
+                               r["birth_year"], r["birth_place"],
+                               ref=(guid, r["generation"], r["ahnen_path"]),
+                               bdate=r["birth_date"])
+                    if p.stoks:
+                        persons.append(p)
+            groups = merge_person_list(persons)
+
+            def _parents_of(group):
+                """Verschmolzene Vater/Mutter eines Vorfahren-Clusters (über alle
+                Mitglieder, in denen er vorkommt)."""
+                fa, mo = [], []
+                for it in group["items"]:
+                    g, _gen, path = it.ref
+                    rowmap = member_rows.get(g, {})
+                    fr = rowmap.get((path or "") + "F")
+                    mr = rowmap.get((path or "") + "M")
+                    if fr:
+                        fa.append(Person(fr["given_name"], fr["surname"],
+                                  fr["birth_year"], fr["birth_place"], bdate=fr["birth_date"]))
+                    if mr:
+                        mo.append(Person(mr["given_name"], mr["surname"],
+                                  mr["birth_year"], mr["birth_place"], bdate=mr["birth_date"]))
+                def _rep(lst):
+                    if not lst:
+                        return None
+                    grp = merge_person_list(lst)
+                    grp.sort(key=lambda x: -len(x["items"]))
+                    return grp[0]["rep"]
+                return _rep(fa), _rep(mo)
+
+            index = ged["index"] if ged else None
+            amap = ged["amap"] if ged else {}
+            rows_out = []
+            for grp in groups:
+                members = {it.ref[0] for it in grp["items"]}
+                gen = min(it.ref[1] for it in grp["items"])
+                rep = grp["rep"]
+                own = path = None
+                via = False
+                score = 0.0
+                if index:
+                    own, score = index.best_match(rep, min_score=0.6)
+                    if own:
+                        path = amap.get(own.ref)
+                        if path is None:   # Seitenverwandter → zur direkten Linie hoch
+                            from core.treematch import mrca_on_direct_line
+                            _mid, mpath = mrca_on_direct_line(
+                                own.ref, ged.get("individuals", {}),
+                                ged.get("families", {}), amap)
+                            if mpath is not None:
+                                path, via = mpath, True
+                father, mother = _parents_of(grp)
+                rows_out.append({
+                    "rep": rep, "members": members, "gen": gen,
+                    "own": own, "path": path, "via": via, "score": score,
+                    "father": father, "mother": mother,
+                    "cms": sorted((cm_by_member.get(m, 0) for m in members),
+                                  reverse=True),
+                })
+            # Konvergenz zuerst: von vielen geteilt, dann jüngste Generation
+            rows_out.sort(key=lambda r: (-len(r["members"]), r["gen"]))
+            self.after(0, lambda: self._show_cluster_tree_win(
+                cluster, rows_out, n_with_ped, bool(ged), name_by_member))
+
+        threading.Thread(target=_worker, daemon=True, name="cluster-tree").start()
+
+    def _show_cluster_tree_win(self, cluster, rows, n_with_ped, has_ged, name_by_member):
+        from ancestry.gui.analysis.cluster_views import show_cluster_tree_win
+        show_cluster_tree_win(self, cluster, rows, n_with_ped, has_ged, name_by_member)
+
+    def _show_cluster_relationships(self, test_guid, cluster):
+        from ancestry.gui.analysis.cluster_views import show_cluster_relationships
+        show_cluster_relationships(self, test_guid, cluster)
+
+    def _show_cluster_dock(self, cluster, hits, n_with_ped):
+        from ancestry.gui.analysis.cluster_views import show_cluster_dock
+        show_cluster_dock(self, cluster, hits, n_with_ped)
 
     def _change_gedcom_settings(self):
         """GEDCOM-Datei + Wurzelperson neu wählen (überschreibt die gemerkten)."""
@@ -602,7 +825,7 @@ class AncestryDnaApp(
         if not self._client:
             messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
             return
-        self._current_test_guid = guid
+        self._state.current_test_guid = guid
         self._names_stop_btn.configure(state="normal")
         self._scraper = Scraper(self._client, self._db,
                                 on_progress=self._on_progress,
@@ -719,32 +942,27 @@ class AncestryDnaApp(
 
     def _load_ui_settings(self) -> dict:
         import json
+        import os
         try:
             with open(self._settings_path(), encoding="utf-8") as f:
                 data = json.load(f)
-                if isinstance(data, dict):
-                    self._ui_settings_cache = data
-                    return dict(data)
-        except Exception:
-            pass
-        return dict(getattr(self, "_ui_settings_cache", {}))
+                return data if isinstance(data, dict) else {}
+        except (OSError, ValueError):
+            return {}
 
     def _save_ui_settings(self, **kw):
         import json
-        s = dict(getattr(self, "_ui_settings_cache", {}))
-        s.update(kw)
+        s = self._load_ui_settings(); s.update(kw)
         try:
             with open(self._settings_path(), "w", encoding="utf-8") as f:
                 json.dump(s, f, ensure_ascii=False, indent=2)
-            self._ui_settings_cache = s
         except Exception as e:
             log.debug("Settings speichern fehlgeschlagen: %s", e)
 
     # ── Sprache / Localisation ────────────────────────────────────────────────
 
     def _t(self, key: str) -> str:
-        entry = TRANSLATIONS.get(key, {})
-        return entry.get(self._lang, entry.get("de", key))
+        return translate(key, self._lang)
 
     def _update_lang_btn(self):
         if hasattr(self, "_lang_btn"):
@@ -761,12 +979,12 @@ class AncestryDnaApp(
         for frame, key in self._lang_nb_tabs:
             try:
                 self._nb.tab(frame, text=self._t(key))
-            except Exception:
+            except tk.TclError:
                 pass
         for tv, col, key in self._lang_headings:
             try:
                 tv.heading(col, text=self._t(key))
-            except Exception:
+            except tk.TclError:
                 pass
         for item in self._lang_widgets:
             widget, key = item[0], item[1]
@@ -777,17 +995,17 @@ class AncestryDnaApp(
                     widget.set(text)
                 else:
                     widget.configure(text=text)
-            except Exception:
+            except tk.TclError:
                 pass
         for menu, index, key in self._lang_menus:
             try:
                 menu.entryconfigure(index, label=self._t(key))
-            except Exception:
+            except tk.TclError:
                 pass
         for nb, frame, key in self._lang_inner_nb_tabs:
             try:
                 nb.tab(frame, text=self._t(key))
-            except Exception:
+            except tk.TclError:
                 pass
 
     def _load_lang_setting(self):
@@ -864,190 +1082,291 @@ class AncestryDnaApp(
         threading.Thread(target=_worker, daemon=True, name="gedcom-load").start()
 
     def _show_gedcom_results(self, results, n_people, n_peds, cluster_lookup=None):
-        win = tk.Toplevel(self)
-        win.title("GEDCOM-Abgleich – wo hängt jeder Match in deinem Baum?")
-        win.geometry("1100x640")
+        from ancestry.gui.analysis.gedcom_results import show_gedcom_results
+        show_gedcom_results(self, results, n_people, n_peds, cluster_lookup)
 
-        cl = cluster_lookup or {}
-        cluster_ids = sorted({cid for cid in cl.values()}) if cl else []
+    # ─────────────────────────────────────────────────────────────────────────
+    # TAB 3: MATCHES  →  siehe ancestry/gui/tabs/matches.py
+    # ─────────────────────────────────────────────────────────────────────────
 
-        # Flache Datenzeilen (für Filter/Sortierung)
-        data = []
-        for name, cm, (score, r, own, _p), kin, linked, guid in results:
-            ab = " ".join(x for x in (str(own.year or ""), own.place) if x).strip()
-            cid = cl.get(guid)
-            data.append({
-                "linked": linked,
-                "link": self._t("gc.linked") if linked else self._t("gc.new"),
-                "match": name or "?", "cm": float(cm or 0),
-                "anchor": own.display, "abirth": ab,
-                "kin": kin or "—", "line": r["ahnen_path"] or "?",
-                "score": float(score or 0),
-                "cluster": cid,
-                "cluster_str": f"#{cid}" if cid else "—",
-            })
-        n_new = sum(1 for d in data if not d["linked"])
+    def _refresh_match_table(self, *_):
+        """Delegation stub — aktualisiert die Match-Tabelle im Matches-Tab."""
+        self._matches_tab.refresh()
 
-        # ── Filterleiste ────────────────────────────────────────────────────────
-        bar = ttk.Frame(win); bar.pack(fill="x", padx=10, pady=(10,2))
-        ttk.Label(bar, text=self._t("gc.f.search")).pack(side="left")
-        f_search = tk.StringVar()
-        ttk.Entry(bar, textvariable=f_search, width=20).pack(side="left", padx=4)
-        f_new = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text=self._t("gc.f.new"),
-                        variable=f_new).pack(side="left", padx=6)
-        f_direct = tk.BooleanVar(value=False)
-        ttk.Checkbutton(bar, text=self._t("gc.f.direct"),
-                        variable=f_direct).pack(side="left", padx=6)
-        ttk.Label(bar, text=self._t("gc.f.mincm")).pack(side="left")
-        f_cm = tk.StringVar(value="0")
-        ttk.Entry(bar, textvariable=f_cm, width=5).pack(side="left", padx=4)
-        ttk.Label(bar, text=self._t("gc.f.cluster")).pack(side="left", padx=(10,0))
-        f_cluster = tk.StringVar(value="")
-        cluster_opts = [""] + [str(c) for c in cluster_ids]
-        cb_cluster = ttk.Combobox(bar, textvariable=f_cluster,
-                                  values=cluster_opts, width=5, state="readonly")
-        cb_cluster.pack(side="left", padx=4)
+    def _update_matches_kit_combo(self):
+        """Delegation stub — befüllt den Kit-Selektor im Matches-Tab."""
+        self._matches_tab.update_kit_combo()
 
-        hdr = ttk.Label(win, text="", style="Bold.TLabel")
-        hdr.pack(anchor="w", padx=10, pady=(0,2))
+    def _load_gedcom_link_panel(self, match: "DnaMatch"):
+        """Delegation stub — füllt den GEDCOM-Treffer-Tab im Matches-Tab."""
+        self._matches_tab.load_gedcom_link_panel(match)
 
-        # Cluster-Stammbaum-Button – vor frame packen (side=bottom), damit
-        # frame mit expand=True den verbleibenden Mittelbereich füllt
-        btn_bar = ttk.Frame(win)
-        _cluster_btn = ttk.Button(btn_bar,
-                                  text=self._t("gc.tree_btn"),
-                                  state="disabled")
-        _cluster_btn.pack(side="left", padx=4)
-        btn_bar.pack(fill="x", padx=10, pady=(0, 4), side="bottom")
-        _sel_cid: list = [None]
+    @property
+    def _selected_match(self) -> Optional[DnaMatch]:
+        """Aktuell gewählter Match — lebt im Matches-Tab."""
+        tab = getattr(self, "_matches_tab", None)
+        return tab.selected_match if tab is not None else None
 
-        cols = ("cluster","link","match","cm","anchor","abirth","kin","line","score")
-        heads = {
-            "cluster": ("gc.cluster", 58),
-            "link":    ("gc.link",    72),
-            "match":   ("gc.match",  165),
-            "cm":      ("gc.cm",      52),
-            "anchor":  ("gc.anchor", 185),
-            "abirth":  ("gc.abirth", 115),
-            "kin":     ("gc.kin",    165),
-            "line":    ("gc.line",    72),
-            "score":   ("gc.score",   65),
-        }
-        frame = ttk.Frame(win)
-        frame.pack(fill="both", expand=True, padx=(10,0), pady=6)
-        tv = ttk.Treeview(frame, columns=cols, show="headings")
-        for c, (key, w) in heads.items():
-            tv.column(c, width=w,
-                      anchor=("center" if c in ("cluster","cm","line","score","link") else "w"))
-        tv.pack(side="left", fill="both", expand=True)
-        sb = ttk.Scrollbar(frame, orient="vertical", command=tv.yview)
-        sb.pack(side="right", fill="y"); tv.configure(yscrollcommand=sb.set)
+    def _run_gedcom_match_all(self):
+        """Bulk-Abgleich aller Matches gegen den GEDCOM-Baum."""
+        ged = getattr(self, "_gedcom", None)
+        if not ged:
+            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            return
+        test_guid = self._state.current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
 
-        clr = self._active_colors()["cluster"]
-        tv.tag_configure("strong",  background=clr[1])
-        tv.tag_configure("newlead", background=clr[3])
+        self._ged_link_status.set("Bulk-Abgleich läuft …")
 
-        for i in range(1, len(clr) + 1):
-            tv.tag_configure(f"cl{i}", background=clr[(i - 1) % len(clr)])
-
-        def _on_tv_select(_):
-            sel = tv.selection()
-            _sel_cid[0] = None
-            if not sel:
-                _cluster_btn.configure(state="disabled")
-                return
-            vals = tv.item(sel[0], "values")
-            cstr = vals[0] if vals else ""
-            if cstr and cstr != "—":
-                try:
-                    cid = int(cstr.lstrip("#"))
-                    if cid in getattr(self, "_clusters", {}):
-                        _sel_cid[0] = cid
-                        _cluster_btn.configure(state="normal")
-                        return
-                except (ValueError, AttributeError):
-                    pass
-            _cluster_btn.configure(state="disabled")
-
-        def _open_cluster_tree():
-            cid = _sel_cid[0]
-            clusters = getattr(self, "_clusters", {})
-            if cid is None or cid not in clusters:
-                messagebox.showinfo(
-                    "Cluster nicht berechnet",
-                    "Bitte zuerst im Cluster-Tab Clustering durchführen.")
-                return
-            members = clusters[cid]
-            cluster_obj = {"members": [(m["guid"], m["name"], m["cm"])
-                                       for m in members]}
-            tg = self._current_test_guid or self._current_guid()
-            if tg:
-                self._build_cluster_tree(tg, cluster_obj)
-
-        _cluster_btn.configure(command=_open_cluster_tree)
-        tv.bind("<<TreeviewSelect>>", _on_tv_select)
-
-        state = {"col": "cm", "desc": True}
-
-        def populate(*_):
-            q = f_search.get().strip().lower()
+        def _worker():
             try:
-                mincm = float(f_cm.get() or 0)
+                from core import bridge
+                bridge.ensure_tables(self._db)
+                if bridge.get_gedcom_person_count(self._db) == 0:
+                    bridge.import_gedcom_persons(
+                        self._db, ged["individuals"], ged.get("path", ""))
+                total = bridge.run_match_all(self._db, test_guid)
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"Bulk-Abgleich fertig: {total} Treffer gesamt"))
+                # Match-Tabelle aktualisieren (🌳N-Spalte) + aktuelle Detail-Ansicht
+                self.after(0, self._refresh_match_table)
+                if self._selected_match:
+                    self.after(0, lambda: self._load_gedcom_link_panel(self._selected_match))
+            except Exception as exc:
+                log.warning("bridge bulk: %s", exc)
+                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="bridge-bulk").start()
+
+    def _on_gedcom_loaded_update_header(self, ged: dict):
+        """Callback nach _ensure_gedcom_loaded: GEDCOM-Dateiname in Header zeigen."""
+        import os
+        path = ged.get("path", "")
+        name = os.path.basename(path) if path else "—"
+        n = len(ged.get("people", {}))
+        if hasattr(self, "_ged_file_var"):
+            self._ged_file_var.set(f"{name}  ({n} Personen)")
+
+    def _run_endogamy_transfer(self):
+        """Überträgt GEDCOM-Endogamie-Scores via Geburtsort-Abgleich auf Matches."""
+        ged = getattr(self, "_gedcom", None)
+        if not ged:
+            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            return
+        test_guid = self._state.current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set("Endogamie-Transfer läuft …")
+
+        def _worker():
+            try:
+                from core import bridge as _bridge
+                import os as _os
+                import importlib.util as _ilu
+                # GEDCOM-Endogamie aus dem Haupt-Analyzer (tasks ist installiert)
+                _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+                from tasks.endogamy import compute_endogamy_with_detailed_places
+                from lib.places import load_location_data
+                # Root-config direkt laden (nicht über sys.modules["config"],
+                # der auf ancestry/config.py zeigt)
+                _cfg_spec = _ilu.spec_from_file_location(
+                    "_root_config", _os.path.join(_root, "config.py"))
+                _cfg_root = _ilu.module_from_spec(_cfg_spec)
+                _cfg_spec.loader.exec_module(_cfg_root)
+                loc = load_location_data(
+                    _cfg_root.DEFAULT_CONFIG.get("location_data_json", ""))
+                endo_results = compute_endogamy_with_detailed_places(
+                    ged["individuals"], ged["families"],
+                    root_id="", location_data=loc)
+                n = _bridge.apply_gedcom_endogamy_to_matches(
+                    self._db, test_guid, endo_results,
+                    progress_cb=lambda m, **kw: self.after(
+                        0, lambda mm=m: self._ged_link_status.set(mm)))
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"Endogamie-Transfer fertig: {n} Matches markiert"))
+                self.after(0, self._refresh_match_table)
+            except Exception as exc:
+                log.warning("endogamy-transfer: %s", exc)
+                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="endo-transfer").start()
+
+    def _open_xref_review(self):
+        """Fenster zum Prüfen grenzwertiger Duplikat-Verknüpfungen (gedcom_person_xref)."""
+        try:
+            from core import bridge
+        except Exception as e:
+            messagebox.showerror("Duplikate", f"bridge nicht ladbar: {e}"); return
+
+        win = tk.Toplevel(self)
+        win.title("Duplikate prüfen – Querbezüge")
+        win.geometry("900x460")
+
+        bar = ttk.Frame(win); bar.pack(fill="x", padx=8, pady=6)
+        ttk.Label(bar, text="Score von").pack(side="left")
+        lo_var = tk.StringVar(value="0.72"); hi_var = tk.StringVar(value="0.85")
+        ttk.Entry(bar, textvariable=lo_var, width=5).pack(side="left", padx=2)
+        ttk.Label(bar, text="bis").pack(side="left")
+        ttk.Entry(bar, textvariable=hi_var, width=5).pack(side="left", padx=2)
+        only_auto = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bar, text="nur ungeprüfte", variable=only_auto).pack(side="left", padx=8)
+
+        cols = ("score", "status", "a", "b")
+        tree = ttk.Treeview(win, columns=cols, show="headings", height=15)
+        for c, t, w in [("score","Score",60),("status","Status",80),
+                        ("a","A (dein GEDCOM)",360),("b","B (andere Quelle)",360)]:
+            tree.heading(c, text=t); tree.column(c, width=w, anchor="w")
+        tree.pack(fill="both", expand=True, padx=8)
+        rowmap = {}
+
+        def _fmt(r, pre):
+            return (f"{r[pre+'_given'] or ''} {r[pre+'_surname'] or ''} "
+                    f"*{r[pre+'_by'] or '?'} †{r[pre+'_dy'] or '?'} "
+                    f"[{r[pre+'_bp'] or ''}]").strip()
+
+        def reload():
+            tree.delete(*tree.get_children()); rowmap.clear()
+            try:
+                lo, hi = float(lo_var.get()), float(hi_var.get())
             except ValueError:
-                mincm = 0
-            fc = f_cluster.get().strip()
-            rows = [d for d in data
-                    if d["cm"] >= mincm
-                    and (not f_new.get() or not d["linked"])
-                    and (not f_direct.get() or ("Seitenlinie" not in d["kin"]
-                                                and d["kin"] != "—"))
-                    and (not fc or str(d.get("cluster","")) == fc)
-                    and (not q or q in d["match"].lower()
-                         or q in d["anchor"].lower() or q in d["kin"].lower())]
-            col, desc = state["col"], state["desc"]
-            rows.sort(key=lambda d: (d[col] is None, d[col] or 0), reverse=desc)
-            tv.delete(*tv.get_children())
-            for d in rows:
-                cid = d.get("cluster")
-                if not d["linked"]:
-                    tag = ("newlead",)
-                elif d["score"] >= 0.8:
-                    tag = ("strong",)
-                elif cid:
-                    tag = (f"cl{(cid - 1) % len(clr) + 1}",)
-                else:
-                    tag = ()
-                tv.insert("", "end", tags=tag, values=(
-                    d["cluster_str"], d["link"], d["match"],
-                    f"{d['cm']:.0f}", d["anchor"], d["abirth"],
-                    d["kin"], d["line"], f"{d['score']:.2f}"))
-            hdr.configure(text=(f"Eigener Baum: {n_people} Pers. · "
-                f"{len(data)} verankert ({n_new} neu) · angezeigt: {len(rows)} · "
-                f"Sort: {self._t(heads[col][0])} {'▼' if desc else '▲'}"))
+                lo, hi = 0.0, 1.0
+            pairs = bridge.get_xref_pairs(self._db, lo=lo, hi=hi)
+            for r in pairs:
+                if only_auto.get() and r["status"] != "auto":
+                    continue
+                iid = tree.insert("", "end", values=(
+                    f"{r['score']:.3f}", r["status"], _fmt(r,"a"), _fmt(r,"b")))
+                rowmap[iid] = r
+            win.title(f"Duplikate prüfen – {len(rowmap)} Paare")
 
-        def sort_by(col):
-            state["desc"] = not state["desc"] if state["col"] == col else True
-            state["col"] = col
-            populate()
+        def _decide(status):
+            for iid in tree.selection():
+                r = rowmap.get(iid)
+                if not r: continue
+                bridge.set_xref_status(self._db, r["ged_id_primary"],
+                                       r["ged_id_other"], status)
+                tree.set(iid, "status", status)
 
-        for c, (key, w) in heads.items():
-            tv.heading(c, text=self._t(key), command=lambda c=c: sort_by(c))
+        btns = ttk.Frame(win); btns.pack(fill="x", padx=8, pady=6)
+        ttk.Button(btns, text="🔄 Laden", command=reload).pack(side="left")
+        ttk.Button(btns, text="✓ Dieselbe Person (bestätigen)",
+                   command=lambda: _decide("confirmed")).pack(side="left", padx=4)
+        ttk.Button(btns, text="✗ Verschiedene (ablehnen)",
+                   command=lambda: _decide("rejected")).pack(side="left", padx=4)
+        ttk.Label(btns, text="Mehrfachauswahl möglich (Strg/Shift)",
+                  foreground="#777").pack(side="right")
+        reload()
 
-        for var in (f_search, f_new, f_direct, f_cm, f_cluster):
-            var.trace_add("write", populate)
-        populate()
-        self._set_status(f"GEDCOM-Abgleich: {len(data)}/{n_peds} Matches verankert.")
+    def _run_ml_origin(self):
+        """Trainiert (falls nötig) das ML-Herkunftsmodell auf dem GEDCOM und
+        wendet es als 'zweite Meinung' auf alle Matches an (ml_origin-Spalte)."""
+        test_guid = self._state.current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+        self._ged_link_status.set("ML-Herkunft: starte …")
+
+        def _worker():
+            try:
+                from core import ml_origin as _ml
+                cb = lambda m: self.after(0, lambda mm=m: self._ged_link_status.set(mm))
+                if not _ml.load():
+                    cb("ML: trainiere Modell auf GEDCOM …")
+                    metrics = _ml.train(self._db, progress_cb=cb)
+                    cb(f"ML: trainiert ({metrics['n_train']} Personen, "
+                       f"{metrics['n_regions']} Regionen, "
+                       f"{metrics['train_acc']:.0%})")
+                n = _ml.apply_to_matches(self._db, test_guid, progress_cb=cb)
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"ML-Herkunft fertig: {n} Matches gelabelt"))
+                self.after(0, self._refresh_match_table)
+            except Exception as exc:
+                log.warning("ml-origin: %s", exc)
+                msg = str(exc).split("\n")[0]
+                self.after(0, lambda: self._ged_link_status.set(f"ML-Fehler: {msg}"))
+                self.after(0, lambda exc=exc: messagebox.showwarning("ML-Herkunft", str(exc)))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="ml-origin").start()
+
+    def _run_wikitree_extend(self):
+        """Verlängert die Ahnenlinie des gewählten Matches über die WikiTree-API."""
+        match = getattr(self, "_selected_match", None)
+        if not match:
+            messagebox.showinfo("WikiTree", "Bitte zuerst einen Match in der Tabelle auswählen.")
+            return
+        test_guid = self._state.current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set("WikiTree-Abgleich läuft …")
+
+        def _worker(mguid=match.match_guid, mname=match.display_name):
+            try:
+                from core import bridge as _bridge
+                results = _bridge.wikitree_extend_match(
+                    self._db, test_guid, mguid,
+                    progress_cb=lambda m: self.after(
+                        0, lambda mm=m: self._ged_link_status.set(mm)),
+                )
+                found = sum(1 for r in results if r.get("best"))
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"WikiTree: {found} Linie(n) gefunden"))
+                self.after(0, lambda: self._show_wikitree_results(mname, results))
+            except Exception as exc:
+                log.warning("wikitree-extend: %s", exc)
+                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="wikitree").start()
+
+    def _show_wikitree_results(self, match_name: str, results: list):
+        from ancestry.gui.analysis.gedcom_results import show_wikitree_results
+        show_wikitree_results(self, match_name, results)
+
+    def _run_origin_inference(self):
+        """Leitet wahrscheinliche Herkunftsregionen aus Pedigree-Nachnamen × GEDCOM-Orten ab."""
+        ged = getattr(self, "_gedcom", None)
+        if not ged:
+            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            return
+        test_guid = self._state.current_test_guid or self._get_kit_guid()
+        if not test_guid:
+            return
+
+        self._ged_link_status.set("Herkunfts-Analyse läuft …")
+
+        def _worker():
+            try:
+                from core import bridge as _bridge
+                results = _bridge.infer_match_origins(
+                    self._db, test_guid,
+                    progress_cb=lambda m, **kw: self.after(
+                        0, lambda mm=m: self._ged_link_status.set(mm)),
+                )
+                n = len(results)
+                self.after(0, lambda: self._ged_link_status.set(
+                    f"Herkunfts-Analyse fertig: {n} Matches zugeordnet"))
+                self.after(0, self._refresh_match_table)
+            except Exception as exc:
+                log.warning("origin-inference: %s", exc)
+                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
+
+        import threading
+        threading.Thread(target=_worker, daemon=True, name="origin-infer").start()
+
 
     # ─────────────────────────────────────────────────────────────────────────
-    # TAB 3: MATCHES
+    # ─────────────────────────────────────────────────────────────────────────
+    # TAB 5: STATISTIKEN
     # ─────────────────────────────────────────────────────────────────────────
 
-    # TAB 4: CLUSTER  →  cluster_tab.ClusterTabMixin
-    # ─────────────────────────────────────────────────────────────────────────
-    # ─────────────────────────────────────────────────────────────────────────
-    # TAB 5: STATISTIKEN  →  stats_tab.StatsTabMixin
-    # ─────────────────────────────────────────────────────────────────────────
+    def _refresh_stats(self):
+        self._stats_tab.refresh()
+
     # ─────────────────────────────────────────────────────────────────────────
     # Export
     # ─────────────────────────────────────────────────────────────────────────
@@ -1065,7 +1384,7 @@ class AncestryDnaApp(
             messagebox.showinfo("Fertig", f"{len(matches)} Matches → {p}")
 
     def _export_shared_csv(self):
-        test_guid = self._current_test_guid or self._get_kit_guid()
+        test_guid = self._state.current_test_guid or self._get_kit_guid()
         if not test_guid:
             messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
             return
@@ -1100,7 +1419,7 @@ class AncestryDnaApp(
             messagebox.showinfo("Fertig", f"{len(matches)} Matches → {p}")
 
     def _export_all_xlsx(self):
-        test_guid = self._current_test_guid or self._get_kit_guid()
+        test_guid = self._state.current_test_guid or self._get_kit_guid()
         matches = self._db.get_matches(test_guid=test_guid)
         if not matches:
             messagebox.showinfo("Keine Daten", "Keine Matches vorhanden.")
@@ -1117,7 +1436,8 @@ class AncestryDnaApp(
         # Statistik-Kennzahlen
         try:
             stats = self._db.get_statistics(test_guid)
-        except Exception:
+        except Exception as e:
+            log.debug("export_all get_statistics: %s", e)
             stats = None
 
         # Analyse-Blatt: Herkunft (Regel + ML) und Seite je Match
@@ -1135,7 +1455,7 @@ class AncestryDnaApp(
                     r = d.get("region", "")
                     pr = d.get("score", d.get("prob"))
                     return f"{r} ({pr})" if r and pr is not None else r
-                except Exception:
+                except (ValueError, KeyError):
                     return ""
             for r in rows:
                 analysis.append({
@@ -1146,7 +1466,8 @@ class AncestryDnaApp(
                     "origin_rule": _reg(r["probable_origin"]),
                     "origin_ml":   _reg(r["ml_origin"]),
                 })
-        except Exception:
+        except Exception as e:
+            log.warning("export_all analysis rows: %s", e)
             analysis = []
 
         p = filedialog.asksaveasfilename(title="Alles als XLSX exportieren",
@@ -1297,123 +1618,111 @@ class AncestryDnaApp(
     def _set_status(self, msg: str):
         self._status_var.set(msg)
 
+    def _on_progress(self, fetched, total, label):
+        """Delegation stub — updates DownloadTab progress display."""
+        self._download_tab.on_progress(fetched, total, label)
+
+    def _get_kit_guid(self) -> Optional[str]:
+        if hasattr(self, "_download_tab"):
+            return self._download_tab.get_kit_guid()
+        return None
+
     # ── Neue Analyse-Methoden ─────────────────────────────────────────────────
 
     def _show_pedigree_gaps(self):
-        """Zeigt welche Generationen in Match-Ahnentafeln noch fehlen."""
-        test_guid = self._current_guid()
-        if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
-            return
+        from ancestry.gui.analysis.pedigree import show_pedigree_gaps
+        show_pedigree_gaps(self)
 
-        win = tk.Toplevel(self)
-        win.title("Ahnentafel-Lücken-Analyse")
-        win.geometry("900x600")
-
-        ttk.Label(win, text="Matches mit unvollständigen Ahnentafeln (nach Generation):",
-                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
-
-        cols = ("name","cm","gen2","gen3","gen4","gen5","gen6")
-        tv = ttk.Treeview(win, columns=cols, show="headings")
-        for col, (lbl, w) in {
-            "name": ("Match",     200),
-            "cm":   ("cM",         65),
-            "gen2": ("Gen 2",      60),
-            "gen3": ("Gen 3",      60),
-            "gen4": ("Gen 4",      60),
-            "gen5": ("Gen 5",      60),
-            "gen6": ("Gen 6+",     60),
-        }.items():
-            tv.heading(col, text=lbl)
-            tv.column(col, width=w, anchor=("e" if col=="cm" else "center" if col!="name" else "w"))
-
-        tv.tag_configure("gap3", background="#FFF3CD")
-        tv.tag_configure("gap2", background="#FFD6D6")
-
-        sy = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
-        tv.configure(yscrollcommand=sy.set)
-        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=4)
-        sy.pack(side="right", fill="y", pady=4)
-
-        try:
-            data = self._db.get_pedigree_completeness_per_match(test_guid)
-        except Exception as e:
-            messagebox.showerror("Fehler", str(e))
-            return
-
-        max_gen = {2: 4, 3: 8, 4: 16, 5: 32, 6: 64}
-        for entry in data[:200]:
-            gens = entry.get("generations", {})
-            def fmt(g):
-                got = gens.get(g, 0)
-                exp = max_gen.get(g, 0)
-                return f"{got}/{exp}" if exp else f"{got}"
-            g3 = gens.get(3, 0); g4 = gens.get(4, 0)
-            tags = ("gap2",) if g3 < 4 else (("gap3",) if g4 < 8 else ())
-            tv.insert("", "end", tags=tags, values=(
-                entry.get("display_name","?")[:30],
-                f"{entry.get('shared_cm',0):.0f}",
-                fmt(2), fmt(3), fmt(4), fmt(5), fmt(6),
-            ))
-        if not data:
-            tv.insert("", "end", values=("—",) * 7)
+    def _show_pedigree_chart(self):
+        from ancestry.gui.analysis.pedigree_chart import show_pedigree_chart
+        show_pedigree_chart(self)
 
     def _show_endogamy_analysis(self):
-        """Listet Matches mit erhöhtem Endogamie-Score."""
-        test_guid = self._current_guid()
-        if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        from ancestry.gui.analysis.mrca import show_endogamy_analysis
+        show_endogamy_analysis(self)
+
+    def _show_population_stats(self):
+        from ancestry.gui.analysis.population import show_population_stats
+        show_population_stats(self)
+
+    def _show_research_dashboard(self):
+        from ancestry.gui.analysis.research_dashboard import show_research_dashboard
+        show_research_dashboard(self)
+
+    def _copilot_explain_cluster(self):
+        """Öffnet ein Popup das den ausgewählten Cluster via Claude erklärt."""
+        from tkinter import messagebox, scrolledtext
+        from ancestry.core.ai_copilot import (availability_hint, cluster_prompt,
+                                               explain_async, is_available)
+
+        clusters = getattr(self, "_clusters", {}) or {}
+        if not clusters:
+            messagebox.showinfo("Cluster erklären",
+                                "Bitte zuerst im Cluster-Tab Clustering durchführen.")
             return
 
         win = tk.Toplevel(self)
-        win.title("Endogamie-Score-Analyse")
-        win.geometry("800x500")
+        win.title("🤖 Cluster-Copilot")
+        win.geometry("620x440")
 
-        top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
-        ttk.Label(top, text="Min. Score:", style="Bold.TLabel").pack(side="left")
-        thr_var = tk.StringVar(value="0.15")
-        ttk.Entry(top, textvariable=thr_var, width=6).pack(side="left", padx=4)
-        ttk.Label(top, text="  (Score = Segmente / (cM+1)  –  Verdacht > 0.15)",
-                  foreground="#777777").pack(side="left")
+        top = ttk.Frame(win)
+        top.pack(fill="x", padx=10, pady=8)
+        ttk.Label(top, text="Cluster:").pack(side="left")
+        opts = [f"#{cid}  ({len(members)} Mitglieder)"
+                for cid, members in sorted(clusters.items())]
+        sel = tk.StringVar(value=opts[0] if opts else "")
+        cb = ttk.Combobox(top, textvariable=sel, values=opts, width=28, state="readonly")
+        cb.pack(side="left", padx=6)
 
-        info_lbl = ttk.Label(win, text="", style="Bold.TLabel")
-        info_lbl.pack(anchor="w", padx=10)
+        btn_var = tk.StringVar(value="🤖 Erklären")
+        btn = ttk.Button(top, textvariable=btn_var,
+                         state="normal" if is_available() else "disabled")
+        btn.pack(side="left", padx=6)
 
-        cols = ("name","cm","seg","score")
-        tv = ttk.Treeview(win, columns=cols, show="headings")
-        for col, (lbl, w, a) in {
-            "name":  ("Match",  280, "w"),
-            "cm":    ("cM",      80, "e"),
-            "seg":   ("Seg.",    60, "e"),
-            "score": ("Score",   80, "e"),
-        }.items():
-            tv.heading(col, text=lbl); tv.column(col, width=w, anchor=a)
-        sy = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
-        tv.configure(yscrollcommand=sy.set)
-        tv.pack(side="left", fill="both", expand=True, padx=(10,0), pady=4)
-        sy.pack(side="right", fill="y", pady=4)
+        txt = scrolledtext.ScrolledText(win, wrap="word", font=("Segoe UI", 9),
+                                        state="disabled", bg="#fafafa")
+        txt.pack(fill="both", expand=True, padx=10, pady=(0, 8))
 
-        def reload(*_):
+        hint = availability_hint()
+        if hint:
+            txt.configure(state="normal")
+            txt.insert("end", hint)
+            txt.configure(state="disabled")
+
+        def _explain():
+            raw = sel.get()
             try:
-                thr = float(thr_var.get() or 0.15)
-            except ValueError:
-                thr = 0.15
-            tv.delete(*tv.get_children())
-            try:
-                rows = self._db.get_endogamy_candidates(test_guid, thr)
-            except Exception as e:
-                messagebox.showerror("Fehler", str(e)); return
-            for r in rows:
-                tv.insert("", "end", values=(
-                    r.get("display_name","?")[:40],
-                    f"{r.get('shared_cm',0):.0f}",
-                    r.get("shared_segments","?"),
-                    f"{r.get('endo_score',0):.3f}",
-                ))
-            info_lbl.configure(text=f"{len(rows)} Matches mit Endogamie-Verdacht (Score > {thr:.2f})")
+                cid = int(raw.split("#")[1].split()[0])
+            except (IndexError, ValueError):
+                return
+            members = clusters.get(cid, [])
+            prompt = cluster_prompt(cid, members)
+            if not prompt:
+                return
+            btn.configure(state="disabled")
+            btn_var.set("⏳ Claude denkt …")
+            txt.configure(state="normal")
+            txt.delete("1.0", "end")
 
-        thr_var.trace_add("write", reload)
-        reload()
+            def _chunk(t: str) -> None:
+                win.after(0, lambda c=t: _append(c))
+
+            def _done(_: str) -> None:
+                win.after(0, _finish)
+
+            def _append(t: str) -> None:
+                txt.configure(state="normal")
+                txt.insert("end", t)
+                txt.see("end")
+
+            def _finish() -> None:
+                txt.configure(state="disabled")
+                btn.configure(state="normal")
+                btn_var.set("🤖 Erklären")
+
+            explain_async(prompt, on_chunk=_chunk, on_done=_done)
+
+        btn.configure(command=_explain)
 
     def _run_gedmatch_bridge(self):
         """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches (Name+cM-Ähnlichkeit)."""
@@ -1458,8 +1767,14 @@ class AncestryDnaApp(
         else:
             kit_combo.set("(kein zweites Kit vorhanden)")
             kit_combo.configure(state="disabled")
-        kit_combo.grid(row=2, column=0, columnspan=2, padx=28, pady=(0,8), sticky="w")
+        kit_combo.grid(row=2, column=0, columnspan=2, padx=28, pady=(0,4), sticky="w")
         kit_combo.bind("<Button-1>", lambda _: method_var.set("kit"))
+        # Hinweis: ohne zweites Kit ist die Seiten-Zuweisung unzuverlässig
+        ttk.Label(dlg,
+            text="ℹ  Ohne ein Mutter- oder Vater-Kit basiert die Zuweisung nur auf\n"
+                 "Cluster-Patterns und ist eine Schätzung — keine genealogische Gewissheit.",
+            foreground="#a06000", font=("Segoe UI", 8), justify="left").grid(
+            row=2, column=2, padx=(8,14), pady=(0,4), sticky="w")
 
         # ── Methode B: via GEDCOM-Baum ────────────────────────────────────────
         has_gedcom = bool(getattr(self, "_gedcom", None))
@@ -1496,7 +1811,8 @@ class AncestryDnaApp(
                     "OR match_cluster_code IN ('maternal','paternal'))",
                     (test_guid,))
                 n_ancestry = _cur.fetchone()[0]
-        except Exception:
+        except Exception as e:
+            log.debug("auto_assign_sides ancestry count: %s", e)
             n_ancestry = 0
 
         rb_anc = ttk.Radiobutton(dlg,
@@ -1520,7 +1836,7 @@ class AncestryDnaApp(
             result["method"] = method_var.get()
             try:
                 result["kit_index"] = kit_combo.current()
-            except Exception:
+            except tk.TclError:
                 result["kit_index"] = -1
             dlg.destroy()
 
@@ -1673,87 +1989,8 @@ class AncestryDnaApp(
                                 f"Cluster #{cid} ({len(members)} Mitglieder)")
 
     def _show_cluster_timeline(self):
-        """Zeigt Geburtsjahre der Cluster-Vorfahren als Zeitachse."""
-        sel = self._cluster_list.selection()
-        if not sel:
-            messagebox.showinfo("Kein Cluster", "Bitte Cluster auswählen.")
-            return
-        cid = int(sel[0])
-        members = self._clusters.get(cid, [])
-        if not members:
-            return
-        test_guid = self._current_guid()
-        if not test_guid:
-            return
-
-        try:
-            guids = [m["guid"] for m in members]
-            rows = self._db.get_cluster_ancestor_years(test_guid, guids)
-        except Exception as e:
-            messagebox.showerror("Fehler", str(e))
-            return
-
-        if not rows:
-            messagebox.showinfo("Keine Daten",
-                                "Keine Ahnentafel-Daten für diesen Cluster vorhanden.\n"
-                                "→ Erst 'Ahnentafeln laden' ausführen.")
-            return
-
-        win = tk.Toplevel(self)
-        _cc = self._active_colors()["cluster"]
-        color = getattr(self, "_cluster_side_colors", {}).get(cid, _cc[(cid - 1) % len(_cc)])
-        win.title(f"Cluster #{cid} – Zeitachse der Vorfahren")
-        win.geometry("900x400")
-
-        years = [int(r.get("birth_year", 0)) for r in rows if r.get("birth_year")]
-        if not years:
-            return
-        y_min, y_max = min(years), max(years)
-        y_range = max(y_max - y_min, 50)
-
-        c = tk.Canvas(win, bg="#FAFAFA", highlightthickness=0)
-        c.pack(fill="both", expand=True, padx=10, pady=10)
-
-        def draw(_event=None):
-            c.delete("all")
-            W = c.winfo_width() or 860
-            H = c.winfo_height() or 340
-            pad_x = 60; pad_y = 40
-
-            # Draw axis
-            c.create_line(pad_x, H - pad_y, W - 20, H - pad_y, fill="#AAAAAA", width=1)
-            # Draw decade ticks
-            decade_start = (y_min // 10) * 10
-            decade_end   = ((y_max // 10) + 1) * 10
-            for yr in range(decade_start, decade_end + 1, 10):
-                x = pad_x + (yr - y_min) / y_range * (W - pad_x - 20)
-                c.create_line(x, H - pad_y - 4, x, H - pad_y + 4, fill="#888888")
-                c.create_text(x, H - pad_y + 16, text=str(yr),
-                              font=("Segoe UI", 7), fill="#888888")
-
-            # Draw people as colored dots
-            import random
-            random.seed(cid)
-            for r in rows:
-                yr = int(r.get("birth_year", 0))
-                if not yr: continue
-                x = pad_x + (yr - y_min) / y_range * (W - pad_x - 20)
-                gen = r.get("generation", 3)
-                y = pad_y + (gen - 1) * 18
-                y = min(y, H - pad_y - 20)
-                tag = f"d{id(r)}"
-                c.create_oval(x-5, y-5, x+5, y+5, fill=color, outline="white",
-                              width=1, tags=tag)
-                name = f"{r.get('given_name','')} {r.get('surname','')}"
-                c.tag_bind(tag, "<Enter>",
-                           lambda e, n=name, yr=yr, gen=gen:
-                               c.create_text(e.x+10, e.y-10, text=f"{n} ({yr}) Gen{gen}",
-                                             font=("Segoe UI", 8), tags="tooltip",
-                                             fill=self._active_colors()["text"]))
-                c.tag_bind(tag, "<Leave>", lambda _: c.delete("tooltip"))
-
-        c.bind("<Configure>", draw)
-        win.after(100, draw)
+        from ancestry.gui.analysis.cluster_views import show_cluster_timeline
+        show_cluster_timeline(self)
 
     def _export_gedcom(self):
         """Exportiert Vorfahren-Gruppen als GEDCOM 5.5.1."""
@@ -1831,7 +2068,7 @@ class AncestryDnaApp(
             "Modern": "#F44336", "Ancient / Other": "#795548",
         }
 
-        c = tk.Canvas(win, height=160, bg=self._active_colors()["bg"], highlightthickness=0)
+        c = tk.Canvas(win, height=160, bg=COLORS["bg"], highlightthickness=0)
         c.pack(fill="x", padx=10, pady=6)
 
         def draw_era_bars(_=None):
@@ -1848,7 +2085,7 @@ class AncestryDnaApp(
                     c.create_text(x + bw // 2, 50, text=f"{score:.1f}%",
                                   font=("Segoe UI", 8, "bold"), fill="white")
                 c.create_text(x + bw // 2, 95, text=era[:15],
-                              font=("Segoe UI", 7), fill=self._active_colors()["text"], angle=45 if bw < 60 else 0)
+                              font=("Segoe UI", 7), fill=COLORS["text"], angle=45 if bw < 60 else 0)
                 x += bw + 2
 
         c.bind("<Configure>", draw_era_bars)
@@ -1898,8 +2135,8 @@ class AncestryDnaApp(
                 guid = s['manual_guid']
                 name = 'Gespeichertes Kit (' + guid[:8] + '...)'
                 self._kit_map[name] = guid
-                self._update_kit_combo()
-                self._current_test_guid = guid
+                self._download_tab.update_kit_combo()
+                self._state.current_test_guid = guid
             if s.get('last_kit_name') and s['last_kit_name'] in self._kit_map:
                 self._kit_var.set(s['last_kit_name'])
             self._set_status('Einstellungen geladen.')
@@ -1934,19 +2171,25 @@ class AncestryDnaApp(
             log.warning('Einstellungen konnten nicht gespeichert werden: %s', e)
 
     def _on_close(self):
-        if self._scraper and self._scraper.is_running():
-            if not messagebox.askyesno("Beenden?", "Download läuft noch. Wirklich beenden?"):
+        dl_running = self._download_tab.is_running()
+        mat_running = self._matricula_tab.is_running()
+        if dl_running or mat_running or (self._scraper and self._scraper.is_running()):
+            what = "Matricula-Scan" if mat_running and not dl_running else "Download"
+            if not messagebox.askyesno("Beenden?", f"{what} läuft noch. Wirklich beenden?"):
                 return
-            self._scraper.stop()
+            self._download_tab.stop_download()
+            self._matricula_tab._stop_scan()
+            if self._scraper:
+                self._scraper.stop()
         self.shutdown()
         self.winfo_toplevel().destroy()
 
     def shutdown(self):
         """Aufräumen ohne Fenster zu zerstören – für die eingebettete Nutzung."""
         try: self._save_settings()
-        except Exception: pass
+        except Exception as e: log.debug("shutdown _save_settings: %s", e)
         try: self._db.close()
-        except Exception: pass
+        except Exception as e: log.debug("shutdown _db.close: %s", e)
 
     def _set_gedcom(self, path: str):
         """Setzt den GEDCOM-Pfad von außen (z.B. aus dem Start-Tab)."""
@@ -1955,5 +2198,5 @@ class AncestryDnaApp(
             if path and _os.path.exists(path):
                 self._save_ui_settings(gedcom_path=path)
                 self._set_status(f"GEDCOM-Pfad aktualisiert: {_os.path.basename(path)}")
-        except Exception:
-            pass
+        except (OSError, ValueError) as e:
+            log.debug("change_gedcom_settings save: %s", e)

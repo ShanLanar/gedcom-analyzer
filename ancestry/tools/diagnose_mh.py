@@ -115,7 +115,7 @@ def probe(label, url, query=QUERY_MIN):
                     print(f"  GQL-Fehler: {err}")
                 else:
                     print(f"  {txt[:300]}")
-            except:
+            except Exception:
                 print(f"  {body[:200]!r}")
         else:
             print("  (leerer Body)")
@@ -151,7 +151,7 @@ if fg_dna_tok:
         print(f"{tag} [{resp.status_code}] form-encoded")
         if resp.text.strip():
             try: d=resp.json(); print(f"  {json.dumps(d)[:400]}")
-            except: print(f"  {resp.text[:200]!r}")
+            except Exception: print(f"  {resp.text[:200]!r}")
         else:
             print("  (leerer Body)")
     except Exception as e:

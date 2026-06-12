@@ -4,7 +4,9 @@ Enthält außerdem compute_wrights_f() für eine DNA-basierte Schätzung des
 Inzuchtkoeffizienten F nach Wright (Hinweis auf Endogamie).
 
 Grundprinzip (Leeds-Methode):
-  Matches >= 90 cM werden als primäre Ankerpunkte verwendet.
+  Matches >= min_cm_primary cM (Standard: 20 cM) werden als primäre
+  Ankerpunkte verwendet. Der klassische Wert wäre 90 cM, aber bei
+  kleinen Datensätzen ist ein niedrigerer Schwellenwert sinnvoll.
   Zwei primäre Matches landen im selben Cluster, wenn sie einen
   gemeinsamen Shared Match >= 20 cM haben (direkt oder transitiv).
 

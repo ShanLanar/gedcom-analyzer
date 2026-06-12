@@ -51,51 +51,17 @@ MILITARY_SYMBOLS = {
     "migrated": "mig.",
 }
 
-# ── GUI-Farbschema ─────────────────────────────────────────────────────────────
-# Standard: helles Theme. "theme": "dark" in config_user.json schaltet um.
-THEME = "light"
-
-# Helles Farbschema (Standard)
-BG      = "#f5f5fa"
-BG2     = "#eceef5"
-BG3     = "#e0e2ed"
-ACCENT  = "#5b5bcc"
-GREEN   = "#2a7a2a"
-RED     = "#c0392b"
-YELLOW  = "#8a6000"
-ORANGE  = "#b05000"
-FG      = "#2a2a3e"
-FG_DIM  = "#7070a0"
-
-# Dunkles Farbschema (bei theme=dark)
-_DARK_PALETTE = dict(
-    BG="#1e1e2e", BG2="#2a2a3e", BG3="#232336",
-    ACCENT="#7c7cf8", GREEN="#50fa7b", RED="#ff5555",
-    YELLOW="#f1fa8c", ORANGE="#ffb86c",
-    FG="#cdd6f4", FG_DIM="#6c7086",
-)
-
-# Theme beim Import aus config_user.json lesen
-try:
-    import json as _j
-    _p = os.path.join(BASE_DIR, "config_user.json")
-    if os.path.exists(_p):
-        with open(_p, encoding="utf-8") as _f:
-            THEME = _j.load(_f).get("theme", "light")
-except Exception:
-    pass
-
-if THEME == "dark":
-    BG     = _DARK_PALETTE["BG"]
-    BG2    = _DARK_PALETTE["BG2"]
-    BG3    = _DARK_PALETTE["BG3"]
-    ACCENT = _DARK_PALETTE["ACCENT"]
-    GREEN  = _DARK_PALETTE["GREEN"]
-    RED    = _DARK_PALETTE["RED"]
-    YELLOW = _DARK_PALETTE["YELLOW"]
-    ORANGE = _DARK_PALETTE["ORANGE"]
-    FG     = _DARK_PALETTE["FG"]
-    FG_DIM = _DARK_PALETTE["FG_DIM"]
+# ── GUI-Farbschema (Dark Theme) ────────────────────────────────────────────────
+BG        = "#1e1e2e"
+BG2       = "#2a2a3e"
+BG3       = "#232336"
+ACCENT    = "#7c7cf8"
+GREEN     = "#50fa7b"
+RED       = "#ff5555"
+YELLOW    = "#f1fa8c"
+ORANGE    = "#ffb86c"
+FG        = "#cdd6f4"
+FG_DIM    = "#6c7086"
 
 FONT_MAIN = ("Segoe UI", 10)
 FONT_MONO = ("Consolas", 9)
@@ -140,7 +106,6 @@ _GLOBAL_KEY_MAP = {
     "max_tree_depth":        "MAX_TREE_DEPTH",
     "progress_display":      "PROGRESS_DISPLAY",
     "military_symbols":      "MILITARY_SYMBOLS",
-    "theme":                 "THEME",
 }
 
 

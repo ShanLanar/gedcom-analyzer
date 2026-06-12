@@ -184,7 +184,6 @@ class Fetcher:
         self._opener = request.build_opener(
             request.HTTPCookieProcessor(self._cookie_jar)
         )
-        self._perm_fail: set[str] = set()  # URLs that returned 403/404/410
 
         # Load cookies from file (JSON from Cookie Editor or Netscape)
         if cookies_path:
@@ -289,7 +288,6 @@ class Fetcher:
             except (HTTPError, URLError, TimeoutError) as e:
                 last_err = e
                 if isinstance(e, HTTPError) and e.code in (403, 404, 410):
-                    self._perm_fail.add(url)
                     break  # nicht erneut versuchen
                 time.sleep(2 ** attempt)
         log.warning("Fehlgeschlagen %s: %s", url, last_err)
@@ -586,10 +584,7 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
           login_url: str | None = None,
           login_user: str | None = None,
           login_pass: str | None = None,
-          tree_source: str | None = None,
-          discover: bool = False,
-          extra_seeds: list | None = None,
-          reset_stale: bool = False):
+          tree_source: str | None = None):
     """mode:
         'up'   – nur Vorfahren (Eltern rückwärts)
         'down' – nur Nachkommen (Kinder vorwärts)
@@ -600,10 +595,6 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
     cookies: path to cookie JSON file.
     login_url/login_user/login_pass: form-based login credentials.
     tree_source: "{host}/{tree}" label stored in wt_persons.tree_source column.
-    discover: scan every stored related_json for unknown IDs and crawl them.
-    extra_seeds: list of webtrees individual URLs to add as extra start points.
-    reset_stale: re-fetch pages where child_names_json lists children but
-                 children_json is empty (detects endogamy parse failures).
     """
     base = (_BASE_RE.match(seed_url) or [None, ""])[1]
     if not base:
@@ -649,43 +640,6 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
               tree_source))
         c.commit()
 
-    # ── reset-stale: re-fetch pages where meta mentions children but none were stored
-    if reset_stale:
-        stale = c.execute(
-            "SELECT id FROM wt_persons "
-            "WHERE children_json='[]' "
-            "AND child_names_json IS NOT NULL "
-            "AND child_names_json NOT IN ('[]','null','')"
-        ).fetchall()
-        if stale:
-            print(f"--reset-stale: {len(stale)} Seiten mit fehlenden Kinder-Daten werden neu geladen.")
-            for (sid,) in stale:
-                c.execute("DELETE FROM wt_persons WHERE id=?", (sid,))
-                c.execute("UPDATE wt_frontier SET done=0 WHERE id=? AND direction='down'", (sid,))
-            c.commit()
-        else:
-            print("--reset-stale: keine veralteten Einträge gefunden.")
-
-    # ── extra-seeds: add specific person URLs to both frontier directions
-    if extra_seeds:
-        for eseed in extra_seeds:
-            em = _IND_RE.search(eseed)
-            if not em:
-                print(f"  Warnung: Kein Individual-Link in '{eseed}' gefunden — übersprungen.")
-                continue
-            eid = em.group(1)
-            # Force into frontier even if previously done
-            c.execute("INSERT OR IGNORE INTO wt_frontier (id,direction,depth,done) "
-                      "VALUES (?,'down',0,0)", (eid,))
-            c.execute("UPDATE wt_frontier SET done=0 WHERE id=? AND direction='down'", (eid,))
-            c.execute("INSERT OR IGNORE INTO wt_frontier (id,direction,depth,done) "
-                      "VALUES (?,'up',0,0)", (eid,))
-            c.execute("UPDATE wt_frontier SET done=0 WHERE id=? AND direction='up'", (eid,))
-            # Remove from wt_persons so the page gets re-fetched fresh
-            c.execute("DELETE FROM wt_persons WHERE id=?", (eid,))
-            print(f"  Extra-Seed: {eid}")
-        c.commit()
-
     def enqueue(pid, direction, depth):
         c.execute("INSERT OR IGNORE INTO wt_frontier (id,direction,depth,done) "
                   "VALUES (?,?,?,0)", (pid, direction, depth))
@@ -704,22 +658,7 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
             url = f"{base}/tree/{tree}/individual/{pid}"
             html = f.get(url)
             if not html:
-                if url in f._perm_fail:
-                    # 403/404/410 — person not accessible, skip permanently
-                    log.info("Person %s dauerhaft nicht erreichbar (HTTP 403/404) — überspringe", pid)
-                    c.execute("UPDATE wt_frontier SET done=1 WHERE id=? AND direction=?",
-                              (pid, direction))
-                    c.commit()
-                    return [], None
                 return None, None   # Netzwerkfehler → nicht als erledigt markieren
-            # Webtrees returns 200 for private/deleted persons with an error message
-            if ("existiert nicht" in html or "keine Berechtigung" in html
-                    or "does not exist" in html or "not authorised" in html):
-                log.info("Person %s nicht sichtbar (gelöscht/privat) — überspringe", pid)
-                c.execute("UPDATE wt_frontier SET done=1 WHERE id=? AND direction=?",
-                          (pid, direction))
-                c.commit()
-                return [], None
             try:
                 p = parse_individual(html, url)
                 _save_person(c, p, pid, url, tree_source=tree_source)
@@ -746,10 +685,24 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                      "birth_year": row[4], "death_year": row[5]}
         return (par if direction == "up" else chi), pdata
 
-    # ── Hilfsfunktion: eine Richtung crawlen bis die Frontier leer ist ──────────
-    def _run_phase(direction: str, label: str, phase_label: str):
-        crawl._open0 = None   # type: ignore[attr-defined]
-        print(f"\n=== {phase_label}: {label} ===")
+    # ── Phase steuern ────────────────────────────────────────────────────────
+    phases = {"up": ["up"], "down": ["down"], "both": ["up", "down"]}[mode]
+
+    for ph_idx, direction in enumerate(phases):
+        crawl._open0 = None   # type: ignore[attr-defined]  # Reset pro Phase
+        if direction == "up" and seed_id:
+            enqueue(seed_id, "up", 0)
+        if direction == "down":
+            # Startpunkte abwärts: alle bisher (in Phase 'up') gefundenen Personen
+            if mode == "both":
+                for (pid,) in c.execute("SELECT id FROM wt_persons").fetchall():
+                    enqueue(pid, "down", 0)
+            elif seed_id:
+                enqueue(seed_id, "down", 0)
+        c.commit()
+
+        label = {"up": "Vorfahren ⬆", "down": "Nachkommen ⬇"}[direction]
+        print(f"\n=== Phase {ph_idx+1}/{len(phases)}: {label} ===")
         processed = 0
         _phase_start = time.time()
         while max_pages == 0 or processed < max_pages:
@@ -761,16 +714,20 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
             pid, depth = row
             ids, pdata = neighbors(pid, direction)
             if ids is None:
+                # Netzwerkfehler — in Frontier lassen für nächsten Lauf
                 processed += 1
                 continue
             c.execute("UPDATE wt_frontier SET done=1 WHERE id=? AND direction=?",
                       (pid, direction))
+
+            # Pruning: abwärts nur expandieren, wenn Person im Raum/Zeitfenster
             expand = True
             if direction == "down" and pdata is not None:
                 expand = _in_scope(pdata, place_filter, year_min, year_max)
             if expand:
                 for nid in ids:
                     enqueue(nid, direction, depth + 1)
+
             processed += 1
             if processed % 25 == 0:
                 c.commit()
@@ -779,81 +736,40 @@ def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
                                   "AND direction=?", (direction,)).fetchone()[0]
                 elapsed = time.time() - _phase_start
                 rate = processed / elapsed if elapsed > 0 else 0
+
+                # EMA-Wachstum: letzten 200 Seiten als Fenster
                 if not hasattr(crawl, "_ema_state"):
                     crawl._ema_state = {}  # type: ignore[attr-defined]
                 _st = crawl._ema_state.setdefault(direction, {"prev_open": openf, "ema": 0.0})
                 interval_growth = (openf - _st["prev_open"]) / 25.0
-                alpha = 0.05
+                alpha = 0.05  # EMA-Glättung: ~500-Seiten-Fenster
                 _st["ema"] = alpha * interval_growth + (1 - alpha) * _st["ema"]
                 _st["prev_open"] = openf
-                gpg = _st["ema"]
-                nd = 1.0 - gpg
-                if nd > 0.05 and rate > 0:
-                    eta_s = min((openf / nd) / rate, 999 * 3600)
+                growth_per_page = _st["ema"]
+
+                net_drain = 1.0 - growth_per_page
+                if net_drain > 0.05 and rate > 0:
+                    eta_s = min((openf / net_drain) / rate, 999 * 3600)
                     eta_str = (f"{int(eta_s//3600)}h{int((eta_s%3600)//60)}m"
                                if eta_s > 60 else f"{int(eta_s)}s")
-                elif nd <= 0:
+                elif net_drain <= 0:
                     eta_str = "wächst noch"
                 else:
                     eta_str = ">99h"
-                km = total + openf
-                est = f"(~{int(km/(1-gpg))})" if 0 < gpg < 0.95 else ""
-                print(f"  +{processed} | Personen: {total} | offen: {openf} "
-                      f"| gesamt≥{km}{est} | {rate:.2f}/s | ETA ~{eta_str}")
+                growth_str = f"{growth_per_page:+.2f}/S"
+                known_min = total + openf
+                if 0 < growth_per_page < 0.95:
+                    est_total = int(known_min / (1.0 - growth_per_page))
+                    total_str = f"gesamt≥{known_min} (~{est_total})"
+                else:
+                    total_str = f"gesamt≥{known_min}"
+                print(f"  +{processed}  | Personen: {total} | offen({direction}): {openf}"
+                      f" | {total_str} | {rate:.2f}/s | Wachstum: {growth_str} | ETA ~{eta_str}")
         c.commit()
         if max_pages > 0 and processed >= max_pages:
             print(f"Seiten-Limit ({max_pages}) erreicht – erneut starten zum Fortsetzen.")
+            break
 
-    # ── Phase steuern ────────────────────────────────────────────────────────
-    phases = {"up": ["up"], "down": ["down"], "both": ["up", "down"]}[mode]
-
-    for ph_idx, direction in enumerate(phases):
-        if direction == "up" and seed_id:
-            enqueue(seed_id, "up", 0)
-        if direction == "down":
-            # Startpunkte abwärts: alle bisher (in Phase 'up') gefundenen Personen
-            if mode == "both":
-                for (pid,) in c.execute("SELECT id FROM wt_persons").fetchall():
-                    enqueue(pid, "down", 0)
-            elif seed_id:
-                enqueue(seed_id, "down", 0)
-        c.commit()
-        label = {"up": "Vorfahren ⬆", "down": "Nachkommen ⬇"}[direction]
-        _run_phase(direction, label, f"Phase {ph_idx+1}/{len(phases)}")
-
-    # ── Entdeckungs-Schleife: related_json → convergence ─────────────────────
-    # Jede geholte Seite speichert in related_json ALLE verlinkten Personen-IDs
-    # (nicht nur Eltern/Kinder, sondern auch Cousins via Endogamie-Pfade).
-    # Wir scannen diese Links wiederholt, bis keine neuen IDs mehr auftauchen.
-    if discover:
-        disc_round = 0
-        while True:
-            disc_round += 1
-            known    = {r[0] for r in c.execute("SELECT id FROM wt_persons").fetchall()}
-            queued   = {r[0] for r in c.execute(
-                "SELECT id FROM wt_frontier WHERE direction='down'").fetchall()}
-            new_ids: set[str] = set()
-            for (rel_json,) in c.execute(
-                "SELECT related_json FROM wt_persons "
-                "WHERE related_json IS NOT NULL AND related_json != '[]'"
-            ).fetchall():
-                for rid in json.loads(rel_json or "[]"):
-                    if rid not in known and rid not in queued:
-                        c.execute("INSERT OR IGNORE INTO wt_frontier "
-                                  "(id,direction,depth,done) VALUES (?,'down',0,0)", (rid,))
-                        queued.add(rid)
-                        new_ids.add(rid)
-            c.commit()
-            if not new_ids:
-                total = c.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
-                print(f"\nEntdeckung abgeschlossen nach {disc_round} Runde(n). "
-                      f"Personen gesamt: {total}.")
-                break
-            print(f"\n=== Entdeckungs-Runde {disc_round}: "
-                  f"{len(new_ids)} neue IDs aus verlinkten Seiten ===")
-            _run_phase("down", "Nachkommen ⬇ (Entdeckung)", f"Runde {disc_round}")
-
-    # ── Restlicher Code (Phasen-Loop war hier, jetzt in _run_phase) ──────────
     total = c.execute("SELECT COUNT(*) FROM wt_persons").fetchone()[0]
     print(f"\nFertig. Personen gesamt: {total}.")
     print(f"DB: {db_path}  (erneut starten = fortsetzen)")
@@ -989,190 +905,6 @@ def list_profiles():
             print(f"  {k}: {v}")
 
 
-# ── GEDCOM-Export ─────────────────────────────────────────────────────────────
-
-def _ged_name(p: dict) -> str:
-    """'Vorname /Nachname/' aus given_name/surname, Fallback = name-Feld."""
-    given = (p.get("given_name") or "").strip()
-    surn  = (p.get("surname") or "").strip()
-    if given or surn:
-        return f"{given} /{surn}/".strip()
-    raw = (p.get("name") or "").strip()
-    if not raw:
-        return "Unbekannt"
-    # Steht im name-Feld schon ein /Nachname/? Dann unverändert lassen.
-    if "/" in raw:
-        return raw
-    parts = raw.split()
-    if len(parts) == 1:
-        return f"/{parts[0]}/"
-    return f"{' '.join(parts[:-1])} /{parts[-1]}/"
-
-
-def _ged_event(tag: str, date: str, place: str) -> list[str]:
-    lines = [f"1 {tag}"]
-    if date:
-        lines.append(f"2 DATE {date}")
-    if place:
-        lines.append(f"2 PLAC {place}")
-    return lines if len(lines) > 1 else []
-
-
-def export_gedcom(db_path: Path, out_path: str,
-                  tree_source: str | None = None) -> tuple[int, int]:
-    """Schreibt die in `db_path` gecrawlten Personen als GEDCOM-5.5.1-Datei.
-
-    Baut FAM-Records aus parents_json/spouses_json. Es werden NUR Personen
-    referenziert, die auch tatsächlich gecrawlt wurden (keine offenen Refs).
-    Rückgabe: (anzahl_personen, anzahl_familien).
-    """
-    if not Path(db_path).exists():
-        raise FileNotFoundError(f"Datenbank nicht gefunden: {db_path}")
-
-    conn = sqlite3.connect(str(db_path))
-    conn.row_factory = sqlite3.Row
-    q = "SELECT * FROM wt_persons"
-    params: tuple = ()
-    if tree_source:
-        q += " WHERE tree_source = ?"
-        params = (tree_source,)
-    rows = conn.execute(q, params).fetchall()
-    conn.close()
-
-    persons = {r["id"]: dict(r) for r in rows if r["id"]}
-    if not persons:
-        raise ValueError("Keine Personen in der Datenbank (erst crawlen).")
-
-    def _ids(p: dict, col: str) -> list[str]:
-        try:
-            vals = json.loads(p.get(col) or "[]")
-        except (json.JSONDecodeError, TypeError):
-            return []
-        # Nur gecrawlte IDs → keine offenen GEDCOM-Referenzen
-        return [v for v in vals if v in persons]
-
-    # ── Familien aus Eltern-/Partner-Verknüpfungen ableiten ──────────────
-    families: dict[str, dict] = {}
-    parentset_to_fam: dict[frozenset, str] = {}
-    seq = 0
-
-    def family_for(parent_ids: list[str]) -> str:
-        nonlocal seq
-        key = frozenset(parent_ids)
-        if key in parentset_to_fam:
-            return parentset_to_fam[key]
-        seq += 1
-        fid = f"F{seq}"
-        fam = {"husb": None, "wife": None, "chil": set()}
-        for pid in parent_ids:
-            sex = persons[pid].get("sex")
-            if sex == "M" and not fam["husb"]:
-                fam["husb"] = pid
-            elif sex == "F" and not fam["wife"]:
-                fam["wife"] = pid
-            elif not fam["husb"]:
-                fam["husb"] = pid
-            elif not fam["wife"]:
-                fam["wife"] = pid
-        families[fid] = fam
-        parentset_to_fam[key] = fid
-        return fid
-
-    # 1. Kind → Elternfamilie
-    for pid, p in persons.items():
-        par = _ids(p, "parents_json")
-        if par:
-            families[family_for(par)]["chil"].add(pid)
-
-    # 2. Paare ohne (gecrawlte) Kinder trotzdem als Familie führen
-    for pid, p in persons.items():
-        for sp in _ids(p, "spouses_json"):
-            family_for([pid, sp])
-
-    # FAMC/FAMS-Zuordnung
-    from collections import defaultdict as _dd
-    famc: dict[str, list[str]] = _dd(list)
-    fams: dict[str, list[str]] = _dd(list)
-    for fid, fam in families.items():
-        if fam["husb"]:
-            fams[fam["husb"]].append(fid)
-        if fam["wife"]:
-            fams[fam["wife"]].append(fid)
-        for ch in fam["chil"]:
-            famc[ch].append(fid)
-
-    # ── Schreiben ────────────────────────────────────────────────────────
-    out: list[str] = [
-        "0 HEAD",
-        "1 SOUR gedcom-analyzer-crawler",
-        "2 VERS 1.0",
-        "2 NAME webtrees-Crawler (crawl_webtrees.py)",
-        "1 GEDC",
-        "2 VERS 5.5.1",
-        "2 FORM LINEAGE-LINKED",
-        "1 CHAR UTF-8",
-        "1 LANG German",
-    ]
-
-    for pid, p in sorted(persons.items()):
-        out.append(f"0 @{pid}@ INDI")
-        out.append(f"1 NAME {_ged_name(p)}")
-        sex = p.get("sex")
-        if sex in ("M", "F"):
-            out.append(f"1 SEX {sex}")
-        out.extend(_ged_event("BIRT",
-                              p.get("birth_date") or p.get("birth_year") or "",
-                              p.get("birth_place") or ""))
-        out.extend(_ged_event("DEAT",
-                              p.get("death_date") or p.get("death_year") or "",
-                              p.get("death_place") or ""))
-        for fid in famc.get(pid, []):
-            out.append(f"1 FAMC @{fid}@")
-        for fid in fams.get(pid, []):
-            out.append(f"1 FAMS @{fid}@")
-        # Matricula-Kirchenbuchbelege als NOTE bewahren
-        try:
-            mat = json.loads(p.get("matricula_json") or "[]")
-        except (json.JSONDecodeError, TypeError):
-            mat = []
-        for m in mat:
-            if isinstance(m, dict):
-                ref = (m.get("ref") or "").strip()
-                url = (m.get("url_old") or "").strip()
-                note = " ".join(x for x in [
-                    "Matricula:", ref, url] if x).strip()
-            else:
-                note = str(m).strip()
-            if note and note != "Matricula:":
-                out.append(f"1 NOTE {note[:240]}")
-        if p.get("url"):
-            out.append(f"1 SOUR @S1@")
-            out.append(f"2 PAGE {p['url']}")
-
-    for fid, fam in sorted(families.items(), key=lambda kv: int(kv[0][1:])):
-        out.append(f"0 @{fid}@ FAM")
-        if fam["husb"]:
-            out.append(f"1 HUSB @{fam['husb']}@")
-        if fam["wife"]:
-            out.append(f"1 WIFE @{fam['wife']}@")
-        for ch in sorted(fam["chil"]):
-            out.append(f"1 CHIL @{ch}@")
-
-    out += [
-        "0 @S1@ SOUR",
-        "1 TITL Webtrees-Stammbaum (gecrawlt)",
-        "1 AUTH crawl_webtrees.py",
-    ]
-    out.append("0 TRLR")
-
-    with open(out_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(out) + "\n")
-
-    print(f"GEDCOM gespeichert: {out_path}")
-    print(f"  {len(persons)} Personen, {len(families)} Familien")
-    return len(persons), len(families)
-
-
 def main(argv):
     logging.basicConfig(level=logging.INFO, format="%(message)s")
     ap = argparse.ArgumentParser()
@@ -1210,31 +942,10 @@ def main(argv):
                     help="Gespeichertes Profil laden (CLI-Args überschreiben)")
     cr.add_argument("--save-profile", default=None, metavar="NAME",
                     help="Aktuelle CLI-Args als Profil speichern")
-    cr.add_argument("--discover", action="store_true", default=False,
-                    help="Nach regulären Phasen: related_json aller Seiten nach "
-                         "unbekannten Personen scannen und nachladen (findet via "
-                         "Endogamie verbundene Vettern die keine Vorfahren/Kinder sind)")
-    cr.add_argument("--extra-seeds", nargs="+", metavar="URL", default=None,
-                    help="Webtrees-Individual-URLs gezielt hinzufügen (z.B. bekannte "
-                         "Vettern die vom Hauptcrawl übersprungen wurden)")
-    cr.add_argument("--reset-stale", action="store_true", default=False,
-                    help="Seiten neu laden, bei denen child_names_json Kinder nennt "
-                         "aber children_json leer ist (behebt Parsing-Fehler)")
 
     sub.add_parser("matricula", help="Matricula-Belege + reparierte URLs ausgeben")
     sub.add_parser("profiles", help="Alle gespeicherten Profile auflisten")
     sub.add_parser("list-sites", help="Alle lokalen webtrees-DBs auflisten")
-
-    ge = sub.add_parser("export-gedcom",
-                        help="Gecrawlte Personen als GEDCOM-Datei (.ged) exportieren")
-    ge.add_argument("--out", default=None,
-                    help="Ausgabedatei (.ged); Default: <db-name>.ged")
-    ge.add_argument("--db", default=None,
-                    help="Pfad zur SQLite-DB (sonst über --profile oder Default)")
-    ge.add_argument("--profile", default=None,
-                    help="Profil-DB verwenden (z.B. anverwandte)")
-    ge.add_argument("--tree-source", default=None,
-                    help="Nur Personen dieser tree_source exportieren")
 
     args = ap.parse_args(argv[1:])
 
@@ -1352,39 +1063,7 @@ def main(argv):
               cookies=cfg["cookies"],
               login_url=cfg["login_url"],
               login_user=cfg["login_user"],
-              login_pass=cfg["login_pass"],
-              discover=args.discover,
-              extra_seeds=args.extra_seeds,
-              reset_stale=args.reset_stale)
-
-    elif args.cmd == "export-gedcom":
-        # DB-Pfad bestimmen: --db > --profile > Default
-        db_path = None
-        if args.db:
-            db_path = Path(args.db)
-        elif args.profile:
-            profiles = _load_profiles()
-            prof = profiles.get(args.profile)
-            if not prof:
-                print(f"Profil '{args.profile}' nicht gefunden. Verfügbar: "
-                      f"{list(profiles.keys())}")
-                sys.exit(1)
-            if prof.get("db"):
-                db_path = Path(prof["db"])
-            elif prof.get("seed_url"):
-                db_path = _db_path_for_url(prof["seed_url"])
-            if args.profile == "anverwandte" and (db_path is None or not db_path.exists()):
-                legacy = SCRIPT_DIR / "webtrees_crawl.db"
-                if legacy.exists():
-                    db_path = legacy
-        if db_path is None:
-            db_path = DB_PATH
-        out_path = args.out or str(Path(db_path).with_suffix(".ged"))
-        try:
-            export_gedcom(db_path, out_path, tree_source=args.tree_source)
-        except (FileNotFoundError, ValueError) as exc:
-            print(f"Fehler: {exc}")
-            sys.exit(1)
+              login_pass=cfg["login_pass"])
 
     elif args.cmd == "matricula":
         matricula_report()

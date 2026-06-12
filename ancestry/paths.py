@@ -2,10 +2,10 @@
 
 Laufzeit-Artefakte liegen unter DATA_DIR (gitignored); alles per
 Umgebungsvariable überschreibbar. Die Verzeichnisse werden beim Import
-anggelegt, damit ein frisches Clone ohne manuelle Schritte startfähig ist.
+angelegt, damit ein frisches Clone ohne manuelle Schritte startfähig ist.
 
     GENEA_DATA_DIR     Wurzel für Laufzeitdaten   (default: <repo>/data)
-    ANCESTRY_DB        SQLite-Hauptdatenbank      (default: <repo>/ancestry/ancestry_dna.db)
+    ANCESTRY_DB        SQLite-Hauptdatenbank      (default: <repo>/ancestry_dna.db)
     MATRICULA_ARCHIVE  Kirchenbuch-Scans          (default: ~/matricula_images)
 """
 from __future__ import annotations
@@ -21,8 +21,9 @@ EXPORT_DIR   = DATA_DIR / "exports"
 LOG_DIR      = DATA_DIR / "logs"
 CACHE_DIR    = DATA_DIR / "cache"
 
-# Die Haupt-DB liegt im ancestry/-Unterverzeichnis.
-DB_PATH = Path(os.environ.get("ANCESTRY_DB", str(ROOT / "ancestry" / "ancestry_dna.db")))
+# Die Haupt-DB bleibt im Repo-Root — bestehende Installationen erwarten sie
+# dort; ein Umzug nach data/db/ bekäme eine eigene Migration (s. Konzept M3).
+DB_PATH = Path(os.environ.get("ANCESTRY_DB", str(ROOT / "ancestry_dna.db")))
 
 MATRICULA_ARCHIVE = Path(os.environ.get(
     "MATRICULA_ARCHIVE", str(Path.home() / "matricula_images")))

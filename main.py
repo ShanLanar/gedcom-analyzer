@@ -13,19 +13,19 @@ import sys
 import threading
 import time
 
-# ── Config laden (Overrides vor allem anderen) ──────────────────────────────────────────────
+# ── Config laden (Overrides vor allem anderen) ─────────────────────────────────
 from config import apply_overrides
 apply_overrides()
 import config as cfg
 
-# ── Logger initialisieren ──────────────────────────────────────────────────────────────────────────────
+# ── Logger initialisieren ──────────────────────────────────────────────────────
 from lib.logger import setup_logging
 logger = setup_logging(cfg.FILES.get("log_file"), log_level="INFO")
 
-# ── Task-Registry ───────────────────────────────────────────────────────────────────────────────────
+# ── Task-Registry ──────────────────────────────────────────────────────────────
 
 TASKS = [
-    # ── Vorbereitung ───────────────────────────────────────────────────────────────────────
+    # ── Vorbereitung ───────────────────────────────────────────────────────────
     {
         "id":      "load_gedcom",
         "name":    "GEDCOM laden",
@@ -37,7 +37,7 @@ TASKS = [
     {
         "id":      "load_cache",
         "name":    "State-Cache laden (Inkrementell)",
-        "desc":    "Lädt zwischengespeicherten _state — übersprijgt alle Analysen, wenn GEDCOM unverändert.",
+        "desc":    "Lädt zwischengespeicherten _state — übersprigt alle Analysen, wenn GEDCOM unverändert.",
         "fn":      "tasks._runner:load_state_cache",
         "default": False,
         "group":   "Vorbereitung",
@@ -50,7 +50,7 @@ TASKS = [
         "default": False,
         "group":   "Export",
     },
-    # ── Hauptanalysen ───────────────────────────────────────────────────────────────────────
+    # ── Hauptanalysen ──────────────────────────────────────────────────────────
     {
         "id":      "cousins",
         "name":    "Verwandtschafts-/Cousin-Analyse",
@@ -93,7 +93,7 @@ TASKS = [
     },
     {
         "id":      "surnames",
-        "name":    "Familiennamen & Geburtsänder",
+        "name":    "Familiennamen & Geburtsländer",
         "desc":    "Häufigkeits- und Länderanalyse.",
         "fn":      "tasks._runner:run_surnames_and_countries",
         "default": True,
@@ -147,7 +147,7 @@ TASKS = [
         "default": True,
         "group":   "Extras",
     },
-    # ── Neue Analysen ───────────────────────────────────────────────────────────────────────
+    # ── Neue Analysen ──────────────────────────────────────────────────────────
     {
         "id":      "anomalies",
         "name":    "Anomalien & Doubletten & Inseln",
@@ -199,7 +199,7 @@ TASKS = [
     {
         "id":      "spatial",
         "name":    "Räumliche Lebensgeschichte",
-        "desc":    "Heirats-Migration, Lebens-Triangulation, Sessahftigkeit, Nachname×Region.",
+        "desc":    "Heirats-Migration, Lebens-Triangulation, Sesshaftigkeit, Nachname×Region.",
         "fn":      "tasks._runner:run_spatial",
         "default": True,
         "group":   "Analysen",
@@ -292,7 +292,7 @@ TASKS = [
         "default": True,
         "group":   "Analysen",
     },
-    # ── Export ─────────────────────────────────────────────────────────────────────────────────
+    # ── Export ─────────────────────────────────────────────────────────────────
     {
         "id":      "export_excel",
         "name":    "Excel-Export",
@@ -402,7 +402,7 @@ TASKS = [
 GROUP_ORDER = {"Vorbereitung": 0, "Analysen": 1, "Extras": 2, "Export": 3}
 
 
-# ── Task-Dispatch ────────────────────────────────────────────────────────────────────────────────
+# ── Task-Dispatch ──────────────────────────────────────────────────────────────
 
 def _call_task(fn_spec: str, progress_cb, stop_event=None):
     module_path, func_name = fn_spec.rsplit(":", 1)
@@ -415,7 +415,7 @@ def _call_task(fn_spec: str, progress_cb, stop_event=None):
     fn(**kwargs)
 
 
-# ── App ──────────────────────────────────────────────────────────────────────────────────────
+# ── App ────────────────────────────────────────────────────────────────────────
 import tkinter as tk
 from tkinter import filedialog, scrolledtext, ttk
 
@@ -446,7 +446,7 @@ class AhnenApp(tk.Frame):
         """Standalone-Kompatibilität: leitet an das Toplevel weiter."""
         self.winfo_toplevel().mainloop(*a, **k)
 
-    # ── UI-Aufbau ─────────────────────────────────────────────────────────────────────────────────
+    # ── UI-Aufbau ──────────────────────────────────────────────────────────────
 
     def _build_ui(self):
         # Header
@@ -457,9 +457,6 @@ class AhnenApp(tk.Frame):
         self._status_lbl = tk.Label(hdr, text="Bereit", bg=cfg.BG2, fg=cfg.FG_DIM,
                                      font=cfg.FONT_MAIN)
         self._status_lbl.pack(side="right", padx=12)
-        self._ged_info_lbl = tk.Label(hdr, text="", bg=cfg.BG2, fg=cfg.FG_DIM,
-                                       font=("Segoe UI", 8))
-        self._ged_info_lbl.pack(side="right", padx=4)
 
         # Hauptbereich
         main = tk.Frame(self, bg=cfg.BG)
@@ -505,17 +502,52 @@ class AhnenApp(tk.Frame):
 
         self._build_task_list(inner)
 
-        # Rechte Seite: Log + Fortschritt (Pfad/ID werden vom Start-Reiter gesetzt)
+        # Rechte Seite: Pfad + Log + Fortschritt
         right = tk.Frame(main, bg=cfg.BG)
         right.pack(side="left", fill="both", expand=True)
 
-        # Pfad-/ID-Variablen (nur intern, keine Eingabefelder — Start-Reiter ist zuständig)
-        self._path_var    = tk.StringVar(value=cfg.DEFAULT_CONFIG["gedfile"])
+        path_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
+        path_frame.pack(fill="x")
+        tk.Label(path_frame, text="Stammbaumdatei:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=cfg.FONT_MONO).pack(side="left", padx=8)
+        self._path_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["gedfile"])
+        tk.Entry(path_frame, textvariable=self._path_var, bg=cfg.BG3, fg=cfg.FG,
+                 font=cfg.FONT_MONO, relief="flat", width=48).pack(
+            side="left", padx=4)
+        tk.Button(path_frame, text="Durchsuchen…", bg=cfg.BG3, fg=cfg.FG,
+                  font=cfg.FONT_MAIN, relief="flat",
+                  command=self._browse_gedcom).pack(side="left", padx=4)
+
+        # Zuletzt geöffnete Dateien + Ancestry-Vorschlag
+        recent_frame = tk.Frame(right, bg=cfg.BG2, pady=2)
+        recent_frame.pack(fill="x")
+        tk.Label(recent_frame, text="Zuletzt:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=("Segoe UI", 8)).pack(side="left", padx=8)
+        self._recent_var = tk.StringVar(value="")
+        self._recent_menu = ttk.Combobox(
+            recent_frame, textvariable=self._recent_var,
+            state="readonly", width=55, font=("Segoe UI", 8))
+        self._recent_menu.pack(side="left", padx=4)
+        self._recent_menu.bind("<<ComboboxSelected>>", self._on_recent_select)
+        self._refresh_recent()
+        # Ancestry-Export im Download-Ordner suchen und vorschlagen
+        self.after(600, self._suggest_ancestry_export)
+
+        # Root-/Exclude-ID
+        ids_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
+        ids_frame.pack(fill="x")
+        tk.Label(ids_frame, text="Root-ID:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=cfg.FONT_MONO).pack(side="left", padx=8)
         self._root_id_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["root_id"])
+        tk.Entry(ids_frame, textvariable=self._root_id_var, bg=cfg.BG3,
+                 fg=cfg.FG, font=cfg.FONT_MONO, relief="flat",
+                 width=12).pack(side="left", padx=4)
+        tk.Label(ids_frame, text="Exclude-ID:", bg=cfg.BG2, fg=cfg.FG_DIM,
+                 font=cfg.FONT_MONO).pack(side="left", padx=(16, 8))
         self._excl_id_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["exclude_id"])
-        self._path_var.trace_add("write", lambda *_: self.after(0, self._update_ged_info))
-        self._root_id_var.trace_add("write", lambda *_: self.after(0, self._update_ged_info))
-        self.after(100, self._update_ged_info)
+        tk.Entry(ids_frame, textvariable=self._excl_id_var, bg=cfg.BG3,
+                 fg=cfg.FG, font=cfg.FONT_MONO, relief="flat",
+                 width=12).pack(side="left", padx=4)
 
         self._log = scrolledtext.ScrolledText(
             right, bg="#13131f", fg=cfg.FG, font=cfg.FONT_MONO,
@@ -549,6 +581,9 @@ class AhnenApp(tk.Frame):
             font=cfg.FONT_HEAD, relief="flat", padx=16,
             command=self._stop, state="disabled")
         self._btn_stop.pack(side="left", padx=4)
+        tk.Button(footer, text="🧬 DNA-Matches", bg="#1F4E79", fg="#fff",
+                  font=cfg.FONT_MAIN, relief="flat", padx=10,
+                  command=self._open_dna_tool).pack(side="left", padx=8)
         tk.Button(footer, text="Log löschen", bg=cfg.BG3, fg=cfg.FG,
                   font=cfg.FONT_MAIN, relief="flat",
                   command=self._clear_log).pack(side="right", padx=8)
@@ -579,27 +614,13 @@ class AhnenApp(tk.Frame):
                          fg=cfg.FG_DIM, font=("Segoe UI", 8),
                          anchor="w", wraplength=220).pack(fill="x", padx=16)
 
-    # ── Selektion ───────────────────────────────────────────────────────────────────────────────
+    # ── Selektion ──────────────────────────────────────────────────────────────
 
-    # ── Datei-Auswahl ────────────────────────────────────────────────────────────────────────────
-
-    def _update_ged_info(self):
-        path = self._path_var.get()
-        root_id = self._root_id_var.get()
-        if path:
-            name = os.path.basename(path)
-            text = f"📄 {name}"
-            if root_id:
-                text += f"  ·  👤 {root_id}"
-            self._ged_info_lbl.configure(text=text, fg=cfg.FG)
-        else:
-            self._ged_info_lbl.configure(text="Keine GEDCOM-Datei geladen — bitte im Start-Reiter wählen",
-                                          fg=cfg.FG_DIM)
+    # ── Datei-Auswahl ──────────────────────────────────────────────────────────
 
     def _refresh_recent(self):
         recent = cfg.get_recent_files()
-        if hasattr(self, "_recent_menu"):
-            self._recent_menu["values"] = recent
+        self._recent_menu["values"] = recent
         if recent and not self._recent_var.get():
             self._recent_var.set("")
 
@@ -669,7 +690,7 @@ class AhnenApp(tk.Frame):
         for task in TASKS:
             self._task_vars[task["id"]].set(task["default"])
 
-    # ── DNA-Tool ──────────────────────────────────────────────────────────────────────────────────
+    # ── DNA-Tool ───────────────────────────────────────────────────────────────
 
     def _open_dna_tool(self):
         """Öffnet das Ancestry-DNA-Tool als eigenes Prozess-Fenster.
@@ -693,7 +714,7 @@ class AhnenApp(tk.Frame):
         except Exception as e:
             self._append_log(f"DNA-Tool konnte nicht gestartet werden: {e}", tag="err")
 
-    # ── Log-Ausgabe ─────────────────────────────────────────────────────────────────────────────
+    # ── Log-Ausgabe ────────────────────────────────────────────────────────────
 
     def _append_log(self, msg: str, tag: str = ""):
         def _do():
@@ -709,7 +730,7 @@ class AhnenApp(tk.Frame):
         self._log.delete("1.0", "end")
         self._log.configure(state="disabled")
 
-    # ── Hilfe-Fenster ────────────────────────────────────────────────────────────────────────────
+    # ── Hilfe-Fenster ──────────────────────────────────────────────────────────
 
     def _open_help(self):
         """Öffnet das In-App-Hilfefenster mit Funktions-Verzeichnis."""
@@ -728,7 +749,7 @@ class AhnenApp(tk.Frame):
         win.geometry("1000x650")
         win.configure(bg=cfg.BG)
 
-        # ── Suchleiste oben ────────────────────────────────────────────────────────────────────
+        # ── Suchleiste oben ──────────────────────────────────────────────────
         top = tk.Frame(win, bg=cfg.BG2, pady=6)
         top.pack(fill="x")
         tk.Label(top, text="🔍 Suche:", bg=cfg.BG2, fg=cfg.FG_DIM,
@@ -742,7 +763,7 @@ class AhnenApp(tk.Frame):
                  bg=cfg.BG2, fg=cfg.FG_DIM,
                  font=("Segoe UI", 8)).pack(side="left", padx=8)
 
-        # ── Hauptbereich: Liste links, Detail rechts ───────────────────────────────────────────
+        # ── Hauptbereich: Liste links, Detail rechts ─────────────────────────
         main = tk.Frame(win, bg=cfg.BG)
         main.pack(fill="both", expand=True)
 
@@ -780,7 +801,7 @@ class AhnenApp(tk.Frame):
                               font=cfg.FONT_MONO)
         detail.tag_configure("tip",     foreground=cfg.YELLOW)
 
-        # ── Datensatz-Index aufbauen ──────────────────────────────────────────────────────────────────
+        # ── Datensatz-Index aufbauen ────────────────────────────────────────
         # Einträge: ("Task" | "CLI" | "Konzept" | "DNA", key, dict)
         all_entries = []
         for key, data in DNA_TOOLS.items():
@@ -792,7 +813,7 @@ class AhnenApp(tk.Frame):
         for key, data in CONCEPTS.items():
             all_entries.append(("Konzept", key, data))
 
-        # ── Filterlogik ────────────────────────────────────────────────────────────────────────────
+        # ── Filterlogik ─────────────────────────────────────────────────────
         filtered_index = []   # Mapping listbox-pos → all_entries-Index
 
         def _matches(entry, query: str) -> bool:
@@ -888,7 +909,7 @@ class AhnenApp(tk.Frame):
 
             detail.configure(state="disabled")
 
-        # ── Events verdrahten ──────────────────────────────────────────────────────────────────
+        # ── Events verdrahten ───────────────────────────────────────────────
         search_var.trace_add("write", lambda *_: _refresh_list())
         lst.bind("<<ListboxSelect>>", _show_detail)
         win.bind("<Escape>",   lambda _e: win.destroy())
@@ -897,7 +918,7 @@ class AhnenApp(tk.Frame):
         _refresh_list()
         search_entry.focus_set()
 
-    # ── Erste-Schritte-Onboarding ────────────────────────────────────────────────────────────────────────
+    # ── Erste-Schritte-Onboarding ──────────────────────────────────────────────
 
     def _check_first_launch(self):
         """Zeigt beim allerersten Start das Erste-Schritte-Fenster."""
@@ -999,7 +1020,7 @@ class AhnenApp(tk.Frame):
 
         step_idx = [0]
 
-        # ── Layout ──────────────────────────────────────────────────────────────────────────────
+        # ── Layout ─────────────────────────────────────────────────────────
         hdr = tk.Frame(win, bg="#1a1a2e", pady=10)
         hdr.pack(fill="x")
         tk.Label(hdr, text="🧬  Ahnen-Analyse — Erste Schritte",
@@ -1039,7 +1060,7 @@ class AhnenApp(tk.Frame):
         # Navigations-Footer
         foot = tk.Frame(win, bg=cfg.BG2, pady=8)
         foot.pack(fill="x", side="bottom")
-        btn_prev = tk.Button(foot, text="◄ Zurück", bg=cfg.BG3, fg=cfg.FG,
+        btn_prev = tk.Button(foot, text="◀ Zurück", bg=cfg.BG3, fg=cfg.FG,
                               font=cfg.FONT_MAIN, relief="flat", padx=10,
                               command=lambda: _go(step_idx[0] - 1))
         btn_prev.pack(side="left", padx=8)
@@ -1087,7 +1108,7 @@ class AhnenApp(tk.Frame):
     def _set_status(self, text: str):
         self.after(0, lambda: self._status_lbl.configure(text=text))
 
-    # ── Start / Stop ─────────────────────────────────────────────────────────────────────────────
+    # ── Start / Stop ───────────────────────────────────────────────────────────
 
     def _start(self):
         selected = [t for t in TASKS
@@ -1123,7 +1144,7 @@ class AhnenApp(tk.Frame):
         thread = threading.Thread(target=self._worker, args=(selected,), daemon=True)
         thread.start()
 
-    # ── Worker ─────────────────────────────────────────────────────────────────────────────────────
+    # ── Worker ─────────────────────────────────────────────────────────────────
     def _worker(self, tasks):
         from tasks._runner import AbortedError
         had_errors = False
@@ -1134,8 +1155,6 @@ class AhnenApp(tk.Frame):
                 break
             self._append_log(f"── {task['name']} …", tag="info")
             self._set_status(f"[{i+1}/{total}] {task['name']}")
-            self.after(0, lambda n=task["name"], v=i, t=total:
-                       self._prog_lbl.configure(text=f"Task {v+1}/{t}: {n}"))
             try:
                 def cb(msg, tag=""):
                     self._append_log(msg, tag=tag)
@@ -1162,7 +1181,6 @@ class AhnenApp(tk.Frame):
 
     def _finish(self, had_errors: bool):
         self._pbar.configure(value=0)
-        self._prog_lbl.configure(text="")
         self._btn_start.configure(state="normal")
         self._btn_stop.configure(state="disabled", text="■ Abbrechen")
         tag = "warn" if had_errors else "ok"
@@ -1171,7 +1189,7 @@ class AhnenApp(tk.Frame):
         self._set_status(msg)
 
 
-# ── CLI-Modus ──────────────────────────────────────────────────────────────────────────────────
+# ── CLI-Modus ──────────────────────────────────────────────────────────────────
 
 def _cli_main(argv: list[str] | None = None) -> int | None:
     """Headless-Batch-Modus. Gibt einen Exit-Code zurück oder None, falls
@@ -1199,7 +1217,7 @@ def _cli_main(argv: list[str] | None = None) -> int | None:
                         help="DNA-cM-Wert in Verwandtschafts-Wahrscheinlichkeiten umrechnen")
     args = parser.parse_args(argv)
 
-    # ── Eigenständige CLI-Sub-Tools ──────────────────────────────────────────────────────────────────────
+    # ── Eigenständige CLI-Sub-Tools ────────────────────────────────────────
     if args.predict_cm is not None:
         from tasks.dna_predict import predict_relationship_from_cm
         result = predict_relationship_from_cm(args.predict_cm)
@@ -1279,7 +1297,7 @@ def _cli_main(argv: list[str] | None = None) -> int | None:
     return 1 if had_errors else 0
 
 
-# ── Entry-Point ──────────────────────────────────────────────────────────────────────────────────
+# ── Entry-Point ────────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
     import traceback
