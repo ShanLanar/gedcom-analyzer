@@ -96,6 +96,13 @@ und jederzeit per **■** stoppbar. Der Live-Log rechts zeigt den Fortschritt.
 2. **„1 · Bücherverzeichnis holen"** — die Bücher der (optional) gewählten Pfarrei.
 3. **„2 · Seiten scannen"** — transkribiert Seiten (Claude Vision).
 
+> **Voraussetzungen für das Seiten-Scannen:**
+> - **Playwright-Browser** einmalig installieren:
+>   `pip install playwright` und dann `playwright install chromium`.
+> - **`ANTHROPIC_API_KEY`** als Umgebungsvariable setzen — sonst läuft der Scan
+>   nur als Bilder-Download **ohne** Transkription (Hinweis „ANTHROPIC_API_KEY
+>   nicht gesetzt — Scan ohne Transkription").
+
 ### 🧬 MyHeritage-DNA
 1. **„1 · Matchliste herunterladen"** *(Login im Browser nötig)*.
 2. Match-CSV wählen → **„2 · Gemeinsame Matches laden"**.
@@ -135,6 +142,9 @@ und jederzeit per **■** stoppbar. Der Live-Log rechts zeigt den Fortschritt.
 | `unrecognized arguments: --discover` | Veralteter Crawler — Update ziehen. |
 | Reiter fehlen / „Init fehlgeschlagen" | Update ziehen; der Startfehler ist behoben. |
 | Tool „lädt nicht" trotz grünem Log | Viele Tools brauchen vorher einen **Login im Browser** (Ancestry/MyHeritage) bzw. eine zuvor gewählte **CSV/Datei**. |
+| `Failed to launch chromium … executable doesn't exist` | Playwright-Browser fehlt: `pip install playwright` + `playwright install chromium`. |
+| `ANTHROPIC_API_KEY nicht gesetzt` | Für die Kirchenbuch-Transkription den API-Key als Umgebungsvariable setzen. |
+| Ein Reiter zeigt „konnte nicht geladen werden" | Sicherheitsnetz — die übrigen Reiter laufen normal; den Fehlertext im Reiter/Log melden. |
 | Update überschreibt meinen Pfad | `update-and-run.bat` folgt jetzt automatisch ihrem eigenen Ordner — kein fester Pfad mehr. |
 
 ---
