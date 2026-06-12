@@ -968,6 +968,23 @@ class MatchesTabMixin:
 
             if all_sources_mode and len(matches) > 1:
                 match_groups = _group_matches_by_person(matches)
+                # Gruppen nach der aktiven Sortierspalte ordnen — sonst ignoriert
+                # die Personen-Gruppierung den Header-Klick (Spaltensortierung).
+                def _grp_key(g):
+                    m = g[0]
+                    col = self._sort_col
+                    if col == "name":    return (m.display_name or "").lower()
+                    if col == "cm":      return m.shared_cm or 0.0
+                    if col == "seg":     return m.shared_segments or 0
+                    if col == "rel":     return (m.predicted_relationship or "").lower()
+                    if col == "tree":    return m.tree_size or 0
+                    if col == "ca":      return 1 if getattr(m, "has_common_ancestor", False) else 0
+                    if col == "starred": return 1 if m.starred else 0
+                    if col == "ged":     return bridge_hits.get(m.match_guid, 0)
+                    if col == "note":    return (m.tag_surname or "").lower()
+                    if col == "guid":    return (getattr(m, "source", "") or "").lower()
+                    return m.shared_cm or 0.0
+                match_groups.sort(key=_grp_key, reverse=not sort_asc)
             else:
                 match_groups = [[m] for m in matches]
 
@@ -1170,7 +1187,7 @@ class MatchesTabMixin:
             self._sort_col = col
             self._sort_asc = col in ("name", "rel")
         _key_map = {
-            "name": "m.name", "guid": "m.guid", "note": "m.note", "cm": "m.cm",
+            "name": "m.name", "guid": "m.src", "note": "m.note", "cm": "m.cm",
             "seg": "m.seg", "rel": "m.rel", "tree": "m.tree", "ged": "m.ged",
             "ca": "m.ca", "starred": "m.starred",
         }
