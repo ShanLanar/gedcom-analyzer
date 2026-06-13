@@ -8,13 +8,12 @@ Geht von einer Start-Person aus, folgt den Verwandtschafts-Links
 einer lokalen SQLite-DB ab. Resumierbar: Frontier und besuchte IDs werden
 gespeichert, ein erneuter Aufruf macht da weiter, wo er aufhörte.
 
-WICHTIG / fair use — DIESE SEITE BITTE BESONDERS SCHONEN:
+WICHTIG / fair use — DIESE SEITE BITTE SCHONEN:
   * robots.txt wird respektiert (Abbruch, wenn das Ziel verboten ist).
-  * Standard-Rate-Limit: 4 s zwischen Anfragen + zufälliger Jitter
-    (~4–6 s real). Der Betreiber hatte schon Crawler-Probleme — lieber
-    zu langsam als zu schnell. --delay kann nur ERHÖHT werden (sinnvoll).
+  * Standard-Rate-Limit: 1,5 s zwischen Anfragen + zufälliger Jitter
+    (~1,5–2,25 s real). Mit --delay kann der Wert erhöht oder gesenkt werden.
   * Standard nur 300 Seiten pro Lauf; danach Pause. Resumierbar, also über
-    mehrere Tage verteilen statt 400k am Stück.
+    mehrere Läufe verteilen statt alles am Stück.
   * Klarer User-Agent. Nur öffentlich zugängliche Seiten werden gelesen.
   Bitte ausschließlich für eigene Forschung und im Rahmen der
   Nutzungsbedingungen der Seite verwenden.
@@ -951,7 +950,7 @@ def _in_scope(p, place_filter, year_min, year_max) -> bool:
 
 # ── Crawl (gerichtet, zweiphasig, resumierbar) ────────────────────────────────
 
-def crawl(seed_url: str, max_pages: int = 300, delay: float = 4.0,
+def crawl(seed_url: str, max_pages: int = 300, delay: float = 1.5,
           mode: str = "both", place_filter=None, year_min=0, year_max=0,
           db_path: Path = DB_PATH,
           auth: str | None = None,
@@ -1819,9 +1818,9 @@ def main(argv):
     cr.add_argument("--mode", choices=["up", "down", "both"], default=None,
                     help="up=Vorfahren, down=Nachkommen, both=erst auf- dann abwärts")
     cr.add_argument("--max", type=int, default=None,
-                    help="Max. Seiten pro Lauf (Default 300, schonend)")
+                    help="Max. Seiten pro Lauf (Default 300, 0 = unbegrenzt)")
     cr.add_argument("--delay", type=float, default=None,
-                    help="Mindestpause zw. Anfragen in s (Default 4.0 + Jitter)")
+                    help="Mindestpause zw. Anfragen in s (Default 1.5 + Jitter)")
     cr.add_argument("--place", default=None,
                     help="Nachkommen nur im Ort weiterverfolgen (Komma-Liste, "
                          "z.B. 'Osnabrück,Hagen,Oesede,Ostercappeln')")
@@ -1899,7 +1898,7 @@ def main(argv):
             "seed_url":   None,
             "mode":       "both",
             "max":        300,
-            "delay":      4.0,
+            "delay":      1.5,
             "place":      "",
             "year_min":   0,
             "year_max":   0,
@@ -2012,7 +2011,7 @@ def main(argv):
     elif args.cmd == "training":
         # Seed-URL/Login/Delay primär aus dem Profil, CLI-Args überschreiben.
         seed_url = args.url
-        delay = args.delay if args.delay is not None else 4.0
+        delay = args.delay if args.delay is not None else 1.5
         auth, cookies = args.auth, args.cookies
         login_url, login_user, login_pass = (
             args.login_url, args.login_user, args.login_pass)
