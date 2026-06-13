@@ -494,6 +494,14 @@ def _archive_path(archive_dir: Path, book_id: str, page_nr: int) -> Path:
     return archive_dir / parish_slug / book_slug / f"{page_nr:04d}.jpg"
 
 
+def _count_up(start: int = 1):
+    """Unendlicher Zähler: 1, 2, 3, …"""
+    n = start
+    while True:
+        yield n
+        n += 1
+
+
 def _scan_book(
     book: sqlite3.Row,
     parish_db: sqlite3.Connection,
@@ -515,48 +523,17 @@ def _scan_book(
     print(f"\n  Buch: {book_id}  [{book_type}  {book['year_from'] or '?'}–{book['year_to'] or '?'}]")
     print(f"  URL:  {book_url}")
 
-    # Buchseite laden — direkt ?pg=1 damit der Viewer und sein Pagination-UI
-    # vollständig geladen sind (nötig für _detect_page_count)
-    pg1_url = f"{book_url.rstrip('/')}/?pg=1"
-    try:
-        pw_page.goto(pg1_url, wait_until="networkidle", timeout=30_000)
-    except Exception:
-        pw_page.goto(pg1_url, wait_until="domcontentloaded", timeout=30_000)
-    time.sleep(pause)
-
-    # ── Seitenanzahl ermitteln ────────────────────────────────────────────────
-    # Erst aus der DB (vom letzten Lauf oder fetch_matricula_books gesetzt)
-    total_pages = book["total_pages"] if book["total_pages"] else None
-    if total_pages is None:
-        total_pages = _detect_page_count(pw_page)
-    if total_pages is None:
-        # Retry: nochmal 4 Sekunden warten (JS-Lazy-Load)
-        time.sleep(4.0)
-        total_pages = _detect_page_count(pw_page)
-    if total_pages is None:
-        # Fallback: Seiten proben bis kein Bild mehr geladen wird
-        total_pages = _probe_page_count(pw_page, book_url, pause)
-    if total_pages is None:
-        print("  ⚠ Konnte Seitenanzahl nicht ermitteln — überspringe Buch")
-        return 0, 0
-    with parish_db:
-        parish_db.execute("UPDATE kirchenbuecher SET total_pages=? WHERE book_id=?",
-                          (total_pages, book_id))
-
     # ── Seiten bestimmen ─────────────────────────────────────────────────────
     if retranscribe:
-        # Alle lokal archivierten Seiten dieses Buchs scannen
         parts        = book_id.split("/")
         parish_slug  = parts[-2] if len(parts) >= 2 else book_id
         book_slug    = parts[-1]
         book_archive = archive_dir / parish_slug / book_slug
         archived = sorted(book_archive.glob("*.jpg")) if book_archive.exists() else []
-        total_pages = len(archived)
-        if not total_pages:
+        if not archived:
             print("  ⚠ Keine archivierten Bilder — überspringe")
             return 0, 0
-        print(f"  {total_pages} archivierte Seiten (Re-Transkription)")
-        # Alte Einträge löschen
+        print(f"  {len(archived)} archivierte Seiten (Re-Transkription)")
         with main_db:
             main_db.execute(
                 "DELETE FROM source_matrikula_entries WHERE book_id=?", (book_id,)
@@ -569,7 +546,6 @@ def _scan_book(
         done_pages: set[int] = set()
         page_range = [int(p.stem) for p in archived]
     else:
-        print(f"  {total_pages} Seiten gefunden")
         done_pages = {
             row[0]
             for row in parish_db.execute(
@@ -577,11 +553,9 @@ def _scan_book(
                 (book_id,),
             ).fetchall()
         }
-        remaining = total_pages - len(done_pages)
-        print(f"  {len(done_pages)} bereits fertig, {remaining} verbleibend")
-        page_range = list(range(1, total_pages + 1))
+        print(f"  {len(done_pages)} bereits fertig — lade Seiten ab ?pg=1 bis kein Bild mehr")
+        page_range = None   # offene Iteration
 
-    # Seiten mit manuellen Viewer-Korrekturen nie überschreiben
     try:
         corrected_pages = {
             row[0]
@@ -598,37 +572,48 @@ def _scan_book(
 
     scanned = 0
     new_entries = 0
+    last_good_page = 0
 
-    for page_nr in page_range:
+    # Offene Iteration: ?pg=1, ?pg=2, … bis kein Bild mehr
+    iter_pages = page_range if page_range is not None else _count_up()
+    consec_empty = 0
+
+    for page_nr in iter_pages:
         if page_nr in done_pages:
+            last_good_page = max(last_good_page, page_nr)
             continue
         if page_nr in corrected_pages:
             continue
 
-        print(f"    Seite {page_nr:4d}/{total_pages} ", end="", flush=True)
+        print(f"    Seite {page_nr:4d} ", end="", flush=True)
 
         arch_file = _archive_path(archive_dir, book_id, page_nr)
+        image_url: str | None = None
+        image_bytes: bytes | None = None
 
         # Bild holen: erst lokales Archiv, dann Matricula
         if arch_file.exists():
             image_bytes = arch_file.read_bytes()
             image_url   = str(arch_file)
             print("📁 ", end="", flush=True)
+            consec_empty = 0
         else:
             if pw_page is None:
                 print("⚠ kein Bild (kein Browser und kein Archiv)")
+                if page_range is None:
+                    break
                 continue
-            # Seite 1 wurde bereits für _detect_page_count geladen — Screenshot
-            # direkt machen ohne erneutes goto (Netzwerk sparen).
-            if page_nr == 1 and not retranscribe:
-                image_url, image_bytes = _capture_current_page(pw_page, book_url, 1)
-            else:
-                image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
+            image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
             if image_bytes is not None:
-                # Archivieren
                 arch_file.parent.mkdir(parents=True, exist_ok=True)
                 arch_file.write_bytes(image_bytes)
                 print("💾 ", end="", flush=True)
+                consec_empty = 0
+            else:
+                consec_empty += 1
+                if page_range is None and consec_empty >= 2:
+                    print("⚠ kein Bild — Ende des Buchs")
+                    break
 
         if image_bytes is None:
             print("⚠ kein Bild")
@@ -640,6 +625,8 @@ def _scan_book(
                     (book_id, page_nr, image_url or "", ""),
                 )
             continue
+
+        last_good_page = max(last_good_page, page_nr)
 
         # OCR (Backend via MATRICULA_OCR_BACKEND)
         entries = _transcribe_page(image_bytes, book_type, dry_run)
@@ -668,6 +655,15 @@ def _scan_book(
         scanned     += 1
         new_entries += count
         time.sleep(pause * 0.5)
+
+    # Ermittelte Seitenanzahl in DB persistieren (nur bei offener Iteration)
+    if page_range is None and last_good_page > 0:
+        with parish_db:
+            parish_db.execute(
+                "UPDATE kirchenbuecher SET total_pages=? WHERE book_id=?",
+                (last_good_page, book_id),
+            )
+        print(f"  → {last_good_page} Seiten gesamt (in DB gespeichert)")
 
     return scanned, new_entries
 
