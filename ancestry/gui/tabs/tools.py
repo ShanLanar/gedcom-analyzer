@@ -198,6 +198,8 @@ class ToolsTab(ttk.Frame):
                           self._tl_cmd_mat_retranscribe,
                           on_start=self._mat_reset_progress,
                           on_line=self._mat_on_line)
+        self._tool_action(sec, "📄 Kirchenbücher als PDF bündeln", "mat_pdf",
+                          self._tl_cmd_mat_pdf)
         # Fortschrittsanzeige
         prog_row = ttk.Frame(sec); prog_row.pack(fill="x", pady=(4, 0))
         self._mat_prog_label = ttk.Label(prog_row, text="", width=12, anchor="e")
@@ -562,6 +564,13 @@ class ToolsTab(ttk.Frame):
             return []
         cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py"),
                "--retranscribe", "--parish"] + parishes
+        return cmd
+
+    def _tl_cmd_mat_pdf(self) -> list[str]:
+        parishes = self._mat_get_parishes()
+        cmd = [sys.executable, "-u", _tool("bundle_matricula_pdf.py")]
+        if parishes:
+            cmd += ["--parish"] + parishes
         return cmd
 
     def _tl_cmd_mh_shared(self) -> list[str]:
