@@ -176,7 +176,12 @@ def _open_parish_db() -> sqlite3.Connection:
     CREATE INDEX IF NOT EXISTS idx_mps_book   ON matricula_page_scans(book_id);
     CREATE INDEX IF NOT EXISTS idx_mps_status ON matricula_page_scans(status);
     """)
-    # Migration: image_path-Spalte nachrüsten falls Tabelle aus alter Version
+    # Migration: fehlende Spalten nachrüsten (falls Tabelle aus alter Version)
+    try:
+        db.execute("ALTER TABLE matricula_page_scans ADD COLUMN image_url TEXT DEFAULT ''")
+        db.commit()
+    except Exception:
+        pass
     try:
         db.execute("ALTER TABLE matricula_page_scans ADD COLUMN image_path TEXT DEFAULT ''")
         db.commit()
@@ -717,8 +722,8 @@ def _scan_book(
                 parish_db.execute(
                     """INSERT OR REPLACE INTO matricula_page_scans
                        (book_id, page_nr, image_url, image_path, status, scanned_at, error_msg)
-                       VALUES (?,?,?,?,'error',datetime('now'),'kein Bild')""",
-                    (book_id, page_nr, image_url or "", ""),
+                       VALUES (?, ?, ?, ?, 'error', datetime('now'), ?)""",
+                    (book_id, page_nr, image_url or "", "", "kein Bild"),
                 )
             continue
 
