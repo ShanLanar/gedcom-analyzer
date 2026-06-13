@@ -213,6 +213,9 @@ class ToolsTab(ttk.Frame):
                           lambda: [sys.executable, "-u", _tool("matricula_viewer.py")])
         self._tool_action(sec, "Entity-Browser (Port 5001)", "entity",
                           lambda: [sys.executable, "-u", _tool("entity_browser.py")])
+        self._tool_action(sec, "📦 Korpus für LLM bündeln (OCR+GEDCOM+Belege)", "llm_bundle",
+                          lambda: [sys.executable, "-u", "-m",
+                                   "ancestry.tools.bundle_for_llm"])
 
     # ── Anleitung öffnen ───────────────────────────────────────────────────
     def _open_wiki(self):
