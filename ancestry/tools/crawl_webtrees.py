@@ -218,6 +218,31 @@ def _strip_place_suffix(seg: str) -> str:
     return _PLACE_SUFFIX_RE.sub("", seg).strip()
 
 
+def _extract_address_prefix(address: str) -> str:
+    """Extract a short place label from an address field to prepend to PLAC.
+
+    Farm/estate names like 'Halberbenhof Hemesath' or 'Heuer des Vollerbes
+    Kasselmann' belong as the first GEDCOM place segment.  Longer descriptive
+    notes (Wikipedia-style text, uncertain remarks ending in '?') are skipped.
+    """
+    addr = address.strip()
+    if not addr:
+        return ""
+    # Skip uncertain annotations and long descriptive prose
+    if addr.endswith("?") or " ist ein " in addr or " bzw." in addr:
+        return ""
+    # Strip outer parens: "(Heuerhaus des ...)" → "Heuerhaus des ..."
+    if addr.startswith("("):
+        inner = addr.find(")")
+        if inner > 0:
+            addr = addr[1:inner].strip()
+    # Take only the first comma-separated part (ignore "alt: …" annotations)
+    first = addr.split(",")[0].strip()
+    # Strip trailing parenthetical "(Vollerbe Stertenbrink)" etc.
+    first = re.sub(r"\s*\([^)]*\)\s*$", "", first).strip()
+    return first
+
+
 def _clean(html_fragment: str) -> str:
     txt = _TAG_RE.sub(" ", html_fragment or "")
     txt = re.sub(r"&nbsp;", " ", txt)
@@ -773,6 +798,25 @@ def parse_individual(html: str, url: str) -> dict:
     for fact in facts:
         if fact.get("place"):
             fact["place"] = normalize_place(fact["place"])
+
+    # Prepend farm/estate name from the address field to BIRT/DEAT places.
+    # e.g. address="Halberbenhof Hemesath, alt: Harderberg 15 (parzelliert)"
+    #      place="Harderberg, Georgsmarienhütte, Osnabruck, Lower Saxony, Germany"
+    #      → "Halberbenhof Hemesath, Harderberg, Georgsmarienhütte, Osnabruck, Lower Saxony, Germany"
+    for fact in facts:
+        if fact.get("tag") not in ("BIRT", "DEAT"):
+            continue
+        prefix = _extract_address_prefix(fact.get("address", ""))
+        if not prefix:
+            continue
+        if fact.get("place"):
+            fact["place"] = f"{prefix}, {fact['place']}"
+        else:
+            fact["place"] = prefix
+        if fact["tag"] == "BIRT":
+            birth_place = fact["place"]
+        else:
+            death_place = fact["place"]
 
     # ── gerichtete Verwandtschaft (Eltern/Kinder/Partner/Geschwister)
     fam = parse_family_nav(html)
