@@ -127,6 +127,8 @@ class ToolsTab(ttk.Frame):
         self._tl_wt_discover = tk.BooleanVar(value=True)
         self._tl_mat_parish = tk.StringVar(value="")
         self._tl_mh_csv = tk.StringVar(value="")
+        self._tl_mh_mincm = tk.StringVar(value="20")
+        self._tl_mh_repair = tk.BooleanVar(value=False)
         self._tl_imp_mh = tk.StringVar(value="")
         self._tl_imp_gm = tk.StringVar(value="")
         self._tl_wk_id = tk.StringVar(value="")
@@ -167,6 +169,13 @@ class ToolsTab(ttk.Frame):
         ttk.Button(row, text="…", width=3,
                    command=lambda: self._tl_pick(self._tl_mh_csv, "CSV", "*.csv")
                    ).pack(side="left")
+        # cM-Schwelle + unvollständige nachholen
+        opt = ttk.Frame(sec); opt.pack(fill="x", pady=2)
+        ttk.Label(opt, text="ab cM:").pack(side="left")
+        ttk.Spinbox(opt, from_=6, to=200, increment=5, width=5,
+                    textvariable=self._tl_mh_mincm).pack(side="left", padx=(2, 10))
+        ttk.Checkbutton(opt, text="unvollständige (<10) nachholen",
+                        variable=self._tl_mh_repair).pack(side="left")
         self._tool_action(sec, "2 · Gemeinsame Matches laden", "mh_shared",
                           self._tl_cmd_mh_shared)
 
@@ -293,8 +302,15 @@ class ToolsTab(ttk.Frame):
         if not csv:
             self._tool_append("⚠ Bitte zuerst eine Match-CSV wählen.\n")
             return []
-        return [sys.executable, "-u", _tool("fetch_mh_shared_matches.py"),
-                "--csv", csv]
+        cmd = [sys.executable, "-u", _tool("fetch_mh_shared_matches.py"),
+               "--csv", csv]
+        mincm = (self._tl_mh_mincm.get() or "").strip()
+        if mincm:
+            cmd += ["--min-cm", mincm]
+        if self._tl_mh_repair.get():
+            # Matches mit < 10 Shared Matches (oft abgebrochen) neu laden
+            cmd += ["--repair-threshold", "10"]
+        return cmd
 
     def _tl_cmd_wikitree(self) -> list[str]:
         key = self._tl_wk_id.get().strip()
