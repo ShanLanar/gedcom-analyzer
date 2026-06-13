@@ -477,21 +477,29 @@ def _save_entries(
 
 # ── Playwright-Seiten-Scanner ──────────────────────────────────────────────────
 
-def _archive_path(archive_dir: Path, book_id: str, page_nr: int) -> Path:
+def _archive_path(
+    archive_dir: Path,
+    book_id: str,
+    page_nr: int,
+    label: str | None = None,
+) -> Path:
     """
     Kanonischer Archiv-Pfad für eine Buchseite.
 
-    book_id = "deutschland/osnabrueck/ostercappeln-st-lambertus/TauBu-1697-1820"
-    →  <archive_dir>/ostercappeln-st-lambertus/TauBu-1697-1820/0001.jpg
+    Ohne Label:  <archive_dir>/ostercappeln-st-lambertus/TauBu-1697-1820/0001.jpg
+    Mit Label:   <archive_dir>/ostercappeln-st-lambertus/TauBu-1697-1820/
+                     ostercappeln-st-lambertus_TauBu-1697-1820_tauf-1628_006.jpg
 
-    Nur die letzten zwei Segmente werden als Verzeichnis verwendet —
-    die Diözese-Präfixe sind im Archiv redundant, da Matriculas eigene
-    Slugs bereits global eindeutig sind.
+    Nur die letzten zwei Segmente werden als Verzeichnis verwendet.
     """
-    parts      = book_id.split("/")
+    parts       = book_id.split("/")
     parish_slug = parts[-2] if len(parts) >= 2 else book_id
     book_slug   = parts[-1]
-    return archive_dir / parish_slug / book_slug / f"{page_nr:04d}.jpg"
+    if label:
+        fname = f"{parish_slug}_{book_slug}_{label}.jpg"
+    else:
+        fname = f"{page_nr:04d}.jpg"
+    return archive_dir / parish_slug / book_slug / fname
 
 
 def _count_up(start: int = 1):
@@ -502,19 +510,15 @@ def _count_up(start: int = 1):
         n += 1
 
 
-def _extract_book_image_urls(page, book_url: str, pause: float) -> list[str]:
+def _extract_book_image_urls(
+    page, book_url: str, pause: float
+) -> list[tuple[str, str]]:
     """
-    Lädt die Buchhauptseite einmal und liest alle Bild-URLs aus dem
+    Lädt die Buchhauptseite einmal und liest alle Bild-URLs + Labels aus dem
     MatriculaDocView-JavaScript-Array heraus.
 
-    Matricula bettet alle Seiten-URLs direkt in den HTML-Quelltext:
-        new arc.imageview.MatriculaDocView("document", {
-          "files": ["/image/<base64>", ...],
-          "path":  "https://img.data.matricula-online.eu",
-          ...
-        });
-    Kein ?pg=N-Navigieren nötig — wir laden die Seite einmal und
-    laden danach jedes Bild direkt per HTTP.
+    Gibt [(image_url, label), ...] zurück, z.B.:
+        ("https://img.data.matricula-online.eu/image/aHR0...", "tauf-1628_006")
     """
     try:
         page.goto(book_url.rstrip("/") + "/", wait_until="domcontentloaded", timeout=30_000)
@@ -528,21 +532,23 @@ def _extract_book_image_urls(page, book_url: str, pause: float) -> list[str]:
             for (const s of document.querySelectorAll('script')) {
                 const src = s.textContent || '';
                 if (!src.includes('MatriculaDocView')) continue;
-                const pathM = src.match(/"path"\\s*:\\s*"([^"]+)"/);
-                const filesM = src.match(/"files"\\s*:\\s*(\\[[\\s\\S]*?\\])/);
+                const pathM   = src.match(/"path"\\s*:\\s*"([^"]+)"/);
+                const filesM  = src.match(/"files"\\s*:\\s*(\\[[\\s\\S]*?\\])/);
+                const labelsM = src.match(/"labels"\\s*:\\s*(\\[[\\s\\S]*?\\])/);
                 if (pathM && filesM) {
                     try {
-                        const files = JSON.parse(filesM[1]);
+                        const files  = JSON.parse(filesM[1]);
+                        const labels = labelsM ? JSON.parse(labelsM[1]) : [];
                         if (Array.isArray(files) && files.length > 0)
-                            return files.map(f => pathM[1] + f);
+                            return files.map((f, i) => [pathM[1] + f, labels[i] || String(i + 1)]);
                     } catch(e) {}
                 }
             }
             return [];
         }
         """)
-        urls = list(result or [])
-        return [u for u in urls if u.startswith("http")]
+        pairs = list(result or [])
+        return [(u, lbl) for u, lbl in pairs if u.startswith("http")]
     except Exception as e:
         print(f"  ⚠ Bild-URL-Extraktion: {e}")
     return []
@@ -569,7 +575,8 @@ def _scan_book(
     print(f"  URL:  {book_url}")
 
     # ── Seiten bestimmen ─────────────────────────────────────────────────────
-    direct_urls: list[str] = []  # Direktlinks aus Viewer-JS
+    direct_items: list[tuple[str, str]] = []  # (image_url, label) aus Viewer-JS
+    archived_by_nr: dict[int, Path]     = {}  # page_nr → Datei (nur retranscribe)
 
     if retranscribe:
         parts        = book_id.split("/")
@@ -591,7 +598,9 @@ def _scan_book(
                 (book_id,),
             )
         done_pages: set[int] = set()
-        page_range: list[int] | None = [int(p.stem) for p in archived]
+        # enumerate statt int(stem) — funktioniert auch mit Label-basierten Dateinamen
+        archived_by_nr = {i: p for i, p in enumerate(archived, 1)}
+        page_range: list[int] | None = list(archived_by_nr.keys())
     else:
         done_pages = {
             row[0]
@@ -601,17 +610,17 @@ def _scan_book(
             ).fetchall()
         }
 
-        # Alle Bild-URLs einmalig aus dem Viewer-Skript lesen (eine Seite laden)
+        # Alle Bild-URLs + Labels einmalig aus dem Viewer-Skript lesen
         if pw_page is not None:
-            direct_urls = _extract_book_image_urls(pw_page, book_url, pause)
+            direct_items = _extract_book_image_urls(pw_page, book_url, pause)
 
-        if direct_urls:
-            page_range = list(range(1, len(direct_urls) + 1))
-            print(f"  {len(direct_urls)} Seiten · {len(done_pages)} bereits fertig")
+        if direct_items:
+            page_range = list(range(1, len(direct_items) + 1))
+            print(f"  {len(direct_items)} Seiten · {len(done_pages)} bereits fertig")
             with parish_db:
                 parish_db.execute(
                     "UPDATE kirchenbuecher SET total_pages=? WHERE book_id=?",
-                    (len(direct_urls), book_id),
+                    (len(direct_items), book_id),
                 )
         else:
             print("  URL-Extraktion fehlgeschlagen — iteriere ?pg=1, ?pg=2, …")
@@ -648,7 +657,15 @@ def _scan_book(
 
         print(f"    Seite {page_nr:4d} ", end="", flush=True)
 
-        arch_file = _archive_path(archive_dir, book_id, page_nr)
+        # Archivpfad: retranscribe → tatsächliche Datei, direkt → Label-Name, sonst → nr
+        if archived_by_nr:
+            arch_file = archived_by_nr[page_nr]
+        elif direct_items:
+            _, _lbl = direct_items[page_nr - 1]
+            arch_file = _archive_path(archive_dir, book_id, page_nr, label=_lbl)
+        else:
+            arch_file = _archive_path(archive_dir, book_id, page_nr)
+
         image_url: str | None = None
         image_bytes: bytes | None = None
 
@@ -663,9 +680,9 @@ def _scan_book(
             if page_range is None:
                 break
             continue
-        elif direct_urls:
+        elif direct_items:
             # Direkter Download ohne Browser-Navigation
-            image_url = direct_urls[page_nr - 1]
+            image_url, _ = direct_items[page_nr - 1]
             try:
                 resp = pw_page.request.get(image_url, timeout=30_000)
                 body = resp.body() if resp.ok else b""
