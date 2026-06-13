@@ -240,14 +240,94 @@ def _open_main_db():
     return db
 
 
-# ── Claude Vision ──────────────────────────────────────────────────────────────
+# ── OCR-Backends (umschaltbar via MATRICULA_OCR_BACKEND) ────────────────────────
+# claude    → Claude Vision: liefert STRUKTURIERTE Einträge (kostenpflichtig).
+# tesseract → lokal/gratis: nur ROHTEXT (gut für GEDRUCKTE Register, schwach bei
+#             Handschrift). lang via MATRICULA_TESSERACT_LANG (default deu+frak).
+# kraken    → lokal/gratis: HTR für Handschrift; braucht ein Modell
+#             (MATRICULA_KRAKEN_MODEL=pfad.mlmodel). Liefert ebenfalls ROHTEXT.
+OCR_BACKEND = os.environ.get("MATRICULA_OCR_BACKEND", "claude").strip().lower()
+
 
 def _transcribe_page(image_bytes: bytes, book_type: str, dry_run: bool) -> list[dict]:
-    """Schickt ein Seiten-Bild an Claude Vision und gibt strukturierte Einträge zurück."""
+    """Dispatcher: transkribiert eine Seite über das gewählte OCR-Backend."""
     if dry_run:
-        print("  [dry-run: kein API-Call]")
+        print(f"  [dry-run: kein OCR-Call · backend={OCR_BACKEND}]")
         return []
+    if OCR_BACKEND == "tesseract":
+        return _transcribe_tesseract(image_bytes, book_type)
+    if OCR_BACKEND == "kraken":
+        return _transcribe_kraken(image_bytes, book_type)
+    return _transcribe_claude(image_bytes, book_type)
 
+
+def _raw_entry(book_type: str, text: str, engine: str) -> list[dict]:
+    """Verpackt rohen OCR-Text als (un-strukturierten) Eintrag. Das Strukturieren
+    in Person/Datum/Eltern erfolgt separat (Lexikon-gestützt) oder manuell."""
+    text = (text or "").strip()
+    if not text:
+        return []
+    return [{
+        "entry_type": book_type,
+        "person_name": "", "person2_name": "",
+        "father_name": "", "mother_name": "",
+        "event_date": "", "village": "",
+        "notes": text,
+        "raw_json": json.dumps({"ocr_engine": engine, "raw_text": text},
+                               ensure_ascii=False),
+    }]
+
+
+def _transcribe_tesseract(image_bytes: bytes, book_type: str) -> list[dict]:
+    try:
+        import io
+        import pytesseract
+        from PIL import Image
+    except ImportError:
+        print("  ⚠ tesseract-Backend braucht: pip install pytesseract pillow "
+              "(+ Tesseract-Binary)")
+        return []
+    lang = os.environ.get("MATRICULA_TESSERACT_LANG", "deu+frak")
+    try:
+        img = Image.open(io.BytesIO(image_bytes))
+        text = pytesseract.image_to_string(img, lang=lang)
+    except Exception as e:
+        print(f"  ⚠ Tesseract-Fehler: {e}")
+        return []
+    return _raw_entry(book_type, text, "tesseract")
+
+
+def _transcribe_kraken(image_bytes: bytes, book_type: str) -> list[dict]:
+    model_path = os.environ.get("MATRICULA_KRAKEN_MODEL", "")
+    if not model_path or not os.path.exists(model_path):
+        print("  ⚠ kraken-Backend: MATRICULA_KRAKEN_MODEL=<pfad.mlmodel> setzen "
+              "(z. B. ein deutsches Kurrent-Modell).")
+        return []
+    try:
+        import io
+        from PIL import Image
+        from kraken import binarization, pageseg, rpred
+        from kraken.lib import models as kraken_models
+    except ImportError:
+        print("  ⚠ kraken-Backend braucht: pip install kraken pillow")
+        return []
+    try:
+        im = Image.open(io.BytesIO(image_bytes))
+        bw = binarization.nlbin(im)
+        seg = pageseg.segment(bw)
+        model = kraken_models.load_any(model_path)
+        lines = [rec.prediction for rec in rpred.rpred(model, bw, seg)]
+        text = "\n".join(lines)
+    except Exception as e:
+        print(f"  ⚠ Kraken-Fehler: {e}")
+        return []
+    return _raw_entry(book_type, text, "kraken")
+
+
+# ── Claude Vision ──────────────────────────────────────────────────────────────
+
+def _transcribe_claude(image_bytes: bytes, book_type: str) -> list[dict]:
+    """Schickt ein Seiten-Bild an Claude Vision und gibt strukturierte Einträge zurück."""
     try:
         import anthropic
     except ImportError:
