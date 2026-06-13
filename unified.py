@@ -282,7 +282,9 @@ def main():
         _error_tab(tab_dna, "DNA-Tool konnte nicht geladen werden", _dna_exc)
     else:
         try:
-            dna_obj = AncestryDnaApp(master=tab_dna)
+            dna_obj = AncestryDnaApp(
+                master=tab_dna,
+                gedcom_path=cfg.DEFAULT_CONFIG.get("gedfile", ""))
         except Exception as exc:
             log.exception("AncestryDnaApp-Init fehlgeschlagen")
             _error_tab(tab_dna, "DNA-Tool-Fehler beim Start", exc)

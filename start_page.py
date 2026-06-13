@@ -268,6 +268,13 @@ class StartPage(tk.Frame):
         self._on_gedcom_change = on_gedcom_change
         self._vars: dict[str, tk.StringVar] = {}
         self._build()
+        # Ausgangsstand merken, damit _apply_paths nur bei echten Änderungen
+        # speichert/propagiert (kein Schreib-/Reload-Sturm bei FokusWechseln).
+        self._last_applied = (
+            self._vars["gedfile"].get().strip(),
+            self._vars["root_id"].get().strip(),
+            self._vars["exclude_id"].get().strip(),
+        )
         self.after(200, self._refresh_status)
 
     # ── UI-Aufbau ──────────────────────────────────────────────────────────────
@@ -321,8 +328,11 @@ class StartPage(tk.Frame):
         r0.pack(fill="x", pady=2)
         self._lbl(r0, "Stammbaumdatei:", 18)
         v = self._var("gedfile", cfg.DEFAULT_CONFIG.get("gedfile", ""))
-        tk.Entry(r0, textvariable=v, bg=P["bg3"], fg=P["fg"],
-                 font=cfg.FONT_MONO, relief="flat", width=44).pack(side="left", padx=4)
+        e_ged = tk.Entry(r0, textvariable=v, bg=P["bg3"], fg=P["fg"],
+                         font=cfg.FONT_MONO, relief="flat", width=44)
+        e_ged.pack(side="left", padx=4)
+        e_ged.bind("<FocusOut>", lambda _e: self._apply_paths())
+        e_ged.bind("<Return>", lambda _e: self._apply_paths())
         tk.Button(r0, text="…", bg=P["bg3"], fg=P["fg"],
                   font=cfg.FONT_MAIN, relief="flat", padx=6,
                   command=self._browse_gedcom).pack(side="left")
@@ -345,13 +355,19 @@ class StartPage(tk.Frame):
         r2.pack(fill="x", pady=2)
         self._lbl(r2, "Root-ID:", 18)
         self._var("root_id", cfg.DEFAULT_CONFIG.get("root_id", ""))
-        tk.Entry(r2, textvariable=self._vars["root_id"], bg=P["bg3"], fg=P["fg"],
-                 font=cfg.FONT_MONO, relief="flat", width=14).pack(side="left", padx=4)
+        e_root = tk.Entry(r2, textvariable=self._vars["root_id"], bg=P["bg3"],
+                          fg=P["fg"], font=cfg.FONT_MONO, relief="flat", width=14)
+        e_root.pack(side="left", padx=4)
+        e_root.bind("<FocusOut>", lambda _e: self._apply_paths())
+        e_root.bind("<Return>", lambda _e: self._apply_paths())
         self._help_btn(r2, "root_id", "Was ist die Root-ID?")
         self._lbl(r2, "Exclude-ID:", 0, pad_l=14)
         self._var("exclude_id", cfg.DEFAULT_CONFIG.get("exclude_id", ""))
-        tk.Entry(r2, textvariable=self._vars["exclude_id"], bg=P["bg3"], fg=P["fg"],
-                 font=cfg.FONT_MONO, relief="flat", width=14).pack(side="left", padx=4)
+        e_excl = tk.Entry(r2, textvariable=self._vars["exclude_id"], bg=P["bg3"],
+                          fg=P["fg"], font=cfg.FONT_MONO, relief="flat", width=14)
+        e_excl.pack(side="left", padx=4)
+        e_excl.bind("<FocusOut>", lambda _e: self._apply_paths())
+        e_excl.bind("<Return>", lambda _e: self._apply_paths())
 
         # Buttons
         br = tk.Frame(box, bg=P["bg2"])
@@ -520,7 +536,7 @@ class StartPage(tk.Frame):
         if val:
             self._vars["gedfile"].set(val)
             self._recent_var.set("")
-            self._notify_gedcom_change()
+            self._apply_paths()
 
     def _browse_gedcom(self):
         cur  = self._vars["gedfile"].get()
@@ -535,7 +551,7 @@ class StartPage(tk.Frame):
             ])
         if path:
             self._vars["gedfile"].set(path)
-            self._notify_gedcom_change()
+            self._apply_paths()
 
     # ── Synchronisation ───────────────────────────────────────────────────────
 
@@ -553,6 +569,11 @@ class StartPage(tk.Frame):
         ged = self._vars["gedfile"].get().strip()
         rid = self._vars["root_id"].get().strip()
         eid = self._vars["exclude_id"].get().strip()
+        # Nur bei echten Änderungen speichern/propagieren — verhindert
+        # Schreib- und Reload-Stürme bei jedem FokusWechsel.
+        snapshot = (ged, rid, eid)
+        if snapshot == getattr(self, "_last_applied", None):
+            return
         cfg.DEFAULT_CONFIG["gedfile"]    = ged
         cfg.FILES["gedfile"]             = ged
         cfg.DEFAULT_CONFIG["root_id"]    = rid
@@ -561,9 +582,11 @@ class StartPage(tk.Frame):
         cfg.EXCLUDE_ID                   = eid
         save = {"gedfile": ged, "root_id": rid, "exclude_id": eid}
         cfg.save_overrides(save)
+        self._last_applied = snapshot
         self._refresh_recent()
         self._notify_gedcom_change()
-        self._log_msg("Pfade gespeichert.", tag="ok")
+        self._log_msg("Einstellungen gespeichert (gelten für die ganze Anwendung).",
+                      tag="ok")
 
     # ── Aktionen ──────────────────────────────────────────────────────────────
 
