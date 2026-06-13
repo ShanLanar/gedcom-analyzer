@@ -1,7 +1,10 @@
-"""bundle_matricula_pdf.py – Kirchenbuch-Bilder pro Buch zu einer PDF zusammenfassen.
+"""bundle_matricula_pdf.py – Kirchenbuch-Bilder pro Kirchspiel zu PDFs bündeln.
 
-Durchläuft <archive_dir>/<parish>/<book>/ und erzeugt je eine PDF-Datei
-neben dem Buchordner: <archive_dir>/<parish>/<book>.pdf
+Durchläuft <archive_dir>/<parish>/<book>/ und sammelt alle Bilder pro
+Kirchspiel. Erzeugt ggf. mehrere PDFs (je bis zu 500 Seiten):
+    <archive_dir>/<parish>/<parish>_1.pdf
+    <archive_dir>/<parish>/<parish>_2.pdf
+    etc.
 
 Verwendung:
     python -m ancestry.tools.bundle_matricula_pdf [--archive-dir PATH] [--parish SLUG ...]
@@ -19,6 +22,7 @@ DEFAULT_ARCHIVE = Path(os.environ.get(
 ))
 
 _IMG_EXT = {".jpg", ".jpeg", ".png", ".tif", ".tiff"}
+_MAX_PAGES_PER_PDF = 500
 
 
 def _sorted_images(book_dir: Path) -> list[Path]:
@@ -27,54 +31,76 @@ def _sorted_images(book_dir: Path) -> list[Path]:
     return imgs
 
 
-def bundle_book(book_dir: Path, pdf_path: Path) -> int:
-    """Wandelt alle Bilder in book_dir in eine PDF um. Gibt Seitenanzahl zurück."""
+def _save_pdf(pages: list, pdf_path: Path, total: int) -> None:
+    """Speichert pages als PDF."""
+    if not pages:
+        return
     try:
         from PIL import Image
     except ImportError:
         print("⚠ Pillow nicht installiert – bitte: pip install pillow", flush=True)
         sys.exit(1)
 
-    imgs = _sorted_images(book_dir)
-    if not imgs:
-        return 0
-
-    pages: list[Image.Image] = []
-    for p in imgs:
-        try:
-            img = Image.open(p)
-            if img.mode not in ("RGB", "L"):
-                img = img.convert("RGB")
-            pages.append(img)
-        except Exception as exc:
-            print(f"  ⚠ {p.name}: {exc}", flush=True)
-
-    if not pages:
-        return 0
-
-    pdf_path.parent.mkdir(parents=True, exist_ok=True)
     first, rest = pages[0], pages[1:]
     first.save(pdf_path, format="PDF", save_all=True, append_images=rest,
                resolution=150)
-    return len(pages)
+    size_kb = pdf_path.stat().st_size // 1024
+    print(f"    {pdf_path.name}: {total} Seiten, {size_kb} KB", flush=True)
 
 
 def bundle_parish(parish_dir: Path) -> None:
+    """Sammelt alle Bilder aus allen Buchordnern und bündelt sie in PDFs."""
+    try:
+        from PIL import Image
+    except ImportError:
+        print("⚠ Pillow nicht installiert – bitte: pip install pillow", flush=True)
+        sys.exit(1)
+
     book_dirs = sorted(d for d in parish_dir.iterdir() if d.is_dir())
     if not book_dirs:
-        print(f"  (keine Buchordner in {parish_dir.name})", flush=True)
+        print("  (keine Buchordner)", flush=True)
         return
-    total_books = len(book_dirs)
-    for i, book_dir in enumerate(book_dirs, 1):
-        pdf_path = parish_dir / f"{book_dir.name}.pdf"
-        print(f"  [{i}/{total_books}] {book_dir.name} → {pdf_path.name} …",
-              end=" ", flush=True)
-        n = bundle_book(book_dir, pdf_path)
-        if n:
-            size_kb = pdf_path.stat().st_size // 1024
-            print(f"{n} Seiten, {size_kb} KB", flush=True)
-        else:
-            print("keine Bilder", flush=True)
+
+    all_images: list[tuple[str, Image.Image]] = []
+
+    print("  Bilder sammeln…", end=" ", flush=True)
+    for book_dir in book_dirs:
+        imgs = _sorted_images(book_dir)
+        for p in imgs:
+            try:
+                img = Image.open(p)
+                if img.mode not in ("RGB", "L"):
+                    img = img.convert("RGB")
+                all_images.append((p.name, img))
+            except Exception as exc:
+                print(f"\n    ⚠ {p.name}: {exc}", flush=True)
+
+    total_images = len(all_images)
+    print(f"{total_images} Bilder", flush=True)
+
+    if not all_images:
+        print("  (keine Bilder gefunden)", flush=True)
+        return
+
+    parish_slug = parish_dir.name
+    pdf_num = 1
+    current_batch: list[Image.Image] = []
+    batch_names = []
+
+    for name, img in all_images:
+        current_batch.append(img)
+        batch_names.append(name)
+
+        if len(current_batch) >= _MAX_PAGES_PER_PDF:
+            pdf_path = parish_dir / f"{parish_slug}_{pdf_num}.pdf"
+            _save_pdf(current_batch, pdf_path, len(current_batch))
+            pdf_num += 1
+            current_batch = []
+            batch_names = []
+
+    if current_batch:
+        pdf_path = parish_dir / f"{parish_slug}_{pdf_num}.pdf"
+        _save_pdf(current_batch, pdf_path, len(current_batch))
 
 
 def main(archive_dir: Path, parishes: list[str] | None) -> None:
