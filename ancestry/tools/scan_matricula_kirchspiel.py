@@ -495,11 +495,57 @@ def _archive_path(archive_dir: Path, book_id: str, page_nr: int) -> Path:
 
 
 def _count_up(start: int = 1):
-    """Unendlicher Zähler: 1, 2, 3, …"""
+    """Unendlicher Zähler: 1, 2, 3, … (Fallback wenn URL-Extraktion fehlschlägt)"""
     n = start
     while True:
         yield n
         n += 1
+
+
+def _extract_book_image_urls(page, book_url: str, pause: float) -> list[str]:
+    """
+    Lädt die Buchhauptseite einmal und liest alle Bild-URLs aus dem
+    MatriculaDocView-JavaScript-Array heraus.
+
+    Matricula bettet alle Seiten-URLs direkt in den HTML-Quelltext:
+        new arc.imageview.MatriculaDocView("document", {
+          "files": ["/image/<base64>", ...],
+          "path":  "https://img.data.matricula-online.eu",
+          ...
+        });
+    Kein ?pg=N-Navigieren nötig — wir laden die Seite einmal und
+    laden danach jedes Bild direkt per HTTP.
+    """
+    try:
+        page.goto(book_url.rstrip("/") + "/", wait_until="domcontentloaded", timeout=30_000)
+        time.sleep(max(0.3, pause * 0.3))
+    except Exception as e:
+        print(f"  ⚠ Buchseite laden: {e}")
+        return []
+    try:
+        result = page.evaluate("""
+        () => {
+            for (const s of document.querySelectorAll('script')) {
+                const src = s.textContent || '';
+                if (!src.includes('MatriculaDocView')) continue;
+                const pathM = src.match(/"path"\\s*:\\s*"([^"]+)"/);
+                const filesM = src.match(/"files"\\s*:\\s*(\\[[\\s\\S]*?\\])/);
+                if (pathM && filesM) {
+                    try {
+                        const files = JSON.parse(filesM[1]);
+                        if (Array.isArray(files) && files.length > 0)
+                            return files.map(f => pathM[1] + f);
+                    } catch(e) {}
+                }
+            }
+            return [];
+        }
+        """)
+        urls = list(result or [])
+        return [u for u in urls if u.startswith("http")]
+    except Exception as e:
+        print(f"  ⚠ Bild-URL-Extraktion: {e}")
+    return []
 
 
 def _scan_book(
@@ -516,7 +562,6 @@ def _scan_book(
     book_id   = book["book_id"]
     book_type = book["book_type"]
     book_url  = book["url"]
-    # book_id already contains the full path incl. diocese prefix
     if not book_url:
         book_url = f"{BASE_URL}/de/{book_id}/"
 
@@ -524,6 +569,8 @@ def _scan_book(
     print(f"  URL:  {book_url}")
 
     # ── Seiten bestimmen ─────────────────────────────────────────────────────
+    direct_urls: list[str] = []  # Direktlinks aus Viewer-JS
+
     if retranscribe:
         parts        = book_id.split("/")
         parish_slug  = parts[-2] if len(parts) >= 2 else book_id
@@ -544,7 +591,7 @@ def _scan_book(
                 (book_id,),
             )
         done_pages: set[int] = set()
-        page_range = [int(p.stem) for p in archived]
+        page_range: list[int] | None = [int(p.stem) for p in archived]
     else:
         done_pages = {
             row[0]
@@ -553,8 +600,23 @@ def _scan_book(
                 (book_id,),
             ).fetchall()
         }
-        print(f"  {len(done_pages)} bereits fertig — lade Seiten ab ?pg=1 bis kein Bild mehr")
-        page_range = None   # offene Iteration
+
+        # Alle Bild-URLs einmalig aus dem Viewer-Skript lesen (eine Seite laden)
+        if pw_page is not None:
+            direct_urls = _extract_book_image_urls(pw_page, book_url, pause)
+
+        if direct_urls:
+            page_range = list(range(1, len(direct_urls) + 1))
+            print(f"  {len(direct_urls)} Seiten · {len(done_pages)} bereits fertig")
+            with parish_db:
+                parish_db.execute(
+                    "UPDATE kirchenbuecher SET total_pages=? WHERE book_id=?",
+                    (len(direct_urls), book_id),
+                )
+        else:
+            print("  URL-Extraktion fehlgeschlagen — iteriere ?pg=1, ?pg=2, …")
+            print(f"  {len(done_pages)} bereits fertig")
+            page_range = None   # offene Iteration als Fallback
 
     try:
         corrected_pages = {
@@ -574,7 +636,6 @@ def _scan_book(
     new_entries = 0
     last_good_page = 0
 
-    # Offene Iteration: ?pg=1, ?pg=2, … bis kein Bild mehr
     iter_pages = page_range if page_range is not None else _count_up()
     consec_empty = 0
 
@@ -591,18 +652,36 @@ def _scan_book(
         image_url: str | None = None
         image_bytes: bytes | None = None
 
-        # Bild holen: erst lokales Archiv, dann Matricula
+        # Bild holen: erst lokales Archiv, dann direkt oder via ?pg=N
         if arch_file.exists():
             image_bytes = arch_file.read_bytes()
             image_url   = str(arch_file)
             print("📁 ", end="", flush=True)
             consec_empty = 0
+        elif pw_page is None:
+            print("⚠ kein Browser und kein Archiv — überspringe")
+            if page_range is None:
+                break
+            continue
+        elif direct_urls:
+            # Direkter Download ohne Browser-Navigation
+            image_url = direct_urls[page_nr - 1]
+            try:
+                resp = pw_page.request.get(image_url, timeout=30_000)
+                body = resp.body() if resp.ok else b""
+                if len(body) > 1_000:
+                    image_bytes = body
+                    arch_file.parent.mkdir(parents=True, exist_ok=True)
+                    arch_file.write_bytes(image_bytes)
+                    print("💾 ", end="", flush=True)
+                    consec_empty = 0
+                else:
+                    consec_empty += 1
+            except Exception as e:
+                print(f"[Fehler {e}] ", end="")
+                consec_empty += 1
         else:
-            if pw_page is None:
-                print("⚠ kein Bild (kein Browser und kein Archiv)")
-                if page_range is None:
-                    break
-                continue
+            # Fallback: Navigation zu ?pg=N
             image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
             if image_bytes is not None:
                 arch_file.parent.mkdir(parents=True, exist_ok=True)
@@ -628,10 +707,8 @@ def _scan_book(
 
         last_good_page = max(last_good_page, page_nr)
 
-        # OCR (Backend via MATRICULA_OCR_BACKEND)
+        # OCR
         entries = _transcribe_page(image_bytes, book_type, dry_run)
-        # Lokale Engines (tesseract/kraken) liefern Rohtext → eine .txt je Bild
-        # neben das Bild legen (direkt in jedes Browser-LLM kopierbar).
         if OCR_BACKEND in ("tesseract", "kraken") and entries:
             raw = "\n\n".join(e.get("notes", "") for e in entries if e.get("notes"))
             if raw.strip():
@@ -640,8 +717,7 @@ def _scan_book(
                     print(f"  📝 {arch_file.with_suffix('.txt').name}")
                 except Exception as _e:
                     print(f"  ⚠ .txt-Schreiben: {_e}")
-        count   = _save_entries(main_db, book_id, page_nr, book_type, entries)
-
+        count = _save_entries(main_db, book_id, page_nr, book_type, entries)
         print(f"→ {count:3d} Einträge")
 
         with parish_db:
@@ -656,7 +732,7 @@ def _scan_book(
         new_entries += count
         time.sleep(pause * 0.5)
 
-    # Ermittelte Seitenanzahl in DB persistieren (nur bei offener Iteration)
+    # Bei offener Iteration (Fallback): ermittelte Seitenanzahl in DB speichern
     if page_range is None and last_good_page > 0:
         with parish_db:
             parish_db.execute(
