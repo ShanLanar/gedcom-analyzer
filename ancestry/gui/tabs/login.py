@@ -67,8 +67,6 @@ class LoginTab(ttk.Frame):
         lw = self._state.lang_widgets
         p  = {"padx": 16, "pady": 8}
 
-        # Methode 1 (E-Mail/Passwort) entfernt: Ancestry blockiert den
-        # automatischen Passwort-Login. Nur Cookie-Datei + manuelle Kit-GUID.
         _sv = tk.StringVar(value=t("lg.meth2"))
         ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
             row=5, column=0, columnspan=3, sticky="w", **p)

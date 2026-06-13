@@ -127,7 +127,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "lg.email":     {"de": "E-Mail:",                              "en": "E-Mail:"},
     "lg.password":  {"de": "Passwort:",                            "en": "Password:"},
     "lg.login_btn": {"de": "Einloggen",                            "en": "Log in"},
-    "lg.meth2":     {"de": "Methode 2: Cookie-Datei (empfohlen)",  "en": "Method 2: Cookie File (recommended)"},
+    "lg.meth2":     {"de": "Cookie-Datei Login",                   "en": "Cookie File Login"},
     "lg.choose":    {"de": "Datei wählen …",                       "en": "Choose file …"},
     "lg.login_ck":  {"de": "Mit Cookies einloggen",                "en": "Log in with cookies"},
     "lg.manual":    {"de": "Manuelle Kit-GUID",                    "en": "Manual Kit GUID"},
