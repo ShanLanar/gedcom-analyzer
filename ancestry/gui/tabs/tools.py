@@ -410,27 +410,41 @@ class ToolsTab(ttk.Frame):
                 "--profile", profile, "--n", n]
 
     def _tl_cmd_mat_books(self) -> list[str]:
-        cmd = [sys.executable, "-u", _tool("fetch_matricula_books.py")]
+        from tkinter import messagebox
         p = self._tl_mat_parish.get().strip()
-        if p:
-            cmd += ["--parish", p]
+        if not p:
+            messagebox.showwarning("Pfarrei erforderlich",
+                                   "Bitte Pfarrei-Namen eingeben (z.B. 'ostercappeln')",
+                                   parent=self)
+            return []
+        cmd = [sys.executable, "-u", _tool("fetch_matricula_books.py")]
+        cmd += ["--parish", p]
         return cmd
 
     def _tl_cmd_mat_scan(self) -> list[str]:
-        cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py")]
+        from tkinter import messagebox
         p = self._tl_mat_parish.get().strip()
-        if p:
-            cmd += ["--parish", p]
+        if not p:
+            messagebox.showwarning("Pfarrei erforderlich",
+                                   "Bitte Pfarrei-Namen eingeben (z.B. 'ostercappeln')",
+                                   parent=self)
+            return []
+        cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py")]
+        cmd += ["--parish", p]
         if self._tl_mat_dryrun.get():
             cmd.append("--dry-run")
         return cmd
 
     def _tl_cmd_mat_retranscribe(self) -> list[str]:
-        cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py"),
-               "--retranscribe"]
+        from tkinter import messagebox
         p = self._tl_mat_parish.get().strip()
-        if p:
-            cmd += ["--parish", p]
+        if not p:
+            messagebox.showwarning("Pfarrei erforderlich",
+                                   "Bitte Pfarrei-Namen eingeben (z.B. 'ostercappeln')",
+                                   parent=self)
+            return []
+        cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py"),
+               "--retranscribe", "--parish", p]
         return cmd
 
     def _tl_cmd_mh_shared(self) -> list[str]:
