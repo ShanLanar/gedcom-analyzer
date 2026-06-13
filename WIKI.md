@@ -99,9 +99,21 @@ und jederzeit per **■** stoppbar. Der Live-Log rechts zeigt den Fortschritt.
 > **Voraussetzungen für das Seiten-Scannen:**
 > - **Playwright-Browser** einmalig installieren:
 >   `pip install playwright` und dann `playwright install chromium`.
-> - **`ANTHROPIC_API_KEY`** als Umgebungsvariable setzen — sonst läuft der Scan
->   nur als Bilder-Download **ohne** Transkription (Hinweis „ANTHROPIC_API_KEY
->   nicht gesetzt — Scan ohne Transkription").
+>
+> **OCR-Engine wählen** (`MATRICULA_OCR_BACKEND`):
+> | Wert | Was | Kosten |
+> |---|---|---|
+> | `claude` (Default) | strukturierte Einträge (Name/Datum/Eltern) | kostenpflichtig, braucht `ANTHROPIC_API_KEY` |
+> | `tesseract` | **Rohtext, lokal/gratis** — gut bei gedruckten Registern. `pip install pytesseract pillow` + Tesseract-Binary. Sprache: `MATRICULA_TESSERACT_LANG` (Default `deu+frak`). | gratis |
+> | `kraken` | **Rohtext, lokal/gratis** — Handschrift/HTR. `pip install kraken pillow` + `MATRICULA_KRAKEN_MODEL=<pfad.mlmodel>` (deutsches Kurrent-Modell). | gratis |
+>
+> Bei `tesseract`/`kraken` wird **eine `.txt` pro Bild** neben das Bild gelegt
+> (im Bild-Archiv) — die kann man jederzeit in ein beliebiges Browser-LLM
+> kopieren, um sie zu strukturieren. Kein Token nötig.
+>
+> **Lexikon (verbessert die freie OCR):** `python -m ancestry.tools.build_matricula_lexicon`
+> erzeugt eine Wortliste (Nachnamen/Vornamen/Orte) aus deinen Daten — als
+> Tesseract `--user-words` / Kraken-Dictionary / zur Validierung.
 
 ### 🧬 MyHeritage-DNA
 1. **„1 · Matchliste herunterladen"** *(Login im Browser nötig)*.

@@ -631,8 +631,18 @@ def _scan_book(
                 )
             continue
 
-        # Claude Vision
+        # OCR (Backend via MATRICULA_OCR_BACKEND)
         entries = _transcribe_page(image_bytes, book_type, dry_run)
+        # Lokale Engines (tesseract/kraken) liefern Rohtext → eine .txt je Bild
+        # neben das Bild legen (direkt in jedes Browser-LLM kopierbar).
+        if OCR_BACKEND in ("tesseract", "kraken") and entries:
+            raw = "\n\n".join(e.get("notes", "") for e in entries if e.get("notes"))
+            if raw.strip():
+                try:
+                    arch_file.with_suffix(".txt").write_text(raw, encoding="utf-8")
+                    print(f"  📝 {arch_file.with_suffix('.txt').name}")
+                except Exception as _e:
+                    print(f"  ⚠ .txt-Schreiben: {_e}")
         count   = _save_entries(main_db, book_id, page_nr, book_type, entries)
 
         print(f"→ {count:3d} Einträge")
