@@ -1024,8 +1024,15 @@ def export_gedcom(db_path: Path, out_path: str,
 
     Baut FAM-Records aus parents_json/spouses_json. Es werden NUR Personen
     referenziert, die auch tatsächlich gecrawlt wurden (keine offenen Refs).
+    Orte werden – falls eine Ortskonkordanz hinterlegt ist – auf die Standard-
+    namen abgebildet; der Anverwandte-Link wird je Person ausgegeben.
     Rückgabe: (anzahl_personen, anzahl_familien).
     """
+    try:
+        from ancestry.core.place_concordance import map_place as _map_place
+    except Exception:
+        def _map_place(x):
+            return x
     if not Path(db_path).exists():
         raise FileNotFoundError(f"Datenbank nicht gefunden: {db_path}")
 
@@ -1122,10 +1129,10 @@ def export_gedcom(db_path: Path, out_path: str,
             out.append(f"1 SEX {sex}")
         out.extend(_ged_event("BIRT",
                               p.get("birth_date") or p.get("birth_year") or "",
-                              p.get("birth_place") or ""))
+                              _map_place(p.get("birth_place") or "")))
         out.extend(_ged_event("DEAT",
                               p.get("death_date") or p.get("death_year") or "",
-                              p.get("death_place") or ""))
+                              _map_place(p.get("death_place") or "")))
         for fid in famc.get(pid, []):
             out.append(f"1 FAMC @{fid}@")
         for fid in fams.get(pid, []):
@@ -1148,6 +1155,9 @@ def export_gedcom(db_path: Path, out_path: str,
         if p.get("url"):
             out.append("1 SOUR @S1@")
             out.append(f"2 PAGE {p['url']}")
+            # Zusätzlich als NOTE — FTM/andere Programme übernehmen den Link so
+            # zuverlässig (bleibt beim Verschmelzen der Dublette erhalten).
+            out.append(f"1 NOTE Anverwandte: {p['url']}")
 
     for fid, fam in sorted(families.items(), key=lambda kv: int(kv[0][1:])):
         out.append(f"0 @{fid}@ FAM")
