@@ -232,6 +232,13 @@ class ToolsTab(ttk.Frame):
 
         # ── Abschnitt F: Ortskonkordanz (Anverwandte → Standardorte) ──────────
         sec = self._tool_section(inner, "🗺  Ortskonkordanz")
+        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
+        ttk.Button(row, text="✏ Orte bearbeiten",
+                   command=self._open_place_editor).pack(side="left", padx=(0, 8))
+        ttk.Label(row, text="Rohorte anzeigen, automatische Normalisierung prüfen "
+                             "und manuelle Überschreibungen setzen.",
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(side="left")
         self._tool_action(sec, "📤 Anverwandte-Orte exportieren (für KI)", "conc_exp",
                           lambda: [sys.executable, "-u", "-m",
                                    "ancestry.core.place_concordance", "--export"])
@@ -243,6 +250,17 @@ class ToolsTab(ttk.Frame):
                    ).pack(side="left")
         self._tool_action(sec, "📥 Ortskonkordanz importieren", "conc_imp",
                           self._tl_cmd_conc_import)
+
+    # ── Ortskonkordanz-Editor ─────────────────────────────────────────────
+    def _open_place_editor(self):
+        from pathlib import Path
+        from ancestry.tools.crawl_webtrees import SCRIPT_DIR
+        from ancestry.gui.analysis.place_editor import PlaceEditorDialog
+        dbs = list(SCRIPT_DIR.glob("webtrees_*.db"))
+        legacy = SCRIPT_DIR / "webtrees_crawl.db"
+        if legacy.exists() and legacy not in dbs:
+            dbs.append(legacy)
+        PlaceEditorDialog(self, dbs)
 
     # ── Anleitung öffnen ───────────────────────────────────────────────────
     def _open_wiki(self):
