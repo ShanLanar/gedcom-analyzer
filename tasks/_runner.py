@@ -294,8 +294,10 @@ def run_osnabrueck(progress_cb=None, stop_event=None):
 
 # ── Schritt 14: Excel-Export ──────────────────────────────────────────────────
 
-def run_export_excel(progress_cb=None, stop_event=None):
-    _set_stop_event(stop_event)
+def collect_report_sheets():
+    """Baut die (name, headers, rows)-Reportliste + Name→Farbe-Map aus dem
+    aktuellen _state und legt sie in _state ab – OHNE Excel zu schreiben.
+    Voraussetzung: die Analyse-Tasks (run_*) wurden zuvor ausgeführt."""
     from tasks import export as _exp
     from tasks import (cousins, endogamy, migration, military, demographics,
                         genetics, history, names, data_quality, network, osnabrueck,
@@ -305,7 +307,6 @@ def run_export_excel(progress_cb=None, stop_event=None):
                         onomastics, endogamy_network, sosa, familysearch,
                         online_research, book_statistics)
 
-    _p(progress_cb, "Baue Sheet-Liste …")
     indiv = _state["individuals"]
     ld    = _state["location_data"]
     ht    = _state.get("historical_trends", {})
@@ -734,7 +735,14 @@ def run_export_excel(progress_cb=None, stop_event=None):
     # Liste (kategorie-sortiert A–I) + die Name→Farbe-Zuordnung (= Kategorie).
     _state["report_sheets"] = all_sheets
     _state["report_colors"] = dict(_GRP)
+    return all_sheets, _GRP
 
+
+def run_export_excel(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks import export as _exp
+    _p(progress_cb, "Baue Sheet-Liste …")
+    all_sheets, _GRP = collect_report_sheets()
     _exp.export_to_excel(all_sheets, cfg.DEFAULT_CONFIG["output_xlsx"],
                           progress_cb=progress_cb, tab_colors=_GRP)
 

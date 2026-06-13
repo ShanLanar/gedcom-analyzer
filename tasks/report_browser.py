@@ -16,6 +16,12 @@ from tkinter import ttk
 def _load():
     """(grouped, total): {Kategorie: [(name, headers, rows)]}, Anzahl."""
     from tasks import _runner
+    # Reports aus dem aktuellen _state neu bauen (ohne Excel zu schreiben);
+    # schlägt fehl, solange keine Analysen gelaufen sind → leerer Browser.
+    try:
+        _runner.collect_report_sheets()
+    except Exception:
+        pass
     sheets = _runner.get_report_sheets() or []
     grouped: dict[str, list] = {}
     for item in sheets:
