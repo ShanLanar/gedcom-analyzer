@@ -950,7 +950,7 @@ def _in_scope(p, place_filter, year_min, year_max) -> bool:
 
 # ── Crawl (gerichtet, zweiphasig, resumierbar) ────────────────────────────────
 
-def crawl(seed_url: str, max_pages: int = 300, delay: float = 1.0,
+def crawl(seed_url: str, max_pages: int = 300, delay: float = 0.5,
           mode: str = "both", place_filter=None, year_min=0, year_max=0,
           db_path: Path = DB_PATH,
           auth: str | None = None,
@@ -1938,7 +1938,7 @@ def main(argv):
             "seed_url":   None,
             "mode":       "both",
             "max":        300,
-            "delay":      1.0,
+            "delay":      0.5,
             "place":      "",
             "year_min":   0,
             "year_max":   0,
@@ -2051,7 +2051,7 @@ def main(argv):
     elif args.cmd == "training":
         # Seed-URL/Login/Delay primär aus dem Profil, CLI-Args überschreiben.
         seed_url = args.url
-        delay = args.delay if args.delay is not None else 1.0
+        delay = args.delay if args.delay is not None else 0.5
         auth, cookies = args.auth, args.cookies
         login_url, login_user, login_pass = (
             args.login_url, args.login_user, args.login_pass)
