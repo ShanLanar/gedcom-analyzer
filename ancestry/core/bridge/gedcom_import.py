@@ -460,6 +460,62 @@ def set_xref_status(db, ged_id_primary: str, ged_id_other: str, status: str) -> 
                     (status, ged_id_primary, ged_id_other))
 
 
+def import_match_csv(db, csv_path: str,
+                     source_primary: str = "gedcom",
+                     source_other: str = "anverwandte",
+                     confirmed_threshold: float = 95.0) -> tuple[int, int]:
+    """Importiert eine Match-CSV (Score;PrimaryID;…;OtherID;…) in gedcom_person_xref.
+
+    Spalten-Reihenfolge: Score;Kovermann_ID;…;Anverwandte_ID;…
+    Score 0–100 → normalisiert auf 0.0–1.0.
+    Rows mit Score >= confirmed_threshold → status='confirmed', sonst 'auto'.
+    ON CONFLICT: Score und status werden aktualisiert, sofern status noch nicht
+    manuell auf 'confirmed'/'rejected' gesetzt wurde.
+    Gibt (inserted, updated) zurück.
+    """
+    import csv as _csv
+    ensure_tables(db)
+    inserted = updated = 0
+    rows = []
+    with open(csv_path, encoding="utf-8", newline="") as f:
+        reader = _csv.reader(f, delimiter=";")
+        header = next(reader, None)
+        for line in reader:
+            if len(line) < 6:
+                continue
+            try:
+                raw_score = float(line[0].strip())
+            except ValueError:
+                continue
+            pid = line[1].strip()
+            oid = line[5].strip()
+            if not pid or not oid:
+                continue
+            score = round(raw_score / 100.0, 3)
+            status = "confirmed" if raw_score >= confirmed_threshold else "auto"
+            rows.append((pid, source_primary, oid, source_other, score, status))
+
+    with db._cursor() as cur:
+        for pid, sp, oid, so, score, status in rows:
+            cur.execute("SELECT status FROM gedcom_person_xref "
+                        "WHERE ged_id_primary=? AND ged_id_other=?", (pid, oid))
+            existing = cur.fetchone()
+            if existing is None:
+                cur.execute(
+                    "INSERT INTO gedcom_person_xref "
+                    "(ged_id_primary, source_primary, ged_id_other, source_other, score, status) "
+                    "VALUES (?,?,?,?,?,?)",
+                    (pid, sp, oid, so, score, status))
+                inserted += 1
+            elif existing["status"] == "auto":
+                cur.execute(
+                    "UPDATE gedcom_person_xref SET score=?, status=? "
+                    "WHERE ged_id_primary=? AND ged_id_other=?",
+                    (score, status, pid, oid))
+                updated += 1
+    return inserted, updated
+
+
 def iter_unique_persons(db, sources=None) -> list[dict]:
     """Personen quellenübergreifend dedupliziert: jede reale Person genau
     einmal. Verknüpfte Duplikate (status != 'rejected') werden durch ihren

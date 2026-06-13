@@ -133,6 +133,7 @@ class ToolsTab(ttk.Frame):
         self._tl_imp_mh = tk.StringVar(value="")
         self._tl_imp_gm = tk.StringVar(value="")
         self._tl_wk_id = tk.StringVar(value="")
+        self._tl_match_csv = tk.StringVar(value="")
         self._tl_conc = tk.StringVar(value="")
 
         # ── Abschnitt A: Webtrees ─────────────────────────────────────────
@@ -219,6 +220,14 @@ class ToolsTab(ttk.Frame):
         ttk.Entry(row, textvariable=self._tl_wk_id, width=18).pack(side="left", padx=4)
         self._tool_action(sec, "WikiTree → DB", "imp_wk",
                           self._tl_cmd_wikitree)
+        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Match-CSV:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_match_csv, width=24).pack(side="left", padx=4)
+        ttk.Button(row, text="…", width=3,
+                   command=lambda: self._tl_pick(self._tl_match_csv, "CSV", "*.csv")
+                   ).pack(side="left")
+        ttk.Button(sec, text="🔗 Anverwandte-Matches importieren",
+                   command=self._import_match_csv).pack(anchor="w", pady=(2, 0))
 
         # ── Abschnitt E: Extras / Viewer ──────────────────────────────────
         sec = self._tool_section(inner, "🧰  Extras")
@@ -252,6 +261,31 @@ class ToolsTab(ttk.Frame):
                    ).pack(side="left")
         self._tool_action(sec, "📥 Ortskonkordanz importieren", "conc_imp",
                           self._tl_cmd_conc_import)
+
+    # ── Match-CSV importieren ─────────────────────────────────────────────
+    def _import_match_csv(self):
+        import threading
+        from tkinter import messagebox
+        csv_path = self._tl_match_csv.get().strip()
+        if not csv_path:
+            messagebox.showinfo("Match-Import", "Bitte zuerst eine CSV-Datei auswählen.",
+                                parent=self)
+            return
+
+        def _bg():
+            try:
+                from ancestry.core.bridge.gedcom_import import import_match_csv
+                ins, upd = import_match_csv(self._state.db, csv_path)
+                self.after(0, lambda: messagebox.showinfo(
+                    "Match-Import",
+                    f"Fertig: {ins} neu, {upd} aktualisiert.",
+                    parent=self))
+            except Exception as exc:
+                msg = str(exc)
+                self.after(0, lambda m=msg: messagebox.showerror(
+                    "Match-Import", f"Fehler:\n{m}", parent=self))
+
+        threading.Thread(target=_bg, daemon=True, name="match_csv_import").start()
 
     # ── Ortskonkordanz-Editor ─────────────────────────────────────────────
     def _open_place_editor(self):
