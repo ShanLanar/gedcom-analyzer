@@ -254,7 +254,7 @@ OCR_BACKEND = os.environ.get("MATRICULA_OCR_BACKEND", "claude").strip().lower()
 def _transcribe_page(image_bytes: bytes, book_type: str, dry_run: bool) -> list[dict]:
     """Dispatcher: transkribiert eine Seite über das gewählte OCR-Backend."""
     if dry_run:
-        print(f"  [dry-run: kein OCR-Call · backend={OCR_BACKEND}]")
+        print("[dry-run] ", end="", flush=True)
         return []
     if OCR_BACKEND == "tesseract":
         return _transcribe_tesseract(image_bytes, book_type)
@@ -722,7 +722,7 @@ def _scan_book(
                 except Exception as _e:
                     print(f"  ⚠ .txt-Schreiben: {_e}")
         count = _save_entries(main_db, book_id, page_nr, book_type, entries)
-        print(f"→ {count:3d} Einträge")
+        print(f"→ {count:3d} Einträge", flush=True)
 
         with parish_db:
             parish_db.execute(

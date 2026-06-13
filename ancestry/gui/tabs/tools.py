@@ -25,6 +25,8 @@ _WIKI_PATH = os.path.join(str(ROOT), "WIKI.md")
 
 _TOOLS_DIR = os.path.join(str(ROOT), "ancestry", "tools")
 
+_MAT_LAST_PARISH = os.path.join(_TOOLS_DIR, ".mat_last_parish")
+
 
 def _tool(name: str) -> str:
     return os.path.join(_TOOLS_DIR, name)
@@ -126,7 +128,14 @@ class ToolsTab(ttk.Frame):
         self._tl_wt_profile = tk.StringVar(value="anverwandte")
         self._tl_wt_discover = tk.BooleanVar(value=True)
         self._tl_wt_trainn = tk.StringVar(value="100")
-        self._tl_mat_parish = tk.StringVar(value="")
+        _last_parish = ""
+        try:
+            with open(_MAT_LAST_PARISH, encoding="utf-8") as _f:
+                _last_parish = _f.read().strip()
+        except Exception:
+            pass
+        self._tl_mat_parish = tk.StringVar(value=_last_parish)
+        self._tl_mat_parish.trace_add("write", self._mat_save_parish)
         self._tl_mat_dryrun = tk.BooleanVar(value=False)
         self._tl_mh_csv = tk.StringVar(value="")
         self._tl_mh_mincm = tk.StringVar(value="20")
@@ -167,8 +176,13 @@ class ToolsTab(ttk.Frame):
         # ── Abschnitt B: Matricula ────────────────────────────────────────
         sec = self._tool_section(inner, "⛪  Matricula-Kirchenbücher")
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Pfarrei (optional):").pack(side="left")
-        ttk.Entry(row, textvariable=self._tl_mat_parish, width=22).pack(side="left", padx=4)
+        ttk.Label(row, text="Pfarrei:").pack(side="left")
+        self._tl_mat_combo = ttk.Combobox(
+            row, textvariable=self._tl_mat_parish, width=26)
+        self._tl_mat_combo.pack(side="left", padx=4)
+        ttk.Button(row, text="↺", width=3,
+                   command=self._mat_refresh_parishes).pack(side="left")
+        self.after(500, self._mat_refresh_parishes)
         self._tool_action(sec, "0 · Pfarrei-Katalog (einmalig)", "mat_cat",
                           lambda: [sys.executable, "-u", _tool("scrape_matricula_osnabrueck.py")])
         self._tool_action(sec, "1 · Bücherverzeichnis holen", "mat_books",
@@ -295,6 +309,34 @@ class ToolsTab(ttk.Frame):
                     "Match-Import", f"Fehler:\n{m}", parent=self))
 
         threading.Thread(target=_bg, daemon=True, name="match_csv_import").start()
+
+    # ── Matricula-Hilfsroutinen ───────────────────────────────────────────
+    def _mat_save_parish(self, *_):
+        p = self._tl_mat_parish.get().strip()
+        if p:
+            try:
+                with open(_MAT_LAST_PARISH, "w", encoding="utf-8") as f:
+                    f.write(p)
+            except Exception:
+                pass
+
+    def _mat_refresh_parishes(self):
+        """Lädt Pfarrei-Slugs aus DB in die Combobox."""
+        try:
+            import sqlite3
+            from ancestry.tools.scan_matricula_kirchspiel import PARISH_DB
+            if not PARISH_DB.exists():
+                return
+            conn = sqlite3.connect(str(PARISH_DB))
+            rows = conn.execute(
+                "SELECT DISTINCT parish_id FROM kirchenbuecher ORDER BY parish_id"
+            ).fetchall()
+            conn.close()
+            vals = [r[0].split("/")[-1] for r in rows if r[0]]
+            if vals:
+                self._tl_mat_combo["values"] = vals
+        except Exception:
+            pass
 
     # ── Ortskonkordanz-Editor ─────────────────────────────────────────────
     def _open_place_editor(self):
