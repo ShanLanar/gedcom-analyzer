@@ -145,21 +145,21 @@ _CITY_TO_DISTRICT_MAP = {
     "Bad Iburg": "Osnabruck",
     "Wallenhorst": "Osnabruck",
     "Ostercappeln": "Osnabruck",
+    "Hagen": "Osnabruck",          # Hagen am Teutoburger Wald (Suffix wird entfernt)
     "Steinfurt": "Steinfurt",
     "Mettingen": "Steinfurt",
-    "Steinhagen": "Warendorf",  # NRW, Landkreis Warendorf
+    "Steinhagen": "Gutersloh",     # NRW, Landkreis Gütersloh (lt. GEDCOM-Referenz)
     "Lüneburg": "Lüneburg",
     "Verden": "Verden",
     "Hameln-Pyrmont": "Hameln-Pyrmont",
 }
 
 # Orts→Landkreis Mappings für GEDCOM-Normalisierung (aus realen Daten extrahiert)
-# Wenn keine Stadt gegeben, nutze direkte Orts→Landkreis Zuordnung
+# Ortsteile/Bauerschaften, die zu einer übergeordneten Stadt gehören
 _PLACE_DISTRICT_MAP = {
     "Harderberg": "Georgsmarienhütte",  # Ortsteil von Georgsmarienhütte
     "Voxtrup": "Osnabruck",  # Ortsteil von Osnabrück
     "Oesede": "Georgsmarienhütte",  # Ortsteil von Georgsmarienhütte
-    "Hagen": "Osnabruck",
     "Hellern": "Osnabrück",
     "Schinkel": "Osnabruck",
     "Glandorf": "Osnabruck",
@@ -188,6 +188,35 @@ _STATE_NORMALIZATION = {
     "bremen": "Bremen",
 }
 
+# Ländercodes (letztes Segment in Webtrees) → voller Name für GEDCOM.
+# Nur DEU-Orte bekommen die deutsche Landkreis-/Bundesland-Auffüllung; alle
+# anderen Länder behalten ihre eigene Hierarchie (z. B. USA: Ort, County, State).
+_COUNTRY_CODES = {
+    "DEU": "Germany", "GER": "Germany", "DE": "Germany",
+    "USA": "USA", "US": "USA",
+    "POL": "Poland", "PL": "Poland",
+    "DNK": "Denmark", "DK": "Denmark",
+    "NLD": "Netherlands", "NL": "Netherlands",
+    "FRA": "France", "GBR": "United Kingdom", "AUT": "Austria",
+    "CHE": "Switzerland", "BEL": "Belgium",
+}
+# Bereits ausgeschriebene Länder (am Ende eines Platzes) erkennen
+_COUNTRY_NAMES = {
+    "germany": "Germany", "deutschland": "Germany",
+    "usa": "USA", "united states": "USA", "united states of america": "USA",
+    "poland": "Poland", "polen": "Poland",
+    "denmark": "Denmark", "dänemark": "Denmark",
+    "netherlands": "Netherlands", "niederlande": "Netherlands",
+}
+# Webtrees-Ortssuffixe, die im GEDCOM nicht vorkommen (z. B. "Hagen a.T.W."
+# = Hagen am Teutoburger Wald → nur "Hagen").
+_PLACE_SUFFIX_RE = re.compile(r"\s+a\.?\s*T\.?\s*W\.?\s*$", re.I)
+
+
+def _strip_place_suffix(seg: str) -> str:
+    """Entfernt Webtrees-Ortszusätze wie ' a.T.W.' (am Teutoburger Wald)."""
+    return _PLACE_SUFFIX_RE.sub("", seg).strip()
+
 
 def _clean(html_fragment: str) -> str:
     txt = _TAG_RE.sub(" ", html_fragment or "")
@@ -196,95 +225,107 @@ def _clean(html_fragment: str) -> str:
     return re.sub(r"\s+", " ", txt).strip()
 
 
-def normalize_place(place_str: str) -> str:
-    """Normalize Webtrees place to GEDCOM standard format.
+def _normalize_german(parts: list[str]) -> str:
+    """Füllt eine deutsche Ortskette zur GEDCOM-Form auf.
 
-    Removes DEU/Deutschland codes, normalizes state names (German→English),
-    and fills in missing district/city hierarchies.
+    Eingabe ohne Ländercode, Ausgabe endet immer auf '…, Germany' mit dem
+    Muster: Ort[, Stadt][, Landkreis], Bundesland, Germany.
+    """
+    ort = parts[0]
+
+    if len(parts) == 1:
+        city = _PLACE_DISTRICT_MAP.get(ort)
+        if city:
+            district = _CITY_TO_DISTRICT_MAP.get(city, city)
+            mid = [city, district] if city != district else [city]
+            return ", ".join([ort] + mid + ["Lower Saxony", "Germany"])
+        district = _CITY_TO_DISTRICT_MAP.get(ort)
+        if district and district != ort:
+            return f"{ort}, {district}, Lower Saxony, Germany"
+        return f"{ort}, Lower Saxony, Germany"
+
+    if len(parts) == 2:
+        second = parts[1]
+        state = _STATE_NORMALIZATION.get(second.lower())
+        if state:                                    # [Ort, Bundesland]
+            city = _PLACE_DISTRICT_MAP.get(ort)
+            if city:
+                district = _CITY_TO_DISTRICT_MAP.get(city, city)
+                mid = [city, district] if city != district else [city]
+                return ", ".join([ort] + mid + [state, "Germany"])
+            district = _CITY_TO_DISTRICT_MAP.get(ort)
+            if district and district != ort:
+                return f"{ort}, {district}, {state}, Germany"
+            return f"{ort}, {state}, Germany"
+        # [Ort, Stadt] oder [Ort, Landkreis]
+        city = second
+        district = _CITY_TO_DISTRICT_MAP.get(city)
+        if district and district != city:
+            return f"{ort}, {city}, {district}, Lower Saxony, Germany"
+        return f"{ort}, {city}, Lower Saxony, Germany"
+
+    if len(parts) == 3:
+        second, third = parts[1], parts[2]
+        state = _STATE_NORMALIZATION.get(third.lower(), third)
+        district = _CITY_TO_DISTRICT_MAP.get(second)
+        if district and district != second:
+            return f"{ort}, {second}, {district}, {state}, Germany"
+        return f"{ort}, {second}, {state}, Germany"
+
+    # 4+ Teile: weitgehend vollständig. Bundesland normalisieren und – falls der
+    # Teil direkt vor dem Bundesland eine bekannte Stadt mit abweichendem
+    # Landkreis ist (Webtrees lässt den Landkreis oft weg) – diesen einfügen.
+    state = _STATE_NORMALIZATION.get(parts[-1].lower(), parts[-1])
+    head = parts[:-1]
+    district = _CITY_TO_DISTRICT_MAP.get(head[-1])
+    if district and district != head[-1]:
+        head = head + [district]
+    return ", ".join(head + [state, "Germany"])
+
+
+def normalize_place(place_str: str) -> str:
+    """Normalize a Webtrees place to GEDCOM standard format.
+
+    Steps:
+      1. Strip Webtrees place suffixes (e.g. 'Hagen a.T.W.' → 'Hagen').
+      2. Detect the trailing country (code like DEU/USA/POL or full name).
+      3. Non-German countries keep their own hierarchy (just full country name).
+         A bare country code ('POL') becomes just the country ('Poland').
+      4. German places get district/state filled in (English state names).
 
     Examples:
-        "Osnabrück, Niedersachsen" → "Osnabrück, Osnabruck, Lower Saxony, Germany"
-        "Harderberg, Georgsmarienhütte" → "Harderberg, Georgsmarienhütte, Osnabruck, Lower Saxony, Germany"
         "Osnabrück, Niedersachsen, DEU" → "Osnabrück, Osnabruck, Lower Saxony, Germany"
+        "Beckerode, Hagen a.T.W."        → "Beckerode, Hagen, Osnabruck, Lower Saxony, Germany"
+        "POL"                            → "Poland"
+        "Baltimore, Maryland, USA"       → "Baltimore, Maryland, USA"
     """
     if not place_str:
         return ""
 
-    # Remove redundant country codes
-    place_clean = place_str.replace(", DEU", "").replace(", Deutschland", "").strip()
-
-    parts = [p.strip() for p in place_clean.split(",")]
+    parts = [_strip_place_suffix(p.strip()) for p in place_str.split(",")]
     parts = [p for p in parts if p]
     if not parts:
-        return place_str
+        return ""
 
-    # If already complete, return as-is
-    if len(parts) >= 4 and "Germany" in place_clean:
-        return place_clean
+    # Trailing country erkennen (Code oder ausgeschriebener Name)
+    country = "Germany"            # Standardannahme (Daten sind ganz überwiegend DEU)
+    last = parts[-1]
+    if last in _COUNTRY_CODES:
+        country = _COUNTRY_CODES[last]
+        parts = parts[:-1]
+    elif last.lower() in _COUNTRY_NAMES:
+        country = _COUNTRY_NAMES[last.lower()]
+        parts = parts[:-1]
 
-    ort = parts[0]
+    # Reiner Ländercode (z. B. "POL") → nur das Land
+    if not parts:
+        return country
 
-    # Case 1: Single part [Ort]
-    if len(parts) == 1:
-        city_or_district = _PLACE_DISTRICT_MAP.get(ort)
-        if city_or_district:
-            district = _CITY_TO_DISTRICT_MAP.get(city_or_district, city_or_district)
-            return f"{ort}, {city_or_district}, {district}, Lower Saxony, Germany"
-        else:
-            # Check if ort is itself a known city in CITY_TO_DISTRICT
-            district = _CITY_TO_DISTRICT_MAP.get(ort)
-            if district:
-                return f"{ort}, {district}, Lower Saxony, Germany"
-            else:
-                return f"{ort}, Lower Saxony, Germany"
+    # Nicht-deutsche Länder: vorhandene Hierarchie behalten, vollen Ländernamen anhängen
+    if country != "Germany":
+        return ", ".join(parts + [country])
 
-    # Case 2: Two parts [Ort, ???]
-    elif len(parts) == 2:
-        second = parts[1].lower()
-        state_norm = _STATE_NORMALIZATION.get(second)
-
-        if state_norm:
-            # Format: [Ort, Bundesland]
-            city_or_district = _PLACE_DISTRICT_MAP.get(ort)
-            if city_or_district:
-                district = _CITY_TO_DISTRICT_MAP.get(city_or_district, city_or_district)
-                if city_or_district != district:
-                    return f"{ort}, {city_or_district}, {district}, {state_norm}, Germany"
-                else:
-                    return f"{ort}, {city_or_district}, {state_norm}, Germany"
-            else:
-                # Check if ort is itself a city
-                district = _CITY_TO_DISTRICT_MAP.get(ort)
-                if district:
-                    return f"{ort}, {district}, {state_norm}, Germany"
-                else:
-                    return f"{ort}, {state_norm}, Germany"
-        else:
-            # Format: [Ort, Stadt] or [Ort, Landkreis]
-            city_or_district = parts[1]
-            district = _CITY_TO_DISTRICT_MAP.get(city_or_district)
-            if district:
-                if city_or_district != district:
-                    return f"{ort}, {city_or_district}, {district}, Lower Saxony, Germany"
-                else:
-                    # City and district are the same (e.g., Steinfurt)
-                    return f"{ort}, {city_or_district}, Lower Saxony, Germany"
-            else:
-                return f"{ort}, {city_or_district}, Lower Saxony, Germany"
-
-    # Case 3: Three parts [Ort, ???, Bundesland]
-    elif len(parts) == 3:
-        second = parts[1]
-        third = parts[2]
-        state_norm = _STATE_NORMALIZATION.get(third.lower(), third)
-        district = _CITY_TO_DISTRICT_MAP.get(second)
-        if district and district != second:
-            return f"{ort}, {second}, {district}, {state_norm}, Germany"
-        else:
-            return f"{ort}, {second}, {state_norm}, Germany"
-
-    # Fallback for 4+ parts
-    return place_str
+    return _normalize_german(parts)
 
 
 def _host_to_slug(host: str) -> str:

@@ -109,10 +109,15 @@ NEU: POL, Lower Saxony, Germany
 | Georgsmarienhütte | Osnabruck | Lower Saxony |
 | Osnabrück | Osnabruck | Lower Saxony |
 | Ostercappeln | Osnabruck | Lower Saxony |
+| Hagen *(a.T.W.-Suffix wird entfernt)* | Osnabruck | Lower Saxony |
 | Mettingen | Steinfurt | NRW |
 | Steinfurt | Steinfurt | NRW |
-| Steinhagen | Warendorf | NRW |
+| Steinhagen | Gutersloh | NRW |
 | Belm | Osnabruck | Lower Saxony |
+
+> **Reihenfolge**: Der spezifischste Ort (Kirche, Friedhof, Bauerschaft) steht
+> immer **zuerst**, dann die übergeordnete Stadt — z. B. `St. Lambertus, Mettingen`,
+> nicht `Mettingen, St. Lambertus`.
 
 ### State Name Normalization
 
@@ -123,6 +128,18 @@ NEU: POL, Lower Saxony, Germany
 | Schleswig-Holstein | Schleswig-Holstein |
 | Hessen | Hesse |
 | Bayern | Bavaria |
+
+### Country Codes & Suffixes
+
+Only **DEU** places get the German district/state expansion. Other countries
+keep their own hierarchy; a bare code becomes the full country name.
+
+| Webtrees | GEDCOM | Note |
+|----------|--------|------|
+| `DEU` | Germany | fill district + English state |
+| `USA` | USA | keep hierarchy (Ort, County, State, USA) |
+| `POL` (bare) | Poland | country-only place |
+| `Hagen a.T.W.` | `Hagen` | strip "am Teutoburger Wald" suffix |
 
 ---
 
