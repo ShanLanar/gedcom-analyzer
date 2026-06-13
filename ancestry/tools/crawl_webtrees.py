@@ -812,32 +812,8 @@ def parse_individual(html: str, url: str) -> dict:
     if not death_year:
         death_year = _yr(death_date)
 
-    # Normalize places to GEDCOM standard: Ort, Landkreis, Bundesland, Staat
-    birth_place = normalize_place(birth_place)
-    death_place = normalize_place(death_place)
-    # Also normalize places in facts
-    for fact in facts:
-        if fact.get("place"):
-            fact["place"] = normalize_place(fact["place"])
-
-    # Prepend farm/estate name from the address field to BIRT/DEAT places.
-    # e.g. address="Halberbenhof Hemesath, alt: Harderberg 15 (parzelliert)"
-    #      place="Harderberg, Georgsmarienhütte, Osnabruck, Lower Saxony, Germany"
-    #      → "Halberbenhof Hemesath, Harderberg, Georgsmarienhütte, Osnabruck, Lower Saxony, Germany"
-    for fact in facts:
-        if fact.get("tag") not in ("BIRT", "DEAT"):
-            continue
-        prefix = _extract_address_prefix(fact.get("address", ""))
-        if not prefix:
-            continue
-        if fact.get("place"):
-            fact["place"] = f"{prefix}, {fact['place']}"
-        else:
-            fact["place"] = prefix
-        if fact["tag"] == "BIRT":
-            birth_place = fact["place"]
-        else:
-            death_place = fact["place"]
+    # Rohdaten werden unverändert gespeichert – Normalisierung und Adress-
+    # Präfixe werden erst beim Export / in der Baumansicht angewendet.
 
     # ── gerichtete Verwandtschaft (Eltern/Kinder/Partner/Geschwister)
     fam = parse_family_nav(html)
@@ -1553,6 +1529,10 @@ def _fact_lines(f: dict, level: int, map_place) -> list[str]:
     if date:
         lines.append(f"{sub} DATE {date}")
     place = (f.get("place") or "").strip()
+    if tag in ("BIRT", "DEAT"):
+        prefix = _extract_address_prefix(f.get("address", ""))
+        if prefix:
+            place = f"{prefix}, {place}" if place else prefix
     if place:
         lines.append(f"{sub} PLAC {map_place(place)}")
     note = (f.get("note") or "").strip()
@@ -1591,10 +1571,12 @@ def export_gedcom(db_path: Path, out_path: str,
     Rückgabe: (anzahl_personen, anzahl_familien).
     """
     try:
-        from ancestry.core.place_concordance import map_place as _map_place
+        from ancestry.core.place_concordance import map_place as _concordance
+        def _map_place(x: str) -> str:
+            norm = normalize_place(x)
+            return _concordance(norm) or norm
     except Exception:
-        def _map_place(x):
-            return x
+        _map_place = normalize_place
     if not Path(db_path).exists():
         raise FileNotFoundError(f"Datenbank nicht gefunden: {db_path}")
 
