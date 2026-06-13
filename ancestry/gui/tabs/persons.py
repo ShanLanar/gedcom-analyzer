@@ -21,6 +21,7 @@ import tkinter as tk
 from tkinter import ttk
 
 from ancestry.paths import ROOT
+from ancestry.core.place_concordance import map_place
 from ancestry.gui.state import AppState
 
 # ── Pfarrei-/Konfessions-Lookup (Matricula) ───────────────────────────────────
@@ -719,9 +720,9 @@ class PersonsTab(ttk.Frame):
             ttk.Label(r, text=str(val), wraplength=210).pack(side="left")
 
         fact("Geboren", _years(p.get("birth_year"), "") or None)
-        fact("Geburtsort", p.get("birth_place"))
+        fact("Geburtsort", map_place(p.get("birth_place")))
         fact("Gestorben", _years(p.get("death_year"), "") or None)
-        fact("Sterbeort", p.get("death_place"))
+        fact("Sterbeort", map_place(p.get("death_place")))
         if p.get("sosa_number"):
             fact("SOSA", p.get("sosa_number"))
 
@@ -811,7 +812,7 @@ class PersonsTab(ttk.Frame):
             ttk.Label(r, text=val, foreground=col, wraplength=210).pack(side="left")
 
     def _pers_render_parish(self, p: dict):
-        parish = _parish_for(p.get("birth_place") or "")
+        parish = _parish_for(map_place(p.get("birth_place")) or "")
         if not parish:
             return
         self._pers_hdr("⛪ Kirchspiel (Matricula)")

@@ -132,6 +132,7 @@ class ToolsTab(ttk.Frame):
         self._tl_imp_mh = tk.StringVar(value="")
         self._tl_imp_gm = tk.StringVar(value="")
         self._tl_wk_id = tk.StringVar(value="")
+        self._tl_conc = tk.StringVar(value="")
 
         # ── Abschnitt A: Webtrees ─────────────────────────────────────────
         sec = self._tool_section(inner, "⬇  Webtrees-Stammbaum")
@@ -216,6 +217,20 @@ class ToolsTab(ttk.Frame):
         self._tool_action(sec, "📦 Korpus für LLM bündeln (OCR+GEDCOM+Belege)", "llm_bundle",
                           lambda: [sys.executable, "-u", "-m",
                                    "ancestry.tools.bundle_for_llm"])
+
+        # ── Abschnitt F: Ortskonkordanz (Anverwandte → Standardorte) ──────────
+        sec = self._tool_section(inner, "🗺  Ortskonkordanz")
+        self._tool_action(sec, "📤 Anverwandte-Orte exportieren (für KI)", "conc_exp",
+                          lambda: [sys.executable, "-u", "-m",
+                                   "ancestry.core.place_concordance", "--export"])
+        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Mapping-Datei:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_conc, width=24).pack(side="left", padx=4)
+        ttk.Button(row, text="…", width=3,
+                   command=lambda: self._tl_pick(self._tl_conc, "JSON/CSV", "*.json *.csv")
+                   ).pack(side="left")
+        self._tool_action(sec, "📥 Ortskonkordanz importieren", "conc_imp",
+                          self._tl_cmd_conc_import)
 
     # ── Anleitung öffnen ───────────────────────────────────────────────────
     def _open_wiki(self):
@@ -314,6 +329,14 @@ class ToolsTab(ttk.Frame):
             # Matches mit < 10 Shared Matches (oft abgebrochen) neu laden
             cmd += ["--repair-threshold", "10"]
         return cmd
+
+    def _tl_cmd_conc_import(self) -> list[str]:
+        path = self._tl_conc.get().strip()
+        if not path:
+            self._tool_append("⚠ Bitte zuerst die Mapping-Datei (JSON/CSV) wählen.\n")
+            return []
+        return [sys.executable, "-u", "-m", "ancestry.core.place_concordance",
+                "--import", path]
 
     def _tl_cmd_wikitree(self) -> list[str]:
         key = self._tl_wk_id.get().strip()
