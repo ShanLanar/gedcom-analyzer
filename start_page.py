@@ -428,6 +428,8 @@ class StartPage(tk.Frame):
         for txt, bg, cmd, hkey, htitle in [
             ("🏘 Matricula laden",   "#5d4037", self._run_matricula,
              "matricula",    "Matricula — Kirchenbuch-Pfarreien"),
+            ("📊 Report-Browser",    "#4472C4", self._open_report_browser,
+             None, None),
             ("① Erste Schritte",     P["bg3"],  self._open_welcome,
              None, None),
             ("? Hilfe",              P["bg3"],  self._open_help,
@@ -622,6 +624,14 @@ class StartPage(tk.Frame):
             self.after(0, self._refresh_status)
 
         threading.Thread(target=_run, daemon=True).start()
+
+    def _open_report_browser(self):
+        try:
+            from tasks.report_browser import open_report_browser
+            open_report_browser(self.winfo_toplevel())
+        except Exception as exc:
+            from tkinter import messagebox
+            messagebox.showerror("Report-Browser", str(exc))
 
     def _open_welcome(self):
         # Im eingebetteten Modus: AhnenApp aus dem Geschwister-Tab suchen

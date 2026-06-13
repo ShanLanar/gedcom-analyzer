@@ -730,8 +730,39 @@ def run_export_excel(progress_cb=None, stop_event=None):
         "Ortsdaten-Info":  "808080",
     }
 
+    # Für den In-App-Report-Browser bereitstellen: dieselbe (Name, Headers, Rows)-
+    # Liste (kategorie-sortiert A–I) + die Name→Farbe-Zuordnung (= Kategorie).
+    _state["report_sheets"] = all_sheets
+    _state["report_colors"] = dict(_GRP)
+
     _exp.export_to_excel(all_sheets, cfg.DEFAULT_CONFIG["output_xlsx"],
                           progress_cb=progress_cb, tab_colors=_GRP)
+
+
+# Farbcode (Excel-Tab) → Themen-Kategorie (für die In-App-Gruppierung der Reports)
+REPORT_CATEGORY_BY_COLOR = {
+    "4472C4": "Übersicht & Navigation",
+    "70AD47": "Migration & Räumlich",
+    "ED7D31": "Demografie & Familienstruktur",
+    "C00000": "Genetik & Endogamie",
+    "7030A0": "Zeit & Geschichte",
+    "00B0F0": "Namen & Soziologie",
+    "FFC000": "Forschung & Qualität",
+    "843C0C": "Militär & Linien",
+    "808080": "Technisch",
+}
+
+
+def get_report_sheets():
+    """Liefert die zuletzt gebauten Reports als Liste von (name, headers, rows).
+    Leer, solange kein Export/Analyse-Lauf die Liste in _state gefüllt hat."""
+    return _state.get("report_sheets", [])
+
+
+def get_report_category(name: str) -> str:
+    """Themen-Kategorie eines Reports (über die Tab-Farbe)."""
+    color = (_state.get("report_colors") or {}).get(name, "")
+    return REPORT_CATEGORY_BY_COLOR.get(color, "Sonstige")
 
 
 # ── Schritt 15: JSON-Export ───────────────────────────────────────────────────
