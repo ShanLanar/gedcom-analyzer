@@ -144,6 +144,8 @@ class ToolsTab(ttk.Frame):
                         variable=self._tl_wt_discover).pack(side="left")
         self._tool_action(sec, "Öffentlichen Baum crawlen", "wt_crawl",
                           self._tl_cmd_wt_crawl)
+        ttk.Button(sec, text="🗑 DB löschen",
+                   command=self._wt_delete_db).pack(anchor="w", pady=(0, 2))
         self._tool_action(sec, "Crawl → Datenbank importieren", "wt_import",
                           lambda: [sys.executable, "-u", _tool("import_webtrees.py")])
         self._tool_action(sec, "💾 Als GEDCOM-Datei exportieren", "wt_export",
@@ -315,10 +317,38 @@ class ToolsTab(ttk.Frame):
     # ── Befehlszeilen ─────────────────────────────────────────────────────
     def _tl_cmd_wt_crawl(self) -> list[str]:
         cmd = [sys.executable, "-u", _tool("crawl_webtrees.py"), "crawl",
-               "--profile", self._tl_wt_profile.get().strip() or "anverwandte"]
+               "--profile", self._tl_wt_profile.get().strip() or "anverwandte",
+               "--max", "0"]
         if self._tl_wt_discover.get():
             cmd.append("--discover")
         return cmd
+
+    def _wt_delete_db(self):
+        from pathlib import Path
+        from tkinter import messagebox
+        from ancestry.tools.crawl_webtrees import SCRIPT_DIR
+        profile = self._tl_wt_profile.get().strip() or "anverwandte"
+        candidates = [
+            SCRIPT_DIR / f"webtrees_{profile}.db",
+            SCRIPT_DIR / "webtrees_crawl.db",
+        ]
+        found = [p for p in candidates if p.exists()]
+        if not found:
+            messagebox.showinfo("DB löschen", "Keine Crawl-Datenbank gefunden.", parent=self)
+            return
+        names = "\n".join(str(p.name) for p in found)
+        if not messagebox.askyesno(
+                "DB löschen",
+                f"Folgende Datei(en) unwiderruflich löschen?\n\n{names}",
+                icon="warning", parent=self):
+            return
+        for p in found:
+            try:
+                p.unlink()
+            except OSError as exc:
+                messagebox.showerror("Fehler", f"{p.name}: {exc}", parent=self)
+                return
+        messagebox.showinfo("DB löschen", f"Gelöscht:\n{names}", parent=self)
 
     def _tl_cmd_wt_export(self) -> list[str]:
         profile = self._tl_wt_profile.get().strip() or "anverwandte"
