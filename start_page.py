@@ -430,6 +430,8 @@ class StartPage(tk.Frame):
              "matricula",    "Matricula — Kirchenbuch-Pfarreien"),
             ("📊 Report-Browser",    "#4472C4", self._open_report_browser,
              None, None),
+            ("🔎 Kirchenbuch-Suche", "#2e7d32", self._open_ocr_search,
+             None, None),
             ("① Erste Schritte",     P["bg3"],  self._open_welcome,
              None, None),
             ("? Hilfe",              P["bg3"],  self._open_help,
@@ -632,6 +634,14 @@ class StartPage(tk.Frame):
         except Exception as exc:
             from tkinter import messagebox
             messagebox.showerror("Report-Browser", str(exc))
+
+    def _open_ocr_search(self):
+        try:
+            from ancestry.gui.analysis.ocr_search import open_ocr_search
+            open_ocr_search(self.winfo_toplevel())
+        except Exception as exc:
+            from tkinter import messagebox
+            messagebox.showerror("Kirchenbuch-Suche", str(exc))
 
     def _open_welcome(self):
         # Im eingebetteten Modus: AhnenApp aus dem Geschwister-Tab suchen
