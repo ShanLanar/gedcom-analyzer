@@ -102,6 +102,38 @@ _MATRIC_CITE = re.compile(
 _MATRIC_PATH = re.compile(
     r'data\.matricula-online\.eu/\w+/\w+/([^/]+)/([^/]+)/')
 
+# ── Fakten-Tabelle (wt-tab-facts) — die reichhaltigen Ereignisdaten ───────────
+# Jede Tatsache ist eine <tr> mit <div class="wt-fact-label ut">TYP</div> und
+# einer <td> mit Datum (<span class="date">), Ort (wt-fact-place > a),
+# Religion/sonstigen Attributen (<span class="label">…</span>: …) sowie einer
+# Notiz (oft Matricula-Quelle + Pate/Patin). Heirats-Zeilen verlinken Partner
+# (/individual/…) und Familie (/family/…).
+_FACT_LABEL_RE = re.compile(r'<div class="wt-fact-label[^"]*">(.*?)</div>', re.S)
+_FACT_DATE_RE  = re.compile(r'<span class="date">(.*?)</span>', re.S)
+_FACT_PLACE_RE = re.compile(r'wt-fact-place">\s*<a[^>]*>(.*?)</a>', re.S)
+_FACT_VALUE_RE = re.compile(r'wt-fact-value">\s*<span class="ut">(.*?)</span>', re.S)
+# generische Attribut-/Notiz-Paare: <span class="label">LABEL</span>: …</div>
+_FACT_ATTR_RE  = re.compile(r'<span class="label">(.*?)</span>\s*:\s*(.*?)</div>', re.S)
+_FACT_MATURL_RE = re.compile(r'href="(https?://data\.matricula-online\.eu/[^"]+)"')
+
+# Deutsche webtrees-Fakten-Labels → GEDCOM-Tags
+_LABEL_TO_TAG = {
+    "geburt": "BIRT", "taufe": "BAPM", "tod": "DEAT",
+    "begräbnis": "BURI", "beerdigung": "BURI", "bestattung": "BURI",
+    "beisetzung": "BURI",
+    "kirchliche trauung": "MARR", "standesamtliche trauung": "MARR",
+    "trauung": "MARR", "heirat": "MARR", "eheschließung": "MARR",
+    "verlobung": "ENGA", "aufgebot": "MARB",
+    "beruf": "OCCU", "beschäftigung": "OCCU",
+    "auswanderung": "EMIG", "emigration": "EMIG", "einwanderung": "IMMI",
+    "wohnort": "RESI", "wohnsitz": "RESI", "aufenthalt": "RESI",
+    "konfirmation": "CONF", "firmung": "CONF", "erstkommunion": "FCOM",
+    "religion": "RELI", "staatsangehörigkeit": "NATI", "bildung": "EDUC",
+    "titel": "TITL", "besitz": "PROP", "eigentum": "PROP",
+}
+# Labels, die wir nicht als Ereignis exportieren (Meta/Verwaltung)
+_FACT_SKIP = {"letzte änderung", "letzter import", "geschlecht", "name", ""}
+
 
 def _clean(html_fragment: str) -> str:
     txt = _TAG_RE.sub(" ", html_fragment or "")
@@ -352,6 +384,84 @@ def parse_family_nav(html: str) -> dict:
             "spouses": dedup(spouses), "siblings": dedup(siblings)}
 
 
+def parse_facts(html: str) -> list[dict]:
+    """Zerlegt die Fakten-Tabelle (wt-tab-facts) in strukturierte Ereignisse.
+
+    Jedes Ereignis: {tag, label, date, place, religion, note, value,
+    matricula_url, spouse_id, family_id}. tag ist ein GEDCOM-Tag
+    (BIRT/BAPM/MARR/DEAT/BURI/OCCU/EMIG/RESI/RELI/EVEN…). Heirats-Ereignisse
+    tragen spouse_id/family_id, sodass MARR der richtigen Familie zugeordnet
+    werden kann. Notizen enthalten oft Matricula-Quelle + Pate/Patin/Zeuge.
+    """
+    seg = html.split("wt-tab-facts", 1)
+    if len(seg) < 2:
+        return []
+    seg = seg[1]
+    end = seg.find("</table>")
+    if end >= 0:
+        seg = seg[:end]
+
+    facts: list[dict] = []
+    for raw in re.split(r'<tr class="', seg)[1:]:
+        lm = _FACT_LABEL_RE.search(raw)
+        if not lm:
+            continue
+        label = _clean(lm.group(1))
+        key = label.lower().strip()
+        if key in _FACT_SKIP:
+            continue
+        tag = _LABEL_TO_TAG.get(key, "EVEN")
+
+        dm = _FACT_DATE_RE.search(raw)
+        date = _clean(dm.group(1)) if dm else ""
+        pm = _FACT_PLACE_RE.search(raw)
+        place = _clean(pm.group(1)) if pm else ""
+        vm = _FACT_VALUE_RE.search(raw)
+        value = _clean(vm.group(1)) if vm else ""
+
+        # Alle „Label: Wert"-Attribute der Tatsache sammeln (Religion, Zeugen,
+        # Arbeitgeber, Adresse …) plus eine oder mehrere Notizen. Notizen tragen
+        # oft die Matricula-Quelle und Paten/Zeugen-Angaben.
+        attrs: dict[str, str] = {}
+        notes: list[str] = []
+        matricula_url = ""
+        for alabel, aval in _FACT_ATTR_RE.findall(raw):
+            al = _clean(alabel).lower()
+            val = _clean(aval)
+            if al.startswith("notiz") or al.startswith("note"):
+                if val:
+                    notes.append(val)
+                if not matricula_url:
+                    mu = _FACT_MATURL_RE.search(aval)
+                    if mu:
+                        matricula_url = mu.group(1)
+            elif al and not al.startswith("autor"):
+                attrs.setdefault(al, val)
+        religion = attrs.get("religion", "")
+        witnesses = (attrs.get("zeugen") or attrs.get("zeuge")
+                     or attrs.get("paten") or attrs.get("pate")
+                     or attrs.get("patin") or "")
+        employer = attrs.get("arbeitgeber", "")
+        address = attrs.get("adresse", "")
+        note = "; ".join(notes)
+
+        spouse_id = family_id = ""
+        if tag in ("MARR", "ENGA", "MARB"):
+            sm = re.search(r"/individual/([A-Z]+\d+)", raw)
+            fm = re.search(r"/family/([A-Z]+\d+)", raw)
+            spouse_id = sm.group(1) if sm else ""
+            family_id = fm.group(1) if fm else ""
+
+        facts.append({
+            "tag": tag, "label": label, "date": date, "place": place,
+            "value": value, "religion": religion, "note": note,
+            "witnesses": witnesses, "employer": employer, "address": address,
+            "matricula_url": matricula_url,
+            "spouse_id": spouse_id, "family_id": family_id,
+        })
+    return facts
+
+
 # ── Parser (heuristisch — an einer echten Seite eichen!) ──────────────────────
 
 def parse_individual(html: str, url: str) -> dict:
@@ -452,6 +562,24 @@ def parse_individual(html: str, url: str) -> dict:
                               "diocese": pth.group(1) if pth else "",
                               "parish_old": pth.group(2) if pth else ""})
 
+    # ── reichhaltige Ereignisse aus der Fakten-Tabelle ───────────────────
+    facts = parse_facts(html)
+    # Komfort-Felder (für GUI/Export) aus den Fakten ableiten
+    occupation = next((f["value"] for f in facts
+                       if f["tag"] == "OCCU" and f["value"]), "")
+    religion = next((f["religion"] for f in facts if f.get("religion")), "")
+    fact_notes = [f["note"] for f in facts if f.get("note")]
+    # Geburt/Tod aus den Fakten ergänzen, falls der h2-Titel nichts lieferte
+    for f in facts:
+        if f["tag"] == "BIRT" and not birth_date:
+            birth_date = f["date"]; birth_place = birth_place or f["place"]
+        elif f["tag"] == "DEAT" and not death_date:
+            death_date = f["date"]; death_place = death_place or f["place"]
+    if not birth_year:
+        birth_year = _yr(birth_date)
+    if not death_year:
+        death_year = _yr(death_date)
+
     # ── gerichtete Verwandtschaft (Eltern/Kinder/Partner/Geschwister)
     fam = parse_family_nav(html)
 
@@ -477,6 +605,10 @@ def parse_individual(html: str, url: str) -> dict:
         "spouse_names": spouse_names,
         "child_names":  child_names,
         "matricula":   matricula,
+        "facts":       facts,
+        "occupation":  occupation,
+        "religion":    religion,
+        "notes":       fact_notes,
         "parents":     fam["parents"],
         "children":    fam["children"],
         "spouses_ids": fam["spouses"],
@@ -521,11 +653,12 @@ def _db(path: Path) -> sqlite3.Connection:
     """)
     c.commit()
 
-    # Schema migration: add tree_source column if missing
+    # Schema migration: add columns if missing (additiv, datenschonend)
     existing_cols = {row[1] for row in c.execute("PRAGMA table_info(wt_persons)")}
-    if "tree_source" not in existing_cols:
-        c.execute("ALTER TABLE wt_persons ADD COLUMN tree_source TEXT")
-        c.commit()
+    for col in ("tree_source", "facts_json", "occupation", "religion", "notes_json"):
+        if col not in existing_cols:
+            c.execute(f"ALTER TABLE wt_persons ADD COLUMN {col} TEXT")
+    c.commit()
 
     return c
 
@@ -536,8 +669,10 @@ def _save_person(c, p, ind_id, url, tree_source: str | None = None):
          birth_year,death_date,death_place,death_year,father_name,
          mother_name,spouse_names_json,child_names_json,matricula_json,
          parents_json,children_json,spouses_json,siblings_json,
-         related_json,families_json,fetched_at,tree_source)
-        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?)""",
+         related_json,families_json,fetched_at,tree_source,
+         facts_json,occupation,religion,notes_json)
+        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,datetime('now'),?,
+                ?,?,?,?)""",
         (p["id"] or ind_id, url, p["name"], p["given_name"], p["surname"],
          p["sex"], p["birth_date"], p["birth_place"], p["birth_year"],
          p["death_date"], p["death_place"], p["death_year"],
@@ -547,7 +682,9 @@ def _save_person(c, p, ind_id, url, tree_source: str | None = None):
          json.dumps(p["parents"]), json.dumps(p["children"]),
          json.dumps(p["spouses_ids"]), json.dumps(p["siblings"]),
          json.dumps(p["related"]), json.dumps(p["families"]),
-         tree_source))
+         tree_source,
+         json.dumps(p.get("facts") or []), p.get("occupation") or "",
+         p.get("religion") or "", json.dumps(p.get("notes") or [])))
 
 
 def _in_scope(p, place_filter, year_min, year_max) -> bool:
@@ -1018,6 +1155,57 @@ def _ged_event(tag: str, date: str, place: str) -> list[str]:
     return lines if len(lines) > 1 else []
 
 
+def _fact_lines(f: dict, level: int, map_place) -> list[str]:
+    """Eine Tatsache (aus parse_facts) als GEDCOM-Ereigniszeilen.
+
+    level = Ereignisebene (1 für Personen-Events, 1 für FAM-MARR). Datum/Ort,
+    Matricula als Quelle (@S2@) am Ereignis, Notiz (Pate/Patin/Zeuge) als NOTE.
+    Religion wird als NOTE mitgeführt (RELI ist in GEDCOM keine Ereignis-
+    Untertatsache). OCCU/RELI tragen ihren Wert direkt am Tag.
+    """
+    tag = f.get("tag") or "EVEN"
+    val = (f.get("value") or "").strip()
+    sub = level + 1
+    if tag == "OCCU":
+        head = f"{level} OCCU {val[:90]}" if val else f"{level} OCCU"
+        lines = [head]
+    elif tag == "RELI":
+        lines = [f"{level} RELI {val[:90]}" if val else f"{level} RELI"]
+    elif tag == "EVEN":
+        lines = [f"{level} EVEN", f"{sub} TYPE {f.get('label','')[:90]}"]
+    else:
+        lines = [f"{level} {tag}"]
+    date = (f.get("date") or "").strip()
+    if date:
+        lines.append(f"{sub} DATE {date}")
+    place = (f.get("place") or "").strip()
+    if place:
+        lines.append(f"{sub} PLAC {map_place(place)}")
+    note = (f.get("note") or "").strip()
+    mat_url = (f.get("matricula_url") or "").strip()
+    if mat_url or "matricula" in note.lower():
+        page = note or mat_url
+        if mat_url and mat_url not in page:
+            page = f"{page} {mat_url}".strip()
+        lines += [f"{sub} SOUR @S2@", f"{sub+1} PAGE {page[:240]}"]
+    # Notiz (Pate/Patin/Zeuge/Religion/Arbeitgeber/Adresse) erhalten —
+    # FTM zeigt NOTEs zuverlässig und sie überleben das Verschmelzen.
+    note_bits = []
+    if f.get("religion"):
+        note_bits.append(f"Religion: {f['religion']}")
+    if f.get("witnesses"):
+        note_bits.append(f"Zeugen: {f['witnesses']}")
+    if f.get("employer"):
+        note_bits.append(f"Arbeitgeber: {f['employer']}")
+    if f.get("address"):
+        note_bits.append(f"Adresse: {f['address']}")
+    if note:
+        note_bits.append(note)
+    if note_bits:
+        lines.append(f"{sub} NOTE {'; '.join(note_bits)[:255]}")
+    return lines
+
+
 def export_gedcom(db_path: Path, out_path: str,
                   tree_source: str | None = None) -> tuple[int, int]:
     """Schreibt die in `db_path` gecrawlten Personen als GEDCOM-5.5.1-Datei.
@@ -1108,6 +1296,29 @@ def export_gedcom(db_path: Path, out_path: str,
         for ch in fam["chil"]:
             famc[ch].append(fid)
 
+    def _facts(p: dict) -> list[dict]:
+        try:
+            fl = json.loads(p.get("facts_json") or "[]")
+            return fl if isinstance(fl, list) else []
+        except (json.JSONDecodeError, TypeError):
+            return []
+
+    # ── Heirats-Ereignisse → richtiger Familie zuordnen ──────────────────
+    # Schlüssel = frozenset({partner_a, partner_b}); so findet jede generierte
+    # FAM (über husb/wife) ihr MARR mit Datum/Ort/Quelle/Notiz wieder.
+    marr_by_pair: dict[frozenset, dict] = {}
+    for pid, p in persons.items():
+        for f in _facts(p):
+            if f.get("tag") != "MARR":
+                continue
+            sp = f.get("spouse_id")
+            if not sp:
+                continue
+            key = frozenset((pid, sp))
+            # bevorzugt den Eintrag mit Datum (beide Partner tragen das Faktum)
+            if key not in marr_by_pair or (f.get("date") and not marr_by_pair[key].get("date")):
+                marr_by_pair[key] = f
+
     # ── Schreiben ────────────────────────────────────────────────────────
     out: list[str] = [
         "0 HEAD",
@@ -1127,52 +1338,69 @@ def export_gedcom(db_path: Path, out_path: str,
         sex = p.get("sex")
         if sex in ("M", "F"):
             out.append(f"1 SEX {sex}")
-        # ── Lebensereignisse; Matricula-Belege als QUELLE (@S2@) am Ereignis ──
-        try:
-            mat = json.loads(p.get("matricula_json") or "[]")
-        except (json.JSONDecodeError, TypeError):
-            mat = []
+        # ── Lebensereignisse ──────────────────────────────────────────────
+        person_sour: list[str] = []
+        facts = _facts(p)
+        if facts:
+            # Reichhaltiger Pfad: jede (Nicht-Heirats-)Tatsache als Ereignis,
+            # inkl. Taufe/Begräbnis/Beruf, Matricula-Quelle + Pate/Patin/Zeuge.
+            # Sicherstellen, dass es eine BIRT/DEAT gibt (aus Skalar-Feldern),
+            # falls die Fakten-Tabelle sie nicht enthielt.
+            have = {f.get("tag") for f in facts}
+            for f in facts:
+                if f.get("tag") == "MARR":
+                    continue            # MARR kommt in den FAM-Record
+                out.extend(_fact_lines(f, 1, _map_place))
+            if "BIRT" not in have and (p.get("birth_date") or p.get("birth_year")):
+                out.extend(_ged_event("BIRT", p.get("birth_date") or p.get("birth_year"),
+                                      _map_place(p.get("birth_place") or "")))
+            if "DEAT" not in have and (p.get("death_date") or p.get("death_year")):
+                out.extend(_ged_event("DEAT", p.get("death_date") or p.get("death_year"),
+                                      _map_place(p.get("death_place") or "")))
+        else:
+            # Fallback (Altdaten ohne Fakten): Matricula-Belege heuristisch routen
+            try:
+                mat = json.loads(p.get("matricula_json") or "[]")
+            except (json.JSONDecodeError, TypeError):
+                mat = []
 
-        def _mat_page(m):
-            ref = (m.get("ref") or "").strip() if isinstance(m, dict) else str(m).strip()
-            url = (m.get("url_old") or "").strip() if isinstance(m, dict) else ""
-            return " ".join(x for x in (ref, url) if x).strip()[:240]
+            def _mat_page(m):
+                ref = (m.get("ref") or "").strip() if isinstance(m, dict) else str(m).strip()
+                url = (m.get("url_old") or "").strip() if isinstance(m, dict) else ""
+                return " ".join(x for x in (ref, url) if x).strip()[:240]
 
-        def _mat_type(m):
-            r = ((m.get("ref") or "") if isinstance(m, dict) else str(m)).lower()
-            if any(k in r for k in ("heirat", "trau", "ehe", "copul")):
-                return "marr"
-            if any(k in r for k in ("tod", "sterb", "begräb", "beerd", "todes")):
-                return "deat"
-            return "birt"   # Default: Taufe/Geburt (häufigster Kirchenbuch-Eintrag)
+            def _mat_type(m):
+                r = ((m.get("ref") or "") if isinstance(m, dict) else str(m)).lower()
+                if any(k in r for k in ("heirat", "trau", "ehe", "copul")):
+                    return "marr"
+                if any(k in r for k in ("tod", "sterb", "begräb", "beerd", "todes")):
+                    return "deat"
+                return "birt"
 
-        birt = _ged_event("BIRT", p.get("birth_date") or p.get("birth_year") or "",
-                          _map_place(p.get("birth_place") or ""))
-        deat = _ged_event("DEAT", p.get("death_date") or p.get("death_year") or "",
-                          _map_place(p.get("death_place") or ""))
-        person_sour = []
-        for m in mat:
-            page = _mat_page(m)
-            if not page:
-                continue
-            t = _mat_type(m)
-            if t == "birt" and birt:
-                birt += ["2 SOUR @S2@", f"3 PAGE {page}"]
-            elif t == "deat" and deat:
-                deat += ["2 SOUR @S2@", f"3 PAGE {page}"]
-            else:                       # Heirat / kein passendes Ereignis → an Person
-                person_sour += ["1 SOUR @S2@", f"2 PAGE {page}"]
-        out.extend(birt)
-        out.extend(deat)
+            birt = _ged_event("BIRT", p.get("birth_date") or p.get("birth_year") or "",
+                              _map_place(p.get("birth_place") or ""))
+            deat = _ged_event("DEAT", p.get("death_date") or p.get("death_year") or "",
+                              _map_place(p.get("death_place") or ""))
+            for m in mat:
+                page = _mat_page(m)
+                if not page:
+                    continue
+                t = _mat_type(m)
+                if t == "birt" and birt:
+                    birt += ["2 SOUR @S2@", f"3 PAGE {page}"]
+                elif t == "deat" and deat:
+                    deat += ["2 SOUR @S2@", f"3 PAGE {page}"]
+                else:
+                    person_sour += ["1 SOUR @S2@", f"2 PAGE {page}"]
+            out.extend(birt)
+            out.extend(deat)
 
-        # Beruf / sonstige Bemerkungen — werden geschrieben, sobald der Crawler
-        # sie erfasst (aktuell nicht geparst; Plumbing steht bereit).
-        if p.get("occupation"):
-            out.append(f"1 OCCU {str(p['occupation'])[:90]}")
-        _notes = p.get("notes")
-        for nt in (_notes if isinstance(_notes, list) else ([_notes] if _notes else [])):
-            if str(nt).strip():
-                out.append(f"1 NOTE {str(nt).strip()[:240]}")
+            if p.get("occupation"):
+                out.append(f"1 OCCU {str(p['occupation'])[:90]}")
+            _notes = p.get("notes")
+            for nt in (_notes if isinstance(_notes, list) else ([_notes] if _notes else [])):
+                if str(nt).strip():
+                    out.append(f"1 NOTE {str(nt).strip()[:240]}")
 
         for fid in famc.get(pid, []):
             out.append(f"1 FAMC @{fid}@")
@@ -1195,6 +1423,11 @@ def export_gedcom(db_path: Path, out_path: str,
             out.append(f"1 WIFE @{fam['wife']}@")
         for ch in sorted(fam["chil"]):
             out.append(f"1 CHIL @{ch}@")
+        # Heirat (Datum/Ort/Quelle/Notiz) aus den Fakten der Partner
+        if fam["husb"] and fam["wife"]:
+            mf = marr_by_pair.get(frozenset((fam["husb"], fam["wife"])))
+            if mf:
+                out.extend(_fact_lines(mf, 1, _map_place))
 
     out += [
         "0 @S1@ SOUR",
