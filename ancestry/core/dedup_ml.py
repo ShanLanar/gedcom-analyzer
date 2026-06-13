@@ -135,6 +135,8 @@ def find_duplicates(db, threshold: float = 0.6, limit: int = 500) -> list[dict]:
                 "ged_id_a": a["ged_id"], "name_a": f"{a.get('given_name','')} {a.get('surname','')}".strip(),
                 "ged_id_b": b["ged_id"], "name_b": f"{b.get('given_name','')} {b.get('surname','')}".strip(),
                 "birth_a": a.get("birth_year"), "birth_b": b.get("birth_year"),
+                "source_a": a.get("source", "gedcom"), "source_b": b.get("source", "gedcom"),
+                "place_a": a.get("birth_place", ""), "place_b": b.get("birth_place", ""),
                 "score": round(score, 3),
                 "source": "model" if use_model else "rule",
             })

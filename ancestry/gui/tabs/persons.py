@@ -163,6 +163,8 @@ class PersonsTab(ttk.Frame):
                                values=list(_CONF_LABELS.values()))
         conf_cb.pack(side="left", padx=4)
         conf_cb.bind("<<ComboboxSelected>>", lambda _: self._pers_reload_list())
+        ttk.Button(bar, text="🔍 Dubletten",
+                   command=self._pers_open_dedup).pack(side="left", padx=4)
 
         cols = ("name", "years", "rel")
         self._pers_list = ttk.Treeview(left, columns=cols, show="headings",
@@ -220,6 +222,14 @@ class PersonsTab(ttk.Frame):
 
         # Erstbefüllung verzögert (keine DB-Arbeit beim Aufbau → kein Start-Freeze)
         self.after(120, self._pers_initial_load)
+
+    def _pers_open_dedup(self):
+        try:
+            from ancestry.gui.analysis.dedup_review import open_dedup_review
+            open_dedup_review(self.winfo_toplevel(), self._db)
+        except Exception as exc:
+            from tkinter import messagebox
+            messagebox.showerror("Dubletten", str(exc))
 
     # ── Datenzugriff ──────────────────────────────────────────────────────
     def _pers_source_key(self) -> str:
