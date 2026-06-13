@@ -148,7 +148,7 @@ _CITY_TO_DISTRICT_MAP = {
     "Hagen": "Osnabruck",          # Hagen am Teutoburger Wald (Suffix wird entfernt)
     "Steinfurt": "Steinfurt",
     "Mettingen": "Steinfurt",
-    "Tecklenburg": "Steinfurt",    # Gemeinde Tecklenburg (alter Landkreis Tecklenburg → seit 1973 Landkreis Steinfurt)
+    "Tecklenburg": "Steinfurt",    # Gemeinde Tecklenburg liegt im Landkreis Steinfurt
     "Ibbenbüren": "Steinfurt",
     "Emsdetten": "Steinfurt",
     "Hörstel": "Steinfurt",
@@ -158,6 +158,15 @@ _CITY_TO_DISTRICT_MAP = {
     "Lüneburg": "Lüneburg",
     "Verden": "Verden",
     "Hameln-Pyrmont": "Hameln-Pyrmont",
+}
+
+# Abgeschaffte/umbenannte Kreise → ihr heutiger Nachfolger-Landkreis.
+# Diese Einträge werden im parts-Array ERSETZT (nicht eingefügt), da sie
+# als veraltete Verwaltungseinheit keine eigene Ebene in der GEDCOM-Kette bilden.
+# Beispiel: Webtrees schreibt "Brochterbeck, Tecklenburg, NRW" (alter Kreis) →
+# Ausgabe: "Brochterbeck, Steinfurt, North Rhine-Westphalia, Germany"
+_OLD_DISTRICT_REPLACE = {
+    "Tecklenburg": "Steinfurt",   # Kreisreform 1973
 }
 
 # Orts→Landkreis Mappings für GEDCOM-Normalisierung (aus realen Daten extrahiert)
@@ -337,6 +346,12 @@ def normalize_place(place_str: str) -> str:
     parts = [p for p in parts if p]
     if not parts:
         return ""
+
+    # Veraltete Kreisnamen durch heutige Nachfolger ersetzen (nur in Nicht-Erstsegmenten).
+    # "Brochterbeck, Tecklenburg, NRW" → "Brochterbeck, Steinfurt, NRW"  (Tecklenburg als alter Kreis)
+    # "Tecklenburg, NRW"               → bleibt, Steinfurt wird als Landkreis ergänzt (Tecklenburg als Stadt)
+    if len(parts) > 1:
+        parts = [parts[0]] + [_OLD_DISTRICT_REPLACE.get(p, p) for p in parts[1:]]
 
     # Trailing country erkennen (Code oder ausgeschriebener Name)
     country = "Germany"            # Standardannahme (Daten sind ganz überwiegend DEU)
