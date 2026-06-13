@@ -1127,36 +1127,64 @@ def export_gedcom(db_path: Path, out_path: str,
         sex = p.get("sex")
         if sex in ("M", "F"):
             out.append(f"1 SEX {sex}")
-        out.extend(_ged_event("BIRT",
-                              p.get("birth_date") or p.get("birth_year") or "",
-                              _map_place(p.get("birth_place") or "")))
-        out.extend(_ged_event("DEAT",
-                              p.get("death_date") or p.get("death_year") or "",
-                              _map_place(p.get("death_place") or "")))
-        for fid in famc.get(pid, []):
-            out.append(f"1 FAMC @{fid}@")
-        for fid in fams.get(pid, []):
-            out.append(f"1 FAMS @{fid}@")
-        # Matricula-Kirchenbuchbelege als NOTE bewahren
+        # ── Lebensereignisse; Matricula-Belege als QUELLE (@S2@) am Ereignis ──
         try:
             mat = json.loads(p.get("matricula_json") or "[]")
         except (json.JSONDecodeError, TypeError):
             mat = []
+
+        def _mat_page(m):
+            ref = (m.get("ref") or "").strip() if isinstance(m, dict) else str(m).strip()
+            url = (m.get("url_old") or "").strip() if isinstance(m, dict) else ""
+            return " ".join(x for x in (ref, url) if x).strip()[:240]
+
+        def _mat_type(m):
+            r = ((m.get("ref") or "") if isinstance(m, dict) else str(m)).lower()
+            if any(k in r for k in ("heirat", "trau", "ehe", "copul")):
+                return "marr"
+            if any(k in r for k in ("tod", "sterb", "begräb", "beerd", "todes")):
+                return "deat"
+            return "birt"   # Default: Taufe/Geburt (häufigster Kirchenbuch-Eintrag)
+
+        birt = _ged_event("BIRT", p.get("birth_date") or p.get("birth_year") or "",
+                          _map_place(p.get("birth_place") or ""))
+        deat = _ged_event("DEAT", p.get("death_date") or p.get("death_year") or "",
+                          _map_place(p.get("death_place") or ""))
+        person_sour = []
         for m in mat:
-            if isinstance(m, dict):
-                ref = (m.get("ref") or "").strip()
-                url = (m.get("url_old") or "").strip()
-                note = " ".join(x for x in [
-                    "Matricula:", ref, url] if x).strip()
-            else:
-                note = str(m).strip()
-            if note and note != "Matricula:":
-                out.append(f"1 NOTE {note[:240]}")
+            page = _mat_page(m)
+            if not page:
+                continue
+            t = _mat_type(m)
+            if t == "birt" and birt:
+                birt += ["2 SOUR @S2@", f"3 PAGE {page}"]
+            elif t == "deat" and deat:
+                deat += ["2 SOUR @S2@", f"3 PAGE {page}"]
+            else:                       # Heirat / kein passendes Ereignis → an Person
+                person_sour += ["1 SOUR @S2@", f"2 PAGE {page}"]
+        out.extend(birt)
+        out.extend(deat)
+
+        # Beruf / sonstige Bemerkungen — werden geschrieben, sobald der Crawler
+        # sie erfasst (aktuell nicht geparst; Plumbing steht bereit).
+        if p.get("occupation"):
+            out.append(f"1 OCCU {str(p['occupation'])[:90]}")
+        _notes = p.get("notes")
+        for nt in (_notes if isinstance(_notes, list) else ([_notes] if _notes else [])):
+            if str(nt).strip():
+                out.append(f"1 NOTE {str(nt).strip()[:240]}")
+
+        for fid in famc.get(pid, []):
+            out.append(f"1 FAMC @{fid}@")
+        for fid in fams.get(pid, []):
+            out.append(f"1 FAMS @{fid}@")
+        out.extend(person_sour)
+
         if p.get("url"):
             out.append("1 SOUR @S1@")
             out.append(f"2 PAGE {p['url']}")
-            # Zusätzlich als NOTE — FTM/andere Programme übernehmen den Link so
-            # zuverlässig (bleibt beim Verschmelzen der Dublette erhalten).
+            # Link zusätzlich als NOTE — FTM übernimmt das zuverlässig und es
+            # bleibt beim Verschmelzen der Dublette erhalten.
             out.append(f"1 NOTE Anverwandte: {p['url']}")
 
     for fid, fam in sorted(families.items(), key=lambda kv: int(kv[0][1:])):
@@ -1172,6 +1200,9 @@ def export_gedcom(db_path: Path, out_path: str,
         "0 @S1@ SOUR",
         "1 TITL Webtrees-Stammbaum (gecrawlt)",
         "1 AUTH crawl_webtrees.py",
+        "0 @S2@ SOUR",
+        "1 TITL Matricula-Kirchenbücher",
+        "1 AUTH data.matricula-online.eu",
     ]
     out.append("0 TRLR")
 
