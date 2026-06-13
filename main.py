@@ -506,8 +506,13 @@ class AhnenApp(tk.Frame):
         right = tk.Frame(main, bg=cfg.BG)
         right.pack(side="left", fill="both", expand=True)
 
+        # Eingebettet (unified.py): GEDCOM/Root/Exclude werden bereits auf dem
+        # Start-/Login-Tab gewählt und hierher propagiert — den doppelten Picker
+        # nicht anzeigen. Die Variablen bleiben aber bestehen (Propagierung +
+        # interne Logik nutzen sie). Standalone: Picker wie gehabt zeigen.
         path_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
-        path_frame.pack(fill="x")
+        if not self._embedded:
+            path_frame.pack(fill="x")
         tk.Label(path_frame, text="Stammbaumdatei:", bg=cfg.BG2, fg=cfg.FG_DIM,
                  font=cfg.FONT_MONO).pack(side="left", padx=8)
         self._path_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["gedfile"])
@@ -520,7 +525,8 @@ class AhnenApp(tk.Frame):
 
         # Zuletzt geöffnete Dateien + Ancestry-Vorschlag
         recent_frame = tk.Frame(right, bg=cfg.BG2, pady=2)
-        recent_frame.pack(fill="x")
+        if not self._embedded:
+            recent_frame.pack(fill="x")
         tk.Label(recent_frame, text="Zuletzt:", bg=cfg.BG2, fg=cfg.FG_DIM,
                  font=("Segoe UI", 8)).pack(side="left", padx=8)
         self._recent_var = tk.StringVar(value="")
@@ -535,7 +541,8 @@ class AhnenApp(tk.Frame):
 
         # Root-/Exclude-ID
         ids_frame = tk.Frame(right, bg=cfg.BG2, pady=4)
-        ids_frame.pack(fill="x")
+        if not self._embedded:
+            ids_frame.pack(fill="x")
         tk.Label(ids_frame, text="Root-ID:", bg=cfg.BG2, fg=cfg.FG_DIM,
                  font=cfg.FONT_MONO).pack(side="left", padx=8)
         self._root_id_var = tk.StringVar(value=cfg.DEFAULT_CONFIG["root_id"])
