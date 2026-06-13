@@ -686,7 +686,11 @@ def _scan_book(
             # Direkter Download ohne Browser-Navigation
             image_url, _ = direct_items[page_nr - 1]
             try:
-                resp = pw_page.request.get(image_url, timeout=30_000)
+                resp = pw_page.request.get(
+                    image_url,
+                    timeout=30_000,
+                    headers={"Referer": book_url},
+                )
                 body = resp.body() if resp.ok else b""
                 if len(body) > 1_000:
                     image_bytes = body
@@ -695,6 +699,7 @@ def _scan_book(
                     print("💾 ", end="", flush=True)
                     consec_empty = 0
                 else:
+                    print(f"[HTTP {resp.status} · {len(body)} B] ", end="")
                     consec_empty += 1
             except Exception as e:
                 print(f"[Fehler {e}] ", end="")
