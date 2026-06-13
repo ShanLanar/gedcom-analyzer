@@ -97,26 +97,18 @@ def _loads(s) -> list:
         return []
 
 
-def _kinship_from_sosa(sosa) -> str:
-    """Verwandtschaftsgrad zur Wurzelperson aus der Sosa-Stradonitz-Nummer.
-
-    Sosa 1 = Wurzel, 2=Vater, 3=Mutter, 4=Vaters Vater … Die Binärdarstellung
-    (ohne führende 1) ergibt den F/M-Pfad (0=Vater, 1=Mutter), den render_kinship
-    in eine deutsche Bezeichnung übersetzt. Nicht-Vorfahren (sosa 0) → ''."""
-    try:
-        n = int(sosa or 0)
-    except (TypeError, ValueError):
+def _descendant_label(d: int) -> str:
+    """Nachfahren-Bezeichnung (geschlechtsneutral, Stil wie lib.helpers):
+    Kind, Enkelkind, Urenkelkind, N-fach Urenkelkind."""
+    if d <= 0:
         return ""
-    if n < 1:
-        return ""
-    if n == 1:
-        return "Wurzelperson"
-    path = "".join("F" if b == "0" else "M" for b in bin(n)[3:])
-    try:
-        from ancestry.core.treematch import render_kinship
-        return render_kinship(path)
-    except Exception:
-        return ""
+    if d == 1:
+        return "Kind"
+    if d == 2:
+        return "Enkelkind"
+    if d == 3:
+        return "Urenkelkind"
+    return f"{d-2}-fach Urenkelkind"
 
 
 def _lighten(hex_color: str, amount: int = 24) -> str:
@@ -282,6 +274,18 @@ class PersonsTab(ttk.Frame):
             except Exception as exc:
                 self.after(0, lambda e=exc: self._pers_count.set(f"⚠ {e}"))
                 return
+            # Verwandtschaft in der Liste: alle DIREKTEN Vorfahren der Wurzel
+            # (über die einmal berechnete Vorfahrenkarte; deckt auch Webtrees ab).
+            # Cousins/Seitenlinien zeigt das Detailpanel (zu teuer pro Zeile).
+            self._pers_rels_cache = {}
+            self._root_anc_cache = None
+            self.__dict__.pop("_root_id_cache", None)   # ggf. geänderten Root erkennen
+            ra = self._pers_root_anc_map()
+            rid = self._pers_root_id()
+            try:
+                from lib.helpers import relationship_label as _rel
+            except Exception:
+                _rel = None
             data = []
             for r in rows:
                 if conf:
@@ -289,12 +293,19 @@ class PersonsTab(ttk.Frame):
                     person_conf = (info or {}).get("confession", "") or "unbekannt"
                     if person_conf != conf:
                         continue
+                gid = str(r["ged_id"])
+                if rid and gid == str(rid):
+                    rel = "Wurzelperson"
+                elif _rel and gid in ra and ra[gid] > 0:
+                    rel = _rel(ra[gid], 0, is_target_ancestor=True)
+                else:
+                    rel = ""
                 data.append((
                     r["ged_id"],
                     f"{(r['given_name'] or '').strip()} {(r['surname'] or '').strip()}".strip()
                     or r["ged_id"],
                     _years(r["birth_year"], r["death_year"]),
-                    _kinship_from_sosa(r["sosa_number"])))
+                    rel))
                 if len(data) >= 600:
                     break
             self.after(0, lambda: self._pers_fill_list(data, gen))
@@ -370,10 +381,141 @@ class PersonsTab(ttk.Frame):
             self._pers_navigate(self._pers_history.pop(), push=False)
 
     # ── Stammbaum (Canvas) ────────────────────────────────────────────────
+    def _pers_find_twins(self, ged_id: str, p: dict) -> list[dict]:
+        """Findet 'Zwillinge' derselben realen Person in anderen Quellen:
+        bestätigte/automatische Links aus gedcom_person_xref plus Fuzzy-Treffer
+        (gleicher Nachname + Geburtsjahr ±1, andere ged_id). Für den virtuellen
+        Overlay von Webtrees- und GEDCOM-Baum."""
+        found: dict[str, bool] = {}
+        try:
+            with self._db._cursor() as cur:
+                for r in cur.execute(
+                    "SELECT ged_id_primary, ged_id_other FROM gedcom_person_xref "
+                    "WHERE (ged_id_primary=? OR ged_id_other=?) AND status!='rejected'",
+                    (ged_id, ged_id)).fetchall():
+                    other = (r["ged_id_other"] if str(r["ged_id_primary"]) == str(ged_id)
+                             else r["ged_id_primary"])
+                    if str(other) != str(ged_id):
+                        found[str(other)] = True
+                sn = (p.get("surname") or "").strip()
+                by = p.get("birth_year")
+                if sn and by:
+                    for r in cur.execute(
+                        "SELECT ged_id FROM gedcom_persons WHERE surname=? "
+                        "AND birth_year BETWEEN ? AND ? AND ged_id!=? LIMIT 5",
+                        (sn, int(by) - 1, int(by) + 1, ged_id)).fetchall():
+                        found[str(r["ged_id"])] = True
+        except Exception:
+            return []
+        out = []
+        for t in found:
+            d = self._pers_get(t)
+            if d:
+                out.append(d)
+        return out
+
+    def _pers_rels(self, ged_id: str, p: dict | None = None):
+        """(parents, spouses, children, siblings) einer Person. Hat die Person
+        selbst keinen Baum (typisch für Webtrees/WikiTree ohne Beziehungs-Import),
+        werden die Beziehungen der Zwillingsperson aus der anderen Quelle
+        übernommen (virtueller Overlay beider Bäume)."""
+        cache = getattr(self, "_pers_rels_cache", None)
+        if cache is not None and ged_id in cache:
+            return cache[ged_id]
+        if p is None:
+            p = self._pers_get(ged_id) or {}
+        parents  = list(_loads(p.get("parents_json")))
+        spouses  = list(_loads(p.get("spouses_json")))
+        children = list(_loads(p.get("children_json")))
+        siblings = [s for s in _loads(p.get("siblings_json")) if s != ged_id]
+        if not parents and not children:        # eigener Baum leer → Overlay
+            for tw in self._pers_find_twins(ged_id, p):
+                parents  = parents  or list(_loads(tw.get("parents_json")))
+                spouses  = spouses  or list(_loads(tw.get("spouses_json")))
+                children = children or list(_loads(tw.get("children_json")))
+                if not siblings:
+                    siblings = [s for s in _loads(tw.get("siblings_json")) if s != ged_id]
+                if parents or children:
+                    break
+        result = (parents, spouses, children, siblings)
+        if cache is not None:
+            cache[ged_id] = result
+        return result
+
+    # ── Verwandtschaftsgrad (graphbasiert, Labels via lib.helpers) ────────────
+    def _pers_root_id(self) -> str | None:
+        if not hasattr(self, "_root_id_cache"):
+            rid = None
+            try:
+                with self._db._cursor() as cur:
+                    r = cur.execute("SELECT ged_id FROM gedcom_persons "
+                                    "WHERE sosa_number=1 LIMIT 1").fetchone()
+                    rid = str(r["ged_id"]) if r else None
+            except Exception:
+                rid = None
+            self._root_id_cache = rid
+        return self._root_id_cache
+
+    def _pers_anc_map(self, start: str, max_gen: int = 22) -> dict:
+        """{ged_id: Generation} aller Vorfahren von start (start=0), Overlay-aware
+        (Webtrees↔GEDCOM über _pers_rels)."""
+        dist = {str(start): 0}
+        frontier = [str(start)]
+        g = 0
+        while frontier and g < max_gen:
+            g += 1
+            nxt = []
+            for pid in frontier:
+                for par in self._pers_rels(pid)[0]:
+                    par = str(par)
+                    if par and par not in dist:
+                        dist[par] = g
+                        nxt.append(par)
+            frontier = nxt
+        return dist
+
+    def _pers_root_anc_map(self) -> dict:
+        if getattr(self, "_root_anc_cache", None) is None:
+            rid = self._pers_root_id()
+            self._root_anc_cache = self._pers_anc_map(rid) if rid else {}
+        return self._root_anc_cache
+
+    def _pers_full_relationship(self, ged_id: str, p: dict | None = None) -> str:
+        """Präziser Verwandtschaftsgrad zur Wurzelperson über den gemeinsamen
+        Vorfahren – nutzt dieselbe Label-Logik wie die Statistik
+        (lib.helpers.relationship_label)."""
+        rid = self._pers_root_id()
+        if not rid:
+            return ""
+        if str(ged_id) == str(rid):
+            return "Wurzelperson (du)"
+        if not hasattr(self, "_pers_rels_cache"):
+            self._pers_rels_cache = {}
+        ra = self._pers_root_anc_map()
+        pa = self._pers_anc_map(ged_id)
+        best = None
+        for cid, td in pa.items():
+            if cid in ra:
+                tot = ra[cid] + td
+                if best is None or tot < best[0]:
+                    best = (tot, ra[cid], td)
+        if best is None:
+            return ""
+        _, root_d, target_d = best
+        if root_d == 0:                      # MRCA = Wurzel → Nachfahr
+            return _descendant_label(target_d)
+        try:
+            from lib.helpers import relationship_label
+            return relationship_label(root_d, target_d,
+                                      is_target_ancestor=(target_d == 0))
+        except Exception:
+            return ""
+
     def _pers_render_tree(self, ged_id: str):
         tc = self._pers_canvas
         tc.delete("all")
         tc.update_idletasks()
+        self._pers_rels_cache = {}
         try:
             depth = max(1, min(5, int(self._pers_depth.get())))
         except Exception:
@@ -388,8 +530,10 @@ class PersonsTab(ttk.Frame):
 
         # ── Vorfahren in Sosa-Slots sammeln: anc[(gen, slot)] = ged_id ──
         # gen 1 = Eltern (slot 0=Vater, 1=Mutter); pro Generation 2^gen Slots.
+        # Beziehungen mit Overlay aus anderen Quellen (Webtrees ↔ GEDCOM).
+        f_parents, spouses, children, siblings = self._pers_rels(ged_id, focus)
         anc: dict = {}
-        for i, pid in enumerate(_loads(focus.get("parents_json"))[:2]):
+        for i, pid in enumerate(f_parents[:2]):
             if pid:
                 anc[(1, i)] = pid
         for g in range(1, depth):
@@ -397,14 +541,10 @@ class PersonsTab(ttk.Frame):
                 pid = anc.get((g, slot))
                 if not pid:
                     continue
-                pd = self._pers_get(pid)
-                for i, gp in enumerate((_loads(pd.get("parents_json")) if pd else [])[:2]):
+                gp_parents, *_ = self._pers_rels(pid)
+                for i, gp in enumerate(gp_parents[:2]):
                     if gp:
                         anc[(g + 1, 2 * slot + i)] = gp
-
-        siblings = [s for s in _loads(focus.get("siblings_json")) if s != ged_id]
-        spouses  = [s for s in _loads(focus.get("spouses_json")) if s]
-        children = _loads(focus.get("children_json"))
 
         all_ids = [ged_id] + list(anc.values()) + siblings[:6] + spouses[:2] + children[:12]
         all_ids = [str(i) for i in all_ids if i]
@@ -556,7 +696,7 @@ class PersonsTab(ttk.Frame):
         meta = f"{ged_id} · {p.get('sex') or '?'} · {_SRC_LABEL.get(p.get('source',''), p.get('source',''))}"
         ttk.Label(self._pers_detail, text=meta, foreground=_MUTED).pack(
             anchor="w", padx=10)
-        kin = _kinship_from_sosa(p.get("sosa_number"))
+        kin = self._pers_full_relationship(ged_id, p)
         if kin:
             ttk.Label(self._pers_detail, text=f"⛓ {kin}", foreground=_LINK,
                       font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=10)
