@@ -1012,6 +1012,121 @@ def dump(url: str):
     print(f"\nVerlinkte Personen gesamt: {len(p['related'])}")
 
 
+def training_run(seed_url: str, n_pages: int = 100, delay: float = 4.0,
+                 out_dir: str | Path | None = None,
+                 auth: str | None = None,
+                 cookies: str | None = None,
+                 login_url: str | None = None,
+                 login_user: str | None = None,
+                 login_pass: str | None = None) -> Path | None:
+    """Stichprobe echter webtrees-Seiten als Roh-HTML sammeln (Parser eichen).
+
+    Anders als `crawl` schreibt dieser Lauf NICHTS in die Datenbank. Er folgt
+    ab der Start-Person den Verwandtschafts-Links (Breitensuche) und legt für
+    jede besuchte Person zwei Dateien ab:
+
+      <id>.html   – das unveränderte Roh-HTML der Seite
+      <id>.json   – was der aktuelle Parser daraus macht
+
+    Dazu ein _manifest.json mit Übersicht. Der ganze Ordner kann gezippt und
+    zur Parser-Verbesserung zurückgegeben werden: die HTML-Dateien sind echte
+    Eingaben, die JSON-Dateien zeigen, wo der Parser heute noch danebenliegt.
+
+    Schonend wie der Crawler: robots.txt + Rate-Limit (delay + Jitter) gelten.
+
+    Rückgabe: Pfad zum Ausgabeordner (oder None bei Fehler).
+    """
+    from collections import deque
+
+    base = (_BASE_RE.match(seed_url) or [None, ""])[1]
+    if not base:
+        print("Ungültige Start-URL."); return None
+    tree_m = re.search(r"/tree/([^/]+)/individual/", seed_url)
+    tree = tree_m.group(1) if tree_m else "anverwandte"
+    seed_id = (_IND_RE.search(seed_url) or [None, ""])[1]
+    if not seed_id:
+        print("Seed-ID aus URL nicht erkannt — bitte volle Individual-URL angeben.")
+        return None
+
+    host = parse.urlparse(base).hostname or "webtrees"
+    if out_dir is None:
+        out_dir = SCRIPT_DIR / "webtrees_training" / _host_to_slug(host)
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    f = Fetcher(base, delay=delay, auth=auth, cookies_path=cookies,
+                login_url=login_url, login_user=login_user, login_pass=login_pass)
+
+    print(f"Trainings-Stichprobe: bis zu {n_pages} Seiten")
+    print(f"Start-ID  : {seed_id}")
+    print(f"Zielordner: {out_dir}")
+
+    q: "deque[str]" = deque([seed_id])
+    seen: set[str] = {seed_id}
+    manifest: list[dict] = []
+    saved = skipped = 0
+
+    while q and saved < n_pages:
+        pid = q.popleft()
+        url = f"{base}/tree/{tree}/individual/{pid}"
+        html = f.get(url)
+        if not html:
+            skipped += 1
+            print(f"  ⚠ {pid}: keine Antwort (übersprungen)")
+            continue
+
+        # Roh-HTML immer sichern — auch private/gelöschte Seiten sind für die
+        # Parser-Eichung wertvoll (zeigen, wie webtrees Fehlerfälle ausliefert).
+        (out_dir / f"{pid}.html").write_text(html, encoding="utf-8")
+        try:
+            p = parse_individual(html, url)
+            parse_error = ""
+        except Exception as exc:           # noqa: BLE001 — als Befund sichern
+            p = {"id": pid, "url": url}
+            parse_error = str(exc)
+        (out_dir / f"{pid}.json").write_text(
+            json.dumps({**p, "_parse_error": parse_error} if parse_error else p,
+                       indent=2, ensure_ascii=False),
+            encoding="utf-8")
+
+        saved += 1
+        manifest.append({
+            "id": pid, "url": url,
+            "name": p.get("name", ""),
+            "html_bytes": len(html),
+            "parse_error": parse_error,
+        })
+        flag = " ⚠PARSE-FEHLER" if parse_error else ""
+        print(f"  [{saved}/{n_pages}] {pid}  {p.get('name', '')[:42]}{flag}")
+
+        # Nachbarn einreihen: erst die nahe Familie (repräsentativ + verbunden),
+        # dann weiter verlinkte Personen als Auffüllung für mehr Seiten-Varianz.
+        near = (p.get("parents", []) + p.get("children", [])
+                + p.get("spouses_ids", []) + p.get("siblings", []))
+        for nid in near + p.get("related", []):
+            if nid and nid not in seen:
+                seen.add(nid)
+                q.append(nid)
+
+    (out_dir / "_manifest.json").write_text(
+        json.dumps({
+            "seed_url": seed_url, "host": host, "tree": tree,
+            "requested": n_pages, "saved": saved, "skipped": skipped,
+            "parse_errors": sum(1 for m in manifest if m["parse_error"]),
+            "pages": manifest,
+        }, indent=2, ensure_ascii=False),
+        encoding="utf-8")
+
+    errs = sum(1 for m in manifest if m["parse_error"])
+    print(f"\nFertig: {saved} Seiten gespeichert"
+          + (f", {skipped} übersprungen" if skipped else "")
+          + (f", {errs} mit Parser-Fehler" if errs else ""))
+    print(f"Ordner   : {out_dir}")
+    print(f"Manifest : {out_dir / '_manifest.json'}")
+    print("→ Diesen Ordner zippen und zur Parser-Verbesserung zurückgeben.")
+    return out_dir
+
+
 # ── Matricula-Link-Reparatur (Pfarrei-Slug alt -> neu) ────────────────────────
 # Matricula hat die Pfarrei-Slugs UND Register-IDs neu vergeben. Die Register-ID
 # (z.B. 0035 -> D1_001) ist ohne Matricula-Katalog NICHT herleitbar; den
@@ -1495,6 +1610,25 @@ def main(argv):
                     help="Seiten neu laden, bei denen child_names_json Kinder nennt "
                          "aber children_json leer ist (behebt Parsing-Fehler)")
 
+    tr = sub.add_parser("training",
+                        help="Stichprobe echter Seiten als HTML+JSON sichern "
+                             "(zum Eichen/Verbessern des Parsers)")
+    tr.add_argument("url", nargs="?", default=None,
+                    help="Seed-URL der Start-Person (kann auch im Profil stehen)")
+    tr.add_argument("--profile", default=None,
+                    help="Gespeichertes Profil laden (für Seed-URL/Login/Delay)")
+    tr.add_argument("--n", type=int, default=100,
+                    help="Anzahl Seiten (Default 100)")
+    tr.add_argument("--delay", type=float, default=None,
+                    help="Mindestpause zw. Anfragen in s (Default aus Profil/4.0)")
+    tr.add_argument("--out", default=None,
+                    help="Zielordner (Default: tools/webtrees_training/<host>/)")
+    tr.add_argument("--auth", default=None, help="HTTP Basic Auth als 'user:pass'")
+    tr.add_argument("--cookies", default=None, help="Pfad zu einer Cookie-JSON-Datei")
+    tr.add_argument("--login-url", default=None, help="webtrees-Login-Formular-URL")
+    tr.add_argument("--login-user", default=None, help="Benutzername für Login")
+    tr.add_argument("--login-pass", default=None, help="Passwort für Login")
+
     sub.add_parser("matricula", help="Matricula-Belege + reparierte URLs ausgeben")
     sub.add_parser("profiles", help="Alle gespeicherten Profile auflisten")
     sub.add_parser("list-sites", help="Alle lokalen webtrees-DBs auflisten")
@@ -1630,6 +1764,35 @@ def main(argv):
               discover=args.discover,
               extra_seeds=args.extra_seeds,
               reset_stale=args.reset_stale)
+
+    elif args.cmd == "training":
+        # Seed-URL/Login/Delay primär aus dem Profil, CLI-Args überschreiben.
+        seed_url = args.url
+        delay = args.delay if args.delay is not None else 4.0
+        auth, cookies = args.auth, args.cookies
+        login_url, login_user, login_pass = (
+            args.login_url, args.login_user, args.login_pass)
+        if args.profile:
+            profiles = _load_profiles()
+            if args.profile not in profiles:
+                print(f"Profil '{args.profile}' nicht gefunden. Verfügbar: "
+                      f"{list(profiles.keys())}")
+                sys.exit(1)
+            prof = profiles[args.profile]
+            seed_url = seed_url or prof.get("seed_url")
+            if args.delay is None and prof.get("delay") is not None:
+                delay = prof["delay"]
+            auth = auth or prof.get("auth")
+            cookies = cookies or prof.get("cookies")
+            login_url = login_url or prof.get("login_url")
+            login_user = login_user or prof.get("login_user")
+            login_pass = login_pass or prof.get("login_pass")
+        if not seed_url:
+            print("Fehler: Seed-URL fehlt (als Argument oder via --profile).")
+            sys.exit(1)
+        training_run(seed_url, n_pages=args.n, delay=delay, out_dir=args.out,
+                     auth=auth, cookies=cookies, login_url=login_url,
+                     login_user=login_user, login_pass=login_pass)
 
     elif args.cmd == "export-gedcom":
         # DB-Pfad bestimmen: --db > --profile > Default

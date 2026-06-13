@@ -35,6 +35,7 @@ ancestry/ancestry_dna.db-*
 ancestry/data/
 ancestry/tools/webtrees_crawl.db
 ancestry/tools/matricula_parishes.db
+ancestry/tools/webtrees_training/
 
 # Zentrales Laufzeitdaten-Verzeichnis (s. ancestry/paths.py).
 # Hinweis: bereits getrackte Dateien (data/snapshots/mh_*.json) bleiben

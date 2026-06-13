@@ -125,6 +125,7 @@ class ToolsTab(ttk.Frame):
         # ── Eingabefelder (Profile/Pfarrei/IDs/Dateien) ───────────────────
         self._tl_wt_profile = tk.StringVar(value="anverwandte")
         self._tl_wt_discover = tk.BooleanVar(value=True)
+        self._tl_wt_trainn = tk.StringVar(value="100")
         self._tl_mat_parish = tk.StringVar(value="")
         self._tl_mh_csv = tk.StringVar(value="")
         self._tl_mh_mincm = tk.StringVar(value="20")
@@ -147,6 +148,17 @@ class ToolsTab(ttk.Frame):
                           lambda: [sys.executable, "-u", _tool("import_webtrees.py")])
         self._tool_action(sec, "💾 Als GEDCOM-Datei exportieren", "wt_export",
                           self._tl_cmd_wt_export)
+        # Testlauf: echte Seiten als HTML+JSON sichern (Roh-Daten zum Eichen
+        # des Parsers — Ordner zippen und zurückgeben). Schreibt nicht in die DB.
+        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Seiten:").pack(side="left")
+        ttk.Spinbox(row, from_=10, to=1000, increment=10, width=6,
+                    textvariable=self._tl_wt_trainn).pack(side="left", padx=(4, 8))
+        ttk.Label(row, text="HTML+JSON lokal in tools/webtrees_training/",
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(side="left")
+        self._tool_action(sec, "🧪 Testlauf: Seiten lokal sichern", "wt_training",
+                          self._tl_cmd_wt_training)
 
         # ── Abschnitt B: Matricula ────────────────────────────────────────
         sec = self._tool_section(inner, "⛪  Matricula-Kirchenbücher")
@@ -300,6 +312,12 @@ class ToolsTab(ttk.Frame):
             return []
         return [sys.executable, "-u", _tool("crawl_webtrees.py"),
                 "export-gedcom", "--profile", profile, "--out", out]
+
+    def _tl_cmd_wt_training(self) -> list[str]:
+        profile = self._tl_wt_profile.get().strip() or "anverwandte"
+        n = (self._tl_wt_trainn.get() or "").strip() or "100"
+        return [sys.executable, "-u", _tool("crawl_webtrees.py"), "training",
+                "--profile", profile, "--n", n]
 
     def _tl_cmd_mat_books(self) -> list[str]:
         cmd = [sys.executable, "-u", _tool("fetch_matricula_books.py")]
