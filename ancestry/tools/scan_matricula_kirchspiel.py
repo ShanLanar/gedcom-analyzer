@@ -671,7 +671,7 @@ def _scan_book(
         image_url: str | None = None
         image_bytes: bytes | None = None
 
-        # Bild holen: erst lokales Archiv, dann direkt oder via ?pg=N
+        # Bild holen: erst lokales Archiv, dann via Browser-Navigation
         if arch_file.exists():
             image_bytes = arch_file.read_bytes()
             image_url   = str(arch_file)
@@ -682,30 +682,10 @@ def _scan_book(
             if page_range is None:
                 break
             continue
-        elif direct_items:
-            # Direkter Download ohne Browser-Navigation
-            image_url, _ = direct_items[page_nr - 1]
-            try:
-                resp = pw_page.request.get(
-                    image_url,
-                    timeout=30_000,
-                    headers={"Referer": book_url},
-                )
-                body = resp.body() if resp.ok else b""
-                if len(body) > 1_000:
-                    image_bytes = body
-                    arch_file.parent.mkdir(parents=True, exist_ok=True)
-                    arch_file.write_bytes(image_bytes)
-                    print("💾 ", end="", flush=True)
-                    consec_empty = 0
-                else:
-                    print(f"[HTTP {resp.status} · {len(body)} B] ", end="")
-                    consec_empty += 1
-            except Exception as e:
-                print(f"[Fehler {e}] ", end="")
-                consec_empty += 1
         else:
-            # Fallback: Navigation zu ?pg=N
+            # Browser navigiert zu ?pg=N — Bild wird aus dem Netzwerk abgefangen.
+            # CDN blockiert direkte requests.get()-Aufrufe (403); der Browser
+            # selbst lädt das Bild erfolgreich, weil er die richtigen Cookies sendet.
             image_url, image_bytes = _load_page_image(pw_page, book_url, page_nr, pause)
             if image_bytes is not None:
                 arch_file.parent.mkdir(parents=True, exist_ok=True)
