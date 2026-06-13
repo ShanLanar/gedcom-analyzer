@@ -252,12 +252,8 @@ class AncestryDnaApp(tk.Frame):
         hf.pack(fill="x")
         ttk.Label(hf, text="🧬  Ancestry DNA Tool",
                   style="Header.TLabel").pack(side="left", fill="x", expand=True)
-        self._lang_btn = tk.Button(
-            hf, text="🌐 → EN", font=("Segoe UI", 10, "bold"),
-            bg="#2E75B6", fg="white", activebackground="#1F4E79", activeforeground="white",
-            relief="flat", bd=0, padx=14, pady=6, cursor="hand2",
-            command=self._toggle_lang)
-        self._lang_btn.pack(side="right", padx=10, pady=4)
+        # Sprachauswahl liegt jetzt global oben rechts (unified.py); die
+        # DNA-App wird darüber via set_language() umgeschaltet.
 
         self._nb = ttk.Notebook(self)
         self._nb.pack(fill="both", expand=True, padx=8, pady=8)
@@ -1069,6 +1065,16 @@ class AncestryDnaApp(tk.Frame):
         self._lang = "en" if self._lang == "de" else "de"
         self._apply_lang()
         self._save_ui_settings(lang=self._lang)
+
+    def set_language(self, lang: str):
+        """Setzt die Sprache explizit (für die globale Sprachauswahl)."""
+        self._lang = "en" if str(lang).lower().startswith("en") else "de"
+        self._state.lang = self._lang
+        try:
+            self._apply_lang()
+            self._save_ui_settings(lang=self._lang)
+        except Exception:
+            pass
 
     def _apply_lang(self):
         self._update_lang_btn()

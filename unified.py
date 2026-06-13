@@ -149,7 +149,9 @@ def main():
 
     # ── Steuerleiste oben rechts (Theme-Umschalter) ────────────────────────────
     from lib import theming
+    from lib import i18n
     _theme = {"light": (cfg.DEFAULT_CONFIG.get("theme", "dark") == "light")}
+    _lang = {"en": (cfg.DEFAULT_CONFIG.get("lang", "de") == "en")}
 
     topbar = tk.Frame(root, bg=cfg.BG)
     topbar.pack(side="top", fill="x")
@@ -157,6 +159,11 @@ def main():
         topbar, font=("Segoe UI", 10, "bold"), relief="flat", bd=0,
         padx=12, pady=4, cursor="hand2")
     _theme_btn.pack(side="right", padx=8, pady=4)
+    _lang_btn = tk.Button(
+        topbar, font=("Segoe UI", 10, "bold"), relief="flat", bd=0,
+        padx=12, pady=4, cursor="hand2", bg="#2E75B6", fg="white",
+        activebackground="#1F4E79", activeforeground="white")
+    _lang_btn.pack(side="right", padx=(8, 0), pady=4)
 
     def _refresh_theme_btn():
         if _theme["light"]:
@@ -165,6 +172,9 @@ def main():
         else:
             _theme_btn.configure(text="🌞 Hell", bg="#2a2a3e", fg="#cdd6f4",
                                  activebackground="#3a3a52", activeforeground="#fff")
+
+    def _refresh_lang_btn():
+        _lang_btn.configure(text="🌐 → DE" if _lang["en"] else "🌐 → EN")
 
     def _apply_theme(to_light: bool):
         _theme["light"] = to_light
@@ -184,11 +194,29 @@ def main():
         except Exception:
             pass
 
-    def _toggle_theme_global():
-        _apply_theme(not _theme["light"])
+    def _apply_lang(to_en: bool):
+        _lang["en"] = to_en
+        try:
+            i18n.retranslate_tree(root, to_en)
+            i18n.translate_notebook(nb, to_en)
+        except Exception:
+            log.exception("retranslate fehlgeschlagen")
+        if dna_obj is not None:
+            try:
+                dna_obj.set_language("en" if to_en else "de")
+            except Exception:
+                log.exception("DNA-Sprache setzen fehlgeschlagen")
+        _refresh_lang_btn()
+        try:
+            cfg.DEFAULT_CONFIG["lang"] = "en" if to_en else "de"
+            cfg.save_overrides({"lang": cfg.DEFAULT_CONFIG["lang"]})
+        except Exception:
+            pass
 
-    _theme_btn.configure(command=_toggle_theme_global)
+    _theme_btn.configure(command=lambda: _apply_theme(not _theme["light"]))
+    _lang_btn.configure(command=lambda: _apply_lang(not _lang["en"]))
     _refresh_theme_btn()
+    _refresh_lang_btn()
 
     # ── Notebook mit 3 Reitern ─────────────────────────────────────────────────
     nb = ttk.Notebook(root)
@@ -291,10 +319,12 @@ def main():
 
     root.protocol("WM_DELETE_WINDOW", _on_close)
 
-    # Persistiertes Theme anwenden (Default dunkel). Verzögert, damit alle
-    # Reiter fertig aufgebaut sind, bevor der Widgetbaum umgefärbt wird.
+    # Persistiertes Theme + Sprache anwenden (Default dunkel/Deutsch). Verzögert,
+    # damit alle Reiter fertig aufgebaut sind, bevor Baum umgefärbt/übersetzt wird.
     if _theme["light"]:
         root.after(150, lambda: _apply_theme(True))
+    if _lang["en"]:
+        root.after(200, lambda: _apply_lang(True))
 
     root.mainloop()
 
