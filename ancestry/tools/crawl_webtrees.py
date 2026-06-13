@@ -148,6 +148,12 @@ _CITY_TO_DISTRICT_MAP = {
     "Hagen": "Osnabruck",          # Hagen am Teutoburger Wald (Suffix wird entfernt)
     "Steinfurt": "Steinfurt",
     "Mettingen": "Steinfurt",
+    "Tecklenburg": "Steinfurt",    # Gemeinde Tecklenburg (alter Landkreis Tecklenburg → seit 1973 Landkreis Steinfurt)
+    "Ibbenbüren": "Steinfurt",
+    "Emsdetten": "Steinfurt",
+    "Hörstel": "Steinfurt",
+    "Recke": "Steinfurt",
+    "Riesenbeck": "Steinfurt",     # heute Ortsteil von Hörstel
     "Steinhagen": "Gutersloh",     # NRW, Landkreis Gütersloh (lt. GEDCOM-Referenz)
     "Lüneburg": "Lüneburg",
     "Verden": "Verden",
