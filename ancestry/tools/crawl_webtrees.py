@@ -130,7 +130,6 @@ _LABEL_TO_TAG = {
     "konfirmation": "CONF", "firmung": "CONF", "erstkommunion": "FCOM",
     "religion": "RELI", "staatsangehörigkeit": "NATI", "bildung": "EDUC",
     "titel": "TITL", "besitz": "PROP", "eigentum": "PROP",
-    "todesursache": "CAUS",
 }
 # Labels, die wir nicht als Ereignis exportieren (Meta/Verwaltung)
 _FACT_SKIP = {"letzte änderung", "letzter import", "geschlecht", "name", ""}
@@ -676,6 +675,7 @@ def parse_facts(html: str) -> list[dict]:
                      or attrs.get("patin") or "")
         employer = attrs.get("arbeitgeber", "")
         address = attrs.get("adresse", "")
+        cause = attrs.get("todesursache", "")
         note = "; ".join(notes)
 
         spouse_id = family_id = ""
@@ -689,7 +689,7 @@ def parse_facts(html: str) -> list[dict]:
             "tag": tag, "label": label, "date": date, "place": place,
             "value": value, "religion": religion, "note": note,
             "witnesses": witnesses, "employer": employer, "address": address,
-            "matricula_url": matricula_url,
+            "cause": cause, "matricula_url": matricula_url,
             "spouse_id": spouse_id, "family_id": family_id,
         })
     return facts
@@ -1536,6 +1536,8 @@ def _fact_lines(f: dict, level: int, map_place) -> list[str]:
             place = f"{prefix}, {place}" if place else prefix
     if place:
         lines.append(f"{sub} PLAC {map_place(place)}")
+    if tag == "DEAT" and (f.get("cause") or "").strip():
+        lines.append(f"{sub} CAUS {f['cause'].strip()[:90]}")
     note = (f.get("note") or "").strip()
     mat_url = (f.get("matricula_url") or "").strip()
     if mat_url or "matricula" in note.lower():
@@ -1704,24 +1706,10 @@ def export_gedcom(db_path: Path, out_path: str,
             # Sicherstellen, dass es eine BIRT/DEAT gibt (aus Skalar-Feldern),
             # falls die Fakten-Tabelle sie nicht enthielt.
             have = {f.get("tag") for f in facts}
-            # Todesursache wird als 2 CAUS unter 1 DEAT eingebettet (GEDCOM 5.5.1).
-            cause = next(
-                ((f.get("value") or f.get("note") or "").strip()
-                 for f in facts if f.get("tag") == "CAUS"),
-                "")
             for f in facts:
-                if f.get("tag") in ("MARR", "CAUS"):
-                    continue            # MARR → FAM-Record; CAUS → in DEAT
-                lines = _fact_lines(f, 1, _map_place)
-                if f.get("tag") == "DEAT" and cause:
-                    # Nach DATE/PLAC, vor SOUR/NOTE einfügen
-                    insert_at = len(lines)
-                    for i, ln in enumerate(lines[1:], 1):
-                        if ln.startswith("2 SOUR") or ln.startswith("2 NOTE"):
-                            insert_at = i
-                            break
-                    lines.insert(insert_at, f"2 CAUS {cause[:90]}")
-                out.extend(lines)
+                if f.get("tag") == "MARR":
+                    continue            # MARR kommt in den FAM-Record
+                out.extend(_fact_lines(f, 1, _map_place))
             if "BIRT" not in have and (p.get("birth_date") or p.get("birth_year")):
                 out.extend(_ged_event("BIRT", p.get("birth_date") or p.get("birth_year"),
                                       _map_place(p.get("birth_place") or "")))
