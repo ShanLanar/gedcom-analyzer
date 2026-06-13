@@ -1707,9 +1707,9 @@ def export_gedcom(db_path: Path, out_path: str,
     # ── Schreiben ────────────────────────────────────────────────────────
     out: list[str] = [
         "0 HEAD",
-        "1 SOUR gedcom-analyzer-crawler",
+        "1 SOUR Anverwandte",
         "2 VERS 1.0",
-        "2 NAME webtrees-Crawler (crawl_webtrees.py)",
+        "2 NAME Anverwandte",
         "1 GEDC",
         "2 VERS 5.5.1",
         "2 FORM LINEAGE-LINKED",
@@ -1727,14 +1727,20 @@ def export_gedcom(db_path: Path, out_path: str,
         person_sour: list[str] = []
         facts = _facts(p)
         if facts:
-            # BIRT == BAPM → Geburtsdatum war wahrscheinlich nicht bekannt;
-            # das Taufdatum wurde doppelt eingetragen. BIRT als "BEF ..." markieren.
+            # BIRT/BAPM-Datumslogik:
+            # a) BIRT == BAPM → Taufdatum als Geburtsdatum doppelt erfasst → BIRT = BEF
+            # b) BAPM ohne Datum, aber BIRT bekannt → BAPM = AFT Geburtsdatum
             birt_f = next((f for f in facts if f.get("tag") == "BIRT" and f.get("date")), None)
-            bapm_f = next((f for f in facts if f.get("tag") == "BAPM" and f.get("date")), None)
-            if (birt_f and bapm_f and
-                    _norm_ged_date(birt_f["date"].strip()) == _norm_ged_date(bapm_f["date"].strip())):
-                bef_date = "BEF " + _norm_ged_date(birt_f["date"].strip())
-                facts = [dict(f, date=bef_date) if f is birt_f else f for f in facts]
+            bapm_f = next((f for f in facts if f.get("tag") == "BAPM"), None)
+            if birt_f and bapm_f:
+                norm_birth = _norm_ged_date(birt_f["date"].strip())
+                bapm_date = (bapm_f.get("date") or "").strip()
+                if bapm_date and _norm_ged_date(bapm_date) == norm_birth:
+                    facts = [dict(f, date="BEF " + norm_birth) if f is birt_f else f
+                             for f in facts]
+                elif not bapm_date:
+                    facts = [dict(f, date="AFT " + norm_birth) if f is bapm_f else f
+                             for f in facts]
             # Reichhaltiger Pfad: jede (Nicht-Heirats-)Tatsache als Ereignis,
             # inkl. Taufe/Begräbnis/Beruf, Matricula-Quelle + Pate/Patin/Zeuge.
             # Sicherstellen, dass es eine BIRT/DEAT gibt (aus Skalar-Feldern),
@@ -1824,8 +1830,7 @@ def export_gedcom(db_path: Path, out_path: str,
 
     out += [
         "0 @S1@ SOUR",
-        "1 TITL Webtrees-Stammbaum (gecrawlt)",
-        "1 AUTH crawl_webtrees.py",
+        "1 TITL Anverwandte",
         "0 @S2@ SOUR",
         "1 TITL Matricula-Kirchenbücher",
         "1 AUTH data.matricula-online.eu",
