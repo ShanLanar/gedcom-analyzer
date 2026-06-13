@@ -527,6 +527,13 @@ def _scan_book(
     # ── Seitenanzahl ermitteln ────────────────────────────────────────────────
     total_pages = _detect_page_count(pw_page)
     if total_pages is None:
+        # Retry: nochmal 4 Sekunden warten (JS-Lazy-Load)
+        time.sleep(4.0)
+        total_pages = _detect_page_count(pw_page)
+    if total_pages is None:
+        # Fallback: Seiten proben bis kein Bild mehr geladen wird
+        total_pages = _probe_page_count(pw_page, book_url, pause)
+    if total_pages is None:
         print("  ⚠ Konnte Seitenanzahl nicht ermitteln — überspringe Buch")
         return 0, 0
     with parish_db:
@@ -662,6 +669,52 @@ def _scan_book(
     return scanned, new_entries
 
 
+def _probe_page_count(page, book_url: str, pause: float, max_probe: int = 9999) -> int | None:
+    """Fallback: probiert Seiten 1,2,4,8,… (binäre Suche) bis kein Bild mehr lädt."""
+    base = book_url.rstrip("/")
+
+    def _has_image(pg: int) -> bool:
+        url = f"{base}/?pg={pg}"
+        try:
+            page.goto(url, wait_until="domcontentloaded", timeout=15_000)
+            time.sleep(max(0.3, pause * 0.3))
+            result = page.evaluate("""
+            () => {
+                const imgs = document.querySelectorAll('img[src*="image"], canvas, .openseadragon-container');
+                return imgs.length > 0;
+            }
+            """)
+            return bool(result)
+        except Exception:
+            return False
+
+    if not _has_image(1):
+        return None
+    # Exponential scan: finde eine obere Schranke
+    hi = 1
+    while hi < max_probe and _has_image(hi * 2):
+        hi *= 2
+    if hi >= max_probe:
+        return max_probe
+    lo = hi
+    hi = hi * 2
+    # Binäre Suche zwischen lo und hi
+    while lo < hi - 1:
+        mid = (lo + hi) // 2
+        if _has_image(mid):
+            lo = mid
+        else:
+            hi = mid
+    # Zurück auf Seite 1 navigieren
+    try:
+        page.goto(f"{base}/?pg=1", wait_until="domcontentloaded", timeout=15_000)
+        time.sleep(pause)
+    except Exception:
+        pass
+    print(f"  (Probe-Methode: {lo} Seiten)")
+    return lo
+
+
 def _detect_page_count(page) -> int | None:
     """
     Liest die Gesamtseitenanzahl aus dem Matricula-Viewer.
@@ -675,13 +728,25 @@ def _detect_page_count(page) -> int | None:
             // Input[max] — häufigste Form
             const inp = document.querySelector('input[max]');
             if (inp && inp.max) return parseInt(inp.max);
-            // Span/div mit "X / Y"-Format
+            // Span/div mit "X / Y" oder "X von Y"-Format (deutsch/englisch)
             const all = document.body.innerText;
-            const m = all.match(/\\b(\\d+)\\s*\\/\\s*(\\d+)\\b/);
+            let m = all.match(/\\b(\\d+)\\s*\\/\\s*(\\d+)\\b/);
             if (m) return parseInt(m[2]);
+            m = all.match(/\\b\\d+\\s+von\\s+(\\d+)\\b/i);
+            if (m) return parseInt(m[1]);
+            m = all.match(/\\bof\\s+(\\d+)\\b/i);
+            if (m) return parseInt(m[1]);
             // Anzahl ?pg=-Links (Thumbnailleiste)
             const pgs = document.querySelectorAll('a[href*="?pg="]');
             if (pgs.length > 1) return pgs.length;
+            // Pagination-Buttons mit data-page
+            const btns = document.querySelectorAll('[data-page]');
+            if (btns.length > 1) {
+                const nums = Array.from(btns)
+                    .map(b => parseInt(b.getAttribute('data-page')))
+                    .filter(n => !isNaN(n));
+                if (nums.length) return Math.max(...nums);
+            }
             return null;
         }
         """)

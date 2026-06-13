@@ -242,7 +242,8 @@ class ToolsTab(ttk.Frame):
         self._tool_action(sec, "GEDCOM verkleinern (GED Slim)", "ged_slim",
                           None, gui=_tool("ged_slim.py"))
         self._tool_action(sec, "Matricula-Web-Viewer (Port 5000)", "mat_viewer",
-                          lambda: [sys.executable, "-u", _tool("matricula_viewer.py")])
+                          lambda: [sys.executable, "-u", _tool("matricula_viewer.py")],
+                          on_start=lambda: self.after(2500, lambda: webbrowser.open("http://localhost:5000")))
         self._tool_action(sec, "Entity-Browser (Port 5001)", "entity",
                           lambda: [sys.executable, "-u", _tool("entity_browser.py")])
         self._tool_action(sec, "📦 Korpus für LLM bündeln (OCR+GEDCOM+Belege)", "llm_bundle",
@@ -326,7 +327,7 @@ class ToolsTab(ttk.Frame):
         return lf
 
     def _tool_action(self, parent, label: str, key: str,
-                     build_cmd, gui: str | None = None):
+                     build_cmd, gui: str | None = None, on_start=None):
         """Eine Tool-Zeile: Beschriftung + ▶ Start + ■ Stop."""
         row = ttk.Frame(parent); row.pack(fill="x", pady=1)
         ttk.Label(row, text=label, width=34, anchor="w").pack(side="left")
@@ -338,7 +339,7 @@ class ToolsTab(ttk.Frame):
         btn_stop = ttk.Button(row, text="■", width=3, state="disabled")
         btn_start = ttk.Button(row, text="▶ Start")
         btn_start.configure(command=lambda: self._tool_run(
-            key, build_cmd(), btn_start, btn_stop))
+            key, build_cmd(), btn_start, btn_stop, on_start=on_start))
         btn_stop.configure(command=lambda: self._tool_kill(key))
         btn_start.pack(side="left", padx=2)
         btn_stop.pack(side="left")
@@ -491,7 +492,7 @@ class ToolsTab(ttk.Frame):
             self._tool_append(f"⚠ Fehler: {exc}\n")
 
     def _tool_run(self, key: str, cmd: list[str],
-                  btn_start: ttk.Button, btn_stop: ttk.Button):
+                  btn_start: ttk.Button, btn_stop: ttk.Button, on_start=None):
         if not cmd:
             return
         if self._tool_procs.get(key):
@@ -514,6 +515,8 @@ class ToolsTab(ttk.Frame):
             return
 
         self._tool_procs[key] = proc
+        if on_start:
+            on_start()
 
         def _reader(p: subprocess.Popen):
             assert p.stdout
