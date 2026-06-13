@@ -128,14 +128,7 @@ class ToolsTab(ttk.Frame):
         self._tl_wt_profile = tk.StringVar(value="anverwandte")
         self._tl_wt_discover = tk.BooleanVar(value=True)
         self._tl_wt_trainn = tk.StringVar(value="100")
-        _last_parish = ""
-        try:
-            with open(_MAT_LAST_PARISH, encoding="utf-8") as _f:
-                _last_parish = _f.read().strip()
-        except Exception:
-            pass
-        self._tl_mat_parish = tk.StringVar(value=_last_parish)
-        self._tl_mat_parish.trace_add("write", self._mat_save_parish)
+        self._tl_mat_parish = tk.StringVar(value="")   # compat – wird durch Listbox ersetzt
         self._tl_mat_dryrun = tk.BooleanVar(value=False)
         self._tl_mh_csv = tk.StringVar(value="")
         self._tl_mh_mincm = tk.StringVar(value="20")
@@ -175,13 +168,20 @@ class ToolsTab(ttk.Frame):
 
         # ── Abschnitt B: Matricula ────────────────────────────────────────
         sec = self._tool_section(inner, "⛪  Matricula-Kirchenbücher")
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Pfarrei:").pack(side="left")
-        self._tl_mat_combo = ttk.Combobox(
-            row, textvariable=self._tl_mat_parish, width=26)
-        self._tl_mat_combo.pack(side="left", padx=4)
-        ttk.Button(row, text="↺", width=3,
-                   command=self._mat_refresh_parishes).pack(side="left")
+        # Pfarrei-Listbox (Mehrfachauswahl)
+        lb_hdr = ttk.Frame(sec); lb_hdr.pack(fill="x")
+        ttk.Label(lb_hdr, text="Pfarreien (Strg+Klick = Mehrfach):").pack(side="left")
+        ttk.Button(lb_hdr, text="↺", width=3,
+                   command=self._mat_refresh_parishes).pack(side="right")
+        lb_wrap = ttk.Frame(sec); lb_wrap.pack(fill="x", pady=(2, 4))
+        lb_vsb = ttk.Scrollbar(lb_wrap, orient="vertical")
+        self._mat_listbox = tk.Listbox(
+            lb_wrap, height=5, selectmode="extended",
+            yscrollcommand=lb_vsb.set, exportselection=False,
+            font=("Consolas", 9))
+        lb_vsb.configure(command=self._mat_listbox.yview)
+        self._mat_listbox.pack(side="left", fill="x", expand=True)
+        lb_vsb.pack(side="left", fill="y")
         self.after(500, self._mat_refresh_parishes)
         self._tool_action(sec, "0 · Pfarrei-Katalog (einmalig)", "mat_cat",
                           lambda: [sys.executable, "-u", _tool("scrape_matricula_osnabrueck.py")])
@@ -191,9 +191,19 @@ class ToolsTab(ttk.Frame):
         ttk.Checkbutton(row2, text="nur Bilder laden, kein OCR (--dry-run)",
                         variable=self._tl_mat_dryrun).pack(side="left")
         self._tool_action(sec, "2 · Seiten scannen (Claude Vision)", "mat_scan",
-                          self._tl_cmd_mat_scan)
+                          self._tl_cmd_mat_scan,
+                          on_start=self._mat_reset_progress,
+                          on_line=self._mat_on_line)
         self._tool_action(sec, "🔁 Re-Transkription (lokale Bilder)", "mat_retranscribe",
-                          self._tl_cmd_mat_retranscribe)
+                          self._tl_cmd_mat_retranscribe,
+                          on_start=self._mat_reset_progress,
+                          on_line=self._mat_on_line)
+        # Fortschrittsanzeige
+        prog_row = ttk.Frame(sec); prog_row.pack(fill="x", pady=(4, 0))
+        self._mat_prog_label = ttk.Label(prog_row, text="", width=12, anchor="e")
+        self._mat_prog_label.pack(side="left")
+        self._mat_prog_bar = ttk.Progressbar(prog_row, mode="determinate", length=200)
+        self._mat_prog_bar.pack(side="left", fill="x", expand=True, padx=(4, 0))
         self._tool_action(sec, "🌐 Matricula-Viewer öffnen (Port 5000)", "mat_viewer",
                           lambda: [sys.executable, "-u", _tool("matricula_viewer.py")])
 
@@ -311,32 +321,96 @@ class ToolsTab(ttk.Frame):
         threading.Thread(target=_bg, daemon=True, name="match_csv_import").start()
 
     # ── Matricula-Hilfsroutinen ───────────────────────────────────────────
-    def _mat_save_parish(self, *_):
-        p = self._tl_mat_parish.get().strip()
-        if p:
+    def _mat_get_parishes(self) -> list[str]:
+        """Gibt Slugs der selektierten Pfarreien zurück."""
+        result = []
+        if not hasattr(self, "_mat_listbox"):
+            return result
+        for i in self._mat_listbox.curselection():
+            item = self._mat_listbox.get(i).strip().lstrip("✓◐○ ")
+            slug = item.split()[0]
+            result.append(slug)
+        return result
+
+    def _mat_save_last_parish(self):
+        parishes = self._mat_get_parishes()
+        if parishes:
             try:
                 with open(_MAT_LAST_PARISH, "w", encoding="utf-8") as f:
-                    f.write(p)
+                    f.write(parishes[0])
             except Exception:
                 pass
 
     def _mat_refresh_parishes(self):
-        """Lädt Pfarrei-Slugs aus DB in die Combobox."""
+        """Lädt Pfarrei-Liste mit Scan-Status aus DB in die Listbox."""
         try:
             import sqlite3
             from ancestry.tools.scan_matricula_kirchspiel import PARISH_DB
             if not PARISH_DB.exists():
                 return
             conn = sqlite3.connect(str(PARISH_DB))
-            rows = conn.execute(
-                "SELECT DISTINCT parish_id FROM kirchenbuecher ORDER BY parish_id"
-            ).fetchall()
+            rows = conn.execute("""
+                SELECT kb.parish_id,
+                       SUM(COALESCE(kb.total_pages, 0)) AS total,
+                       COUNT(CASE WHEN mps.status='done' THEN 1 END) AS done
+                FROM kirchenbuecher kb
+                LEFT JOIN matricula_page_scans mps ON mps.book_id = kb.book_id
+                GROUP BY kb.parish_id
+                ORDER BY kb.parish_id
+            """).fetchall()
             conn.close()
-            vals = [r[0].split("/")[-1] for r in rows if r[0]]
-            if vals:
-                self._tl_mat_combo["values"] = vals
+
+            # Letzte Auswahl + gespeicherte Pfarrei merken
+            prev: set[str] = set()
+            for i in self._mat_listbox.curselection():
+                item = self._mat_listbox.get(i).strip().lstrip("✓◐○ ")
+                prev.add(item.split()[0])
+            try:
+                with open(_MAT_LAST_PARISH, encoding="utf-8") as f:
+                    prev.add(f.read().strip())
+            except Exception:
+                pass
+
+            self._mat_listbox.delete(0, "end")
+            for parish_id, total, done in rows:
+                slug = parish_id.split("/")[-1]
+                if total and total > 0:
+                    pct = int(done * 100 / total)
+                    if pct >= 100:
+                        label = f"✓ {slug}  ({done}/{total})"
+                    elif done > 0:
+                        label = f"◐ {slug}  ({done}/{total})"
+                    else:
+                        label = f"○ {slug}"
+                else:
+                    label = f"○ {slug}"
+                self._mat_listbox.insert("end", label)
+                if slug in prev:
+                    self._mat_listbox.selection_set("end")
         except Exception:
             pass
+
+    def _mat_reset_progress(self):
+        self._mat_save_last_parish()
+        if hasattr(self, "_mat_prog_bar"):
+            self._mat_prog_bar.configure(mode="determinate", value=0, maximum=100)
+        if hasattr(self, "_mat_prog_label"):
+            self._mat_prog_label.configure(text="")
+
+    def _mat_on_line(self, line: str) -> str | None:
+        """Filtert ##PROG##-Zeilen und aktualisiert die Progressbar."""
+        if line.startswith("##PROG## "):
+            try:
+                cur_s, tot_s = line.strip()[9:].split("/")
+                current, total = int(cur_s), int(tot_s)
+                if total > 0 and hasattr(self, "_mat_prog_bar"):
+                    self._mat_prog_bar.configure(
+                        mode="determinate", maximum=total, value=current)
+                    self._mat_prog_label.configure(text=f"{current}/{total}")
+            except Exception:
+                pass
+            return None   # nicht in den Log schreiben
+        return line
 
     # ── Ortskonkordanz-Editor ─────────────────────────────────────────────
     def _open_place_editor(self):
@@ -369,7 +443,7 @@ class ToolsTab(ttk.Frame):
         return lf
 
     def _tool_action(self, parent, label: str, key: str,
-                     build_cmd, gui: str | None = None, on_start=None):
+                     build_cmd, gui: str | None = None, on_start=None, on_line=None):
         """Eine Tool-Zeile: Beschriftung + ▶ Start + ■ Stop."""
         row = ttk.Frame(parent); row.pack(fill="x", pady=1)
         ttk.Label(row, text=label, width=34, anchor="w").pack(side="left")
@@ -381,7 +455,7 @@ class ToolsTab(ttk.Frame):
         btn_stop = ttk.Button(row, text="■", width=3, state="disabled")
         btn_start = ttk.Button(row, text="▶ Start")
         btn_start.configure(command=lambda: self._tool_run(
-            key, build_cmd(), btn_start, btn_stop, on_start=on_start))
+            key, build_cmd(), btn_start, btn_stop, on_start=on_start, on_line=on_line))
         btn_stop.configure(command=lambda: self._tool_kill(key))
         btn_start.pack(side="left", padx=2)
         btn_stop.pack(side="left")
@@ -454,40 +528,40 @@ class ToolsTab(ttk.Frame):
 
     def _tl_cmd_mat_books(self) -> list[str]:
         from tkinter import messagebox
-        p = self._tl_mat_parish.get().strip()
-        if not p:
+        parishes = self._mat_get_parishes()
+        if not parishes:
             messagebox.showwarning("Pfarrei erforderlich",
-                                   "Bitte Pfarrei-Namen eingeben (z.B. 'ostercappeln')",
+                                   "Bitte mindestens eine Pfarrei auswählen.",
                                    parent=self)
             return []
         cmd = [sys.executable, "-u", _tool("fetch_matricula_books.py")]
-        cmd += ["--parish", p]
+        cmd += ["--parish"] + parishes
         return cmd
 
     def _tl_cmd_mat_scan(self) -> list[str]:
         from tkinter import messagebox
-        p = self._tl_mat_parish.get().strip()
-        if not p:
+        parishes = self._mat_get_parishes()
+        if not parishes:
             messagebox.showwarning("Pfarrei erforderlich",
-                                   "Bitte Pfarrei-Namen eingeben (z.B. 'ostercappeln')",
+                                   "Bitte mindestens eine Pfarrei auswählen.",
                                    parent=self)
             return []
-        cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py")]
-        cmd += ["--parish", p]
+        cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py"),
+               "--parish"] + parishes
         if self._tl_mat_dryrun.get():
             cmd.append("--dry-run")
         return cmd
 
     def _tl_cmd_mat_retranscribe(self) -> list[str]:
         from tkinter import messagebox
-        p = self._tl_mat_parish.get().strip()
-        if not p:
+        parishes = self._mat_get_parishes()
+        if not parishes:
             messagebox.showwarning("Pfarrei erforderlich",
-                                   "Bitte Pfarrei-Namen eingeben (z.B. 'ostercappeln')",
+                                   "Bitte mindestens eine Pfarrei auswählen.",
                                    parent=self)
             return []
         cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py"),
-               "--retranscribe", "--parish", p]
+               "--retranscribe", "--parish"] + parishes
         return cmd
 
     def _tl_cmd_mh_shared(self) -> list[str]:
@@ -534,7 +608,7 @@ class ToolsTab(ttk.Frame):
             self._tool_append(f"⚠ Fehler: {exc}\n")
 
     def _tool_run(self, key: str, cmd: list[str],
-                  btn_start: ttk.Button, btn_stop: ttk.Button, on_start=None):
+                  btn_start: ttk.Button, btn_stop: ttk.Button, on_start=None, on_line=None):
         if not cmd:
             return
         if self._tool_procs.get(key):
@@ -581,7 +655,10 @@ class ToolsTab(ttk.Frame):
                     btn_start.configure(state="normal")
                     btn_stop.configure(state="disabled")
                     return
-                self._tool_append(line)
+                if on_line is not None:
+                    line = on_line(line)
+                if line is not None:
+                    self._tool_append(line)
             self.after(400, _poll)
         self.after(400, _poll)
 

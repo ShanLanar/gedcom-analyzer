@@ -647,17 +647,21 @@ def _scan_book(
     new_entries = 0
     last_good_page = 0
 
+    _total_pages = len(page_range) if page_range is not None else -1
     iter_pages = page_range if page_range is not None else _count_up()
     consec_empty = 0
+    print(f"##PROG## 0/{_total_pages}", flush=True)
 
     for page_nr in iter_pages:
+        print(f"##PROG## {page_nr}/{_total_pages}", flush=True)
         if page_nr in done_pages:
             last_good_page = max(last_good_page, page_nr)
             continue
         if page_nr in corrected_pages:
             continue
 
-        print(f"    Seite {page_nr:4d} ", end="", flush=True)
+        _pg_label = f"{page_nr}/{_total_pages}" if _total_pages > 0 else str(page_nr)
+        print(f"    Seite {_pg_label:>7} ", end="", flush=True)
 
         # Archivpfad: retranscribe → tatsächliche Datei, direkt → Label-Name, sonst → nr
         if archived_by_nr:
@@ -1083,8 +1087,9 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser(
         description="Matricula-Kirchspiel komplett scannen und transkribieren"
     )
-    ap.add_argument("--parish",    required=True,
-                    help="Pfarrei-Slug (z.B. ostercappeln)")
+    ap.add_argument("--parish", nargs="+", required=True,
+                    help="Pfarrei-Slug(s), z.B. ostercappeln oder mehrere: "
+                         "ostercappeln anderer-ort")
     ap.add_argument("--book-type", default=None,
                     choices=["Taufe", "Heirat", "Tod", "Konfirmation"],
                     help="Nur diesen Buchtyp scannen")
@@ -1105,14 +1110,15 @@ if __name__ == "__main__":
                          "kein Web-Zugriff auf Matricula")
     args = ap.parse_args()
 
-    scan_kirchspiel(
-        parish_id=args.parish,
-        book_type_filter=args.book_type,
-        year_from=args.year_from,
-        year_to=args.year_to,
-        headless=not args.visible,
-        pause=args.pause,
-        dry_run=args.dry_run,
-        archive_dir=Path(args.archive_dir),
-        retranscribe=args.retranscribe,
-    )
+    for _parish_id in args.parish:
+        scan_kirchspiel(
+            parish_id=_parish_id,
+            book_type_filter=args.book_type,
+            year_from=args.year_from,
+            year_to=args.year_to,
+            headless=not args.visible,
+            pause=args.pause,
+            dry_run=args.dry_run,
+            archive_dir=Path(args.archive_dir),
+            retranscribe=args.retranscribe,
+        )
