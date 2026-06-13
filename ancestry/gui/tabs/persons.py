@@ -716,6 +716,7 @@ class PersonsTab(ttk.Frame):
             fact("SOSA", p.get("sosa_number"))
 
         # Zusammengeführte Detail-Abschnitte (früher: separater Datenviewer)
+        self._pers_render_insights(p)      # Herkunft / Nachnamen-Häufigkeit / Datenqualität
         self._pers_render_parish(p)        # Kirchspiel / Konfession (Matricula)
         self._pers_render_relations(p)     # Eltern/Partner/Kinder/Geschwister (Links)
         self._pers_render_xref(ged_id)     # GEDCOM-Verknüpfung (Quellen-Dedup)
@@ -754,6 +755,50 @@ class PersonsTab(ttk.Frame):
         ttk.Separator(self._pers_detail).pack(fill="x", padx=10, pady=(8, 4))
         ttk.Label(self._pers_detail, text=text,
                   font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=10)
+
+    # ── Detail-Abschnitt: Einordnung (Herkunft/Häufigkeit/Datenqualität) ───────
+    def _pers_render_insights(self, p: dict):
+        sn = (p.get("surname") or "").strip()
+        by = p.get("birth_year")
+        rows = []   # (Label, Wert, Farbe)
+
+        # Herkunftsregion (ML-Modell; leer wenn kein Modell trainiert)
+        try:
+            from ancestry.core.ml_origin import predict_region
+            regs = predict_region(sn, by, top=2) if sn else []
+        except Exception:
+            regs = []
+        if regs:
+            txt = ", ".join(f"{r} ({pr*100:.0f}%)" for r, pr in regs)
+            rows.append(("Herkunft", txt, _TXT))
+
+        # Nachnamen-Häufigkeit in der Datenbank
+        if sn:
+            try:
+                with self._db._cursor() as cur:
+                    n = cur.execute("SELECT COUNT(*) FROM gedcom_persons "
+                                    "WHERE surname=?", (sn,)).fetchone()[0]
+                tag = "selten" if n <= 3 else "häufig" if n >= 25 else ""
+                rows.append(("Nachname", f"{n}× im Baum" + (f" · {tag}" if tag else ""),
+                             _LINK if n <= 3 else _TXT))
+            except Exception:
+                pass
+
+        # Datenqualität (Vollständigkeit der Kernfelder)
+        keys = ("given_name", "surname", "sex", "birth_year", "birth_place",
+                "death_year", "death_place")
+        filled = sum(1 for k in keys if str(p.get(k) or "").strip() not in ("", "0"))
+        pct = round(100 * filled / len(keys))
+        qcol = _EV if pct >= 70 else _KATH if pct >= 40 else "#b58b00"
+        rows.append(("Datenqualität", f"{pct}% ({filled}/{len(keys)} Felder)", qcol))
+
+        if not rows:
+            return
+        self._pers_hdr("📈 Einordnung")
+        for lbl, val, col in rows:
+            r = ttk.Frame(self._pers_detail); r.pack(fill="x", padx=10, pady=1)
+            ttk.Label(r, text=lbl, width=10, foreground=_MUTED).pack(side="left")
+            ttk.Label(r, text=val, foreground=col, wraplength=210).pack(side="left")
 
     def _pers_render_parish(self, p: dict):
         parish = _parish_for(p.get("birth_place") or "")
