@@ -452,6 +452,18 @@ def get_xref_pairs(db, status: str = "", lo: float = 0.0, hi: float = 1.0,
         return [dict(r) for r in cur.execute(sql, args).fetchall()]
 
 
+def get_xref_ids(db, ged_id: str, source_other: str = "anverwandte") -> list[str]:
+    """Gibt alle verknüpften IDs aus einer Quelle zurück (wo diese Person auch bekannt ist).
+    Nutzt 'auto' und 'confirmed' Status (nicht 'rejected')."""
+    ensure_tables(db)
+    with db._cursor() as cur:
+        rows = cur.execute(
+            "SELECT ged_id_other FROM gedcom_person_xref "
+            "WHERE ged_id_primary=? AND source_other=? AND status!='rejected'",
+            (ged_id, source_other)).fetchall()
+    return [r["ged_id_other"] for r in rows]
+
+
 def set_xref_status(db, ged_id_primary: str, ged_id_other: str, status: str) -> None:
     """Querbezug bestätigen/ablehnen (status: confirmed|rejected|auto)."""
     with db._cursor() as cur:

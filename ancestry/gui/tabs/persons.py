@@ -705,6 +705,13 @@ class PersonsTab(ttk.Frame):
                   font=("Segoe UI", 13, "bold"), wraplength=300).pack(
             anchor="w", padx=10, pady=(10, 2))
         meta = f"{ged_id} · {p.get('sex') or '?'} · {_SRC_LABEL.get(p.get('source',''), p.get('source',''))}"
+        try:
+            from ancestry.core.bridge.gedcom_import import get_xref_ids
+            xrefs = get_xref_ids(self._state.db, ged_id, "anverwandte")
+            if xrefs:
+                meta += f" · {xrefs[0]}"
+        except Exception:
+            pass
         ttk.Label(self._pers_detail, text=meta, foreground=_MUTED).pack(
             anchor="w", padx=10)
         kin = self._pers_full_relationship(ged_id, p)
@@ -752,11 +759,24 @@ class PersonsTab(ttk.Frame):
             yrs = _years(d.get("birth_year"), d.get("death_year"))
             return (n or str(xid)) + (f" ({yrs})" if yrs else "")
 
+        def _xref_id(xid):
+            """Gibt die Anverwandte-ID zurück, falls verknüpft."""
+            try:
+                from ancestry.core.bridge.gedcom_import import get_xref_ids
+                ids = get_xref_ids(self._state.db, str(xid), "anverwandte")
+                return ids[0] if ids else None
+            except Exception:
+                return None
+
         for label, ids in groups:
             for xid in ids:
                 row = ttk.Frame(self._pers_detail); row.pack(fill="x", padx=10, pady=1)
                 ttk.Label(row, text=label, width=10, foreground=_MUTED).pack(side="left")
-                lk = ttk.Label(row, text=_name(xid), foreground=_LINK,
+                text = _name(xid)
+                anvw_id = _xref_id(xid)
+                if anvw_id:
+                    text += f" · {anvw_id}"
+                lk = ttk.Label(row, text=text, foreground=_LINK,
                                cursor="hand2", wraplength=210)
                 lk.pack(side="left")
                 lk.bind("<Button-1>", lambda e, i=str(xid): self._pers_navigate(i))
