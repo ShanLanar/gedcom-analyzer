@@ -1496,10 +1496,37 @@ def _ged_name(p: dict) -> str:
     return f"{' '.join(parts[:-1])} /{parts[-1]}/"
 
 
+_DE_ABT_RE = re.compile(r'^(um|circa|ca\.?|etwa)\s+', re.IGNORECASE)
+_DE_BEF_RE = re.compile(r'^vor\s+', re.IGNORECASE)
+_DE_AFT_RE = re.compile(r'^nach\s+', re.IGNORECASE)
+_DE_BET_RE = re.compile(r'^zwischen\s+(.+?)\s+und\s+(.+)$', re.IGNORECASE)
+_GED_KW_RE = re.compile(r'^(ABT|BEF|AFT|BET|CAL|EST|INT)\b', re.IGNORECASE)
+
+
+def _norm_ged_date(date: str) -> str:
+    """German Webtrees date qualifiers → GEDCOM standard (ABT/BEF/AFT/BET)."""
+    d = date.strip()
+    if not d or _GED_KW_RE.match(d):
+        return d
+    m = _DE_BET_RE.match(d)
+    if m:
+        return f"BET {m.group(1).strip()} AND {m.group(2).strip()}"
+    m = _DE_ABT_RE.match(d)
+    if m:
+        return "ABT " + d[m.end():]
+    m = _DE_BEF_RE.match(d)
+    if m:
+        return "BEF " + d[m.end():]
+    m = _DE_AFT_RE.match(d)
+    if m:
+        return "AFT " + d[m.end():]
+    return d
+
+
 def _ged_event(tag: str, date: str, place: str) -> list[str]:
     lines = [f"1 {tag}"]
     if date:
-        lines.append(f"2 DATE {date}")
+        lines.append(f"2 DATE {_norm_ged_date(date)}")
     if place:
         lines.append(f"2 PLAC {place}")
     return lines if len(lines) > 1 else []
@@ -1527,7 +1554,7 @@ def _fact_lines(f: dict, level: int, map_place) -> list[str]:
         lines = [f"{level} {tag}"]
     date = (f.get("date") or "").strip()
     if date:
-        lines.append(f"{sub} DATE {date}")
+        lines.append(f"{sub} DATE {_norm_ged_date(date)}")
     place = (f.get("place") or "").strip()
     if tag in ("BIRT", "DEAT"):
         prefix = _extract_address_prefix(f.get("address", ""))
@@ -1700,6 +1727,14 @@ def export_gedcom(db_path: Path, out_path: str,
         person_sour: list[str] = []
         facts = _facts(p)
         if facts:
+            # BIRT == BAPM → Geburtsdatum war wahrscheinlich nicht bekannt;
+            # das Taufdatum wurde doppelt eingetragen. BIRT als "BEF ..." markieren.
+            birt_f = next((f for f in facts if f.get("tag") == "BIRT" and f.get("date")), None)
+            bapm_f = next((f for f in facts if f.get("tag") == "BAPM" and f.get("date")), None)
+            if (birt_f and bapm_f and
+                    _norm_ged_date(birt_f["date"].strip()) == _norm_ged_date(bapm_f["date"].strip())):
+                bef_date = "BEF " + _norm_ged_date(birt_f["date"].strip())
+                facts = [dict(f, date=bef_date) if f is birt_f else f for f in facts]
             # Reichhaltiger Pfad: jede (Nicht-Heirats-)Tatsache als Ereignis,
             # inkl. Taufe/Begräbnis/Beruf, Matricula-Quelle + Pate/Patin/Zeuge.
             # Sicherstellen, dass es eine BIRT/DEAT gibt (aus Skalar-Feldern),
