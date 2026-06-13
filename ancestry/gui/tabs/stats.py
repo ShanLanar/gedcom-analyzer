@@ -181,6 +181,28 @@ class StatsTab(ttk.Frame):
                                         highlightthickness=0)
         self._traits_canvas.pack(fill="x", expand=True)
 
+        # ── Populationsstatistik (population_stats) — dauerhaft im Fenster ────
+        popf = ttk.LabelFrame(self, text="📊 Populationsstatistik", padding=8)
+        popf.pack(fill="x", padx=14, pady=(0, 8))
+        ttk.Label(popf, text="Nachnamen-Entropie pro Jahrzehnt (Namensvielfalt):",
+                  foreground="#666666").pack(anchor="w")
+        self._ent_tree = ttk.Treeview(popf, columns=("dec", "ent", "uni", "tot"),
+                                      show="headings", height=6)
+        for c, txt, w in (("dec", "Jahrzehnt", 90), ("ent", "Entropie", 90),
+                          ("uni", "Namen", 80), ("tot", "Personen", 90)):
+            self._ent_tree.heading(c, text=txt)
+            self._ent_tree.column(c, width=w, anchor="center", stretch=False)
+        self._ent_tree.pack(fill="x", pady=(2, 8))
+        ttk.Label(popf, text="cM-Histogramm der Matches:",
+                  foreground="#666666").pack(anchor="w")
+        self._cm_tree = ttk.Treeview(popf, columns=("bin", "obs", "hint"),
+                                     show="headings", height=6)
+        for c, txt, w in (("bin", "cM-Bereich", 120), ("obs", "Matches", 80),
+                          ("hint", "Verwandtschaft", 180)):
+            self._cm_tree.heading(c, text=txt)
+            self._cm_tree.column(c, width=w, anchor="w", stretch=False)
+        self._cm_tree.pack(fill="x", pady=(2, 0))
+
         self.refresh()
 
     # ── Daten ────────────────────────────────────────────────────────────────
@@ -204,6 +226,28 @@ class StatsTab(ttk.Frame):
         self._draw_rings(stats)
         self.after(50, self._draw_ethnicity)
         self.after(60, self._draw_traits)
+        self.after(70, self._refresh_population)
+
+    def _refresh_population(self):
+        from ancestry.core import population_stats as ps
+        try:
+            self._ent_tree.delete(*self._ent_tree.get_children())
+            for r in ps.surname_entropy_series(self._state.db):
+                self._ent_tree.insert("", "end", values=(
+                    r.get("decade"), f"{r.get('entropy', 0):.2f}",
+                    r.get("unique"), r.get("total")))
+        except Exception as e:
+            log.debug("surname_entropy_series: %s", e)
+        try:
+            self._cm_tree.delete(*self._cm_tree.get_children())
+            tg = self._get_test_guid()
+            if tg:
+                for r in ps.cm_histogram(self._state.db, tg):
+                    self._cm_tree.insert("", "end", values=(
+                        r.get("label", ""), r.get("observed", 0),
+                        r.get("rel_hint", "")))
+        except Exception as e:
+            log.debug("cm_histogram: %s", e)
 
     def _draw_rings(self, stats: dict):
         c = self._ring_canvas
