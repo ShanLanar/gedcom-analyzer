@@ -134,12 +134,157 @@ _LABEL_TO_TAG = {
 # Labels, die wir nicht als Ereignis exportieren (Meta/Verwaltung)
 _FACT_SKIP = {"letzte änderung", "letzter import", "geschlecht", "name", ""}
 
+# Stadt/Verwaltungseinheit → Landkreis (für vollständige GEDCOM-Plätze)
+# Beispiel: Georgsmarienhütte ist eine Kreisfreie Stadt in Osnabruck (Landkreis)
+_CITY_TO_DISTRICT_MAP = {
+    "Georgsmarienhütte": "Osnabruck",
+    "Osnabrück": "Osnabruck",
+    "Osnabruck": "Osnabruck",
+    "Belm": "Osnabruck",
+    "Bad Essen": "Osnabruck",
+    "Bad Iburg": "Osnabruck",
+    "Wallenhorst": "Osnabruck",
+    "Ostercappeln": "Osnabruck",
+    "Steinfurt": "Steinfurt",
+    "Mettingen": "Steinfurt",
+    "Steinhagen": "Warendorf",  # NRW, Landkreis Warendorf
+    "Lüneburg": "Lüneburg",
+    "Verden": "Verden",
+    "Hameln-Pyrmont": "Hameln-Pyrmont",
+}
+
+# Orts→Landkreis Mappings für GEDCOM-Normalisierung (aus realen Daten extrahiert)
+# Wenn keine Stadt gegeben, nutze direkte Orts→Landkreis Zuordnung
+_PLACE_DISTRICT_MAP = {
+    "Harderberg": "Georgsmarienhütte",  # Ortsteil von Georgsmarienhütte
+    "Voxtrup": "Osnabruck",  # Ortsteil von Osnabrück
+    "Oesede": "Georgsmarienhütte",  # Ortsteil von Georgsmarienhütte
+    "Hagen": "Osnabruck",
+    "Hellern": "Osnabrück",
+    "Schinkel": "Osnabruck",
+    "Glandorf": "Osnabruck",
+    "Lechtingen": "Osnabruck",
+    "Bohmte": "Osnabruck",
+    "Icker": "Osnabruck",
+}
+
+# Bundesland → englisch (für GEDCOM-Standard)
+_STATE_NORMALIZATION = {
+    "niedersachsen": "Lower Saxony",
+    "nordrhein-westfalen": "North Rhine-Westphalia",
+    "nrw": "North Rhine-Westphalia",
+    "schleswig-holstein": "Schleswig-Holstein",
+    "hamburg": "Hamburg",
+    "hessen": "Hesse",
+    "theüringen": "Thuringia",
+    "sachsen": "Saxony",
+    "sachsen-anhalt": "Saxony-Anhalt",
+    "bayern": "Bavaria",
+    "bw": "Baden-Württemberg",
+    "baden-württemberg": "Baden-Württemberg",
+    "mecklenburg-vorpommern": "Mecklenburg-Vorpommern",
+    "rheinland-pfalz": "Rhineland-Palatinate",
+    "saarland": "Saarland",
+    "bremen": "Bremen",
+}
+
 
 def _clean(html_fragment: str) -> str:
     txt = _TAG_RE.sub(" ", html_fragment or "")
     txt = re.sub(r"&nbsp;", " ", txt)
     txt = re.sub(r"&amp;", "&", txt)
     return re.sub(r"\s+", " ", txt).strip()
+
+
+def normalize_place(place_str: str) -> str:
+    """Normalize Webtrees place to GEDCOM standard format.
+
+    Removes DEU/Deutschland codes, normalizes state names (German→English),
+    and fills in missing district/city hierarchies.
+
+    Examples:
+        "Osnabrück, Niedersachsen" → "Osnabrück, Osnabruck, Lower Saxony, Germany"
+        "Harderberg, Georgsmarienhütte" → "Harderberg, Georgsmarienhütte, Osnabruck, Lower Saxony, Germany"
+        "Osnabrück, Niedersachsen, DEU" → "Osnabrück, Osnabruck, Lower Saxony, Germany"
+    """
+    if not place_str:
+        return ""
+
+    # Remove redundant country codes
+    place_clean = place_str.replace(", DEU", "").replace(", Deutschland", "").strip()
+
+    parts = [p.strip() for p in place_clean.split(",")]
+    parts = [p for p in parts if p]
+    if not parts:
+        return place_str
+
+    # If already complete, return as-is
+    if len(parts) >= 4 and "Germany" in place_clean:
+        return place_clean
+
+    ort = parts[0]
+
+    # Case 1: Single part [Ort]
+    if len(parts) == 1:
+        city_or_district = _PLACE_DISTRICT_MAP.get(ort)
+        if city_or_district:
+            district = _CITY_TO_DISTRICT_MAP.get(city_or_district, city_or_district)
+            return f"{ort}, {city_or_district}, {district}, Lower Saxony, Germany"
+        else:
+            # Check if ort is itself a known city in CITY_TO_DISTRICT
+            district = _CITY_TO_DISTRICT_MAP.get(ort)
+            if district:
+                return f"{ort}, {district}, Lower Saxony, Germany"
+            else:
+                return f"{ort}, Lower Saxony, Germany"
+
+    # Case 2: Two parts [Ort, ???]
+    elif len(parts) == 2:
+        second = parts[1].lower()
+        state_norm = _STATE_NORMALIZATION.get(second)
+
+        if state_norm:
+            # Format: [Ort, Bundesland]
+            city_or_district = _PLACE_DISTRICT_MAP.get(ort)
+            if city_or_district:
+                district = _CITY_TO_DISTRICT_MAP.get(city_or_district, city_or_district)
+                if city_or_district != district:
+                    return f"{ort}, {city_or_district}, {district}, {state_norm}, Germany"
+                else:
+                    return f"{ort}, {city_or_district}, {state_norm}, Germany"
+            else:
+                # Check if ort is itself a city
+                district = _CITY_TO_DISTRICT_MAP.get(ort)
+                if district:
+                    return f"{ort}, {district}, {state_norm}, Germany"
+                else:
+                    return f"{ort}, {state_norm}, Germany"
+        else:
+            # Format: [Ort, Stadt] or [Ort, Landkreis]
+            city_or_district = parts[1]
+            district = _CITY_TO_DISTRICT_MAP.get(city_or_district)
+            if district:
+                if city_or_district != district:
+                    return f"{ort}, {city_or_district}, {district}, Lower Saxony, Germany"
+                else:
+                    # City and district are the same (e.g., Steinfurt)
+                    return f"{ort}, {city_or_district}, Lower Saxony, Germany"
+            else:
+                return f"{ort}, {city_or_district}, Lower Saxony, Germany"
+
+    # Case 3: Three parts [Ort, ???, Bundesland]
+    elif len(parts) == 3:
+        second = parts[1]
+        third = parts[2]
+        state_norm = _STATE_NORMALIZATION.get(third.lower(), third)
+        district = _CITY_TO_DISTRICT_MAP.get(second)
+        if district and district != second:
+            return f"{ort}, {second}, {district}, {state_norm}, Germany"
+        else:
+            return f"{ort}, {second}, {state_norm}, Germany"
+
+    # Fallback for 4+ parts
+    return place_str
 
 
 def _host_to_slug(host: str) -> str:
@@ -579,6 +724,14 @@ def parse_individual(html: str, url: str) -> dict:
         birth_year = _yr(birth_date)
     if not death_year:
         death_year = _yr(death_date)
+
+    # Normalize places to GEDCOM standard: Ort, Landkreis, Bundesland, Staat
+    birth_place = normalize_place(birth_place)
+    death_place = normalize_place(death_place)
+    # Also normalize places in facts
+    for fact in facts:
+        if fact.get("place"):
+            fact["place"] = normalize_place(fact["place"])
 
     # ── gerichtete Verwandtschaft (Eltern/Kinder/Partner/Geschwister)
     fam = parse_family_nav(html)
