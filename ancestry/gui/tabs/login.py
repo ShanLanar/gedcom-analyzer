@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import threading
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -39,6 +40,7 @@ class LoginTab(ttk.Frame):
         on_switch_tab: Callable[[int], None],
         cookie_var: Optional[tk.StringVar] = None,
         guid_var: Optional[tk.StringVar] = None,
+        auto_login: bool = True,
     ):
         super().__init__(parent)
         self._state           = state
@@ -48,7 +50,14 @@ class LoginTab(ttk.Frame):
         # Optional von der App geteilte Vars (Persistenz über settings.json)
         self._cookie_file_var = cookie_var if cookie_var is not None else tk.StringVar()
         self._manual_guid_var = guid_var if guid_var is not None else tk.StringVar()
+        self._auto_login      = auto_login
+        self._auto_login_done = False
         self._build()
+        # Auto-Login, sobald eine Cookie-JSON hinterlegt ist. Verzögert, damit
+        # _load_settings der App den gespeicherten Pfad zuerst setzen kann
+        # (läuft dort ~200 ms nach Start).
+        if self._auto_login:
+            self.after(1000, self._maybe_auto_login)
 
     # ── Aufbau ───────────────────────────────────────────────────────────────
 
@@ -109,6 +118,22 @@ class LoginTab(ttk.Frame):
         if not path:
             messagebox.showwarning("Keine Datei", "Bitte Cookie-Datei auswählen.")
             return
+        threading.Thread(target=self._login_thread, args=(path, None, "cookie"),
+                         daemon=True).start()
+
+    def _maybe_auto_login(self):
+        """Einmaliger Auto-Login beim Start, wenn eine Cookie-JSON hinterlegt ist.
+
+        Liest den (ggf. erst nach dem Aufbau gesetzten) Cookie-Pfad live. Schlägt
+        der Login fehl (z. B. abgelaufene Cookies), bleibt der manuelle Weg offen.
+        """
+        if self._auto_login_done:
+            return
+        path = self._cookie_file_var.get().strip()
+        if not path or not os.path.exists(path):
+            return
+        self._auto_login_done = True
+        self.set_status("🔄 Auto-Login mit gespeicherter Cookie-Datei …", success=True)
         threading.Thread(target=self._login_thread, args=(path, None, "cookie"),
                          daemon=True).start()
 
