@@ -53,7 +53,7 @@ class OcrSearch(ttk.Frame):
         if os.path.exists(INDEX_PATH):
             self._status.configure(text="Index bereit")
         else:
-            self._status.configure(text="Kein Index — erst „📑 Index neu bauen".")
+            self._status.configure(text="Kein Index — erst 'Index neu bauen' klicken.")
 
     def search(self):
         q = self._q.get().strip()
