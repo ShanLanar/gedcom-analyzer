@@ -127,6 +127,7 @@ class ToolsTab(ttk.Frame):
         self._tl_wt_discover = tk.BooleanVar(value=True)
         self._tl_wt_trainn = tk.StringVar(value="100")
         self._tl_mat_parish = tk.StringVar(value="")
+        self._tl_mat_dryrun = tk.BooleanVar(value=False)
         self._tl_mh_csv = tk.StringVar(value="")
         self._tl_mh_mincm = tk.StringVar(value="20")
         self._tl_mh_repair = tk.BooleanVar(value=False)
@@ -172,8 +173,15 @@ class ToolsTab(ttk.Frame):
                           lambda: [sys.executable, "-u", _tool("scrape_matricula_osnabrueck.py")])
         self._tool_action(sec, "1 · Bücherverzeichnis holen", "mat_books",
                           self._tl_cmd_mat_books)
+        row2 = ttk.Frame(sec); row2.pack(fill="x", pady=(2, 0))
+        ttk.Checkbutton(row2, text="nur Bilder laden, kein OCR (--dry-run)",
+                        variable=self._tl_mat_dryrun).pack(side="left")
         self._tool_action(sec, "2 · Seiten scannen (Claude Vision)", "mat_scan",
                           self._tl_cmd_mat_scan)
+        self._tool_action(sec, "🔁 Re-Transkription (lokale Bilder)", "mat_retranscribe",
+                          self._tl_cmd_mat_retranscribe)
+        self._tool_action(sec, "🌐 Matricula-Viewer öffnen (Port 5000)", "mat_viewer",
+                          lambda: [sys.executable, "-u", _tool("matricula_viewer.py")])
 
         # ── Abschnitt C: MyHeritage ───────────────────────────────────────
         sec = self._tool_section(inner, "🧬  MyHeritage-DNA")
@@ -410,6 +418,16 @@ class ToolsTab(ttk.Frame):
 
     def _tl_cmd_mat_scan(self) -> list[str]:
         cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py")]
+        p = self._tl_mat_parish.get().strip()
+        if p:
+            cmd += ["--parish", p]
+        if self._tl_mat_dryrun.get():
+            cmd.append("--dry-run")
+        return cmd
+
+    def _tl_cmd_mat_retranscribe(self) -> list[str]:
+        cmd = [sys.executable, "-u", _tool("scan_matricula_kirchspiel.py"),
+               "--retranscribe"]
         p = self._tl_mat_parish.get().strip()
         if p:
             cmd += ["--parish", p]
