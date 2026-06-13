@@ -525,7 +525,10 @@ def _scan_book(
     time.sleep(pause)
 
     # ── Seitenanzahl ermitteln ────────────────────────────────────────────────
-    total_pages = _detect_page_count(pw_page)
+    # Erst aus der DB (vom letzten Lauf oder fetch_matricula_books gesetzt)
+    total_pages = book["total_pages"] if book["total_pages"] else None
+    if total_pages is None:
+        total_pages = _detect_page_count(pw_page)
     if total_pages is None:
         # Retry: nochmal 4 Sekunden warten (JS-Lazy-Load)
         time.sleep(4.0)
