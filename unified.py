@@ -147,6 +147,49 @@ def main():
 
     _apply_notebook_style(root)
 
+    # ── Steuerleiste oben rechts (Theme-Umschalter) ────────────────────────────
+    from lib import theming
+    _theme = {"light": (cfg.DEFAULT_CONFIG.get("theme", "dark") == "light")}
+
+    topbar = tk.Frame(root, bg=cfg.BG)
+    topbar.pack(side="top", fill="x")
+    _theme_btn = tk.Button(
+        topbar, font=("Segoe UI", 10, "bold"), relief="flat", bd=0,
+        padx=12, pady=4, cursor="hand2")
+    _theme_btn.pack(side="right", padx=8, pady=4)
+
+    def _refresh_theme_btn():
+        if _theme["light"]:
+            _theme_btn.configure(text="🌙 Dunkel", bg="#1f4e79", fg="#ffffff",
+                                 activebackground="#163a5a", activeforeground="#fff")
+        else:
+            _theme_btn.configure(text="🌞 Hell", bg="#2a2a3e", fg="#cdd6f4",
+                                 activebackground="#3a3a52", activeforeground="#fff")
+
+    def _apply_theme(to_light: bool):
+        _theme["light"] = to_light
+        try:
+            theming.retheme_tree(root, to_light)
+        except Exception:
+            log.exception("retheme_tree fehlgeschlagen")
+        if dna_obj is not None:
+            try:
+                dna_obj.set_theme(dark=not to_light)
+            except Exception:
+                log.exception("DNA-Theme setzen fehlgeschlagen")
+        _refresh_theme_btn()
+        try:
+            cfg.DEFAULT_CONFIG["theme"] = "light" if to_light else "dark"
+            cfg.save_overrides({"theme": cfg.DEFAULT_CONFIG["theme"]})
+        except Exception:
+            pass
+
+    def _toggle_theme_global():
+        _apply_theme(not _theme["light"])
+
+    _theme_btn.configure(command=_toggle_theme_global)
+    _refresh_theme_btn()
+
     # ── Notebook mit 3 Reitern ─────────────────────────────────────────────────
     nb = ttk.Notebook(root)
     nb.pack(fill="both", expand=True)
@@ -247,6 +290,12 @@ def main():
         root.destroy()
 
     root.protocol("WM_DELETE_WINDOW", _on_close)
+
+    # Persistiertes Theme anwenden (Default dunkel). Verzögert, damit alle
+    # Reiter fertig aufgebaut sind, bevor der Widgetbaum umgefärbt wird.
+    if _theme["light"]:
+        root.after(150, lambda: _apply_theme(True))
+
     root.mainloop()
 
 

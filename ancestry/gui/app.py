@@ -128,6 +128,15 @@ class AncestryDnaApp(tk.Frame):
         self._build_style()
         self._save_ui_settings(dark_mode=self._dark_mode)
 
+    def set_theme(self, dark: bool):
+        """Setzt das Theme explizit (für den globalen Hell/Dunkel-Schalter)."""
+        self._dark_mode = bool(dark)
+        try:
+            self._build_style()
+            self.configure(bg=self._active_colors()["bg"])
+        except Exception:
+            pass
+
     def _active_colors(self):
         return COLORS_DARK if self._dark_mode else COLORS
 
