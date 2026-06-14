@@ -153,7 +153,8 @@ def test_export_gedcom_emits_rich_events(tmp_path: Path):
     ged = out.read_text(encoding="utf-8")
 
     assert "1 BAPM" in ged
-    assert "2 PLAC St. Remigius, Oesede, Niedersachsen, DEU" in ged
+    # Ort kann durch die Ortskonkordanz übersetzt werden – Präfix bleibt stabil.
+    assert "2 PLAC St. Remigius, Oesede" in ged
     assert "1 OCCU Heuerling" in ged
     assert "2 SOUR @S2@" in ged          # Matricula als Ereignis-Quelle
     assert "Patin: Maria Gertrud Broxtermann" in ged
@@ -163,3 +164,46 @@ def test_export_gedcom_emits_rich_events(tmp_path: Path):
     # Keine MARR im INDI-Record
     indi_block = ged.split("0 @F", 1)[0]
     assert "1 MARR" not in indi_block
+
+
+def test_training_run_saves_html_json_and_zip(tmp_path, monkeypatch):
+    import zipfile
+    import ancestry.tools.crawl_webtrees as cw
+
+    graph = {"I1": ["I2", "I3"], "I2": ["I1", "I4"], "I3": ["I1"],
+             "I4": ["I2", "I5"], "I5": ["I4"]}
+
+    def fake_init(self, base, **kw):
+        self.base = base; self.delay = 0; self._last = 0
+        self._extra_headers = {}; self._perm_fail = set(); self.robots = None
+        import http.cookiejar
+        import urllib.request as rq
+        self._cookie_jar = http.cookiejar.CookieJar()
+        self._opener = rq.build_opener()
+
+    def fake_get(self, url, *a, **k):
+        import re
+        pid = re.search(r"/individual/(I\d+)", url).group(1)
+        links = "".join(
+            f'<a href="/tree/anverwandte/individual/{r}/x">x</a>'
+            for r in graph.get(pid, []))
+        return f"<html><div class='wt-fact-label ut'>Geburt</div>{links}</html>"
+
+    monkeypatch.setattr(cw.Fetcher, "__init__", fake_init)
+    monkeypatch.setattr(cw.Fetcher, "get", fake_get)
+
+    out = tmp_path / "training_pages"
+    res = cw.training_run(
+        "https://x/tree/anverwandte/individual/I1/Seed",
+        n_pages=4, out_dir=out, delay=0)
+    assert res == out
+    # Roh-HTML + Parser-JSON je Seite + Manifest
+    assert sorted(p.name for p in out.glob("*.html")) == \
+        ["I1.html", "I2.html", "I3.html", "I4.html"]
+    assert (out / "I1.json").exists()
+    assert (out / "_manifest.json").exists()
+    # ZIP-Beigabe enthält HTML, JSON und Manifest
+    zp = out.with_suffix(".zip")
+    assert zp.exists()
+    names = zipfile.ZipFile(zp).namelist()
+    assert "_manifest.json" in names and "I1.html" in names and "I1.json" in names

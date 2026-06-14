@@ -1352,13 +1352,32 @@ def training_run(seed_url: str, n_pages: int = 100, delay: float = 4.0,
         }, indent=2, ensure_ascii=False),
         encoding="utf-8")
 
+    # Alles in ein ZIP packen – eine Datei lässt sich leicht weitergeben.
+    import zipfile
+    zip_path = out_dir.with_suffix(".zip")
+    try:
+        with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
+            per_page = sorted(out_dir.glob("*.html")) + sorted(
+                p for p in out_dir.glob("*.json") if p.name != "_manifest.json")
+            for p in per_page:
+                zf.write(p, p.name)
+            mf = out_dir / "_manifest.json"
+            if mf.exists():
+                zf.write(mf, "_manifest.json")
+    except Exception as exc:               # noqa: BLE001 — ZIP ist nur Komfort
+        print(f"  ⚠ ZIP konnte nicht erstellt werden: {exc}")
+        zip_path = None
+
     errs = sum(1 for m in manifest if m["parse_error"])
     print(f"\nFertig: {saved} Seiten gespeichert"
           + (f", {skipped} übersprungen" if skipped else "")
           + (f", {errs} mit Parser-Fehler" if errs else ""))
     print(f"Ordner   : {out_dir}")
     print(f"Manifest : {out_dir / '_manifest.json'}")
-    print("→ Diesen Ordner zippen und zur Parser-Verbesserung zurückgeben.")
+    if zip_path:
+        print(f"ZIP      : {zip_path}  ← diese Datei zur Parser-Verbesserung zurückgeben")
+    else:
+        print("→ Diesen Ordner zippen und zur Parser-Verbesserung zurückgeben.")
     return out_dir
 
 
