@@ -14,8 +14,8 @@ Aufruf:
   python xref_review.py --reject  <primary> <other>
   python xref_review.py -i               # interaktiv durchgehen (j/n/q)
 """
-import sys
 import argparse
+import sys
 from pathlib import Path
 
 ANCESTRY_DIR = Path(__file__).resolve().parent.parent
@@ -39,8 +39,8 @@ def show(r):
 
 
 def main():
-    from ancestry.core.database import Database
     from ancestry.core import bridge
+    from ancestry.core.database import Database
     ap = argparse.ArgumentParser()
     ap.add_argument("--all", action="store_true")
     ap.add_argument("--lo", type=float, default=0.72)

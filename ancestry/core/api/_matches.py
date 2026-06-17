@@ -2,14 +2,15 @@
 Matches-, DNA-Kits- und Notizen-Mixin für den Ancestry-API-Client.
 """
 
-import time
-import math
 import logging
+import math
+import time
 from typing import Iterator, Optional
 
 import ancestry.endpoints as cfg
 from ancestry.models import DnaKit, DnaMatch, SharedMatch
-from ._session import _api_get, _jitter, BURST_LIMIT, BURST_PAUSE, JWT_REFRESH_INTERVAL
+
+from ._session import BURST_LIMIT, BURST_PAUSE, JWT_REFRESH_INTERVAL, _api_get, _jitter
 
 log = logging.getLogger(__name__)
 

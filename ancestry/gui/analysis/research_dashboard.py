@@ -180,8 +180,7 @@ def show_research_dashboard(app) -> None:
     import threading
     from tkinter import messagebox
 
-    from ancestry.core.ai_copilot import (availability_hint, explain_async,
-                                           gaps_prompt, is_available)
+    from ancestry.core.ai_copilot import availability_hint, explain_async, gaps_prompt, is_available
 
     test_guid = app._current_guid()
     if not test_guid:

@@ -53,6 +53,7 @@ meta  = {"kit_id": "dnakit-9F9E6C0C-5EF0-4A73-9F85-1F1C8219B3A2",
          "source": "indexeddb"}
 
 from ancestry.paths import SNAPSHOT_DIR
+
 out_file = SNAPSHOT_DIR / "mh_indexeddb_matches.json"
 out_file.write_text(json.dumps({"meta": meta, "matches": match_list}, indent=2),
                     encoding="utf-8")

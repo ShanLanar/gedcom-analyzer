@@ -26,12 +26,12 @@ import os
 import sys
 import time
 
+from ancestry.core.api import AncestryApiClient
 from ancestry.core.auth import AncestryAuth
-from ancestry.core.api  import AncestryApiClient
 from ancestry.core.database import Database
-from ancestry.core.scraper  import Scraper
+from ancestry.core.scraper import Scraper
 from ancestry.models import DnaKit
-from ancestry.paths import DB_PATH, DATA_DIR
+from ancestry.paths import DATA_DIR, DB_PATH
 
 logging.basicConfig(
     level=logging.INFO,

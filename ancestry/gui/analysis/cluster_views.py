@@ -14,7 +14,7 @@ from ancestry.gui.widgets.theme import COLORS
 
 def show_cluster_tree_win(app, cluster, rows, n_with_ped, has_ged, name_by_member):
     """Kombinierter Cluster-Stammbaum: verschmolzene Ahnen aller Mitglieder."""
-    from ancestry.core.treematch import render_kinship, cm_to_mrca, cluster_confidence
+    from ancestry.core.treematch import cluster_confidence, cm_to_mrca, render_kinship
 
     win = tk.Toplevel(app)
     win.title("Kombinierter Cluster-Stammbaum")

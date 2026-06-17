@@ -18,18 +18,17 @@ Autor: ged_slim v1.0
 Lizenz: frei verwendbar
 """
 
-import tkinter as tk
-from tkinter import ttk, filedialog, messagebox, scrolledtext
-import threading
+import logging
 import os
 import re
+import threading
 import time
-import logging
-from pathlib import Path
+import tkinter as tk
 from dataclasses import dataclass, field
-from typing import Optional
 from datetime import datetime
-
+from pathlib import Path
+from tkinter import filedialog, messagebox, scrolledtext, ttk
+from typing import Optional
 
 # ---------------------------------------------------------------------------
 # Konfiguration & Datenmodell

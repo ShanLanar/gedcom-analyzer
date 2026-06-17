@@ -19,8 +19,7 @@ import pickle
 from collections import defaultdict
 from pathlib import Path
 
-from ancestry.core.bridge._text import (_norm, _koelner, _levenshtein,
-                                        _name_sim, _place_sim)
+from ancestry.core.bridge._text import _koelner, _levenshtein, _name_sim, _norm, _place_sim
 
 log = logging.getLogger(__name__)
 

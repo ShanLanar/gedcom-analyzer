@@ -8,7 +8,7 @@ importiert und gebaut werden, sondern nur bei Bedarf.
 import logging
 import tkinter as tk
 from tkinter import ttk
-from typing import Callable, Optional, Type, Any
+from typing import Any, Callable, Optional, Type
 
 log = logging.getLogger(__name__)
 

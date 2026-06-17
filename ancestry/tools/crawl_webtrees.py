@@ -47,18 +47,19 @@ Alle bekannten Instanzen (lokale DBs) auflisten:
     python crawl_webtrees.py list-sites
 """
 from __future__ import annotations
+
+import argparse
+import http.cookiejar
+import json
+import logging
 import re
+import sqlite3
 import sys
 import time
-import json
-import sqlite3
-import argparse
-import logging
-import http.cookiejar
-from urllib import request, parse
+from pathlib import Path
+from urllib import parse, request
 from urllib.error import HTTPError, URLError
 from urllib.robotparser import RobotFileParser
-from pathlib import Path
 
 log = logging.getLogger(__name__)
 

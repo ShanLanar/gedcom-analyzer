@@ -20,11 +20,12 @@ CLI-Test (lokal):
     python wikitree.py ancestors Einstein-1 4
 """
 from __future__ import annotations
+
 import json
+import logging
 import sys
 import time
-import logging
-from urllib import request, parse
+from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
 log = logging.getLogger(__name__)

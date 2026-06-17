@@ -10,7 +10,6 @@ from tkinter import messagebox, ttk
 
 from ancestry.gui.widgets.theme import COLORS
 
-
 # cM → Beziehungs-Wahrscheinlichkeitstabelle (Shared cM Project 2020 + DNAPainter)
 _CM_RANGES = [
     (2600, 3900, "Elternteil / Kind",               1),

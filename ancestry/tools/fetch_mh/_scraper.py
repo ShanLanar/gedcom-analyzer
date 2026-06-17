@@ -10,8 +10,8 @@ from datetime import datetime, timezone
 from ancestry.core.database import Database as AncestryDatabase
 from ancestry.models.match import SharedMatch
 
-from ._csv import _load_main_csv, _parse_shared_csv
 from ._browser import _load_cookie_editor_json, _resolve_extension_dir
+from ._csv import _load_main_csv, _parse_shared_csv
 
 
 def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
@@ -21,7 +21,8 @@ def scrape(csv_path: str, min_cm: float = 50.0, limit: int = 0,
            wait_login: bool = False, cdp_url: str | None = None,
            repair_threshold: int = 0, max_per_run: int = 0):
     try:
-        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+        from playwright.sync_api import TimeoutError as PWTimeout
+        from playwright.sync_api import sync_playwright
     except ImportError:
         print("Playwright nicht installiert:\n"
               "  pip install playwright && playwright install chromium")

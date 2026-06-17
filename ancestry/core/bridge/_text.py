@@ -6,7 +6,6 @@ import re
 import unicodedata
 from difflib import SequenceMatcher
 
-
 # ── Normalisierung (standalone, kein Import aus treematch nötig) ──────────────
 
 def _strip_accents(s: str) -> str:

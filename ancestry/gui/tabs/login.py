@@ -8,10 +8,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Optional
 
-from ancestry.core.auth import AncestryAuth
 from ancestry.core.api import AncestryApiClient
-from ancestry.models import DnaKit
+from ancestry.core.auth import AncestryAuth
 from ancestry.gui.state import AppState
+from ancestry.models import DnaKit
 
 
 class LoginTab(ttk.Frame):

@@ -10,7 +10,6 @@ import webbrowser
 from tkinter import messagebox, ttk
 from urllib.parse import quote
 
-
 # ── Namenskarte.com-Helfer ─────────────────────────────────────────────────────
 
 def open_namenskarte(app, surname: str):

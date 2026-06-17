@@ -18,6 +18,7 @@ Funktion:
         absteigend nach Wahrscheinlichkeit sortiert.
 """
 from __future__ import annotations
+
 import math
 
 # Jede Gruppe: (deutsche Labels, mean_cM, low_cM, high_cM)

@@ -406,7 +406,8 @@ def scrape_books(
     parish_filter: str | None = None,
 ) -> int:
     try:
-        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+        from playwright.sync_api import TimeoutError as PWTimeout
+        from playwright.sync_api import sync_playwright
     except ImportError:
         print("Playwright nicht installiert:\n"
               "  pip install playwright && playwright install chromium")

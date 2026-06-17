@@ -22,8 +22,8 @@ import re
 import sqlite3
 from pathlib import Path
 
-from ancestry.paths import ROOT
 from ancestry.core.bridge._text import _koelner, _norm
+from ancestry.paths import ROOT
 
 INDEX_PATH = os.environ.get(
     "GENEA_OCR_INDEX", os.path.join(str(ROOT), "ancestry", "data", "ocr_index.db"))

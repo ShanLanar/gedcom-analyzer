@@ -8,7 +8,7 @@ import sqlite3
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 
 
 def _collect_raw_places(db_paths: list[Path]) -> list[tuple[str, int]]:
@@ -134,8 +134,9 @@ class PlaceEditorDialog(tk.Toplevel):
         self._tree.delete(*self._tree.get_children())
 
         def _bg():
+            from ancestry.core.place_concordance import CONCORDANCE_PATH
+            from ancestry.core.place_concordance import load as load_conc
             from ancestry.tools.crawl_webtrees import normalize_place
-            from ancestry.core.place_concordance import load as load_conc, CONCORDANCE_PATH
             raw_places = _collect_raw_places(self._db_paths)
             conc = {}
             try:

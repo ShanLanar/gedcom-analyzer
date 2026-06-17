@@ -16,12 +16,12 @@ Das fuellt Luecken, die Ancestry/MyHeritage allein nicht abdecken
 Aufruf:
   python import_gedmatch.py [pfad/zur/gedmatch_export.txt] [--kit GEDMATCH_KIT_ID]
 """
-import sys
+import argparse
 import json
 import sqlite3
-import argparse
-from pathlib import Path
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 SCRIPT_DIR   = Path(__file__).resolve().parent
 ANCESTRY_DIR = SCRIPT_DIR.parent

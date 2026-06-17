@@ -5,8 +5,8 @@ Enthält: load_gedcom_full, load_own_tree, build_ancestor_map,
 mrca_on_direct_line, render_kinship.
 """
 
-import os
 import logging
+import os
 
 from ._persons import _person_from_indi
 

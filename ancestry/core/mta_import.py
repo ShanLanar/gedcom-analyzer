@@ -15,7 +15,6 @@ import json
 import os
 from typing import Optional
 
-
 MTA_SCHEMA = """
 CREATE TABLE IF NOT EXISTS mta_populations (
     id          INTEGER PRIMARY KEY AUTOINCREMENT,

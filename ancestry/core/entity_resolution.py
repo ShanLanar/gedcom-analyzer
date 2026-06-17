@@ -44,7 +44,8 @@ log = logging.getLogger(__name__)
 from ancestry.paths import DB_PATH
 
 try:
-    from tasks.names import koelner_phonetik as _kp, _levenshtein as _lev
+    from tasks.names import _levenshtein as _lev
+    from tasks.names import koelner_phonetik as _kp
 except ImportError:
     _kp = _lev = None  # type: ignore[assignment]
 

@@ -3,20 +3,19 @@ SQLite-Datenbankschicht für ancestry_dna_tool.
 Fassade über ancestry.core.db.* — alle öffentlichen Methoden delegieren an Repos.
 """
 
-import sqlite3
 import logging
+import sqlite3
 import threading
 from contextlib import contextmanager
 from typing import Generator, Optional
 
-from ancestry.models import DnaKit, DnaMatch, SharedMatch
-
-from ancestry.core.db.repos.kits     import KitsRepo
-from ancestry.core.db.repos.matches  import MatchesRepo
+from ancestry.core.db.repos.kits import KitsRepo
+from ancestry.core.db.repos.matches import MatchesRepo
 from ancestry.core.db.repos.pedigree import PedigreeRepo
-from ancestry.core.db.repos.shared   import SharedRepo
-from ancestry.core.db.repos.stats    import StatsRepo
 from ancestry.core.db.repos.segments import SegmentsRepo
+from ancestry.core.db.repos.shared import SharedRepo
+from ancestry.core.db.repos.stats import StatsRepo
+from ancestry.models import DnaKit, DnaMatch, SharedMatch
 
 log = logging.getLogger(__name__)
 

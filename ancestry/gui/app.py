@@ -14,28 +14,29 @@ import os
 import threading
 import tkinter as tk
 import webbrowser
+from importlib import import_module
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 from urllib.parse import quote
-from importlib import import_module
 
-from ancestry.paths import DB_PATH
-from ancestry.core.auth import AncestryAuth
 from ancestry.core.api import AncestryApiClient
-from ancestry.core.database import Database
-from ancestry.core.scraper import Scraper, DownloadResult
+from ancestry.core.auth import AncestryAuth
+
 # Export-Funktionen werden lazy geladen (nur im Menü-Callback)
 # — spart ~4.5s Startup (openpyxl wird erst beim Export geladen)
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
-from ancestry.models import DnaKit, DnaMatch, SharedMatch
-from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_style, translate
-from ancestry.gui.widgets.log_handler import install_gui_log_handler
+from ancestry.core.database import Database
+from ancestry.core.scraper import DownloadResult, Scraper
 from ancestry.gui.state import AppState
+from ancestry.gui.tabs.cluster import ClusterTab
 
 # Eager loads (häufig genutzt)
 from ancestry.gui.tabs.download import DownloadTab
 from ancestry.gui.tabs.matches import MatchesTab
-from ancestry.gui.tabs.cluster import ClusterTab
+from ancestry.gui.widgets.log_handler import install_gui_log_handler
+from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_style, translate
+from ancestry.models import DnaKit, DnaMatch, SharedMatch
+from ancestry.paths import DB_PATH
 
 # Lazy loads (gelegentlich genutzt) – werden via _lazy_import() beim Bedarf geladen
 
@@ -662,6 +663,7 @@ class AncestryDnaApp(tk.Frame):
 
             def _after_load(ged):
                 import threading
+
                 from ancestry.core.treematch import Person
                 index, amap = ged["index"], ged["amap"]
 
@@ -824,6 +826,7 @@ class AncestryDnaApp(tk.Frame):
         """Verschmilzt die Ahnentafeln aller Cluster-Mitglieder zu einem
         kombinierten Cluster-Stammbaum und zeigt Konvergenz + Andockpunkt."""
         import threading
+
         from ancestry.core.treematch import Person, merge_person_list, render_kinship
         guids = [g for g, _n, _cm in cluster["members"]]
         cm_by_member = {g: cm for g, _n, cm in cluster["members"]}
@@ -996,7 +999,8 @@ class AncestryDnaApp(tk.Frame):
             return
         def _after_load(ged):
             import threading
-            from ancestry.core.treematch import Person, render_kinship, mrca_on_direct_line
+
+            from ancestry.core.treematch import Person, mrca_on_direct_line, render_kinship
             index, amap = ged["index"], ged["amap"]
             indi, fams = ged.get("individuals", {}), ged.get("families", {})
 
@@ -1177,8 +1181,12 @@ class AncestryDnaApp(tk.Frame):
 
         def _worker():
             try:
-                from ancestry.core.treematch import (load_gedcom_full, TreeIndex,
-                                            build_ancestor_map, find_root_candidate)
+                from ancestry.core.treematch import (
+                    TreeIndex,
+                    build_ancestor_map,
+                    find_root_candidate,
+                    load_gedcom_full,
+                )
                 people, individuals, families = load_gedcom_full(path)
             except Exception as e:
                 self.after(0, lambda e=e: messagebox.showerror(
@@ -1294,13 +1302,14 @@ class AncestryDnaApp(tk.Frame):
 
         def _worker():
             try:
-                from ancestry.core import bridge as _bridge
-                import os as _os
                 import importlib.util as _ilu
+                import os as _os
+
+                from ancestry.core import bridge as _bridge
                 # GEDCOM-Endogamie aus dem Haupt-Analyzer (tasks ist installiert)
                 _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-                from tasks.endogamy import compute_endogamy_with_detailed_places
                 from lib.places import load_location_data
+                from tasks.endogamy import compute_endogamy_with_detailed_places
                 # Root-config direkt laden (nicht über sys.modules["config"],
                 # der auf ancestry/config.py zeigt)
                 _cfg_spec = _ilu.spec_from_file_location(
@@ -1633,8 +1642,8 @@ class AncestryDnaApp(tk.Frame):
         if not path:
             return
 
-        import json
         import csv
+        import json
         import re
 
         # Muster die KEIN echter Name sind
@@ -1788,8 +1797,13 @@ class AncestryDnaApp(tk.Frame):
     def _copilot_explain_cluster(self):
         """Öffnet ein Popup das den ausgewählten Cluster via Claude erklärt."""
         from tkinter import messagebox, scrolledtext
-        from ancestry.core.ai_copilot import (availability_hint, cluster_prompt,
-                                               explain_async, is_available)
+
+        from ancestry.core.ai_copilot import (
+            availability_hint,
+            cluster_prompt,
+            explain_async,
+            is_available,
+        )
 
         clusters = getattr(self, "_clusters", {}) or {}
         if not clusters:

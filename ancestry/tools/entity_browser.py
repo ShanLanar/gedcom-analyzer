@@ -32,8 +32,11 @@ from ancestry.paths import DB_PATH
 
 try:
     from ancestry.core.entity_resolution import (
-        _assign, _get_or_create_entity, _merge_entities, _entity_for_source,
+        _assign,
         _ensure_schema,
+        _entity_for_source,
+        _get_or_create_entity,
+        _merge_entities,
     )
 except ImportError:
     _assign = _get_or_create_entity = _merge_entities = _entity_for_source = _ensure_schema = None  # type: ignore

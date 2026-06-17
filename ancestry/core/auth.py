@@ -5,8 +5,8 @@ Nutzt curl_cffi um Cloudflare-Bot-Detection zu umgehen
 """
 
 import json
-import re
 import logging
+import re
 from typing import Optional
 
 try:

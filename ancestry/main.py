@@ -13,9 +13,9 @@ Verwendung:
 import argparse
 import sys
 
-from ancestry.paths import DB_PATH, LOG_DIR
 from ancestry.endpoints import LOG_LEVEL
-from ancestry.utils import setup_logging, get_logger
+from ancestry.paths import DB_PATH, LOG_DIR
+from ancestry.utils import get_logger, setup_logging
 
 
 def run_gui(gedcom_path: str = ""):
@@ -35,11 +35,12 @@ def run_gui(gedcom_path: str = ""):
 def run_cli(args: argparse.Namespace):
     """Führt einen Download ohne GUI aus (Headless-Modus)."""
     log = get_logger("cli")
-    from ancestry.core.auth import AncestryAuth
+    import threading
+
     from ancestry.core.api import AncestryApiClient
+    from ancestry.core.auth import AncestryAuth
     from ancestry.core.database import Database
     from ancestry.core.scraper import Scraper
-    import threading
 
     auth = AncestryAuth()
 

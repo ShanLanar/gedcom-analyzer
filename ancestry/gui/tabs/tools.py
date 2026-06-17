@@ -10,16 +10,16 @@ verlangsamt – alle schweren Aktionen laufen als Subprozess im Hintergrund.
 from __future__ import annotations
 
 import os
-import sys
 import queue
-import threading
 import subprocess
-import webbrowser
+import sys
+import threading
 import tkinter as tk
-from tkinter import ttk, filedialog, scrolledtext
+import webbrowser
+from tkinter import filedialog, scrolledtext, ttk
 
-from ancestry.paths import ROOT
 from ancestry.gui.state import AppState
+from ancestry.paths import ROOT
 
 _WIKI_PATH = os.path.join(str(ROOT), "WIKI.md")
 
@@ -347,6 +347,7 @@ class ToolsTab(ttk.Frame):
         """Lädt Pfarrei-Liste mit Scan-Status aus DB in die Listbox."""
         try:
             import sqlite3
+
             from ancestry.tools.scan_matricula_kirchspiel import PARISH_DB
             if not PARISH_DB.exists():
                 return
@@ -417,8 +418,9 @@ class ToolsTab(ttk.Frame):
     # ── Ortskonkordanz-Editor ─────────────────────────────────────────────
     def _open_place_editor(self):
         from pathlib import Path
-        from ancestry.tools.crawl_webtrees import SCRIPT_DIR
+
         from ancestry.gui.analysis.place_editor import PlaceEditorDialog
+        from ancestry.tools.crawl_webtrees import SCRIPT_DIR
         dbs = list(SCRIPT_DIR.glob("webtrees_*.db"))
         legacy = SCRIPT_DIR / "webtrees_crawl.db"
         if legacy.exists() and legacy not in dbs:
@@ -487,6 +489,7 @@ class ToolsTab(ttk.Frame):
     def _wt_delete_db(self):
         from pathlib import Path
         from tkinter import messagebox
+
         from ancestry.tools.crawl_webtrees import SCRIPT_DIR
         profile = self._tl_wt_profile.get().strip() or "anverwandte"
         candidates = [

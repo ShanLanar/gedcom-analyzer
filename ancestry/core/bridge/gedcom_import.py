@@ -3,12 +3,12 @@ gedcom_import.py — SQL-Schema, GEDCOM-/Extern-Import, Sosa-Nummern und
 Quellen-Deduplikation (gedcom_person_xref) für das Bridge-Modul.
 """
 
-import re
 import json
 import logging
+import re
 from collections import defaultdict
 
-from ._text import _norm, _koelner, _name_sim, _place_sim, _extract_region
+from ._text import _extract_region, _koelner, _name_sim, _norm, _place_sim
 
 log = logging.getLogger(__name__)
 

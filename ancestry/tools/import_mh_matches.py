@@ -9,11 +9,11 @@ Aufruf:
   python import_mh_matches.py [pfad/zu/mh_all_matches.json]
 """
 import json
-import sys
 import os
 import sqlite3
-from pathlib import Path
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 ANCESTRY_DIR = SCRIPT_DIR.parent
@@ -22,6 +22,7 @@ ANCESTRY_DIR = SCRIPT_DIR.parent
 DB_PATH   = ANCESTRY_DIR / "ancestry_dna.db"
 
 from ancestry.paths import SNAPSHOT_DIR
+
 _DEFAULT_JSON = SNAPSHOT_DIR / "mh_all_matches.json"
 if not _DEFAULT_JSON.exists() and (SCRIPT_DIR / "mh_all_matches.json").exists():
     _DEFAULT_JSON = SCRIPT_DIR / "mh_all_matches.json"   # Alt-Lage vor data/-Umzug

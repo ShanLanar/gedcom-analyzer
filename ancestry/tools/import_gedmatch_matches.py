@@ -15,8 +15,8 @@ Dateiformat (GEDmatch One-to-Many, Tab-getrennt):
 """
 import csv
 import json
-import sys
 import sqlite3
+import sys
 from datetime import datetime, timezone
 from pathlib import Path
 

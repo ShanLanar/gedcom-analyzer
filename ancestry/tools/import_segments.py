@@ -25,11 +25,11 @@ Aufruf:
   python import_segments.py datei.csv --kit KIT_GUID
   python import_segments.py gedmatch_segments.csv          (Kit aus PrimaryKit-Spalte)
 """
-import sys
-import csv
 import argparse
-from pathlib import Path
+import csv
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 from ancestry.core.database import Database
 

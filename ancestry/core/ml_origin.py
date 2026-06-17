@@ -23,12 +23,13 @@ API:
     apply_to_matches(db, test_guid, progress_cb=None) -> int
 """
 from __future__ import annotations
+
 import hashlib
+import logging
 import os
 import pickle
-import logging
-from pathlib import Path
 from collections import Counter, defaultdict
+from pathlib import Path
 
 log = logging.getLogger(__name__)
 

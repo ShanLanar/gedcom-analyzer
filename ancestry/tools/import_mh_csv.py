@@ -14,14 +14,14 @@ Die eigene Kit-GUID wird aus der URL der ersten Datenzeile abgeleitet
 Aufruf:
   python import_mh_csv.py [pfad/zur/MyHeritage_Match_List.csv] [--kit KIT_GUID]
 """
-import sys
+import argparse
 import csv
 import json
-import sqlite3
-import argparse
 import re
-from pathlib import Path
+import sqlite3
+import sys
 from datetime import datetime, timezone
+from pathlib import Path
 
 SCRIPT_DIR   = Path(__file__).resolve().parent
 ANCESTRY_DIR = SCRIPT_DIR.parent

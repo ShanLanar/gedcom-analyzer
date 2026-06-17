@@ -7,6 +7,7 @@ import re
 import sys
 import time
 from pathlib import Path
+
 import requests
 
 cookie_file = Path(__file__).parent.parent / "data" / "myheritage_cookies.json"

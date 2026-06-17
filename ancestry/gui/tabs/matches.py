@@ -9,9 +9,9 @@ from tkinter import messagebox, ttk
 from typing import Callable, Optional
 from urllib.parse import quote
 
-from ancestry.models import DnaMatch
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
+from ancestry.models import DnaMatch
 
 log = logging.getLogger(__name__)
 
@@ -1272,8 +1272,7 @@ class MatchesTab(ttk.Frame):
         except ValueError:
             min_gen = 2
         try:
-            from ancestry.core.matricula_bridge import (
-                find_matricula_for_match, _pedigree_surnames)
+            from ancestry.core.matricula_bridge import _pedigree_surnames, find_matricula_for_match
             surnames = _pedigree_surnames(
                 self._state.db, self._get_test_guid(), match.match_guid, min_gen)
             if not surnames:

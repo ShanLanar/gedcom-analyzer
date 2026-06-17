@@ -12,9 +12,9 @@ Aufruf:
   python import_webtrees.py [webtrees_crawl.db]
   python import_webtrees.py --no-link        # nur importieren, nicht verknüpfen
 """
-import sys
-import sqlite3
 import argparse
+import sqlite3
+import sys
 from pathlib import Path
 
 SCRIPT_DIR   = Path(__file__).resolve().parent
@@ -50,8 +50,8 @@ def run(crawl_db: Path, do_link: bool):
     persons = load_wt_persons(crawl_db)
     print(f"{len(persons)} Personen aus {crawl_db.name} gelesen.")
 
-    from ancestry.core.database import Database
     from ancestry.core import bridge
+    from ancestry.core.database import Database
     db = Database(str(DB_PATH))
     try:
         n = bridge.import_external_persons(db, persons, source=SOURCE)

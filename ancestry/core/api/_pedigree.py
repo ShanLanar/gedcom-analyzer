@@ -2,11 +2,12 @@
 Stammbaum- und Pedigree-Mixin für den Ancestry-API-Client.
 """
 
-import time
 import logging
+import time
 from typing import Optional
 
 import ancestry.endpoints as cfg
+
 from ._session import _api_get, _jitter
 
 log = logging.getLogger(__name__)

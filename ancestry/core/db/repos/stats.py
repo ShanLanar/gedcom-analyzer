@@ -1,6 +1,7 @@
 from __future__ import annotations
+
 import logging
-from typing import Optional, TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from ancestry.core.database import Database

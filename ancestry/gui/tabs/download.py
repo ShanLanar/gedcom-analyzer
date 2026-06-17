@@ -7,10 +7,10 @@ import tkinter as tk
 from tkinter import messagebox, ttk
 from typing import Callable, Optional
 
-from ancestry.core.scraper import Scraper, DownloadResult
+from ancestry.core.scraper import DownloadResult, Scraper
 from ancestry.gui.state import AppState
-from ancestry.gui.widgets.theme import COLORS
 from ancestry.gui.widgets.log_handler import install_gui_log_handler
+from ancestry.gui.widgets.theme import COLORS
 
 
 class DownloadTab(ttk.Frame):

@@ -5,6 +5,7 @@ Namen- und Profil-Detail-Mixin für den Ancestry-API-Client.
 import logging
 
 import ancestry.endpoints as cfg
+
 from ._session import _is_initials_only
 
 log = logging.getLogger(__name__)

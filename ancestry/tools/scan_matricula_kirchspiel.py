@@ -67,7 +67,8 @@ DEFAULT_ARCHIVE = Path(os.environ.get(
 
 # Kölner Phonetik aus tasks.names (bereits im Projekt vorhanden)
 try:
-    from tasks.names import koelner_phonetik as _kp, _levenshtein as _lev
+    from tasks.names import _levenshtein as _lev
+    from tasks.names import koelner_phonetik as _kp
 except ImportError:
     _kp = _lev = None  # type: ignore[assignment]
 
@@ -283,6 +284,7 @@ def _raw_entry(book_type: str, text: str, engine: str) -> list[dict]:
 def _transcribe_tesseract(image_bytes: bytes, book_type: str) -> list[dict]:
     try:
         import io
+
         import pytesseract
         from PIL import Image
     except ImportError:
@@ -307,9 +309,10 @@ def _transcribe_kraken(image_bytes: bytes, book_type: str) -> list[dict]:
         return []
     try:
         import io
-        from PIL import Image
+
         from kraken import binarization, pageseg, rpred
         from kraken.lib import models as kraken_models
+        from PIL import Image
     except ImportError:
         print("  ⚠ kraken-Backend braucht: pip install kraken pillow")
         return []

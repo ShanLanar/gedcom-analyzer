@@ -1,7 +1,7 @@
 """Führt nummerierte SQL-Migrations-Dateien gegen eine SQLite-Verbindung aus."""
+import logging
 import re
 import sqlite3
-import logging
 from pathlib import Path
 
 log = logging.getLogger(__name__)

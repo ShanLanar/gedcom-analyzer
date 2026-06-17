@@ -5,7 +5,7 @@ scoring.py — Link-Scoring zwischen Ahnentafel-Einträgen und GEDCOM-Personen.
 import os
 from difflib import SequenceMatcher
 
-from ._text import _norm, _koelner, _levenshtein, _place_sim
+from ._text import _koelner, _levenshtein, _norm, _place_sim
 
 # Per Umgebungsvariable übersteuerbar (z. B. 0.55 bei stark endogamen Daten,
 # 0.35 für explorative Läufe mit anschließender manueller Prüfung).

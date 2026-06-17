@@ -14,11 +14,11 @@ Matches vorliegen und insgesamt >= ~300 Labels.
 Aufruf:
   python ml_data_check.py
 """
-import sys
 import json
 import sqlite3
-from pathlib import Path
+import sys
 from collections import Counter
+from pathlib import Path
 
 ANCESTRY_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = ANCESTRY_DIR / "ancestry_dna.db"

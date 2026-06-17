@@ -9,9 +9,9 @@ Neues API-Format:
   relationship = {meiosis, label, confidence, range, sharedCentimorgans, ...}
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import Optional
 import json
+from dataclasses import asdict, dataclass, field
+from typing import Optional
 
 
 def derive_relationship(shared_cm: float, meiosis: int = 0) -> str:

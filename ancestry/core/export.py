@@ -109,7 +109,7 @@ def export_shared_csv(shared: list[SharedMatch], filepath: str,
 def _write_xlsx_sheet(ws, headers: list[str], rows: list[list], col_widths: list[int]):
     try:
         import openpyxl
-        from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+        from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
     except ImportError:
         raise ImportError("openpyxl nicht installiert: pip install openpyxl")
 

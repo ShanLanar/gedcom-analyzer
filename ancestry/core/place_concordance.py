@@ -118,6 +118,7 @@ def export_distinct_places(db, out_path: str, source: str = "anverwandte") -> di
 
 def main():
     import argparse
+
     from ancestry.core.database import Database
     from ancestry.paths import DB_PATH
     ap = argparse.ArgumentParser(description="Ortskonkordanz (Anverwandte → Standard)")

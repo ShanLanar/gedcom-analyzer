@@ -24,20 +24,21 @@ import sys
 from pathlib import Path
 
 try:
-    from flask import (Flask, abort, jsonify, render_template_string,
-                       request, send_file)
+    from flask import Flask, abort, jsonify, render_template_string, request, send_file
 except ImportError:
     print("Flask nicht installiert:  pip install flask")
     sys.exit(1)
 
-from ancestry.paths import DB_PATH as MAIN_DB_PATH, MATRICULA_ARCHIVE as DEFAULT_ARCHIVE
+from ancestry.paths import DB_PATH as MAIN_DB_PATH
+from ancestry.paths import MATRICULA_ARCHIVE as DEFAULT_ARCHIVE
 
 PARISH_DB   = Path(__file__).resolve().parent / "matricula_parishes.db"
 FALLBACK_DB = PARISH_DB.parent / "matricula_entries.db"
 
 # Kölner Phonetik aus tasks.names (Paket ist installiert, s. pyproject.toml)
 try:
-    from tasks.names import koelner_phonetik as _kp, _levenshtein as _lev
+    from tasks.names import _levenshtein as _lev
+    from tasks.names import koelner_phonetik as _kp
 except ImportError:
     _kp = _lev = None  # type: ignore[assignment]
 

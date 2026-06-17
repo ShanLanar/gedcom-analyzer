@@ -13,8 +13,8 @@ Aufruf:
   python import_wikitree.py Einstein-1 --depth 6
   python import_wikitree.py Kovermann-123 --no-link
 """
-import sys
 import argparse
+import sys
 from pathlib import Path
 
 ANCESTRY_DIR = Path(__file__).resolve().parent.parent
@@ -43,8 +43,7 @@ def map_profile(pr: dict) -> dict:
 
 
 def run(key: str, depth: int, do_link: bool):
-    from ancestry.core import wikitree
-    from ancestry.core import bridge
+    from ancestry.core import bridge, wikitree
     from ancestry.core.database import Database
 
     print(f"Lade WikiTree-Ahnen von {key} (Tiefe {depth}) …")

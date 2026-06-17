@@ -15,8 +15,8 @@ AUSGABE:
   ancestry/data/gedmatch_CM8449775.tsv  (direkt importierbar)
 """
 import sys
-from pathlib import Path
 from datetime import date
+from pathlib import Path
 
 SCRIPT_DIR   = Path(__file__).resolve().parent
 DATA_DIR     = SCRIPT_DIR.parent / "data"

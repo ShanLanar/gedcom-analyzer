@@ -10,7 +10,6 @@ from tkinter import messagebox, ttk
 
 from ancestry.gui.analysis.names import open_namenskarte
 
-
 # ── Gemeinsame Vorfahren-Gruppen ───────────────────────────────────────────────
 
 def show_ancestor_groups(app):

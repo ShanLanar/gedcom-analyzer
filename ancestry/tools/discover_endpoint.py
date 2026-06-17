@@ -9,10 +9,11 @@ sonst ancestry.json neben diesem Skript) und probiert alle bekannten
 Endpoint-Muster durch. Gibt aus welcher einen Namen liefert.
 """
 
-import sys
-import os
 import json
+import os
 import re
+import sys
+
 import ancestry.endpoints as cfg
 from ancestry.core.auth import AncestryAuth
 from ancestry.paths import DB_PATH, ROOT

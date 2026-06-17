@@ -5,7 +5,7 @@ Zeigt alle verankerten DNA-Matches im eigenen Stammbaum mit Filter,
 Sortierung, Cluster-Farbmarkierung und Cluster-Stammbaum-Button.
 """
 import tkinter as tk
-from tkinter import ttk, messagebox
+from tkinter import messagebox, ttk
 
 from ancestry.gui.widgets.theme import COLORS
 

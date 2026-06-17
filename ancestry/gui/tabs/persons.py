@@ -16,13 +16,13 @@ import json
 import os
 import re
 import threading
-import webbrowser
 import tkinter as tk
+import webbrowser
 from tkinter import ttk
 
-from ancestry.paths import ROOT
 from ancestry.core.place_concordance import map_place
 from ancestry.gui.state import AppState
+from ancestry.paths import ROOT
 
 # ── Pfarrei-/Konfessions-Lookup (Matricula) ───────────────────────────────────
 # Übernommen aus dem früheren Standalone-Datenviewer: ordnet einem Geburtsort

@@ -36,8 +36,10 @@ URL        = f"https://www.myheritage.com/dna/matches/{SITE_KIT}"
 
 # Playwright Chromium-Profil-Pfad (Standard-Orte)
 import os
-import sys
 import platform
+import sys
+
+
 def default_profile():
     s = platform.system()
     if s == "Windows":

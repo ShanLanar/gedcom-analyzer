@@ -8,9 +8,9 @@ import json
 import logging
 from collections import defaultdict
 
-from ._text import _norm, _koelner, _extract_region
-from .scoring import compute_link_score, MIN_LINK_SCORE
+from ._text import _extract_region, _koelner, _norm
 from .gedcom_import import iter_unique_persons
+from .scoring import MIN_LINK_SCORE, compute_link_score
 
 log = logging.getLogger(__name__)
 

@@ -25,10 +25,10 @@ Aufgeteilt in Submodule (öffentliche Import-Oberfläche unverändert):
 # Stdlib-Namen, die historisch über `ancestry.core.bridge` erreichbar waren
 # (Rückwärtskompatibilität für `from ... import os` u. Ä.).
 import json
+import logging
 import os
 import re
 import unicodedata
-import logging
 from collections import defaultdict
 from difflib import SequenceMatcher
 from typing import Optional
@@ -36,41 +36,41 @@ from typing import Optional
 log = logging.getLogger(__name__)
 
 from ._text import (
-    _strip_accents,
-    _norm,
-    _koelner,
-    _levenshtein,
-    _lev,
-    _name_sim,
-    _place_sim,
     _extract_region,
+    _koelner,
+    _lev,
+    _levenshtein,
+    _name_sim,
+    _norm,
+    _place_sim,
+    _strip_accents,
+)
+from .gedcom_import import (
+    BRIDGE_SCHEMA,
+    _build_sosa_map,
+    _parse_name_from_indi,
+    ensure_tables,
+    get_gedcom_person_count,
+    get_xref_pairs,
+    import_external_persons,
+    import_gedcom_persons,
+    iter_unique_persons,
+    link_duplicates,
+    set_xref_status,
+)
+from .matching import (
+    _parse_ancestor_name,
+    apply_gedcom_endogamy_to_matches,
+    get_gedcom_relationship_summary,
+    infer_match_origins,
+    infer_side_from_links,
+    path_to_sosa,
+    run_match_all,
+    run_match_for_match,
 )
 from .scoring import (
     MIN_LINK_SCORE,
     compute_link_score,
-)
-from .gedcom_import import (
-    BRIDGE_SCHEMA,
-    _parse_name_from_indi,
-    _build_sosa_map,
-    ensure_tables,
-    import_gedcom_persons,
-    import_external_persons,
-    link_duplicates,
-    get_xref_pairs,
-    set_xref_status,
-    iter_unique_persons,
-    get_gedcom_person_count,
-)
-from .matching import (
-    _parse_ancestor_name,
-    run_match_for_match,
-    run_match_all,
-    path_to_sosa,
-    infer_side_from_links,
-    get_gedcom_relationship_summary,
-    apply_gedcom_endogamy_to_matches,
-    infer_match_origins,
 )
 from .wikitree import wikitree_extend_match
 

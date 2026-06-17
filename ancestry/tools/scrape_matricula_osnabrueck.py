@@ -184,7 +184,8 @@ def _parse_parish_page(page) -> dict:
 
 def scrape(headless: bool = True, pause: float = 1.5):
     try:
-        from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout
+        from playwright.sync_api import TimeoutError as PWTimeout
+        from playwright.sync_api import sync_playwright
     except ImportError:
         print("Playwright nicht installiert:\n"
               "  pip install playwright && playwright install chromium")

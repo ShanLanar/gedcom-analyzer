@@ -10,10 +10,10 @@ import threading
 import time as _time
 from typing import Callable, Optional
 
+import ancestry.endpoints as cfg
 from ancestry.core.api import AncestryApiClient
 from ancestry.core.database import Database
 from ancestry.models import DnaMatch, SharedMatch
-import ancestry.endpoints as cfg
 
 log = logging.getLogger(__name__)
 
@@ -244,8 +244,8 @@ class Scraper:
     def _run_fetch_ancestors(self, test_guid: str, min_cm: float = 0.0):
         """Holt pro Match MIT BAUM die Geburtsorte (+ Ancestrys gemeinsame Vorfahren,
         falls vorhanden). Parallelisiert über mehrere Worker."""
-        from concurrent.futures import ThreadPoolExecutor
         import threading
+        from concurrent.futures import ThreadPoolExecutor
 
         result = DownloadResult()
         todo = self._db.get_matches_needing_ancestors(test_guid, min_cm)
@@ -320,8 +320,8 @@ class Scraper:
         """Holt pro Match (mit Baum) die Ahnentafel.
         max_generations > 5 aktiviert Re-Fokussierung (mehr API-Calls pro Match).
         Parallelisiert über mehrere Worker."""
-        from concurrent.futures import ThreadPoolExecutor
         import threading
+        from concurrent.futures import ThreadPoolExecutor
 
         result = DownloadResult()
         todo = self._db.get_matches_needing_pedigree(test_guid, min_cm, force=force)
