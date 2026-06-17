@@ -17,6 +17,7 @@ import webbrowser
 from tkinter import filedialog, messagebox, ttk
 from typing import Optional
 from urllib.parse import quote
+from importlib import import_module
 
 from ancestry.paths import DB_PATH
 from ancestry.core.auth import AncestryAuth
@@ -29,15 +30,21 @@ from ancestry.models import DnaKit, DnaMatch, SharedMatch
 from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_style, translate
 from ancestry.gui.widgets.log_handler import install_gui_log_handler
 from ancestry.gui.state import AppState
-from ancestry.gui.tabs.stats import StatsTab
-from ancestry.gui.tabs.cluster import ClusterTab
+
+# Eager loads (häufig genutzt)
 from ancestry.gui.tabs.download import DownloadTab
 from ancestry.gui.tabs.matches import MatchesTab
-from ancestry.gui.tabs.matricula import MatriculaTab
-from ancestry.gui.tabs.persons import PersonsTab
-from ancestry.gui.tabs.tools import ToolsTab
+from ancestry.gui.tabs.cluster import ClusterTab
+
+# Lazy loads (gelegentlich genutzt) – werden via _lazy_import() beim Bedarf geladen
 
 log = logging.getLogger(__name__)
+
+
+def _lazy_import(module_path: str, class_name: str):
+    """Lazy-import einer Tab-Klasse bei Bedarf."""
+    module = import_module(module_path)
+    return getattr(module, class_name)
 
 
 class AncestryDnaApp(tk.Frame):
@@ -337,7 +344,23 @@ class AncestryDnaApp(tk.Frame):
         except Exception as _exc:
             self._add_error_tab("tab_cluster", _exc)
 
-        # Stats-Tab als eigenständige Klasse
+        # Heavy Tabs → asynchrone Initialisierung nach GUI-Rendering
+        # Das spart erheblich Startup-Zeit, da diese Tabs komplex sind
+        self.after(100, self._init_heavy_tabs)
+
+        self._status_var = tk.StringVar(value="Bereit.")
+        ttk.Label(self, textvariable=self._status_var,
+                  relief="sunken", anchor="w", padding=(6, 2)).pack(fill="x", side="bottom")
+
+    def _init_heavy_tabs(self):
+        """Initialisiert schwere Tabs asynchron nach GUI-Rendering.
+        Das spart Startup-Zeit erheblich."""
+        StatsTab = _lazy_import('ancestry.gui.tabs.stats', 'StatsTab')
+        MatriculaTab = _lazy_import('ancestry.gui.tabs.matricula', 'MatriculaTab')
+        PersonsTab = _lazy_import('ancestry.gui.tabs.persons', 'PersonsTab')
+        ToolsTab = _lazy_import('ancestry.gui.tabs.tools', 'ToolsTab')
+
+        # Stats-Tab
         try:
             self._stats_tab = StatsTab(
                 self._nb, self._state,
@@ -348,7 +371,7 @@ class AncestryDnaApp(tk.Frame):
         except Exception as _exc:
             self._add_error_tab("tab_stats", _exc)
 
-        # Matricula-Tab: Kirchenbuch-Scans, läuft als Subprozess parallel zu DNA-Downloads
+        # Matricula-Tab
         try:
             self._matricula_tab = MatriculaTab(
                 self._nb, self._state,
@@ -359,7 +382,7 @@ class AncestryDnaApp(tk.Frame):
         except Exception as _exc:
             self._add_error_tab("tab_matricula", _exc)
 
-        # Personen-Tab: durchsuchbarer Personen-/Stammbaum-Browser inkl. DNA-Matches
+        # Personen-Tab
         try:
             self._persons_tab = PersonsTab(self._nb, self._state)
             self._nb.add(self._persons_tab, text=self._t("tab_persons"))
@@ -367,17 +390,13 @@ class AncestryDnaApp(tk.Frame):
         except Exception as _exc:
             self._add_error_tab("tab_persons", _exc)
 
-        # Werkzeuge-Tab: externe Sammel-/Import-Tools mit Start/Stop + Live-Log
+        # Werkzeuge-Tab
         try:
             self._tools_tab = ToolsTab(self._nb, self._state)
             self._nb.add(self._tools_tab, text=self._t("tab_tools"))
             self._lang_nb_tabs.append((self._tools_tab, "tab_tools"))
         except Exception as _exc:
             self._add_error_tab("tab_tools", _exc)
-
-        self._status_var = tk.StringVar(value="Bereit.")
-        ttk.Label(self, textvariable=self._status_var,
-                  relief="sunken", anchor="w", padding=(6, 2)).pack(fill="x", side="bottom")
 
     # ─────────────────────────────────────────────────────────────────────────
     # TAB 1: LOGIN  →  siehe ancestry/gui/tabs/login.py
