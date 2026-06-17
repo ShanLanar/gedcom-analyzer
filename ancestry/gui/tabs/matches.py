@@ -50,6 +50,12 @@ class MatchesTab(ttk.Frame):
 
     _ALL_SOURCES_LABEL = "— Alle Plattformen —"
 
+    # Max. Zeilen, die in die Tabelle eingefügt werden. Bei sehr großen
+    # Beständen (>50.000 Matches) würde ein vollständiges Befüllen des
+    # Tkinter-Treeview die GUI minutenlang einfrieren. Wir zeigen die nach
+    # cM wichtigsten Treffer; der Rest ist über Suche/Filter erreichbar.
+    _MAX_DISPLAY_ROWS = 2000
+
     def __init__(
         self,
         parent: tk.Widget,
@@ -714,6 +720,8 @@ class MatchesTab(ttk.Frame):
         if not all_sources_mode and not active_kit:
             active_kit = self._get_test_guid()
 
+        # Ein Eintrag mehr als das Limit holen, um zu erkennen, ob mehr
+        # Treffer existieren als angezeigt werden (→ Hinweis im Zähler).
         self._matches = self._state.db.get_matches(
             test_guid      = active_kit,
             all_sources    = all_sources_mode,
@@ -725,7 +733,11 @@ class MatchesTab(ttk.Frame):
             hide_endogamy  = getattr(self, "_hide_endo_var", tk.BooleanVar()).get(),
             sort_col       = sort_col,
             sort_asc       = self._sort_asc,
+            limit          = self._MAX_DISPLAY_ROWS + 1,
         )
+        capped = len(self._matches) > self._MAX_DISPLAY_ROWS
+        if capped:
+            self._matches = self._matches[:self._MAX_DISPLAY_ROWS]
 
         # Overlap-Set: welche GUIDs kommen noch in anderen Kits vor?
         overlap_guids: set = set()
@@ -757,6 +769,10 @@ class MatchesTab(ttk.Frame):
             except Exception as e:
                 log.debug("diagnostic count: %s", e)
                 self._match_count_var.set("0 Match(es)")
+        elif capped:
+            self._match_count_var.set(
+                f"Top {self._MAX_DISPLAY_ROWS:,} (nach cM) angezeigt "
+                f"— Suche/Filter zum Eingrenzen nutzen")
         else:
             self._match_count_var.set(f"{n:,} Match(es)")
         self._tree.delete(*self._tree.get_children())
