@@ -112,7 +112,9 @@ class AncestryDnaApp(tk.Frame):
         self._build_style()
         self._build_menu()
         self._build_main()
-        self._refresh_match_table()
+        # ⚠️ _refresh_match_table() ist teuer (große DB) — asynchron laden
+        # damit GUI schnell responsive ist (Startup <1s statt Minuten)
+        self.after(50, self._refresh_match_table)
 
         if not self._embedded:
             self.winfo_toplevel().protocol("WM_DELETE_WINDOW", self._on_close)
