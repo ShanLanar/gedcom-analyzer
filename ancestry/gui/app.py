@@ -24,7 +24,8 @@ from ancestry.core.auth import AncestryAuth
 from ancestry.core.api import AncestryApiClient
 from ancestry.core.database import Database
 from ancestry.core.scraper import Scraper, DownloadResult
-from ancestry.core.export import export_csv, export_shared_csv, export_xlsx
+# Export-Funktionen werden lazy geladen (nur im Menü-Callback)
+# — spart ~4.5s Startup (openpyxl wird erst beim Export geladen)
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.models import DnaKit, DnaMatch, SharedMatch
 from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_style, translate
@@ -1501,6 +1502,7 @@ class AncestryDnaApp(tk.Frame):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _export_csv(self):
+        from ancestry.core.export import export_csv
         matches = self._db.get_matches()
         if not matches:
             messagebox.showinfo("Keine Daten", "Keine Matches vorhanden.")
@@ -1513,6 +1515,7 @@ class AncestryDnaApp(tk.Frame):
             messagebox.showinfo("Fertig", f"{len(matches)} Matches → {p}")
 
     def _export_shared_csv(self):
+        from ancestry.core.export import export_shared_csv
         test_guid = self._state.current_test_guid or self._get_kit_guid()
         if not test_guid:
             messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
@@ -1536,6 +1539,7 @@ class AncestryDnaApp(tk.Frame):
             messagebox.showinfo("Fertig", f"{len(shared)} Shared Matches → {p}")
 
     def _export_xlsx(self):
+        from ancestry.core.export import export_xlsx
         matches = self._db.get_matches()
         if not matches:
             messagebox.showinfo("Keine Daten", "Keine Matches vorhanden.")
@@ -1548,6 +1552,7 @@ class AncestryDnaApp(tk.Frame):
             messagebox.showinfo("Fertig", f"{len(matches)} Matches → {p}")
 
     def _export_all_xlsx(self):
+        from ancestry.core.export import export_xlsx
         test_guid = self._state.current_test_guid or self._get_kit_guid()
         matches = self._db.get_matches(test_guid=test_guid)
         if not matches:
