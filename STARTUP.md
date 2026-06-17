@@ -139,35 +139,22 @@ pip install -e .
 ```
 
 ### Problem: Git Ref Lock Error
-**Lösung:** Siehe GIT_REPAIR_GUIDE.md
+```
+error: cannot lock ref 'refs/remotes/origin/main'
+```
+**Lösung:**
 ```bash
-# Schnelle Reparatur:
 git fetch --force origin main
 git reset --hard origin/main
 ```
 
 ### Problem: Sehr langsamer Startup
-**Diagnose:**
-```bash
-python measure_startup.py
-```
-
-Sollte <1 Sekunde für Core sein. Wenn länger:
-- [ ] Check: `python -c "import ancestry"`
-- [ ] Check: `python measure_startup.py`
-- [ ] Prüfe: Antivirus blockiert Python?
-
----
-
-## 📊 Performance-Metriken (nach Optimierung)
-
-```
-Core Startup:       211ms  ✓
-GUI Rendering:      500-800ms  ✓
-Match-Table (async): Im Hintergrund  ✓
-─────────────────
-TOTAL:             ~1-2 Sekunden  ✓
-```
+Die Match-Tabelle wird seit den Startup-Optimierungen asynchron im
+Hintergrund geladen, damit das Fenster sofort reagiert. Wenn der Start
+trotzdem lange dauert:
+- [ ] Check: `python -c "import ancestry"` (sollte sofort zurückkehren)
+- [ ] Prüfe, ob ein Antivirus Python/SQLite blockiert
+- [ ] Sehr große Datenbank? Der erste Tabellenaufbau kann dauern.
 
 ---
 
@@ -182,25 +169,13 @@ pre-commit install
 pytest tests/ -q
 ```
 
-### Performance Testing
-```bash
-# Quick diagnostics
-python measure_startup.py
-
-# Database analysis
-python audit_performance.py
-
-# Full benchmark
-pytest tests/test_performance.py -v --benchmark-only
-```
+Details zu Architektur und Workflows: siehe **DEVELOPMENT.md**.
 
 ---
 
 ## 📚 Weitere Ressourcen
 
 - **DEVELOPMENT.md** — Development Guide
-- **OPTIMIZATIONS.md** — Performance Details
-- **GIT_REPAIR_GUIDE.md** — Git Problem Solving
 - **CLAUDE.md** — Project Guidelines
 
 ---

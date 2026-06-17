@@ -4,7 +4,7 @@
 
 - **Technologie**: Python 3.10+, Tkinter GUI, SQLite, Playwright, Anthropic Claude API
 - **Struktur**: Genealogie-Suite mit DNA-Matching, GEDCOM-Import, Kirchenbuch-Integration
-- **Tests**: 3958 Tests, >95% Core-Code-Abdeckung
+- **Tests**: ~4000 Tests (`pytest -q`)
 - **CI/CD**: GitHub Actions (Lint + Multi-Python-Test)
 
 ## Setup für Entwicklung
@@ -57,13 +57,6 @@ python -m pytest --cov=ancestry tests/
 python -m pytest tests/test_gedcom.py::test_import_ged -v
 ```
 
-### Startup-Profiling (GUI-Optimierung)
-
-```bash
-# Misst Startup-Zeit und zeigt Bottlenecks
-python profile_startup.py
-```
-
 ## Architektur
 
 ### Core (`ancestry/core/`)
@@ -86,18 +79,19 @@ python profile_startup.py
 - Eigenständige CLI/GUI-Tools (Importer, Crawler, Analyzers)
 - ~100 Analyse-Module für Genealogie-Erkenntnisse
 
-## Performance
+## Performance / Startup
 
-### Startup-Optimierungen
+Umgesetzte Startup-Optimierungen (siehe `ancestry/gui/app.py`):
 
-1. **Lazy-Tab-Loading** – Heavy Tabs (Stats, Matricula, Persons, Tools) werden asynchron nach GUI-Rendering geladen
-2. **Lazy Imports** – Tab-Klassen werden erst beim Bedarf importiert
-3. **DB Connection Pooling** – SQLite-Connection wird wiederverwendet
-
-### Messungen
-
-- **Vorher**: ~3–5s (alle Tabs beim Start)
-- **Nachher**: ~1–2s (nur essenzielle Tabs beim Start)
+1. **Asynchrone Tab-Initialisierung** – schwere Tabs (Stats, Matricula,
+   Persons, Tools) werden per `self.after(...)` nach dem GUI-Rendering
+   gebaut, statt synchron beim Start.
+2. **Lazy Imports** – `openpyxl` (Excel-Export) wird erst beim Export
+   geladen, nicht beim App-Start.
+3. **Asynchrone Match-Tabelle** – `_refresh_match_table()` läuft per
+   `self.after(50, ...)`, damit das Fenster sofort reagiert.
+4. **SQLite-Pragmas** – `WAL`, größerer Cache, `temp_store=MEMORY`,
+   `mmap_size` (siehe `ancestry/core/db/connection.py`).
 
 ## Contribution Workflow
 
@@ -153,9 +147,6 @@ A: Repo-Richtlinie für Einfachheit und Vermeidung von Branch-Wildwuchs.
 
 **Q: Wie teste ich GUI-Features?**  
 A: Unit-Tests für Logik + manuelle Integration (Tkinter braucht Display).
-
-**Q: Wie schnell sollte der Startup sein?**  
-A: Ziel <2s (Full-DB-Load + GUI-Render). Profiling: `python profile_startup.py`
 
 **Q: Können wir zu Ruff-Format wechseln?**  
 A: Schrittweise möglich (aktuell nur Linting, nicht Formatting). Siehe CLAUDE.md.
