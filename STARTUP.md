@@ -56,15 +56,21 @@ run_gui.bat
 ./run_gui.sh
 ```
 
-### Methode 2: Python Script
+### Methode 2: Kanonischer Einstiegspunkt (empfohlen)
 ```bash
-python run_gui.py
+python -m ancestry.main
+```
+Dies ist der „echte" Entry-Point mit Logging-Setup und tkinter-Check.
+
+### Methode 3: Weitere gültige Varianten
+```bash
+python run_gui.py            # delegiert an ancestry.main
+python -m ancestry.gui       # delegiert an ancestry.main
+python -m ancestry.gui.app   # delegiert an ancestry.main
 ```
 
-### Methode 3: Python Module (Advanced)
-```bash
-python -m ancestry.gui
-```
+> ⚠️ Hinweis: `python -m ancestry.gui.app` startete früher nichts, weil
+> `app.py` keinen `__main__`-Block hatte. Das ist jetzt behoben.
 
 ---
 
@@ -79,10 +85,49 @@ Nach unseren Optimierungen sollte die App:
 
 ## 🐛 Troubleshooting
 
+### Problem: `Fatal Python error: ... No module named 'encodings'`
+**Ursache:** Kaputte Python-Umgebung — `PYTHONHOME` zeigt auf eine andere
+Installation (z. B. miniconda3) als die genutzte `python.exe` (z. B. Python310).
+
+Erkennbar in der Fehlerausgabe:
+```
+sys.executable = ...Python310\python.exe   ← genutztes python
+sys.prefix     = ...miniconda3             ← PYTHONHOME zeigt woanders hin
+```
+
+**Diagnose (Windows):**
+```cmd
+echo %PYTHONHOME%
+echo %PYTHONPATH%
+where python
+```
+
+**Lösung A — PYTHONHOME temporär leeren (in dieser Sitzung):**
+```cmd
+set PYTHONHOME=
+set PYTHONPATH=
+python -m ancestry.main
+```
+
+**Lösung B — PYTHONHOME dauerhaft entfernen:**
+```cmd
+setx PYTHONHOME ""
+REM Danach CMD-Fenster NEU öffnen
+```
+
+**Lösung C — eine Installation konsequent nutzen** (z. B. conda direkt):
+```cmd
+C:\Users\<USER>\miniconda3\python.exe -m ancestry.main
+```
+
+> Tipp: `run_gui.bat` neutralisiert `PYTHONHOME`/`PYTHONPATH` automatisch
+> für die Sitzung — am einfachsten also einfach `run_gui.bat` nutzen.
+
 ### Problem: `ModuleNotFoundError: No module named 'tkinter'`
 **Lösung:** tkinter ist nicht installiert
 ```bash
 # Windows: Normalerweise im Python-Installer enthalten
+#          (bei conda: conda install tk)
 # Linux: sudo apt-get install python3-tk
 # macOS: Teil von Python.org Installation
 ```

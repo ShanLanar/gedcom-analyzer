@@ -2352,3 +2352,10 @@ class AncestryDnaApp(tk.Frame):
                 self._set_status(f"GEDCOM-Pfad aktualisiert: {_os.path.basename(path)}")
         except (OSError, ValueError) as e:
             log.debug("change_gedcom_settings save: %s", e)
+
+
+if __name__ == "__main__":
+    # Komfort: `python -m ancestry.gui.app` startet die GUI über den
+    # kanonischen Einstiegspunkt (inkl. Logging- und tkinter-Check).
+    from ancestry.main import main
+    main()

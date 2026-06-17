@@ -10,20 +10,14 @@ oder:
 """
 
 import sys
-import logging
-
-logging.basicConfig(level=logging.INFO)
 
 if __name__ == "__main__":
-    # Avoid circular import issues
-    from ancestry.gui.app import AncestryDnaApp
+    # Delegiert an den kanonischen Einstiegspunkt (mit Logging-Setup).
+    # Identisch zu:  python -m ancestry.main
+    from ancestry.main import main
 
     try:
-        app = AncestryDnaApp()
-        app.mainloop()
+        main()
     except KeyboardInterrupt:
         print("\nShutdown.")
         sys.exit(0)
-    except Exception as e:
-        logging.exception(f"Fatal error: {e}")
-        sys.exit(1)
