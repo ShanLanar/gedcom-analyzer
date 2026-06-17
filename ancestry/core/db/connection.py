@@ -36,8 +36,13 @@ def _make_authorizer(writable: Optional[frozenset]):
 def _open(path: str, writable: Optional[frozenset] = None) -> sqlite3.Connection:
     conn = sqlite3.connect(str(path), check_same_thread=False)
     conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    conn.execute("PRAGMA foreign_keys=OFF")
+    # Performance Pragmas
+    conn.execute("PRAGMA journal_mode=WAL")           # Write-Ahead Logging
+    conn.execute("PRAGMA foreign_keys=OFF")           # Keine FK-Constraints prüfen
+    conn.execute("PRAGMA synchronous=NORMAL")         # Weniger fsync (sicherer als OFF)
+    conn.execute("PRAGMA cache_size=10000")           # 10MB Cache (statt default 2MB)
+    conn.execute("PRAGMA temp_store=MEMORY")          # Temp-Tabellen im RAM
+    conn.execute("PRAGMA mmap_size=30000000")         # Memory-Mapped I/O (30MB)
     if writable is not None:
         conn.set_authorizer(_make_authorizer(writable))
     return conn
