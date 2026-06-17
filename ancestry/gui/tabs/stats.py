@@ -36,6 +36,11 @@ class StatsTab(ttk.Frame):
         self._kit_stat_tree: Optional[ttk.Treeview] = None
         self._ring_canvas:   Optional[tk.Canvas]    = None
         self._rel_tree:      Optional[ttk.Treeview] = None
+        # Statistik wird NICHT beim Start berechnet (teuer bei großen
+        # Beständen). Sie wird beim ersten Öffnen des Reiters berechnet und
+        # zwischengespeichert; mark_dirty() erzwingt eine Neuberechnung
+        # (z. B. bei GEDCOM-Änderung oder nach einem Download).
+        self._stats_dirty = True
         self._build()
 
     # ── Aufbau ───────────────────────────────────────────────────────────────
@@ -203,11 +208,23 @@ class StatsTab(ttk.Frame):
             self._cm_tree.column(c, width=w, anchor="w", stretch=False)
         self._cm_tree.pack(fill="x", pady=(2, 0))
 
-        self.refresh()
+        # Bewusst KEIN refresh() hier — siehe __init__ (_stats_dirty).
 
     # ── Daten ────────────────────────────────────────────────────────────────
 
+    def on_show(self):
+        """Vom Haupt-Notebook aufgerufen, wenn dieser Reiter sichtbar wird.
+        Berechnet die Statistik nur, wenn sie als veraltet markiert ist."""
+        if self._stats_dirty:
+            self.refresh()
+
+    def mark_dirty(self):
+        """Markiert die Statistik als veraltet (Neuberechnung beim nächsten
+        Öffnen des Reiters bzw. via on_show())."""
+        self._stats_dirty = True
+
     def refresh(self):
+        self._stats_dirty = False
         stats = self._state.db.get_statistics()
         for key, var in self._stat_vars.items():
             v = stats.get(key)

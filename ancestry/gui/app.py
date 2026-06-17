@@ -268,6 +268,9 @@ class AncestryDnaApp(tk.Frame):
 
         self._nb = ttk.Notebook(self)
         self._nb.pack(fill="both", expand=True, padx=8, pady=8)
+        # Statistik wird erst beim Öffnen des Reiters berechnet (nicht beim
+        # Start) — siehe StatsTab.on_show().
+        self._nb.bind("<<NotebookTabChanged>>", self._on_nb_tab_changed, add=True)
 
         # Jeder Reiter wird einzeln abgesichert: schlägt der Aufbau eines
         # Reiters fehl (z. B. wegen Datenlage), kommt ein Platzhalter statt
@@ -1287,6 +1290,8 @@ class AncestryDnaApp(tk.Frame):
         n = len(ged.get("people", {}))
         if hasattr(self, "_ged_file_var"):
             self._ged_file_var.set(f"{name}  ({n} Personen)")
+        # GEDCOM hat sich geändert → Statistik als veraltet markieren.
+        self._invalidate_stats()
 
     def _run_endogamy_transfer(self):
         """Überträgt GEDCOM-Endogamie-Scores via Geburtsort-Abgleich auf Matches."""
@@ -1505,8 +1510,34 @@ class AncestryDnaApp(tk.Frame):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _refresh_stats(self):
+        # Nach einem Download: Statistik aktualisieren (gewünschtes Verhalten).
         if self._stats_tab is not None:
             self._stats_tab.refresh()
+
+    def _on_nb_tab_changed(self, _evt=None):
+        """Berechnet die Statistik beim Öffnen des Statistik-Reiters
+        (nur wenn als veraltet markiert — siehe StatsTab.on_show())."""
+        tab = getattr(self, "_stats_tab", None)
+        if tab is None:
+            return
+        try:
+            if self._nb.nametowidget(self._nb.select()) is tab:
+                tab.on_show()
+        except Exception as e:
+            log.debug("nb tab-changed stats on_show: %s", e)
+
+    def _invalidate_stats(self):
+        """Markiert die Statistik als veraltet (z. B. nach GEDCOM-Änderung)
+        und berechnet sofort neu, falls der Reiter gerade sichtbar ist."""
+        tab = getattr(self, "_stats_tab", None)
+        if tab is None:
+            return
+        tab.mark_dirty()
+        try:
+            if self._nb.nametowidget(self._nb.select()) is tab:
+                tab.on_show()
+        except Exception as e:
+            log.debug("invalidate_stats on_show: %s", e)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Export
