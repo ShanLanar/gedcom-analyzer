@@ -79,4 +79,8 @@ def profile_app_init():
 
 if __name__ == "__main__":
     profile_imports()
-    profile_app_init()
+    try:
+        import tkinter
+        profile_app_init()
+    except ImportError:
+        print("\n(tkinter nicht verfügbar – app_init skipped)")
