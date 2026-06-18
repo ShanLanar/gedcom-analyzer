@@ -239,6 +239,26 @@ def _open_main_db():
     CREATE INDEX IF NOT EXISTS idx_ni_koeln ON name_index(koeln_code);
     CREATE INDEX IF NOT EXISTS idx_ni_book  ON name_index(book_id);
     CREATE INDEX IF NOT EXISTS idx_ni_role  ON name_index(name_role);
+
+    CREATE TABLE IF NOT EXISTS matrikula_ner (
+        ner_id      INTEGER PRIMARY KEY AUTOINCREMENT,
+        entry_id    INTEGER NOT NULL,
+        book_id     TEXT NOT NULL,
+        event_year  INTEGER,
+        name_raw    TEXT NOT NULL,
+        name_norm   TEXT DEFAULT '',
+        koeln_code  TEXT DEFAULT '',
+        rolle       TEXT NOT NULL,
+        beruf       TEXT DEFAULT '',
+        ort         TEXT DEFAULT '',
+        geburtsname TEXT DEFAULT '',
+        created_at  TEXT DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_mner_entry  ON matrikula_ner(entry_id);
+    CREATE INDEX IF NOT EXISTS idx_mner_koeln  ON matrikula_ner(koeln_code);
+    CREATE INDEX IF NOT EXISTS idx_mner_rolle  ON matrikula_ner(rolle);
+    CREATE INDEX IF NOT EXISTS idx_mner_year   ON matrikula_ner(event_year);
+    CREATE INDEX IF NOT EXISTS idx_mner_book   ON matrikula_ner(book_id);
     """)
     return db
 
@@ -409,6 +429,85 @@ def _index_names(
         )
 
 
+# ── NER-Tabelle befüllen ───────────────────────────────────────────────────────
+
+_GEB_RE   = re.compile(r'\b(?:geb\.?|geboren|née?)\s+([A-ZÄÖÜ][a-zäöüß\-]+)', re.I)
+_PAREN_RE = re.compile(r'\(([A-ZÄÖÜ][a-zäöüß\-]+)\)')
+
+
+def _split_geburtsname(name: str) -> tuple[str, str]:
+    m = _GEB_RE.search(name)
+    if m:
+        return _GEB_RE.sub('', name).strip().rstrip(',').strip(), m.group(1)
+    m = _PAREN_RE.search(name)
+    if m:
+        return _PAREN_RE.sub('', name).strip(), m.group(1)
+    return name, ''
+
+
+def _ner_add(
+    db: sqlite3.Connection,
+    entry_id: int,
+    book_id: str,
+    event_year,
+    name_raw: str,
+    rolle: str,
+    ort: str = '',
+) -> None:
+    name_raw = (name_raw or '').strip()
+    if not name_raw:
+        return
+    name_clean, geb = _split_geburtsname(name_raw)
+    koeln = _kp(name_clean.split()[-1]) if (_kp and name_clean.split()) else ''
+    db.execute(
+        """INSERT INTO matrikula_ner
+           (entry_id, book_id, event_year, name_raw, name_norm, koeln_code,
+            rolle, ort, geburtsname)
+           VALUES (?,?,?,?,?,?,?,?,?)""",
+        (entry_id, book_id, event_year,
+         name_raw, name_clean.lower().strip(), koeln,
+         rolle, (ort or '').strip(), geb),
+    )
+
+
+def _save_ner(
+    db: sqlite3.Connection,
+    entry_id: int,
+    book_id: str,
+    event_year,
+    book_type: str,
+    e: dict,
+) -> None:
+    """Schreibt alle benannten Personen eines Eintrags in matrikula_ner."""
+    def _add(name: str, rolle: str, ort: str = '') -> None:
+        _ner_add(db, entry_id, book_id, event_year, name, rolle, ort)
+
+    def _add_list(items, rolle: str) -> None:
+        for item in (items or []):
+            if isinstance(item, str):
+                _add(item, rolle)
+            elif isinstance(item, dict):
+                _add(item.get('name', ''), rolle, ort=item.get('ort', ''))
+
+    if book_type == 'Taufe':
+        ort = e.get('ort', '')
+        _add(e.get('kind_name', ''),   'kind',   ort)
+        _add(e.get('vater_name', ''),  'vater',  ort)
+        _add(e.get('mutter_name', ''), 'mutter', ort)
+        _add_list(e.get('taufpaten', []), 'pate')
+    elif book_type == 'Heirat':
+        _add(e.get('braeutigam_name', ''),  'braeutigam',      e.get('braeutigam_ort', ''))
+        _add(e.get('braeutigam_vater', ''), 'braeutigam_vater', '')
+        _add(e.get('braut_name', ''),       'braut',            e.get('braut_ort', ''))
+        _add(e.get('braut_vater', ''),      'braut_vater',      '')
+        _add_list(e.get('zeugen', []), 'zeuge')
+    elif book_type == 'Tod':
+        ort = e.get('ort', '')
+        _add(e.get('name', ''),   'verstorbener', ort)
+        _add(e.get('eltern', ''), 'elternteil',   ort)
+        _add_list(e.get('zeugen', []), 'zeuge')
+
+
 # ── Einträge speichern ─────────────────────────────────────────────────────────
 
 def _save_entries(
@@ -423,10 +522,19 @@ def _save_entries(
         return 0
 
     with main_db:
-        # Vorherige name_index-Einträge dieser Seite löschen (Idempotenz)
+        # Vorherige Einträge dieser Seite löschen (Idempotenz)
         try:
             main_db.execute(
                 "DELETE FROM name_index WHERE book_id=? AND page_nr=?",
+                (book_id, page_nr),
+            )
+        except Exception:
+            pass
+        try:
+            main_db.execute(
+                """DELETE FROM matrikula_ner WHERE entry_id IN (
+                       SELECT entry_id FROM source_matrikula_entries
+                       WHERE book_id=? AND page_nr=?)""",
                 (book_id, page_nr),
             )
         except Exception:
@@ -471,12 +579,14 @@ def _save_entries(
                     json.dumps(e, ensure_ascii=False),
                 ),
             )
-            _index_names(main_db, cur.lastrowid, book_id, page_nr, [
+            entry_id = cur.lastrowid
+            _index_names(main_db, entry_id, book_id, page_nr, [
                 (person,  "person"),
                 (person2, "person2"),
                 (father,  "father"),
                 (mother,  "mother"),
             ])
+            _save_ner(main_db, entry_id, book_id, year, book_type, e)
     return len(entries)
 
 
