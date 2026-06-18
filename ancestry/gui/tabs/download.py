@@ -135,10 +135,7 @@ class DownloadTab(ttk.Frame):
                   style="Bold.TLabel").grid(row=7, column=0, columnspan=4, sticky="w", **p)
         lw.append((_sv, "dl.sec_a2"))
         ttk.Label(f, text=(
-            "Lädt Namen, Geschlecht, Stammbaum-Status/-Größe und ob ein\n"
-            "gemeinsamer Vorfahre existiert (20 Matches pro Anfrage).\n"
-            "Danach: 'Vorfahren & Orte' + 'Ahnentafeln' laden für ALLE Matches\n"
-            "mit Baum (nicht nur Ancestrys erkannte) – dann Auswertung/GEDCOM-Abgleich."
+            self._state.t("dl.help_names")
         ), foreground="#555555").grid(row=8, column=0, columnspan=4, sticky="w", padx=14)
 
         sf_names = ttk.Frame(f)
@@ -202,11 +199,7 @@ class DownloadTab(ttk.Frame):
                   style="Bold.TLabel").grid(row=12, column=0, columnspan=4, sticky="w", **p)
         lw.append((_sv, "dl.sec_b"))
         ttk.Label(f, text=(
-            "Lädt für jeden gespeicherten Match dessen gemeinsame Matches mit cM-Werten.\n"
-            "Empfehlung: erst Matches (A) herunterladen, dann Shared Matches (B).\n"
-            "Ab 20 cM sinnvoll – erfasst auch entferntere Verwandte.\n"
-            "Tipp: Höherer cM-Wert = deutlich weniger primäre Matches = viel schneller "
-            "(kann sonst Stunden dauern)."
+            self._state.t("dl.help_shared")
         ), foreground="#555555").grid(row=13, column=0, columnspan=4, sticky="w", padx=14)
 
         sf2 = ttk.Frame(f); sf2.grid(row=14, column=0, columnspan=4, sticky="w", **p)
@@ -240,10 +233,7 @@ class DownloadTab(ttk.Frame):
         ttk.Label(f, text="▶ Alle Phasen (kombinierter Lauf)",
                   style="Bold.TLabel").grid(row=17, column=0, columnspan=4, sticky="w", **p)
         ttk.Label(f, text=(
-            "Führt A+A2+Vorfahren+B nacheinander aus: Matches → Namen → Vorfahren → "
-            "Shared Matches.\n"
-            "Kann über Nacht laufen. Einzelne Phasen können trotzdem separat (oben) "
-            "gestartet werden."
+            self._state.t("dl.help_all")
         ), foreground="#555555").grid(row=18, column=0, columnspan=4, sticky="w", padx=14)
 
         self._phase_frames: list[dict] = []
@@ -272,14 +262,14 @@ class DownloadTab(ttk.Frame):
         self._all_phases_btn = ttk.Button(bf_all, text="▶ Alle Phasen starten",
                                           command=self._start_all_phases)
         self._all_phases_btn.pack(side="left", padx=4)
-        self._all_phases_stop_btn = ttk.Button(bf_all, text="⏹ Abbrechen",
+        self._all_phases_stop_btn = ttk.Button(bf_all, text=self._state.t("dl.b_cancel"),
                                                command=self.stop_download, state="disabled")
         self._all_phases_stop_btn.pack(side="left", padx=4)
 
         # ── Bereich C: DNA-Segmente importieren ──────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=19, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text="C · DNA-Segmente (für Triangulation)",
+        ttk.Label(f, text=self._state.t("dl.sec_c"),
                   font=("Segoe UI", 9, "bold"), foreground=COLORS["primary"]).grid(
             row=20, column=0, columnspan=2, sticky="w", padx=14, pady=(4, 2))
         seg_row = ttk.Frame(f); seg_row.grid(row=20, column=0, columnspan=4,
@@ -291,9 +281,9 @@ class DownloadTab(ttk.Frame):
         ttk.Button(seg_row, text="…", width=3,
                    command=self._choose_seg_file).pack(side="left")
         ttk.Label(seg_row,
-            text="(GEDmatch Segment Search, MyHeritage Shared-Segments oder FTDNA)",
+            text=self._state.t("dl.seg_hint"),
             foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=8)
-        ttk.Button(seg_row, text="⬆ Segmente importieren",
+        ttk.Button(seg_row, text=self._state.t("dl.b_seg_import"),
                    command=self._import_segments).pack(side="left", padx=(12, 0))
 
         # FTDNA match import on the same row (second line)
@@ -307,14 +297,14 @@ class DownloadTab(ttk.Frame):
                    command=self._choose_ftdna_file).pack(side="left")
         ttk.Label(ftdna_row, text="(FTDNA Family Finder matches.csv)",
                   foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=8)
-        ttk.Button(ftdna_row, text="⬆ FTDNA Matches importieren",
+        ttk.Button(ftdna_row, text=self._state.t("dl.b_ftdna_import"),
                    command=self._import_ftdna_matches).pack(side="left", padx=(12, 0))
 
         # GEDmatch-Export der eigenen Matches (One-to-Many-TSV)
         gmx_row = ttk.Frame(f)
         gmx_row.grid(row=20, column=0, columnspan=4, sticky="w", padx=14, pady=(90, 2))
         ttk.Label(gmx_row, text="GEDmatch-Export:").pack(side="left")
-        _gmx = ttk.Button(gmx_row, text="⬇ Matches als GEDmatch-TSV exportieren",
+        _gmx = ttk.Button(gmx_row, text=self._state.t("dl.b_gmx_export"),
                           command=self._export_gedmatch)
         _gmx.pack(side="left", padx=(12, 0))
         register_tooltip(_gmx, "tt.dl_gmx", self._state)
@@ -324,17 +314,16 @@ class DownloadTab(ttk.Frame):
         # ── Bereich D: Herkunft / Ethnizität + Traits ────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=21, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text="D · Herkunft / Ethnizität & Traits",
+        ttk.Label(f, text=self._state.t("dl.sec_d"),
                   font=("Segoe UI", 9, "bold"),
                   foreground=COLORS["primary"]).grid(
             row=22, column=0, columnspan=4, sticky="w", padx=14, pady=(4, 2))
         ttk.Label(f, text=(
-            "Lädt die Ethnizitäts-Auswertung (Ancestry + MyHeritage) und die Ancestry "
-            "DNA-Traits einmalig.\nErgebnis wird im Statistik-Tab dauerhaft angezeigt."
+            self._state.t("dl.help_ethnicity")
         ), foreground="#555555").grid(row=23, column=0, columnspan=4, sticky="w", padx=14)
         eth_row = ttk.Frame(f)
         eth_row.grid(row=23, column=0, columnspan=4, sticky="w", padx=14, pady=(24, 4))
-        self._eth_btn = ttk.Button(eth_row, text="▶ Herkunft & Traits laden",
+        self._eth_btn = ttk.Button(eth_row, text=self._state.t("dl.b_ethnicity"),
                                    command=self._fetch_ethnicity_traits)
         self._eth_btn.pack(side="left")
         self._eth_status_var = tk.StringVar(value="—")
@@ -464,10 +453,10 @@ class DownloadTab(ttk.Frame):
     def _start_matches(self):
         guid = self.get_kit_guid()
         if not guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dl.m_choose_kit_or_guid"))
             return
         if not self._state.client:
-            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            messagebox.showwarning(self._state.t("dlg.not_logged"), self._state.t("dlg.m_login_first"))
             return
         self._state.current_test_guid = guid
         self._start_btn.configure(state="disabled")
@@ -491,14 +480,14 @@ class DownloadTab(ttk.Frame):
     def _start_shared(self):
         guid = self.get_kit_guid()
         if not guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dl.m_choose_kit_or_guid"))
             return
         if not self._state.client:
-            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            messagebox.showwarning(self._state.t("dlg.not_logged"), self._state.t("dlg.m_login_first"))
             return
         total_matches = self._state.db.get_match_count(guid)
         if total_matches == 0:
-            messagebox.showwarning("Keine Matches", "Erst Matches herunterladen (Schritt A).")
+            messagebox.showwarning(self._state.t("dlg.no_matches_t"), "Erst Matches herunterladen (Schritt A).")
             return
         try:
             min_cm = float(self._shared_min_cm_var.get() or 0)
@@ -518,10 +507,10 @@ class DownloadTab(ttk.Frame):
     def _start_fetch_names(self):
         guid = self.get_kit_guid()
         if not guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dl.m_choose_kit_or_guid"))
             return
         if not self._state.client:
-            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            messagebox.showwarning(self._state.t("dlg.not_logged"), self._state.t("dlg.m_login_first"))
             return
         try:
             min_cm = float(self._names_min_cm_var.get() or 0)
@@ -547,10 +536,10 @@ class DownloadTab(ttk.Frame):
     def _start_fetch_ancestors(self):
         guid = self.get_kit_guid()
         if not guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dl.m_choose_kit_or_guid"))
             return
         if not self._state.client:
-            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            messagebox.showwarning(self._state.t("dlg.not_logged"), self._state.t("dlg.m_login_first"))
             return
         self._state.current_test_guid = guid
         self._anc_start_btn.configure(state="disabled")
@@ -572,10 +561,10 @@ class DownloadTab(ttk.Frame):
     def _start_fetch_pedigrees(self):
         guid = self.get_kit_guid()
         if not guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dl.m_choose_kit_or_guid"))
             return
         if not self._state.client:
-            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            messagebox.showwarning(self._state.t("dlg.not_logged"), self._state.t("dlg.m_login_first"))
             return
         self._state.current_test_guid = guid
         self._ped_start_btn.configure(state="disabled")
@@ -632,11 +621,7 @@ class DownloadTab(ttk.Frame):
             if result.session_expired:
                 messagebox.showwarning(
                     "Cookies abgelaufen",
-                    "Die Ancestry-Sitzung ist abgelaufen (HTTP 401/403).\n\n"
-                    "Bitte:\n"
-                    "1. ancestry.com im Browser öffnen und einloggen\n"
-                    "2. Cookies neu exportieren (cookies.txt)\n"
-                    "3. Download erneut starten",
+                    self._state.t("dl.m_session_expired_full"),
                 )
             elif result.success:
                 messagebox.showinfo("Fertig", result.message)
@@ -651,8 +636,7 @@ class DownloadTab(ttk.Frame):
             if result.session_expired:
                 messagebox.showwarning(
                     "Cookies abgelaufen",
-                    "Die Ancestry-Sitzung ist abgelaufen (HTTP 401/403).\n\n"
-                    "Bitte Cookies neu exportieren und erneut starten.",
+                    self._state.t("dl.m_session_expired_short"),
                 )
             elif result.success:
                 messagebox.showinfo("Shared Matches fertig", result.message)
@@ -661,10 +645,10 @@ class DownloadTab(ttk.Frame):
     def _start_all_phases(self):
         guid = self.get_kit_guid()
         if not guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dl.m_choose_kit_or_guid"))
             return
         if not self._state.client:
-            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            messagebox.showwarning(self._state.t("dlg.not_logged"), self._state.t("dlg.m_login_first"))
             return
         for pf in self._phase_frames:
             pf["badge"].set("○")
@@ -732,7 +716,7 @@ class DownloadTab(ttk.Frame):
     def _choose_seg_file(self):
         from tkinter.filedialog import askopenfilename
         path = askopenfilename(
-            title="Segment-CSV wählen",
+            title=self._state.t("dl.t_seg_csv"),
             filetypes=[("CSV-Dateien", "*.csv"), ("Alle Dateien", "*.*")],
         )
         if path:
@@ -745,14 +729,14 @@ class DownloadTab(ttk.Frame):
 
         guid = self.get_kit_guid()
         if not guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dl.m_choose_kit_or_guid"))
             return
         matches = self._state.db.get_matches(test_guid=guid)
         if not matches:
-            messagebox.showinfo("Keine Matches", "Für dieses Kit sind keine Matches vorhanden.")
+            messagebox.showinfo(self._state.t("dlg.no_matches_t"), self._state.t("dl.m_no_matches_kit"))
             return
         path = asksaveasfilename(
-            title="GEDmatch-TSV speichern", defaultextension=".tsv",
+            title=self._state.t("dl.t_save_gmx"), defaultextension=".tsv",
             initialfile="gedmatch_matches.tsv",
             filetypes=[("TSV-Dateien", "*.tsv"), ("Alle Dateien", "*.*")])
         if not path:
@@ -761,7 +745,7 @@ class DownloadTab(ttk.Frame):
             with open(path, "w", encoding="utf-8", newline="") as fh:
                 fh.write(export_gedmatch_matches(matches))
         except OSError as e:
-            messagebox.showerror("Fehler", str(e))
+            messagebox.showerror(self._state.t("dlg.error"), str(e))
             return
         self._set_status(f"GEDmatch-Export: {len(matches)} Matches → {path}")
         messagebox.showinfo("Export fertig", f"{len(matches)} Matches exportiert:\n{path}")
@@ -769,7 +753,7 @@ class DownloadTab(ttk.Frame):
     def _choose_ftdna_file(self):
         from tkinter.filedialog import askopenfilename
         path = askopenfilename(
-            title="FTDNA matches.csv wählen",
+            title=self._state.t("dl.t_ftdna"),
             filetypes=[("CSV-Dateien", "*.csv"), ("Alle Dateien", "*.*")],
         )
         if path:
@@ -780,7 +764,7 @@ class DownloadTab(ttk.Frame):
         from pathlib import Path
         path = self._ftdna_file_var.get().strip()
         if not path:
-            messagebox.showwarning("FTDNA Import", "Bitte zuerst eine FTDNA matches.csv wählen.")
+            messagebox.showwarning("FTDNA Import", self._state.t("dl.m_choose_ftdna"))
             return
         kit_guid = self.get_kit_guid() or "FTDNA_DEFAULT"
         self._set_status("FTDNA Matches werden importiert …")
@@ -806,11 +790,11 @@ class DownloadTab(ttk.Frame):
         import threading
         test_guid = self._state.current_test_guid
         if not test_guid:
-            messagebox.showwarning("Herkunft", "Bitte zuerst ein DNA-Kit wählen.")
+            messagebox.showwarning("Herkunft", self._state.t("dlg.m_choose_kit"))
             return
         client = self._state.client
         if not client:
-            messagebox.showwarning("Herkunft", "Bitte zuerst bei Ancestry einloggen (Login-Tab).")
+            messagebox.showwarning("Herkunft", self._state.t("dl.m_login_ancestry"))
             return
         self._eth_btn.configure(state="disabled")
         self._eth_status_var.set("⏳ Lädt …")
@@ -857,11 +841,11 @@ class DownloadTab(ttk.Frame):
         from pathlib import Path
         path = self._seg_file_var.get().strip()
         if not path:
-            messagebox.showwarning("Segment-Import", "Bitte zuerst eine CSV-Datei wählen.")
+            messagebox.showwarning("Segment-Import", self._state.t("dl.m_choose_csv"))
             return
         kit_guid = self.get_kit_guid()
         if not kit_guid:
-            messagebox.showwarning("Segment-Import", "Bitte zuerst ein DNA-Kit wählen.")
+            messagebox.showwarning("Segment-Import", self._state.t("dlg.m_choose_kit"))
             return
         self._set_status("Segmente werden importiert …")
 
