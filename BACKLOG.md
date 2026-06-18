@@ -135,22 +135,27 @@ Backlog zu streichen):
 8. ✅ Tooltips auf die primären Buttons aller Tabs ausgerollt (Login, Matches,
    Cluster, Stats, Persons, Matricula, Download)
 
+### Sprint 3 erledigt (gleiche Sitzung) — Punkte 1–6
+
+1. ✅ Live-Sprachwechsel für statische Tab-Labels (`register_lang`, 29 Widgets)
+2. ✅ Triangulations-Bericht als druckbares HTML/PDF (`triangulation_report`)
+3. ✅ Endogamie-Verdacht automatisch kennzeichnen (`auto_flag_endogamy`)
+4. ✅ `test_viewer_smoke` mit `importorskip("flask")` — Suite überall grün
+5. ✅ mypy schrittweise (7 Kernmodule, CI-Job `typecheck`)
+6. ✅ Tooltips auf alle „…"-Dateiwähler-Buttons
+
 ## Sofort-Sprint (nächste Sitzung)
 
-1. 🟡 **Live-Sprachwechsel für statische Labels** — viele neu übersetzte Labels
-   nutzen `t(key)` zur Bauzeit (korrekt beim Start, schalten aber nicht live
-   um). Nur in `lang_widgets` registrierte Widgets + alle Tooltips wechseln live.
-   → restliche Labels als StringVar registrieren.
-2. 🟡 Triangulations-Bericht als PDF (EPIC 3) — Bibliothek klären (reportlab?
-   sonst druckbares HTML)
-3. 🟡 Endogamie-Score automatisch an DNA-Matches kennzeichnen (EPIC 3)
-4. 🟢 `test_viewer_smoke` mit `importorskip("flask")` absichern (sonst rot ohne
-   das optionale `[viewer]`-Extra)
-5. 🟢 mypy schrittweise auf Kernmodule
-6. 🟢 Tooltips auf die letzten „…"-Dateiwähler-Buttons (bewusst ausgelassen)
+1. 🟢 Live-Switch auf restliche on-demand-Dialog-Labels ausweiten (Tabs sind
+   abgedeckt; Analyse-Popups werden bei Öffnen ohnehin in aktueller Sprache
+   gebaut — nur live geöffnete Fenster ständen veraltet).
+2. 🟢 mypy-Abdeckung erweitern (weitere Kernmodule aufnehmen, sobald sauber)
+3. 🟡 Ähnlichkeits-Matrix (Nachnamen-Overlap zweier Matches, EPIC 3)
+4. 🟢 i18n-Audit-Tool auf AST umstellen (fängt auch messagebox-Nachrichten)
 
 > ✅ Erledigt (diese Sitzung): GESAMTE GUI zweisprachig (179 → 0 hartkodierte
-> Strings), Guard-Test + Audit-Tool, Tooltip-Helfer + Ausrollung, Tastenkürzel-
-> Hilfe. Davor: Phasing-Dashboard, MRCA-Karte, Pedigree-Lücken (Kern),
+> Strings) + Live-Sprachwechsel, Guard-Test + Audit-Tool, Tooltip-Helfer +
+> vollständige Ausrollung, Tastenkürzel-Hilfe, Triangulations-PDF, Endogamie-
+> Auto-Flag, mypy-Gate. Davor: Phasing-Dashboard, MRCA-Karte, Pedigree-Lücken,
 > GEDmatch-Export, MTA-Eltern-Vergleich, inkrementeller Pedigree-Refresh,
 > Core-API-Tests, GUI-Smoke-Tests, einzelne Migrations-Tests, Coverage-CI.
