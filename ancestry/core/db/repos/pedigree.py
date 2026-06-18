@@ -11,15 +11,45 @@ class PedigreeRepo:
         self._db = db
 
     def get_matches_needing_pedigree(self, test_guid: str, min_cm: float = 0.0,
-                                      force: bool = False) -> list:
-        skip_fetched = "" if force else "AND COALESCE(pedigree_fetched,0)=0 "
+                                      force: bool = False,
+                                      max_age_days: int = 0) -> list:
+        """Matches die einen Pedigree-Abruf brauchen.
+
+        force=True       → alle (auch frisch geholte) erneut.
+        max_age_days>0   → inkrementell: nie geholte ODER Abruf älter als N Tage.
+        sonst (Default)  → nur noch nie geholte (pedigree_fetched=0).
+        """
+        params: list = [test_guid]
+        if force:
+            cond = ""
+        elif max_age_days and max_age_days > 0:
+            # nie geholt  ODER  ohne Zeitstempel  ODER  Zeitstempel älter als N Tage
+            cond = ("AND (COALESCE(pedigree_fetched,0)=0 "
+                    "     OR COALESCE(pedigree_fetched_at,'')='' "
+                    "     OR pedigree_fetched_at < ?) ")
+            params.append(self._cutoff_iso(max_age_days))
+        else:
+            cond = "AND COALESCE(pedigree_fetched,0)=0 "
+        params.append(min_cm)
         with self._db._cursor() as cur:
             cur.execute(
                 "SELECT match_guid, display_name FROM matches "
                 "WHERE test_guid=? AND has_tree=1 "
-                f"{skip_fetched}AND shared_cm>=? "
-                "ORDER BY shared_cm DESC", (test_guid, min_cm))
+                f"{cond}AND shared_cm>=? "
+                "ORDER BY shared_cm DESC", tuple(params))
             return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]
+
+    @staticmethod
+    def _cutoff_iso(max_age_days: int) -> str:
+        """ISO-8601-UTC-Zeitstempel vor `max_age_days` Tagen (Vergleichsgrenze)."""
+        from datetime import datetime, timedelta, timezone
+        cutoff = datetime.now(timezone.utc) - timedelta(days=max_age_days)
+        return cutoff.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+    @staticmethod
+    def _now_iso() -> str:
+        from datetime import datetime, timezone
+        return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     def save_match_pedigree(self, test_guid: str, match_guid: str, ancestors: list) -> None:
         with self._db._cursor() as cur:
@@ -39,8 +69,9 @@ class PedigreeRepo:
                       a.get("birth_year", ""), a.get("birth_date", ""),
                       a.get("birth_place", ""), a.get("death_year", ""),
                       a.get("death_date", ""), a.get("death_place", "")))
-            cur.execute("UPDATE matches SET pedigree_fetched=1 "
-                        "WHERE match_guid=? AND test_guid=?", (match_guid, test_guid))
+            cur.execute("UPDATE matches SET pedigree_fetched=1, pedigree_fetched_at=? "
+                        "WHERE match_guid=? AND test_guid=?",
+                        (self._now_iso(), match_guid, test_guid))
 
     def get_pedigree_for_match(self, test_guid: str, match_guid: str) -> list:
         with self._db._cursor() as cur:
@@ -73,13 +104,26 @@ class PedigreeRepo:
             g["rows"].append(dict(r))
         return out
 
-    def get_matches_needing_ancestors(self, test_guid: str, min_cm: float = 0.0) -> list:
+    def get_matches_needing_ancestors(self, test_guid: str, min_cm: float = 0.0,
+                                      force: bool = False,
+                                      max_age_days: int = 0) -> list:
+        params: list = [test_guid]
+        if force:
+            cond = ""
+        elif max_age_days and max_age_days > 0:
+            cond = ("AND (COALESCE(ancestors_fetched,0)=0 "
+                    "     OR COALESCE(ancestors_fetched_at,'')='' "
+                    "     OR ancestors_fetched_at < ?) ")
+            params.append(self._cutoff_iso(max_age_days))
+        else:
+            cond = "AND COALESCE(ancestors_fetched,0)=0 "
+        params.append(min_cm)
         with self._db._cursor() as cur:
             cur.execute(
                 "SELECT match_guid, display_name FROM matches "
                 "WHERE test_guid=? AND (has_tree=1 OR has_common_ancestor=1) "
-                "AND COALESCE(ancestors_fetched,0)=0 AND shared_cm>=? "
-                "ORDER BY shared_cm DESC", (test_guid, min_cm))
+                f"{cond}AND shared_cm>=? "
+                "ORDER BY shared_cm DESC", tuple(params))
             return [(r["match_guid"], r["display_name"]) for r in cur.fetchall()]
 
     def save_match_ancestors(self, test_guid: str, match_guid: str,
@@ -110,8 +154,9 @@ class PedigreeRepo:
                 """, (test_guid, match_guid, b.get("side","match"),
                       b.get("place_name",""), b.get("coords",""),
                       int(b.get("person_count",0) or 0)))
-            cur.execute("UPDATE matches SET ancestors_fetched=1 "
-                        "WHERE match_guid=? AND test_guid=?", (match_guid, test_guid))
+            cur.execute("UPDATE matches SET ancestors_fetched=1, ancestors_fetched_at=? "
+                        "WHERE match_guid=? AND test_guid=?",
+                        (self._now_iso(), match_guid, test_guid))
 
     def get_pedigree_groups(self, test_guid: str, min_matches: int = 2,
                             mode: str = "person", only_guids: list = None) -> list:

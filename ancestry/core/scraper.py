@@ -77,9 +77,14 @@ class Scraper:
         self._launch("_run_fetch_ancestors", test_guid, min_cm)
 
     def start_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0,
-                              max_generations: int = 5, force: bool = False):
-        """Lädt Ahnentafeln für Matches mit Baum ab min_cm. max_generations > 5 aktiviert Re-Fokussierung."""
-        self._launch("_run_fetch_pedigrees", test_guid, min_cm, max_generations, force)
+                              max_generations: int = 5, force: bool = False,
+                              max_age_days: int = 0):
+        """Lädt Ahnentafeln für Matches mit Baum ab min_cm. max_generations > 5 aktiviert Re-Fokussierung.
+
+        max_age_days > 0 → inkrementell: auch bereits geholte Pedigrees erneuern,
+        deren letzter Abruf älter als N Tage ist (z. B. 30)."""
+        self._launch("_run_fetch_pedigrees", test_guid, min_cm, max_generations,
+                     force, max_age_days)
 
     def start_deepen_pedigrees(self, test_guid: str, guids: list):
         """Lädt für gezielte Matches TIEFE Ahnentafeln (Re-Fokussierung)."""
@@ -316,7 +321,8 @@ class Scraper:
         self._on_done(result)
 
     def _run_fetch_pedigrees(self, test_guid: str, min_cm: float = 0.0,
-                             max_generations: int = 5, force: bool = False):
+                             max_generations: int = 5, force: bool = False,
+                             max_age_days: int = 0):
         """Holt pro Match (mit Baum) die Ahnentafel.
         max_generations > 5 aktiviert Re-Fokussierung (mehr API-Calls pro Match).
         Parallelisiert über mehrere Worker."""
@@ -324,7 +330,8 @@ class Scraper:
         from concurrent.futures import ThreadPoolExecutor
 
         result = DownloadResult()
-        todo = self._db.get_matches_needing_pedigree(test_guid, min_cm, force=force)
+        todo = self._db.get_matches_needing_pedigree(
+            test_guid, min_cm, force=force, max_age_days=max_age_days)
         total = len(todo)
         workers = max(1, int(getattr(cfg, "PEDIGREE_WORKERS", 4)))
         delay   = float(getattr(cfg, "PEDIGREE_REQUEST_DELAY", 1.0))
