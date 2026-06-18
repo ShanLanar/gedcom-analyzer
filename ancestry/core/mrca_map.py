@@ -41,6 +41,8 @@ def parse_coords(value) -> tuple[float, float] | None:
         lat, lon = parts[0].strip(), parts[1].strip()
     else:
         return None
+    if lat is None or lon is None:
+        return None
     try:
         lat_f, lon_f = float(lat), float(lon)
     except (TypeError, ValueError):
