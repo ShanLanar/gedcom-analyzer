@@ -125,6 +125,8 @@ Backlog zu streichen):
 5. ✅ GEDmatch-Export (One-to-Many-TSV, round-trip zum Import; Download-Tab-Button)
 6. ✅ MTA Eltern-Vergleich Basis 1 vs. Basis 2 (`classify_parental_origin`,
    Button im MTA-Fenster)
+7. ✅ UX: `tooltip(widget, text)`-Helfer + Tastenkürzel-Hilfe (Hilfe-Menü);
+   Tooltips an Cluster-/Download-Buttons
 
 > Hinweis MTA↔Cluster-Korrelation: mit den vorhandenen Daten (ein
 > Eigenprofil, keine Per-Match-Populationen) **nicht sauber fundierbar** —
@@ -132,7 +134,8 @@ Backlog zu streichen):
 
 ## Sofort-Sprint (nächste Sitzung)
 
-1. 🟢 Tooltips auf Buttons (`tooltip(widget, text)`-Helfer) + Tastenkürzel-Hilfe
+1. 🟢 Tooltips auf weitere Buttons ausrollen (Helfer steht; Matches-/Login-/
+   Stats-Tab folgen)
 2. 🟡 Triangulations-Bericht als PDF (EPIC 3) — Bibliothek klären (reportlab?
    sonst druckbares HTML)
 3. 🟡 Endogamie-Score automatisch an DNA-Matches kennzeichnen (EPIC 3)
