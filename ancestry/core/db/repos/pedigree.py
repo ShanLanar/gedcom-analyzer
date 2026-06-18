@@ -287,6 +287,20 @@ class PedigreeRepo:
             result[guid]["generations"][r["generation"]] = r["count"]
         return list(result.values())
 
+    def get_match_birthplaces(self, test_guid: str, match_guids: list = None) -> list:
+        """Geburtsorte (mit Koordinaten) aus den Match-Stammbäumen – Rohzeilen
+        für die MRCA-Karte. Optional auf bestimmte Matches eingegrenzt."""
+        sql = ("SELECT match_guid, place_name, coords, side, person_count "
+               "FROM match_birthplaces WHERE test_guid=? "
+               "AND COALESCE(coords,'') <> ''")
+        params: list = [test_guid]
+        if match_guids:
+            sql += " AND match_guid IN (%s)" % ",".join("?" * len(match_guids))
+            params.extend(match_guids)
+        with self._db._cursor() as cur:
+            cur.execute(sql, params)
+            return [dict(r) for r in cur.fetchall()]
+
     def get_cluster_ancestor_years(self, test_guid: str, match_guids: list) -> list:
         if not match_guids:
             return []

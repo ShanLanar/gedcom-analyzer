@@ -147,6 +147,7 @@ class Database:
     def get_pedigree_summary_for_match(self, *a, **kw) -> dict:  return self._ped.get_pedigree_summary_for_match(*a, **kw)
     def get_pedigree_completeness_per_match(self, *a, **kw) -> list: return self._ped.get_pedigree_completeness_per_match(*a, **kw)
     def get_cluster_ancestor_years(self, *a, **kw) -> list:      return self._ped.get_cluster_ancestor_years(*a, **kw)
+    def get_match_birthplaces(self, *a, **kw) -> list:          return self._ped.get_match_birthplaces(*a, **kw)
 
     # ── Shared Matches ────────────────────────────────────────────────────────
 

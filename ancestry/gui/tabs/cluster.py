@@ -108,6 +108,9 @@ class ClusterTab(ttk.Frame):
         _sv = tk.StringVar(value=t("cl.phasing"))
         ttk.Button(cf, textvariable=_sv, command=self._show_phasing).pack(side="left", padx=4)
         lw.append((_sv, "cl.phasing"))
+        _sv = tk.StringVar(value=t("cl.mrca_map"))
+        ttk.Button(cf, textvariable=_sv, command=self._show_mrca_map).pack(side="left", padx=4)
+        lw.append((_sv, "cl.mrca_map"))
 
         # Cluster-Beschreibung
         df = ttk.Frame(self)
@@ -359,6 +362,38 @@ class ClusterTab(ttk.Frame):
     def _show_phasing(self):
         from ancestry.gui.analysis.cluster_views import show_phasing_dashboard
         show_phasing_dashboard(self, self._clusters, set_status=self._set_status)
+
+    # ── MRCA-Karte (Leaflet-HTML) ─────────────────────────────────────────────
+
+    def _show_mrca_map(self):
+        import webbrowser
+
+        from ancestry.core.mrca_map import aggregate_mrca_places, build_mrca_map_html
+        from ancestry.paths import EXPORT_DIR
+
+        test_guid = self._get_current_guid()
+        if not test_guid:
+            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
+            return
+        # nur Matches aus den berechneten Clustern (falls vorhanden), sonst alle
+        guids = [m["guid"] for mlist in self._clusters.values() for m in mlist] or None
+        try:
+            rows = self._state.db.get_match_birthplaces(test_guid, guids)
+        except Exception as e:  # noqa: BLE001
+            messagebox.showerror("Fehler", str(e))
+            return
+        places = aggregate_mrca_places(rows)
+        if not places:
+            messagebox.showinfo(
+                "Keine Orte mit Koordinaten",
+                "Keine Geburtsorte mit Koordinaten gefunden.\n"
+                "→ Erst 'Vorfahren & Orte' laden (liefert Koordinaten).")
+            return
+        EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        out = EXPORT_DIR / "mrca_map.html"
+        out.write_text(build_mrca_map_html(places, "MRCA-Karte"), encoding="utf-8")
+        webbrowser.open(out.as_uri())
+        self._set_status(f"MRCA-Karte: {len(places)} Orte → {out}")
 
     # ── Stammbaum-Analyse-Popup ───────────────────────────────────────────────
 
