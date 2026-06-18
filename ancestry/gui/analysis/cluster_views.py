@@ -344,3 +344,80 @@ def show_cluster_timeline(app):
 
     c.bind("<Configure>", draw)
     win.after(100, draw)
+
+
+def show_phasing_dashboard(parent, clusters: dict, *, set_status=None):
+    """Phasing-Dashboard: ordnet die 4 größten Cluster den Großeltern-Linien zu
+    und zeigt sie als 2×2-Quadranten-Raster.
+
+    parent:    tk-Widget (Tab oder Hauptfenster) als Toplevel-Eltern.
+    clusters:  {cluster_id: [match-dict, …]} wie vom Cluster-Tab gehalten.
+    """
+    from ancestry.core.cluster import assign_grandparent_quadrants
+
+    if not clusters:
+        messagebox.showinfo("Keine Cluster",
+                            "Bitte zuerst Cluster berechnen (Cluster-Tab).")
+        return
+
+    data = assign_grandparent_quadrants(clusters)
+
+    win = tk.Toplevel(parent)
+    win.title("Phasing-Dashboard – Großelternlinien")
+    win.geometry("820x600")
+
+    ttk.Label(win, text="Phasing-Dashboard · 4 Großelternlinien (Leeds)",
+              font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=14, pady=(12, 0))
+    ttk.Label(win, text=data["note"], foreground="#444466",
+              wraplength=780, justify="left").pack(anchor="w", padx=14, pady=(2, 8))
+
+    grid = ttk.Frame(win)
+    grid.pack(fill="both", expand=True, padx=10, pady=4)
+    for col in (0, 1):
+        grid.columnconfigure(col, weight=1, uniform="quad")
+    for row in (0, 1):
+        grid.rowconfigure(row, weight=1, uniform="quad")
+
+    # Quadranten-Slots 0..3 als 2×2-Raster (0,0)(0,1)(1,0)(1,1)
+    positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
+    by_slot = {q["slot"]: q for q in data["quadrants"]}
+    cluster_colors = COLORS.get("cluster", ["#cccccc"])
+
+    for slot, (r, cc) in enumerate(positions):
+        q = by_slot.get(slot)
+        label = q["label"] if q else f"Großeltern-Linie {chr(65 + slot)}"
+        card = ttk.LabelFrame(grid, text=label, padding=8)
+        card.grid(row=r, column=cc, sticky="nsew", padx=6, pady=6)
+
+        if not q:
+            ttk.Label(card, text="(leer – kein Cluster)",
+                      foreground="#999999").pack(anchor="w")
+            continue
+
+        color = cluster_colors[(q["cluster_id"] - 1) % len(cluster_colors)]
+        head = ttk.Frame(card)
+        head.pack(fill="x")
+        tk.Label(head, text="  ", background=color).pack(side="left", padx=(0, 6))
+        ttk.Label(head,
+                  text=f"Cluster #{q['cluster_id']} · {q['size']} Matches · "
+                       f"max {q['max_cm']:.0f} cM",
+                  font=("Segoe UI", 9, "bold")).pack(side="left")
+        names = ", ".join(q["names"])
+        if q["size"] > len(q["names"]):
+            names += " …"
+        ttk.Label(card, text=names, wraplength=360, justify="left",
+                  foreground="#333333").pack(anchor="w", pady=(4, 0))
+
+    # weitere Linien (Cluster jenseits der Top 4)
+    if data["unassigned"]:
+        extra = ttk.LabelFrame(win, text="Weitere Linien (gemischt / Halbgeschwister?)",
+                               padding=8)
+        extra.pack(fill="x", padx=16, pady=(4, 10))
+        for u in data["unassigned"]:
+            ttk.Label(extra,
+                      text=f"Cluster #{u['cluster_id']} · {u['size']} Matches · "
+                           f"max {u['max_cm']:.0f} cM",
+                      foreground="#555555").pack(anchor="w")
+
+    if set_status:
+        set_status(f"Phasing-Dashboard: {data['n_clusters']} Cluster.")

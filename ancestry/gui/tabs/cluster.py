@@ -105,6 +105,9 @@ class ClusterTab(ttk.Frame):
         _sv = tk.StringVar(value=t("cl.assign_side"))
         ttk.Button(cf, textvariable=_sv, command=self._on_assign_side).pack(side="left", padx=4)
         lw.append((_sv, "cl.assign_side"))
+        _sv = tk.StringVar(value=t("cl.phasing"))
+        ttk.Button(cf, textvariable=_sv, command=self._show_phasing).pack(side="left", padx=4)
+        lw.append((_sv, "cl.phasing"))
 
         # Cluster-Beschreibung
         df = ttk.Frame(self)
@@ -350,6 +353,12 @@ class ClusterTab(ttk.Frame):
         descs[str(cid)] = desc
         self._save_settings(cluster_descs=descs)
         self._set_status(f"Cluster #{cid} Beschreibung gespeichert.")
+
+    # ── Phasing-Dashboard ─────────────────────────────────────────────────────
+
+    def _show_phasing(self):
+        from ancestry.gui.analysis.cluster_views import show_phasing_dashboard
+        show_phasing_dashboard(self, self._clusters, set_status=self._set_status)
 
     # ── Stammbaum-Analyse-Popup ───────────────────────────────────────────────
 

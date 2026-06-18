@@ -189,6 +189,73 @@ def compute_wrights_f(
     return result
 
 
+def assign_grandparent_quadrants(clusters: dict[int, list[dict]],
+                                 top_names: int = 6) -> dict:
+    """Ordnet die (bis zu) 4 größten Cluster den vier Großeltern-Linien zu.
+
+    Phasing-/Leeds-Heuristik: die vier mitgliederstärksten Cluster entsprechen
+    typischerweise den vier Großelternlinien. Ohne Eltern-Kit lässt sich nicht
+    entscheiden, welcher Quadrant väterlich bzw. mütterlich ist – die Slots sind
+    daher generisch (A–D) benannt.
+
+    Erwartet pro Match-dict mindestens ``cm`` und ``name`` (wie build_clusters
+    liefert); ``guid`` optional.
+
+    Returns
+    -------
+    dict mit:
+      - ``n_clusters``: Gesamtzahl der Cluster
+      - ``quadrants``:  Liste von bis zu 4 Slots (2×2-Raster), je
+        ``{slot, label, cluster_id, size, max_cm, total_cm, names}``
+      - ``unassigned``: gleiche Struktur für Cluster jenseits der Top 4
+      - ``note``:       kurze Interpretationshilfe
+    """
+    def _summary(cid: int, members: list[dict]) -> dict:
+        cms = [float(m.get("cm") or 0) for m in members]
+        names = [m.get("name", "") for m in members[:top_names]]
+        return {
+            "cluster_id": cid,
+            "size":       len(members),
+            "max_cm":     max(cms) if cms else 0.0,
+            "total_cm":   sum(cms),
+            "names":      names,
+        }
+
+    # größte Cluster zuerst (nach Mitgliederzahl, dann max cM)
+    ordered = sorted(
+        clusters.items(),
+        key=lambda kv: (len(kv[1]),
+                        max((float(m.get("cm") or 0) for m in kv[1]), default=0.0)),
+        reverse=True,
+    )
+
+    slot_labels = ["Großeltern-Linie A", "Großeltern-Linie B",
+                   "Großeltern-Linie C", "Großeltern-Linie D"]
+    quadrants, unassigned = [], []
+    for idx, (cid, members) in enumerate(ordered):
+        entry = _summary(cid, members)
+        if idx < 4:
+            entry = {"slot": idx, "label": slot_labels[idx], **entry}
+            quadrants.append(entry)
+        else:
+            unassigned.append(entry)
+
+    n = len(clusters)
+    if n == 0:
+        note = "Keine Cluster – erst Shared Matches laden und Cluster berechnen."
+    elif n == 4:
+        note = "Genau 4 Cluster → passt sauber zu den 4 Großelternlinien (Leeds)."
+    elif n < 4:
+        note = ("Weniger als 4 Cluster: evtl. endogame Population oder zu wenige "
+                "Shared Matches. Quadranten teils leer.")
+    else:
+        note = (f"{n} Cluster: die 4 größten sind den Quadranten zugeordnet, "
+                f"{n - 4} weitere unten als 'weitere Linien'.")
+
+    return {"n_clusters": n, "quadrants": quadrants,
+            "unassigned": unassigned, "note": note}
+
+
 def suggest_grandparent_lines(clusters: dict[int, list[dict]]) -> str:
     """
     Gibt eine einfache Textinterpretation der Cluster als Großelternlinien aus.

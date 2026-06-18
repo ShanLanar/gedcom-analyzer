@@ -315,6 +315,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "cl.desc":      {"de": "Cluster-Beschreibung:",                "en": "Cluster description:"},
     "cl.timeline":  {"de": "📅 Zeitachse",   "en": "📅 Timeline"},
     "cl.assign_side": {"de": "⚡ Seite zuweisen", "en": "⚡ Assign side"},
+    "cl.phasing":   {"de": "🧭 Phasing-Dashboard", "en": "🧭 Phasing dashboard"},
     # Statistics tab
     "st.with_tree_pct": {"de": "Mit Baum %:", "en": "With tree %:"},
     "st.side_pct":      {"de": "Seite bekannt %:", "en": "Side known %:"},

@@ -224,3 +224,24 @@ def test_tab_constructs(module_name, cls_name, app_state):
     kwargs = _build_kwargs(cls, parent, app_state)
     tab = cls(parent, app_state, **kwargs)  # darf nicht werfen
     assert tab is not None
+
+
+def test_phasing_dashboard_renders(fake_tk):
+    """Das Phasing-Dashboard baut sein Fenster ohne Fehler (Fake-tkinter)."""
+    from tkinter import ttk
+
+    from ancestry.gui.analysis.cluster_views import show_phasing_dashboard
+
+    clusters = {
+        1: [{"guid": f"a{i}", "name": f"A{i}", "cm": 200 - i} for i in range(5)],
+        2: [{"guid": f"b{i}", "name": f"B{i}", "cm": 150 - i} for i in range(4)],
+        3: [{"guid": "c0", "name": "C0", "cm": 90}],
+        4: [{"guid": "d0", "name": "D0", "cm": 80}],
+        5: [{"guid": "e0", "name": "E0", "cm": 70}],  # → "weitere Linien"
+    }
+    status = []
+    show_phasing_dashboard(ttk.Frame(), clusters, set_status=status.append)
+    assert status and "Phasing" in status[0]
+
+    # leere Cluster → kein Fehler (Info-Dialog), kein Status
+    show_phasing_dashboard(ttk.Frame(), {})
