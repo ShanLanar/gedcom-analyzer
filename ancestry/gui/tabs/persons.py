@@ -22,6 +22,7 @@ from tkinter import ttk
 
 from ancestry.core.place_concordance import map_place
 from ancestry.gui.state import AppState
+from ancestry.gui.widgets.theme import register_lang
 from ancestry.gui.widgets.tooltip import register_tooltip
 from ancestry.paths import ROOT
 
@@ -192,7 +193,7 @@ class PersonsTab(ttk.Frame):
         mid = ttk.Frame(outer)
         outer.add(mid, weight=3)
         nav = ttk.Frame(mid); nav.pack(fill="x")
-        _b = ttk.Button(nav, text=self._state.t("pe.b_back"), command=self._pers_go_back)
+        _b = register_lang(self._state, ttk.Button(nav, text=self._state.t("pe.b_back"), command=self._pers_go_back), "pe.b_back")
         _b.pack(side="left", pady=(0, 4))
         register_tooltip(_b, "tt.pe_back", self._state)
         ttk.Label(nav, text="  Generationen:").pack(side="left")

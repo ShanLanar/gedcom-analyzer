@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.gui.state import AppState
-from ancestry.gui.widgets.theme import COLORS
+from ancestry.gui.widgets.theme import register_lang, COLORS
 from ancestry.gui.widgets.tooltip import register_tooltip
 
 log = logging.getLogger(__name__)
@@ -475,9 +475,9 @@ class ClusterTab(ttk.Frame):
                   text=(f"Cluster #{cid} · {n_total} Mitglieder · "
                         f"{len(persons)} einzigartige Vorfahren in den Ahnentafeln"),
                   font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(10, 0))
-        ttk.Label(win,
+        register_lang(self._state, ttk.Label(win,
                   text=(self._state.t("cl.tree_legend")),
-                  foreground="#333333").pack(anchor="w", padx=12, pady=(2, 6))
+                  foreground="#333333"), "cl.tree_legend").pack(anchor="w", padx=12, pady=(2, 6))
 
         t = self._state.t
         cols  = ("count", "person", "birth", "place", "gen", "matches")

@@ -226,6 +226,32 @@ def test_tab_constructs(module_name, cls_name, app_state):
     assert tab is not None
 
 
+@pytest.mark.parametrize("module_name,cls_name", TAB_MODULES)
+def test_lang_switch_registration(module_name, cls_name, app_state):
+    """Nach dem Aufbau eines Tabs lässt sich der Sprachwechsel über
+    state.lang_widgets durchspielen, ohne dass eine Registrierung kaputt ist
+    (jede ist (StringVar|Widget, key) und übersteht configure/set)."""
+    from tkinter import ttk
+
+    from ancestry.gui.widgets.theme import translate
+
+    app_state.lang_widgets.clear()
+    mod = importlib.import_module(module_name)
+    cls = getattr(mod, cls_name)
+    parent = ttk.Frame()
+    cls(parent, app_state, **_build_kwargs(cls, parent, app_state))
+
+    # _apply_lang-Logik nachbilden – darf nicht werfen
+    for item in app_state.lang_widgets:
+        widget, key = item[0], item[1]
+        assert isinstance(key, str) and key
+        text = translate(key, "en")
+        if hasattr(widget, "set"):
+            widget.set(text)
+        else:
+            widget.configure(text=text)
+
+
 def test_phasing_dashboard_renders(fake_tk):
     """Das Phasing-Dashboard baut sein Fenster ohne Fehler (Fake-tkinter)."""
     from tkinter import ttk

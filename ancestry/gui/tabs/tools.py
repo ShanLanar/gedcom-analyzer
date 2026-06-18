@@ -19,6 +19,7 @@ import webbrowser
 from tkinter import filedialog, scrolledtext, ttk
 
 from ancestry.gui.state import AppState
+from ancestry.gui.widgets.theme import register_lang
 from ancestry.gui.widgets.tooltip import register_tooltip
 from ancestry.paths import ROOT
 
@@ -60,18 +61,18 @@ class ToolsTab(ttk.Frame):
         # ── Kopf / Kurzhilfe ──────────────────────────────────────────────
         head = ttk.Frame(f)
         head.pack(fill="x", padx=14, pady=(10, 4))
-        ttk.Label(head, text=self._state.t("tl.header"),
-                  font=("Segoe UI", 13, "bold")).pack(side="left")
+        register_lang(self._state, ttk.Label(head, text=self._state.t("tl.header"),
+                  font=("Segoe UI", 13, "bold")), "tl.header").pack(side="left")
         ttk.Label(head, text="  Externe Sammel-/Import-Tools – laufen im "
                              "Hintergrund, fortsetzbar, jederzeit per ■ stoppbar.",
                   foreground=self._state.colors().get("text_dim", "#888888")
                   ).pack(side="left", padx=(8, 0))
-        _b = ttk.Button(head, text=self._state.t("tl.b_guide"), command=self._open_wiki)
+        _b = register_lang(self._state, ttk.Button(head, text=self._state.t("tl.b_guide"), command=self._open_wiki), "tl.b_guide")
         _b.pack(side="right")
         register_tooltip(_b, "tt.tl_guide", self._state)
 
         # ── Anleitung / empfohlener Ablauf ────────────────────────────────
-        guide = ttk.LabelFrame(f, text=self._state.t("tl.guide_frame"), padding=8)
+        guide = register_lang(self._state, ttk.LabelFrame(f, text=self._state.t("tl.guide_frame"), padding=8), "tl.guide_frame")
         guide.pack(fill="x", padx=14, pady=(2, 6))
         steps = (
             "① Start-Tab: GEDCOM + Wurzelperson wählen   "
@@ -83,10 +84,10 @@ class ToolsTab(ttk.Frame):
         )
         ttk.Label(guide, text=steps, justify="left",
                   foreground=self._state.colors().get("text", "#333333")).pack(anchor="w")
-        ttk.Label(guide, text=self._state.t("tl.note"),
+        register_lang(self._state, ttk.Label(guide, text=self._state.t("tl.note"),
                   justify="left", wraplength=820,
                   foreground=self._state.colors().get("text_dim", "#888888")
-                  ).pack(anchor="w", pady=(4, 0))
+                  ), "tl.note").pack(anchor="w", pady=(4, 0))
 
         # ── Aufteilung: links Aktionen (scrollbar), rechts Live-Log ───────
         body = ttk.Panedwindow(f, orient="horizontal")
@@ -149,7 +150,7 @@ class ToolsTab(ttk.Frame):
                         variable=self._tl_wt_discover).pack(side="left")
         self._tool_action(sec, "Öffentlichen Baum crawlen", "wt_crawl",
                           self._tl_cmd_wt_crawl)
-        _b = ttk.Button(sec, text=self._state.t("tl.b_dbdel"), command=self._wt_delete_db)
+        _b = register_lang(self._state, ttk.Button(sec, text=self._state.t("tl.b_dbdel"), command=self._wt_delete_db), "tl.b_dbdel")
         _b.pack(anchor="w", pady=(0, 2))
         register_tooltip(_b, "tt.tl_dbdel", self._state)
         self._tool_action(sec, "Crawl → Datenbank importieren", "wt_import",
@@ -190,8 +191,8 @@ class ToolsTab(ttk.Frame):
         self._tool_action(sec, "1 · Bücherverzeichnis holen", "mat_books",
                           self._tl_cmd_mat_books)
         row2 = ttk.Frame(sec); row2.pack(fill="x", pady=(2, 0))
-        ttk.Checkbutton(row2, text=self._state.t("tl.c_dryrun"),
-                        variable=self._tl_mat_dryrun).pack(side="left")
+        register_lang(self._state, ttk.Checkbutton(row2, text=self._state.t("tl.c_dryrun"),
+                        variable=self._tl_mat_dryrun), "tl.c_dryrun").pack(side="left")
         self._tool_action(sec, "2 · Seiten scannen (Claude Vision)", "mat_scan",
                           self._tl_cmd_mat_scan,
                           on_start=self._mat_reset_progress,
@@ -226,8 +227,8 @@ class ToolsTab(ttk.Frame):
         ttk.Label(opt, text="ab cM:").pack(side="left")
         ttk.Spinbox(opt, from_=6, to=200, increment=5, width=5,
                     textvariable=self._tl_mh_mincm).pack(side="left", padx=(2, 10))
-        ttk.Checkbutton(opt, text=self._state.t("tl.c_incomplete"),
-                        variable=self._tl_mh_repair).pack(side="left")
+        register_lang(self._state, ttk.Checkbutton(opt, text=self._state.t("tl.c_incomplete"),
+                        variable=self._tl_mh_repair), "tl.c_incomplete").pack(side="left")
         self._tool_action(sec, "2 · Gemeinsame Matches laden", "mh_shared",
                           self._tl_cmd_mh_shared)
 
@@ -262,8 +263,8 @@ class ToolsTab(ttk.Frame):
         ttk.Button(row, text="…", width=3,
                    command=lambda: self._tl_pick(self._tl_match_csv, "CSV", "*.csv")
                    ).pack(side="left")
-        _b = ttk.Button(sec, text=self._state.t("tl.b_impmatch"),
-                        command=self._import_match_csv)
+        _b = register_lang(self._state, ttk.Button(sec, text=self._state.t("tl.b_impmatch"),
+                        command=self._import_match_csv), "tl.b_impmatch")
         _b.pack(anchor="w", pady=(2, 0))
         register_tooltip(_b, "tt.tl_impmatch", self._state)
 
@@ -286,14 +287,14 @@ class ToolsTab(ttk.Frame):
         _b = ttk.Button(row, text="✏ Orte bearbeiten", command=self._open_place_editor)
         _b.pack(side="left", padx=(0, 8))
         register_tooltip(_b, "tt.tl_places", self._state)
-        ttk.Label(row, text=self._state.t("tl.places_hint"),
+        register_lang(self._state, ttk.Label(row, text=self._state.t("tl.places_hint"),
                   foreground=self._state.colors().get("text_dim", "#888888")
-                  ).pack(side="left")
+                  ), "tl.places_hint").pack(side="left")
         self._tool_action(sec, "📤 Anverwandte-Orte exportieren (für KI)", "conc_exp",
                           lambda: [sys.executable, "-u", "-m",
                                    "ancestry.core.place_concordance", "--export"])
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text=self._state.t("tl.mapping_file")).pack(side="left")
+        register_lang(self._state, ttk.Label(row, text=self._state.t("tl.mapping_file")), "tl.mapping_file").pack(side="left")
         ttk.Entry(row, textvariable=self._tl_conc, width=24).pack(side="left", padx=4)
         ttk.Button(row, text="…", width=3,
                    command=lambda: self._tl_pick(self._tl_conc, "JSON/CSV", "*.json *.csv")
@@ -456,8 +457,8 @@ class ToolsTab(ttk.Frame):
         row = ttk.Frame(parent); row.pack(fill="x", pady=1)
         ttk.Label(row, text=label, width=34, anchor="w").pack(side="left")
         if gui:
-            _open = ttk.Button(row, text=self._state.t("tl.b_open"),
-                               command=lambda g=gui: self._tool_launch_gui(g))
+            _open = register_lang(self._state, ttk.Button(row, text=self._state.t("tl.b_open"),
+                               command=lambda g=gui: self._tool_launch_gui(g)), "tl.b_open")
             _open.pack(side="left", padx=2)
             register_tooltip(_open, "tt.tl_open", self._state)
             return

@@ -697,3 +697,14 @@ def resolve_t(widget):
             return t
         w = getattr(w, "master", None)
     return lambda key: translate(key, "de")
+
+
+def register_lang(state, widget, key):
+    """Registriert *widget* für Live-Sprachwechsel und gibt es zurück
+    (so kettet ein anschließendes .pack()/.grid()). _apply_lang ruft später
+    widget.configure(text=translate(key, lang))."""
+    try:
+        state.lang_widgets.append((widget, key))
+    except AttributeError:
+        pass
+    return widget

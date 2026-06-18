@@ -10,7 +10,7 @@ from typing import Callable, Optional
 from urllib.parse import quote
 
 from ancestry.gui.state import AppState
-from ancestry.gui.widgets.theme import COLORS
+from ancestry.gui.widgets.theme import register_lang, COLORS
 from ancestry.gui.widgets.tooltip import register_tooltip
 from ancestry.models import DnaMatch
 
@@ -172,7 +172,7 @@ class MatchesTab(ttk.Frame):
         _b.pack(side="left", padx=(12, 0))
         register_tooltip(_b, "tt.mf_sides", self._state)
         lw.append((_sv_sides, "mf.sides"))
-        _b = ttk.Button(kl, text=self._state.t("mf.b_bridge"), command=self._on_gedmatch_bridge)
+        _b = register_lang(self._state, ttk.Button(kl, text=self._state.t("mf.b_bridge"), command=self._on_gedmatch_bridge), "mf.b_bridge")
         _b.pack(side="left", padx=(8, 0))
         register_tooltip(_b, "tt.mf_bridge", self._state)
 
@@ -516,7 +516,7 @@ class MatchesTab(ttk.Frame):
         _b = ttk.Button(hdr, text="🤖 ML-Herkunft", command=self._on_ml_origin)
         _b.pack(side="right", padx=4)
         register_tooltip(_b, "tt.md_ml", self._state)
-        _b = ttk.Button(hdr, text=self._state.t("mf.b_dups"), command=self._on_xref_review)
+        _b = register_lang(self._state, ttk.Button(hdr, text=self._state.t("mf.b_dups"), command=self._on_xref_review), "mf.b_dups")
         _b.pack(side="right", padx=4)
         register_tooltip(_b, "tt.md_dup", self._state)
         _sv_endo_btn = tk.StringVar(value=t("md.ged_endogamy"))

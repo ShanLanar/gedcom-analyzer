@@ -10,7 +10,7 @@ from typing import Callable, Optional
 from ancestry.core.scraper import DownloadResult, Scraper
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.log_handler import install_gui_log_handler
-from ancestry.gui.widgets.theme import COLORS
+from ancestry.gui.widgets.theme import register_lang, COLORS
 from ancestry.gui.widgets.tooltip import register_tooltip
 
 
@@ -134,9 +134,9 @@ class DownloadTab(ttk.Frame):
         ttk.Label(f, textvariable=_sv,
                   style="Bold.TLabel").grid(row=7, column=0, columnspan=4, sticky="w", **p)
         lw.append((_sv, "dl.sec_a2"))
-        ttk.Label(f, text=(
+        register_lang(self._state, ttk.Label(f, text=(
             self._state.t("dl.help_names")
-        ), foreground="#555555").grid(row=8, column=0, columnspan=4, sticky="w", padx=14)
+        ), foreground="#555555"), "dl.help_names").grid(row=8, column=0, columnspan=4, sticky="w", padx=14)
 
         sf_names = ttk.Frame(f)
         sf_names.grid(row=9, column=0, columnspan=4, sticky="w", **p)
@@ -198,9 +198,9 @@ class DownloadTab(ttk.Frame):
         ttk.Label(f, textvariable=_sv,
                   style="Bold.TLabel").grid(row=12, column=0, columnspan=4, sticky="w", **p)
         lw.append((_sv, "dl.sec_b"))
-        ttk.Label(f, text=(
+        register_lang(self._state, ttk.Label(f, text=(
             self._state.t("dl.help_shared")
-        ), foreground="#555555").grid(row=13, column=0, columnspan=4, sticky="w", padx=14)
+        ), foreground="#555555"), "dl.help_shared").grid(row=13, column=0, columnspan=4, sticky="w", padx=14)
 
         sf2 = ttk.Frame(f); sf2.grid(row=14, column=0, columnspan=4, sticky="w", **p)
         _sv = tk.StringVar(value=t("dl.prim_min"))
@@ -232,9 +232,9 @@ class DownloadTab(ttk.Frame):
             row=16, column=0, columnspan=4, sticky="ew", padx=14, pady=6)
         ttk.Label(f, text="▶ Alle Phasen (kombinierter Lauf)",
                   style="Bold.TLabel").grid(row=17, column=0, columnspan=4, sticky="w", **p)
-        ttk.Label(f, text=(
+        register_lang(self._state, ttk.Label(f, text=(
             self._state.t("dl.help_all")
-        ), foreground="#555555").grid(row=18, column=0, columnspan=4, sticky="w", padx=14)
+        ), foreground="#555555"), "dl.help_all").grid(row=18, column=0, columnspan=4, sticky="w", padx=14)
 
         self._phase_frames: list[dict] = []
         phase_dash = ttk.Frame(f)
@@ -262,15 +262,15 @@ class DownloadTab(ttk.Frame):
         self._all_phases_btn = ttk.Button(bf_all, text="▶ Alle Phasen starten",
                                           command=self._start_all_phases)
         self._all_phases_btn.pack(side="left", padx=4)
-        self._all_phases_stop_btn = ttk.Button(bf_all, text=self._state.t("dl.b_cancel"),
-                                               command=self.stop_download, state="disabled")
+        self._all_phases_stop_btn = register_lang(self._state, ttk.Button(bf_all, text=self._state.t("dl.b_cancel"),
+                                               command=self.stop_download, state="disabled"), "dl.b_cancel")
         self._all_phases_stop_btn.pack(side="left", padx=4)
 
         # ── Bereich C: DNA-Segmente importieren ──────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=19, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text=self._state.t("dl.sec_c"),
-                  font=("Segoe UI", 9, "bold"), foreground=COLORS["primary"]).grid(
+        register_lang(self._state, ttk.Label(f, text=self._state.t("dl.sec_c"),
+                  font=("Segoe UI", 9, "bold"), foreground=COLORS["primary"]), "dl.sec_c").grid(
             row=20, column=0, columnspan=2, sticky="w", padx=14, pady=(4, 2))
         seg_row = ttk.Frame(f); seg_row.grid(row=20, column=0, columnspan=4,
                                               sticky="w", padx=14, pady=(24, 4))
@@ -280,11 +280,11 @@ class DownloadTab(ttk.Frame):
             side="left", padx=4)
         ttk.Button(seg_row, text="…", width=3,
                    command=self._choose_seg_file).pack(side="left")
-        ttk.Label(seg_row,
+        register_lang(self._state, ttk.Label(seg_row,
             text=self._state.t("dl.seg_hint"),
-            foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=8)
-        ttk.Button(seg_row, text=self._state.t("dl.b_seg_import"),
-                   command=self._import_segments).pack(side="left", padx=(12, 0))
+            foreground="#777777", font=("Segoe UI", 8)), "dl.seg_hint").pack(side="left", padx=8)
+        register_lang(self._state, ttk.Button(seg_row, text=self._state.t("dl.b_seg_import"),
+                   command=self._import_segments), "dl.b_seg_import").pack(side="left", padx=(12, 0))
 
         # FTDNA match import on the same row (second line)
         ftdna_row = ttk.Frame(f)
@@ -297,15 +297,15 @@ class DownloadTab(ttk.Frame):
                    command=self._choose_ftdna_file).pack(side="left")
         ttk.Label(ftdna_row, text="(FTDNA Family Finder matches.csv)",
                   foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=8)
-        ttk.Button(ftdna_row, text=self._state.t("dl.b_ftdna_import"),
-                   command=self._import_ftdna_matches).pack(side="left", padx=(12, 0))
+        register_lang(self._state, ttk.Button(ftdna_row, text=self._state.t("dl.b_ftdna_import"),
+                   command=self._import_ftdna_matches), "dl.b_ftdna_import").pack(side="left", padx=(12, 0))
 
         # GEDmatch-Export der eigenen Matches (One-to-Many-TSV)
         gmx_row = ttk.Frame(f)
         gmx_row.grid(row=20, column=0, columnspan=4, sticky="w", padx=14, pady=(90, 2))
         ttk.Label(gmx_row, text="GEDmatch-Export:").pack(side="left")
-        _gmx = ttk.Button(gmx_row, text=self._state.t("dl.b_gmx_export"),
-                          command=self._export_gedmatch)
+        _gmx = register_lang(self._state, ttk.Button(gmx_row, text=self._state.t("dl.b_gmx_export"),
+                          command=self._export_gedmatch), "dl.b_gmx_export")
         _gmx.pack(side="left", padx=(12, 0))
         register_tooltip(_gmx, "tt.dl_gmx", self._state)
         ttk.Label(gmx_row, text="(One-to-Many-Format, wieder importierbar)",
@@ -314,17 +314,17 @@ class DownloadTab(ttk.Frame):
         # ── Bereich D: Herkunft / Ethnizität + Traits ────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=21, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
-        ttk.Label(f, text=self._state.t("dl.sec_d"),
+        register_lang(self._state, ttk.Label(f, text=self._state.t("dl.sec_d"),
                   font=("Segoe UI", 9, "bold"),
-                  foreground=COLORS["primary"]).grid(
+                  foreground=COLORS["primary"]), "dl.sec_d").grid(
             row=22, column=0, columnspan=4, sticky="w", padx=14, pady=(4, 2))
-        ttk.Label(f, text=(
+        register_lang(self._state, ttk.Label(f, text=(
             self._state.t("dl.help_ethnicity")
-        ), foreground="#555555").grid(row=23, column=0, columnspan=4, sticky="w", padx=14)
+        ), foreground="#555555"), "dl.help_ethnicity").grid(row=23, column=0, columnspan=4, sticky="w", padx=14)
         eth_row = ttk.Frame(f)
         eth_row.grid(row=23, column=0, columnspan=4, sticky="w", padx=14, pady=(24, 4))
-        self._eth_btn = ttk.Button(eth_row, text=self._state.t("dl.b_ethnicity"),
-                                   command=self._fetch_ethnicity_traits)
+        self._eth_btn = register_lang(self._state, ttk.Button(eth_row, text=self._state.t("dl.b_ethnicity"),
+                                   command=self._fetch_ethnicity_traits), "dl.b_ethnicity")
         self._eth_btn.pack(side="left")
         self._eth_status_var = tk.StringVar(value="—")
         ttk.Label(eth_row, textvariable=self._eth_status_var,

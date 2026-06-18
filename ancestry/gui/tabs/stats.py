@@ -8,7 +8,7 @@ from tkinter import ttk
 from typing import Callable, Optional
 
 from ancestry.gui.state import AppState
-from ancestry.gui.widgets.theme import COLORS
+from ancestry.gui.widgets.theme import register_lang, COLORS
 from ancestry.gui.widgets.tooltip import register_tooltip
 
 log = logging.getLogger(__name__)
@@ -200,8 +200,8 @@ class StatsTab(ttk.Frame):
             self._ent_tree.heading(c, text=txt)
             self._ent_tree.column(c, width=w, anchor="center", stretch=False)
         self._ent_tree.pack(fill="x", pady=(2, 8))
-        ttk.Label(popf, text=self._state.t("st.cm_hist"),
-                  foreground="#666666").pack(anchor="w")
+        register_lang(self._state, ttk.Label(popf, text=self._state.t("st.cm_hist"),
+                  foreground="#666666"), "st.cm_hist").pack(anchor="w")
         self._cm_tree = ttk.Treeview(popf, columns=("bin", "obs", "hint"),
                                      show="headings", height=6)
         for c, txt, w in (("bin", "cM-Bereich", 120), ("obs", "Matches", 80),

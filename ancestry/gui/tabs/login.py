@@ -11,6 +11,7 @@ from typing import Callable, Optional
 from ancestry.core.api import AncestryApiClient
 from ancestry.core.auth import AncestryAuth
 from ancestry.gui.state import AppState
+from ancestry.gui.widgets.theme import register_lang
 from ancestry.gui.widgets.tooltip import register_tooltip
 from ancestry.models import DnaKit
 
@@ -72,9 +73,9 @@ class LoginTab(ttk.Frame):
         ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
             row=5, column=0, columnspan=3, sticky="w", **p)
         lw.append((_sv, "lg.meth2"))
-        ttk.Label(f, text=(
+        register_lang(self._state, ttk.Label(f, text=(
             self._state.t("lg.cookie_steps")
-        ), foreground="#555555").grid(row=6, column=0, columnspan=3, sticky="w", padx=16)
+        ), foreground="#555555"), "lg.cookie_steps").grid(row=6, column=0, columnspan=3, sticky="w", padx=16)
         ttk.Entry(f, textvariable=self._cookie_file_var, width=36,
                   state="readonly").grid(row=7, column=1, sticky="w", **p)
         _sv = tk.StringVar(value=t("lg.choose"))
