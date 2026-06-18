@@ -152,6 +152,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "dl.min_cm":    {"de": "Nur ab (cM):",                         "en": "Only from (cM):"},
     "dl.depth":     {"de": "Tiefe (Generationen):",                "en": "Depth (generations):"},
     "dl.reload_all":{"de": "🔄 Alle neu laden",                    "en": "🔄 Reload all"},
+    "dl.refresh_stale":{"de": "♻ nur veraltete (>30 T.)",          "en": "♻ stale only (>30 d)"},
     "dl.start_nm":  {"de": "▶ Namen & Stammbaum laden",            "en": "▶ Load names & tree"},
     "dl.start_anc": {"de": "▶ Vorfahren & Orte laden",             "en": "▶ Load ancestors & places"},
     "dl.start_ped": {"de": "▶ Ahnentafeln laden",                  "en": "▶ Load pedigrees"},

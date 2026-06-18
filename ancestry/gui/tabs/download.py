@@ -160,6 +160,11 @@ class DownloadTab(ttk.Frame):
         ttk.Checkbutton(sf_names, textvariable=_sv,
                         variable=self._ped_force_var).pack(side="left", padx=(12, 4))
         lw.append((_sv, "dl.reload_all"))
+        self._ped_refresh_var = tk.BooleanVar(value=False)
+        _sv = tk.StringVar(value=t("dl.refresh_stale"))
+        ttk.Checkbutton(sf_names, textvariable=_sv,
+                        variable=self._ped_refresh_var).pack(side="left", padx=(8, 4))
+        lw.append((_sv, "dl.refresh_stale"))
         ttk.Label(sf_names, text="(>5 Gen. = langsamer, mehr Extra-Calls)",
                   foreground="#888888").pack(side="left")
 
@@ -567,12 +572,16 @@ class DownloadTab(ttk.Frame):
         except (ValueError, AttributeError):
             max_gen = 5
         force = self._ped_force_var.get()
+        # "nur veraltete": inkrementell auch bereits geholte erneuern, deren
+        # letzter Abruf älter als 30 Tage ist (force hat Vorrang).
+        max_age_days = 0 if force else (30 if self._ped_refresh_var.get() else 0)
         self._scraper = Scraper(
             self._state.client, self._state.db,
             on_progress=self.on_progress,
             on_status=lambda m: self.after(0, lambda: self._set_status(m)),
             on_done=lambda r: self.after(0, lambda: self._on_pedigrees_done(r)))
-        self._scraper.start_fetch_pedigrees(guid, self._a2_min_cm(), max_gen, force)
+        self._scraper.start_fetch_pedigrees(guid, self._a2_min_cm(), max_gen,
+                                            force, max_age_days)
 
     def _a2_min_cm(self) -> float:
         try:
