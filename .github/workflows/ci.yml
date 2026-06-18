@@ -31,4 +31,4 @@ jobs:
           python-version: ${{ matrix.python-version }}
       - run: pip install -e . -q
       - run: pip install pytest pytest-cov -q
-      - run: python -m pytest tests/ -q --tb=short
+      - run: python -m pytest tests/ -q --tb=short --cov=ancestry --cov-report=term-missing --cov-report=xml

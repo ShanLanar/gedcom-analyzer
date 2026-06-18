@@ -65,3 +65,26 @@ ignore = [
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 markers = ["gui: Tests die tkinter/Display benötigen (unter CI mit xvfb oder skip)"]
+
+[tool.coverage.run]
+source = ["ancestry"]
+branch = true
+omit = [
+    # GUI-Tkinter-Code wird (noch) nur per Smoke-Tests gestreift, nicht voll abgedeckt
+    "ancestry/gui/app.py",
+    "ancestry/tools/*",
+    "*/__main__.py",
+]
+
+[tool.coverage.report]
+# Ziel: >80 % auf der getesteten Kernlogik. Noch kein hartes CI-Gate (fail_under),
+# damit der Aufbau der Suite die Pipeline nicht blockiert.
+show_missing = true
+skip_covered = false
+exclude_lines = [
+    "pragma: no cover",
+    "if TYPE_CHECKING:",
+    "raise NotImplementedError",
+    "if __name__ == .__main__.:",
+    "def __repr__",
+]
