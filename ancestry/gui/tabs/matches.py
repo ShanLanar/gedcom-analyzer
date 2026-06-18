@@ -11,7 +11,7 @@ from urllib.parse import quote
 
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
-from ancestry.gui.widgets.tooltip import tooltip
+from ancestry.gui.widgets.tooltip import register_tooltip
 from ancestry.models import DnaMatch
 
 log = logging.getLogger(__name__)
@@ -170,12 +170,11 @@ class MatchesTab(ttk.Frame):
         _sv_sides = tk.StringVar(value=t("mf.sides"))
         _b = ttk.Button(kl, textvariable=_sv_sides, command=self._on_auto_assign_sides)
         _b.pack(side="left", padx=(12, 0))
-        tooltip(_b, "Matches automatisch väterlich/mütterlich zuordnen "
-                    "(braucht Eltern-Kit oder GEDCOM/Ancestry-Seite)")
+        register_tooltip(_b, "tt.mf_sides", self._state)
         lw.append((_sv_sides, "mf.sides"))
         _b = ttk.Button(kl, text="⚡ GEDmatch-Brücke", command=self._on_gedmatch_bridge)
         _b.pack(side="left", padx=(8, 0))
-        tooltip(_b, "GEDmatch-Kits mit Ancestry-Matches verknüpfen")
+        register_tooltip(_b, "tt.mf_bridge", self._state)
 
         # Filter-Leiste
         fl = ttk.Frame(f); fl.pack(fill="x", padx=10, pady=6)
@@ -426,17 +425,17 @@ class MatchesTab(ttk.Frame):
         _sv = tk.StringVar(value=t("md.save_note"))
         _b = ttk.Button(btn_row, textvariable=_sv, command=self._save_note)
         _b.pack(side="left", padx=(0,4))
-        tooltip(_b, "Notiz zu diesem Match speichern")
+        register_tooltip(_b, "tt.md_note", self._state)
         lw.append((_sv, "md.save_note"))
         _sv = tk.StringVar(value=t("md.open_anc"))
         _b = ttk.Button(btn_row, textvariable=_sv, command=self._open_in_ancestry)
         _b.pack(side="left", padx=4)
-        tooltip(_b, "Dieses Match auf ancestry.com im Browser öffnen")
+        register_tooltip(_b, "tt.md_anc", self._state)
         lw.append((_sv, "md.open_anc"))
         _sv_fs = tk.StringVar(value=t("md.fs_link"))
         _b = ttk.Button(btn_row, textvariable=_sv_fs, command=self._open_familysearch)
         _b.pack(side="left", padx=4)
-        tooltip(_b, "Namen dieses Matches auf FamilySearch suchen")
+        register_tooltip(_b, "tt.md_fs", self._state)
         lw.append((_sv_fs, "md.fs_link"))
 
         # Sub-Tab 2: Shared Matches
@@ -505,25 +504,25 @@ class MatchesTab(ttk.Frame):
                   foreground="#555555", font=("Segoe UI", 8)).pack(side="left", padx=4)
         _b = ttk.Button(hdr, text="📂", width=3, command=self._on_choose_gedcom)
         _b.pack(side="left")
-        tooltip(_b, "GEDCOM-Datei wählen (für den Stammbaum-Abgleich)")
+        register_tooltip(_b, "tt.md_choose", self._state)
         _sv_orig = tk.StringVar(value=t("md.ged_origin"))
         _b = ttk.Button(hdr, textvariable=_sv_orig, command=self._on_origin_inference)
         _b.pack(side="right", padx=4)
-        tooltip(_b, "Wahrscheinliche Herkunft der Matches aus den Ahnen-Orten ableiten")
+        register_tooltip(_b, "tt.md_origin", self._state)
         lw.append((_sv_orig, "md.ged_origin"))
         _b = ttk.Button(hdr, text="🔗 WikiTree", command=self._on_wikitree_extend)
         _b.pack(side="right", padx=4)
-        tooltip(_b, "Ahnentafel über WikiTree erweitern")
+        register_tooltip(_b, "tt.md_wikitree", self._state)
         _b = ttk.Button(hdr, text="🤖 ML-Herkunft", command=self._on_ml_origin)
         _b.pack(side="right", padx=4)
-        tooltip(_b, "Herkunft per ML-Modell schätzen")
+        register_tooltip(_b, "tt.md_ml", self._state)
         _b = ttk.Button(hdr, text="👥 Duplikate prüfen", command=self._on_xref_review)
         _b.pack(side="right", padx=4)
-        tooltip(_b, "Querverweise/Duplikate zwischen Matches und Baum prüfen")
+        register_tooltip(_b, "tt.md_dup", self._state)
         _sv_endo_btn = tk.StringVar(value=t("md.ged_endogamy"))
         _b = ttk.Button(hdr, textvariable=_sv_endo_btn, command=self._on_endogamy_transfer)
         _b.pack(side="right", padx=4)
-        tooltip(_b, "Endogamie-Erkenntnisse auf die Matches übertragen")
+        register_tooltip(_b, "tt.md_endo", self._state)
         lw.append((_sv_endo_btn, "md.ged_endogamy"))
 
         # Zeile 2: Status + Re-run + Bulk-Abgleich-Button
@@ -534,7 +533,7 @@ class MatchesTab(ttk.Frame):
         _sv_all = tk.StringVar(value=t("md.ged_run_all"))
         _b = ttk.Button(tb, textvariable=_sv_all, command=self._on_gedcom_match_all)
         _b.pack(side="right")
-        tooltip(_b, "Alle Matches gegen die GEDCOM-Datei abgleichen")
+        register_tooltip(_b, "tt.md_runall", self._state)
         lw.append((_sv_all, "md.ged_run_all"))
         _sv_rerun = tk.StringVar(value=t("md.ged_rerun"))
         self._ged_rerun_btn = ttk.Button(

@@ -9,7 +9,7 @@ from typing import Callable, Optional
 
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
-from ancestry.gui.widgets.tooltip import tooltip
+from ancestry.gui.widgets.tooltip import register_tooltip
 
 log = logging.getLogger(__name__)
 
@@ -55,7 +55,7 @@ class StatsTab(ttk.Frame):
         _sv = tk.StringVar(value=t("st.refresh"))
         _b = ttk.Button(self, textvariable=_sv, command=self.refresh)
         _b.pack(anchor="ne", padx=14, pady=8)
-        tooltip(_b, "Statistik neu berechnen (kann bei großen Beständen dauern)")
+        register_tooltip(_b, "tt.st_refresh", self._state)
         lw.append((_sv, "st.refresh"))
 
         kz = ttk.LabelFrame(self, text=t("st.kz"), padding=10)

@@ -10,7 +10,7 @@ from typing import Callable, Optional
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
-from ancestry.gui.widgets.tooltip import tooltip
+from ancestry.gui.widgets.tooltip import register_tooltip
 
 log = logging.getLogger(__name__)
 
@@ -94,7 +94,7 @@ class ClusterTab(ttk.Frame):
         _sv = tk.StringVar(value=t("cl.calc_btn"))
         _b = ttk.Button(cf, textvariable=_sv, command=self.refresh)
         _b.pack(side="left", padx=14)
-        tooltip(_b, "Cluster aus den Shared Matches neu berechnen (Leeds-Methode)")
+        register_tooltip(_b, "tt.cl_calc", self._state)
         lw.append((_sv, "cl.calc_btn"))
         self._count_var = tk.StringVar(value="")
         ttk.Label(cf, textvariable=self._count_var,
@@ -102,27 +102,27 @@ class ClusterTab(ttk.Frame):
         _sv = tk.StringVar(value=t("cl.tree_btn"))
         _b = ttk.Button(cf, textvariable=_sv, command=self._show_tree)
         _b.pack(side="left", padx=14)
-        tooltip(_b, "Kombinierten Stammbaum des gewählten Clusters anzeigen")
+        register_tooltip(_b, "tt.cl_tree", self._state)
         lw.append((_sv, "cl.tree_btn"))
         _sv = tk.StringVar(value=t("cl.timeline"))
         _b = ttk.Button(cf, textvariable=_sv, command=self._on_show_timeline)
         _b.pack(side="left", padx=4)
-        tooltip(_b, "Geburtsjahre der Cluster-Vorfahren als Zeitachse")
+        register_tooltip(_b, "tt.cl_timeline", self._state)
         lw.append((_sv, "cl.timeline"))
         _sv = tk.StringVar(value=t("cl.assign_side"))
         _b = ttk.Button(cf, textvariable=_sv, command=self._on_assign_side)
         _b.pack(side="left", padx=4)
-        tooltip(_b, "Allen Matches des Clusters eine Elternseite zuweisen")
+        register_tooltip(_b, "tt.cl_assign", self._state)
         lw.append((_sv, "cl.assign_side"))
         _sv = tk.StringVar(value=t("cl.phasing"))
         _b = ttk.Button(cf, textvariable=_sv, command=self._show_phasing)
         _b.pack(side="left", padx=4)
-        tooltip(_b, "Ordnet die 4 größten Cluster den Großelternlinien zu (Leeds)")
+        register_tooltip(_b, "tt.cl_phasing", self._state)
         lw.append((_sv, "cl.phasing"))
         _sv = tk.StringVar(value=t("cl.mrca_map"))
         _b = ttk.Button(cf, textvariable=_sv, command=self._show_mrca_map)
         _b.pack(side="left", padx=4)
-        tooltip(_b, "Geburtsorte der gemeinsamen Vorfahren als Leaflet-Karte (Browser)")
+        register_tooltip(_b, "tt.cl_mrca", self._state)
         lw.append((_sv, "cl.mrca_map"))
 
         # Cluster-Beschreibung

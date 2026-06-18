@@ -30,6 +30,7 @@ class AppState:
     lang_nb_tabs:       list = field(default_factory=list)   # (frame, key)
     lang_menus:         list = field(default_factory=list)   # (menu, index, key)
     lang_inner_nb_tabs: list = field(default_factory=list)   # (notebook, frame, key)
+    lang_tooltips:      list = field(default_factory=list)   # (Tooltip, key)
 
     # Download-Thread-Koordination
     pause_event: threading.Event = field(default_factory=lambda: _set_event())

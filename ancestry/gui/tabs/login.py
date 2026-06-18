@@ -11,7 +11,7 @@ from typing import Callable, Optional
 from ancestry.core.api import AncestryApiClient
 from ancestry.core.auth import AncestryAuth
 from ancestry.gui.state import AppState
-from ancestry.gui.widgets.tooltip import tooltip
+from ancestry.gui.widgets.tooltip import register_tooltip
 from ancestry.models import DnaKit
 
 
@@ -83,12 +83,12 @@ class LoginTab(ttk.Frame):
         _sv = tk.StringVar(value=t("lg.choose"))
         _b = ttk.Button(f, textvariable=_sv, command=self._choose_cookie_file)
         _b.grid(row=7, column=0, sticky="e", **p)
-        tooltip(_b, "Exportierte Cookie-JSON-Datei auswählen")
+        register_tooltip(_b, "tt.lg_choose", self._state)
         lw.append((_sv, "lg.choose"))
         _sv = tk.StringVar(value=t("lg.login_ck"))
         _b = ttk.Button(f, textvariable=_sv, command=self._do_login_cookies)
         _b.grid(row=8, column=1, sticky="w", **p)
-        tooltip(_b, "Mit den geladenen Cookies bei Ancestry anmelden")
+        register_tooltip(_b, "tt.lg_login", self._state)
         lw.append((_sv, "lg.login_ck"))
 
         ttk.Separator(f, orient="horizontal").grid(
@@ -104,7 +104,7 @@ class LoginTab(ttk.Frame):
         _sv = tk.StringVar(value=t("lg.use_guid"))
         _b = ttk.Button(f, textvariable=_sv, command=self._use_manual_guid)
         _b.grid(row=12, column=0, sticky="e", **p)
-        tooltip(_b, "Test-GUID manuell übernehmen (ohne Cookie-Login)")
+        register_tooltip(_b, "tt.lg_guid", self._state)
         lw.append((_sv, "lg.use_guid"))
 
         self._status_var = tk.StringVar(value="Nicht eingeloggt.")

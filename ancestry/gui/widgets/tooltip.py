@@ -70,5 +70,22 @@ class Tooltip:
 
 
 def tooltip(widget, text: str, delay: int = 500) -> Tooltip:
-    """Bequemer Helfer: hängt einen Tooltip an ``widget`` und gibt ihn zurück."""
+    """Bequemer Helfer: hängt einen Tooltip mit festem Text an ``widget``."""
     return Tooltip(widget, text, delay)
+
+
+def register_tooltip(widget, key: str, state, delay: int = 500) -> Tooltip:
+    """Zweisprachiger Tooltip über das Übersetzungssystem.
+
+    Liest den Text aus ``translate(key, state.lang)`` und registriert den
+    Tooltip in ``state.lang_tooltips``, damit _apply_lang() ihn beim
+    Sprachwechsel (de/en) aktualisiert.
+    """
+    from ancestry.gui.widgets.theme import translate
+    lang = getattr(state, "lang", "de")
+    tip = Tooltip(widget, translate(key, lang), delay)
+    try:
+        state.lang_tooltips.append((tip, key))
+    except AttributeError:
+        pass
+    return tip

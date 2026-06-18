@@ -23,7 +23,7 @@ from typing import Callable, Optional
 
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
-from ancestry.gui.widgets.tooltip import tooltip
+from ancestry.gui.widgets.tooltip import register_tooltip
 
 log = logging.getLogger(__name__)
 from ancestry.tools import matricula_status as mstat
@@ -76,16 +76,16 @@ class MatriculaTab(ttk.Frame):
         bar = ttk.Frame(self); bar.pack(fill="x", padx=14, pady=4)
         self._start_btn = ttk.Button(bar, text=t("mat.start"), command=self._start_scan)
         self._start_btn.pack(side="left")
-        tooltip(self._start_btn, "Kirchenbuch-Scan/Transkription für das gewählte Kirchspiel starten")
+        register_tooltip(self._start_btn, "tt.mat_start", self._state)
         lw.append((self._start_btn, "mat.start"))
         self._stop_btn = ttk.Button(bar, text=t("mat.stop"),
                                     command=self._stop_scan, state="disabled")
         self._stop_btn.pack(side="left", padx=6)
-        tooltip(self._stop_btn, "Laufenden Scan abbrechen")
+        register_tooltip(self._stop_btn, "tt.mat_stop", self._state)
         lw.append((self._stop_btn, "mat.stop"))
         _btn = ttk.Button(bar, text=t("mat.refresh"), command=self.refresh_parishes)
         _btn.pack(side="left", padx=6)
-        tooltip(_btn, "Kirchspiel-Liste neu laden")
+        register_tooltip(_btn, "tt.mat_refresh", self._state)
         lw.append((_btn, "mat.refresh"))
 
         self._autonext_var = tk.BooleanVar(value=False)

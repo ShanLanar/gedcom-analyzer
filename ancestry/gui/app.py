@@ -1141,6 +1141,8 @@ class AncestryDnaApp(tk.Frame):
                 nb.tab(frame, text=self._t(key))
             except tk.TclError:
                 pass
+        for tip, key in self._state.lang_tooltips:
+            tip.text = self._t(key)
 
     def _load_lang_setting(self):
         lang = self._load_ui_settings().get("lang", "de")

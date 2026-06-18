@@ -11,7 +11,7 @@ from ancestry.core.scraper import DownloadResult, Scraper
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.log_handler import install_gui_log_handler
 from ancestry.gui.widgets.theme import COLORS
-from ancestry.gui.widgets.tooltip import tooltip
+from ancestry.gui.widgets.tooltip import register_tooltip
 
 
 class DownloadTab(ttk.Frame):
@@ -166,8 +166,7 @@ class DownloadTab(ttk.Frame):
         _cb = ttk.Checkbutton(sf_names, textvariable=_sv,
                               variable=self._ped_refresh_var)
         _cb.pack(side="left", padx=(8, 4))
-        tooltip(_cb, "Auch bereits geladene Ahnentafeln erneuern, deren "
-                     "Abruf älter als 30 Tage ist")
+        register_tooltip(_cb, "tt.dl_refresh", self._state)
         lw.append((_sv, "dl.refresh_stale"))
         ttk.Label(sf_names, text="(>5 Gen. = langsamer, mehr Extra-Calls)",
                   foreground="#888888").pack(side="left")
@@ -318,8 +317,7 @@ class DownloadTab(ttk.Frame):
         _gmx = ttk.Button(gmx_row, text="⬇ Matches als GEDmatch-TSV exportieren",
                           command=self._export_gedmatch)
         _gmx.pack(side="left", padx=(12, 0))
-        tooltip(_gmx, "Exportiert die Matches des gewählten Kits im "
-                      "GEDmatch-One-to-Many-Format (wieder importierbar)")
+        register_tooltip(_gmx, "tt.dl_gmx", self._state)
         ttk.Label(gmx_row, text="(One-to-Many-Format, wieder importierbar)",
                   foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=8)
 
