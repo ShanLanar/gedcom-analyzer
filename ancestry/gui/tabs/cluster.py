@@ -213,7 +213,7 @@ class ClusterTab(ttk.Frame):
     def refresh(self):
         test_guid = self._get_test_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dlg.m_choose_kit"))
             return
         try:
             min_prim   = float(self._min_cm_var.get()    or 20)
@@ -226,7 +226,7 @@ class ClusterTab(ttk.Frame):
             test_guid, min_prim, min_shared,
             max_cm_primary=max_prim, max_cm_shared=max_prim)
         if not shared_data:
-            messagebox.showinfo("Keine Daten",
+            messagebox.showinfo(self._state.t("dlg.no_data"),
                                 "Keine Shared Matches im gewählten cM-Bereich.\n\n"
                                 "Mögliche Ursachen:\n"
                                 "• Noch keine Shared Matches heruntergeladen "
@@ -386,21 +386,20 @@ class ClusterTab(ttk.Frame):
 
         test_guid = self._get_current_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dlg.m_choose_kit"))
             return
         # nur Matches aus den berechneten Clustern (falls vorhanden), sonst alle
         guids = [m["guid"] for mlist in self._clusters.values() for m in mlist] or None
         try:
             rows = self._state.db.get_match_birthplaces(test_guid, guids)
         except Exception as e:  # noqa: BLE001
-            messagebox.showerror("Fehler", str(e))
+            messagebox.showerror(self._state.t("dlg.error"), str(e))
             return
         places = aggregate_mrca_places(rows)
         if not places:
             messagebox.showinfo(
-                "Keine Orte mit Koordinaten",
-                "Keine Geburtsorte mit Koordinaten gefunden.\n"
-                "→ Erst 'Vorfahren & Orte' laden (liefert Koordinaten).")
+                self._state.t("cl.no_coords_t"),
+                self._state.t("cl.m_no_coords"))
             return
         EXPORT_DIR.mkdir(parents=True, exist_ok=True)
         out = EXPORT_DIR / "mrca_map.html"
@@ -413,8 +412,8 @@ class ClusterTab(ttk.Frame):
     def _show_tree(self):
         sel = self._cluster_list.selection()
         if not sel:
-            messagebox.showinfo("Kein Cluster",
-                                "Bitte zuerst einen Cluster in der Liste auswählen.")
+            messagebox.showinfo(self._state.t("dlg.no_cluster"),
+                                self._state.t("dlg.m_choose_cluster"))
             return
         cid     = int(sel[0])
         members = self._clusters.get(cid, [])
@@ -422,7 +421,7 @@ class ClusterTab(ttk.Frame):
             return
         test_guid = self._get_current_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
+            messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dlg.m_choose_kit"))
             return
 
         guids   = {m["guid"] for m in members}
@@ -477,9 +476,7 @@ class ClusterTab(ttk.Frame):
                         f"{len(persons)} einzigartige Vorfahren in den Ahnentafeln"),
                   font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(10, 0))
         ttk.Label(win,
-                  text=("Grün = alle Mitglieder teilen diese Person  |  "
-                        "Gelb = ≥3 Mitglieder  |  Orange = 2 Mitglieder  |  "
-                        "Weiß = nur 1 Mitglied  →  mehr = wahrscheinlicherer Vorfahre"),
+                  text=(self._state.t("cl.tree_legend")),
                   foreground="#333333").pack(anchor="w", padx=12, pady=(2, 6))
 
         t = self._state.t

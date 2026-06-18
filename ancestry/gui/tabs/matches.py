@@ -172,7 +172,7 @@ class MatchesTab(ttk.Frame):
         _b.pack(side="left", padx=(12, 0))
         register_tooltip(_b, "tt.mf_sides", self._state)
         lw.append((_sv_sides, "mf.sides"))
-        _b = ttk.Button(kl, text="⚡ GEDmatch-Brücke", command=self._on_gedmatch_bridge)
+        _b = ttk.Button(kl, text=self._state.t("mf.b_bridge"), command=self._on_gedmatch_bridge)
         _b.pack(side="left", padx=(8, 0))
         register_tooltip(_b, "tt.mf_bridge", self._state)
 
@@ -516,7 +516,7 @@ class MatchesTab(ttk.Frame):
         _b = ttk.Button(hdr, text="🤖 ML-Herkunft", command=self._on_ml_origin)
         _b.pack(side="right", padx=4)
         register_tooltip(_b, "tt.md_ml", self._state)
-        _b = ttk.Button(hdr, text="👥 Duplikate prüfen", command=self._on_xref_review)
+        _b = ttk.Button(hdr, text=self._state.t("mf.b_dups"), command=self._on_xref_review)
         _b.pack(side="right", padx=4)
         register_tooltip(_b, "tt.md_dup", self._state)
         _sv_endo_btn = tk.StringVar(value=t("md.ged_endogamy"))
@@ -893,7 +893,7 @@ class MatchesTab(ttk.Frame):
 
         menu = tk.Menu(self, tearoff=False)
         menu.add_command(
-            label="🔗 In Ancestry öffnen",
+            label=self._state.t("mf.b_open_anc"),
             command=self._open_in_ancestry)
         menu.add_command(
             label="📋 Match-GUID kopieren",
@@ -953,8 +953,8 @@ class MatchesTab(ttk.Frame):
             dlg.destroy()
 
         bf = ttk.Frame(dlg); bf.pack(anchor="e", padx=14, pady=4)
-        ttk.Button(bf, text="Abbrechen", command=dlg.destroy).pack(side="left", padx=4)
-        ttk.Button(bf, text="Speichern", command=_save).pack(side="left")
+        ttk.Button(bf, text=self._state.t("dlg.cancel"), command=dlg.destroy).pack(side="left", padx=4)
+        ttk.Button(bf, text=self._state.t("dlg.save"), command=_save).pack(side="left")
         dlg.bind("<Return>", lambda _: _save())
 
     def _clear_endogamy_cluster(self, match):
@@ -1197,7 +1197,7 @@ class MatchesTab(ttk.Frame):
             return
         name = self._selected_match.display_name or ""
         if not name or name in ("Anonym", "?"):
-            messagebox.showinfo("Kein Name", "Für diesen Match ist kein Name bekannt.")
+            messagebox.showinfo(self._state.t("mf.no_name_t"), self._state.t("mf.m_no_name"))
             return
         url = f"https://www.familysearch.org/search/record/results?q.surname={quote(name.split()[-1])}"
         webbrowser.open(url)

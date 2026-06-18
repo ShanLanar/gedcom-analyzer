@@ -73,10 +73,7 @@ class LoginTab(ttk.Frame):
             row=5, column=0, columnspan=3, sticky="w", **p)
         lw.append((_sv, "lg.meth2"))
         ttk.Label(f, text=(
-            "1. Chrome/Firefox-Extension »Cookie-Editor« installieren\n"
-            "2. Auf ancestry.com einloggen\n"
-            "3. Cookie-Editor → Export → JSON → speichern\n"
-            "4. Datei hier auswählen"
+            self._state.t("lg.cookie_steps")
         ), foreground="#555555").grid(row=6, column=0, columnspan=3, sticky="w", padx=16)
         ttk.Entry(f, textvariable=self._cookie_file_var, width=36,
                   state="readonly").grid(row=7, column=1, sticky="w", **p)
@@ -118,7 +115,7 @@ class LoginTab(ttk.Frame):
     def _do_login_cookies(self):
         path = self._cookie_file_var.get().strip()
         if not path:
-            messagebox.showwarning("Keine Datei", "Bitte Cookie-Datei auswählen.")
+            messagebox.showwarning(self._state.t("lg.no_file_t"), self._state.t("lg.m_choose_cookie"))
             return
         threading.Thread(target=self._login_thread, args=(path, None, "cookie"),
                          daemon=True).start()
@@ -164,7 +161,7 @@ class LoginTab(ttk.Frame):
         self._on_switch_tab(1)
 
     def _choose_cookie_file(self):
-        p = filedialog.askopenfilename(title="Cookie-JSON wählen",
+        p = filedialog.askopenfilename(title=self._state.t("lg.t_cookie"),
                                        filetypes=[("JSON", "*.json"), ("Alle", "*.*")])
         if p:
             self._cookie_file_var.set(p)
@@ -172,7 +169,7 @@ class LoginTab(ttk.Frame):
     def _use_manual_guid(self):
         guid = self._manual_guid_var.get().strip()
         if not guid:
-            messagebox.showwarning("Keine GUID", "Bitte eine Kit-GUID eingeben.")
+            messagebox.showwarning(self._state.t("lg.no_guid_t"), self._state.t("lg.m_enter_guid"))
             return
         name = f"Manuell ({guid[:8]}…)"
         self._state.kit_map[name] = guid

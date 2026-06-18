@@ -192,7 +192,7 @@ class PersonsTab(ttk.Frame):
         mid = ttk.Frame(outer)
         outer.add(mid, weight=3)
         nav = ttk.Frame(mid); nav.pack(fill="x")
-        _b = ttk.Button(nav, text="◀ Zurück", command=self._pers_go_back)
+        _b = ttk.Button(nav, text=self._state.t("pe.b_back"), command=self._pers_go_back)
         _b.pack(side="left", pady=(0, 4))
         register_tooltip(_b, "tt.pe_back", self._state)
         ttk.Label(nav, text="  Generationen:").pack(side="left")
@@ -537,7 +537,7 @@ class PersonsTab(ttk.Frame):
 
         focus = self._pers_get(ged_id)
         if not focus:
-            tc.create_text(60, 50, anchor="nw", text="Person nicht gefunden.",
+            tc.create_text(60, 50, anchor="nw", text=self._state.t("pe.not_found"),
                            fill=_MUTED, font=("Segoe UI", 10))
             tc.configure(scrollregion=(0, 0, 820, 120))
             return
@@ -860,7 +860,7 @@ class PersonsTab(ttk.Frame):
                       wraplength=210).pack(side="left")
         if parish.get("founded"):
             rr = ttk.Frame(self._pers_detail); rr.pack(fill="x", padx=10, pady=1)
-            ttk.Label(rr, text="Gegründet", width=10, foreground=_MUTED).pack(side="left")
+            ttk.Label(rr, text=self._state.t("pe.founded"), width=10, foreground=_MUTED).pack(side="left")
             ttk.Label(rr, text=str(parish["founded"])).pack(side="left")
 
     # ── Detail-Abschnitt: GEDCOM-Verknüpfung (Quellen-Dedup) ───────────────────
