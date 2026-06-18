@@ -137,8 +137,20 @@ Backlog zu streichen):
 
 ## Sofort-Sprint (nächste Sitzung)
 
-1. 🟡 Triangulations-Bericht als PDF (EPIC 3) — Bibliothek klären (reportlab?
+1. 🟡 **Live-Sprachwechsel für statische Labels** — viele neu übersetzte Labels
+   nutzen `t(key)` zur Bauzeit (korrekt beim Start, schalten aber nicht live
+   um). Nur in `lang_widgets` registrierte Widgets + alle Tooltips wechseln live.
+   → restliche Labels als StringVar registrieren.
+2. 🟡 Triangulations-Bericht als PDF (EPIC 3) — Bibliothek klären (reportlab?
    sonst druckbares HTML)
-2. 🟡 Endogamie-Score automatisch an DNA-Matches kennzeichnen (EPIC 3)
-3. 🟢 mypy schrittweise auf Kernmodule
-4. 🟢 Tooltips auf restliche Detail-/Werkzeug-Buttons (Tools-Tab) ergänzen
+3. 🟡 Endogamie-Score automatisch an DNA-Matches kennzeichnen (EPIC 3)
+4. 🟢 `test_viewer_smoke` mit `importorskip("flask")` absichern (sonst rot ohne
+   das optionale `[viewer]`-Extra)
+5. 🟢 mypy schrittweise auf Kernmodule
+6. 🟢 Tooltips auf die letzten „…"-Dateiwähler-Buttons (bewusst ausgelassen)
+
+> ✅ Erledigt (diese Sitzung): GESAMTE GUI zweisprachig (179 → 0 hartkodierte
+> Strings), Guard-Test + Audit-Tool, Tooltip-Helfer + Ausrollung, Tastenkürzel-
+> Hilfe. Davor: Phasing-Dashboard, MRCA-Karte, Pedigree-Lücken (Kern),
+> GEDmatch-Export, MTA-Eltern-Vergleich, inkrementeller Pedigree-Refresh,
+> Core-API-Tests, GUI-Smoke-Tests, einzelne Migrations-Tests, Coverage-CI.
