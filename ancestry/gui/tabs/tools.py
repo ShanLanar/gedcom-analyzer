@@ -19,6 +19,7 @@ import webbrowser
 from tkinter import filedialog, scrolledtext, ttk
 
 from ancestry.gui.state import AppState
+from ancestry.gui.widgets.tooltip import register_tooltip
 from ancestry.paths import ROOT
 
 _WIKI_PATH = os.path.join(str(ROOT), "WIKI.md")
@@ -65,8 +66,9 @@ class ToolsTab(ttk.Frame):
                              "Hintergrund, fortsetzbar, jederzeit per ■ stoppbar.",
                   foreground=self._state.colors().get("text_dim", "#888888")
                   ).pack(side="left", padx=(8, 0))
-        ttk.Button(head, text="📖 Anleitung öffnen",
-                   command=self._open_wiki).pack(side="right")
+        _b = ttk.Button(head, text="📖 Anleitung öffnen", command=self._open_wiki)
+        _b.pack(side="right")
+        register_tooltip(_b, "tt.tl_guide", self._state)
 
         # ── Anleitung / empfohlener Ablauf ────────────────────────────────
         guide = ttk.LabelFrame(f, text="📋 Anleitung – empfohlener Ablauf", padding=8)
@@ -123,6 +125,7 @@ class ToolsTab(ttk.Frame):
         clear = ttk.Button(right_wrap, text="Log leeren",
                            command=self._tool_log_clear)
         clear.pack(anchor="e", pady=(4, 0))
+        register_tooltip(clear, "tt.tl_logclear", self._state)
 
         # ── Eingabefelder (Profile/Pfarrei/IDs/Dateien) ───────────────────
         self._tl_wt_profile = tk.StringVar(value="anverwandte")
@@ -148,8 +151,9 @@ class ToolsTab(ttk.Frame):
                         variable=self._tl_wt_discover).pack(side="left")
         self._tool_action(sec, "Öffentlichen Baum crawlen", "wt_crawl",
                           self._tl_cmd_wt_crawl)
-        ttk.Button(sec, text="🗑 DB löschen",
-                   command=self._wt_delete_db).pack(anchor="w", pady=(0, 2))
+        _b = ttk.Button(sec, text="🗑 DB löschen", command=self._wt_delete_db)
+        _b.pack(anchor="w", pady=(0, 2))
+        register_tooltip(_b, "tt.tl_dbdel", self._state)
         self._tool_action(sec, "Crawl → Datenbank importieren", "wt_import",
                           lambda: [sys.executable, "-u", _tool("import_webtrees.py")])
         self._tool_action(sec, "💾 Als GEDCOM-Datei exportieren", "wt_export",
@@ -260,8 +264,10 @@ class ToolsTab(ttk.Frame):
         ttk.Button(row, text="…", width=3,
                    command=lambda: self._tl_pick(self._tl_match_csv, "CSV", "*.csv")
                    ).pack(side="left")
-        ttk.Button(sec, text="🔗 Anverwandte-Matches importieren",
-                   command=self._import_match_csv).pack(anchor="w", pady=(2, 0))
+        _b = ttk.Button(sec, text="🔗 Anverwandte-Matches importieren",
+                        command=self._import_match_csv)
+        _b.pack(anchor="w", pady=(2, 0))
+        register_tooltip(_b, "tt.tl_impmatch", self._state)
 
         # ── Abschnitt E: Extras / Viewer ──────────────────────────────────
         sec = self._tool_section(inner, "🧰  Extras")
@@ -279,8 +285,9 @@ class ToolsTab(ttk.Frame):
         # ── Abschnitt F: Ortskonkordanz (Anverwandte → Standardorte) ──────────
         sec = self._tool_section(inner, "🗺  Ortskonkordanz")
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Button(row, text="✏ Orte bearbeiten",
-                   command=self._open_place_editor).pack(side="left", padx=(0, 8))
+        _b = ttk.Button(row, text="✏ Orte bearbeiten", command=self._open_place_editor)
+        _b.pack(side="left", padx=(0, 8))
+        register_tooltip(_b, "tt.tl_places", self._state)
         ttk.Label(row, text="Rohorte anzeigen, automatische Normalisierung prüfen "
                              "und manuelle Überschreibungen setzen.",
                   foreground=self._state.colors().get("text_dim", "#888888")
@@ -452,12 +459,15 @@ class ToolsTab(ttk.Frame):
         row = ttk.Frame(parent); row.pack(fill="x", pady=1)
         ttk.Label(row, text=label, width=34, anchor="w").pack(side="left")
         if gui:
-            ttk.Button(row, text="▶ Öffnen",
-                       command=lambda g=gui: self._tool_launch_gui(g)
-                       ).pack(side="left", padx=2)
+            _open = ttk.Button(row, text="▶ Öffnen",
+                               command=lambda g=gui: self._tool_launch_gui(g))
+            _open.pack(side="left", padx=2)
+            register_tooltip(_open, "tt.tl_open", self._state)
             return
         btn_stop = ttk.Button(row, text="■", width=3, state="disabled")
         btn_start = ttk.Button(row, text="▶ Start")
+        register_tooltip(btn_start, "tt.tl_start", self._state)
+        register_tooltip(btn_stop, "tt.tl_stop", self._state)
         btn_start.configure(command=lambda: self._tool_run(
             key, build_cmd(), btn_start, btn_stop, on_start=on_start, on_line=on_line))
         btn_stop.configure(command=lambda: self._tool_kill(key))
