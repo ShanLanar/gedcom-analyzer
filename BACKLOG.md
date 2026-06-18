@@ -121,12 +121,11 @@ Backlog zu streichen):
    (Stats-Tab-Button)
 3. ✅ Inkrementeller Pedigree-Refresh als Checkbox im Download-Tab verdrahtet
 4. ✅ Einzelne DB-Migrationen getestet (v_n→v_{n+1}, parametrisiert)
+5. ✅ GEDmatch-Export (One-to-Many-TSV, round-trip zum Import; Download-Tab-Button)
 
 ## Sofort-Sprint (nächste Sitzung)
 
-1. 🟢 GedMatch-**Export** — Zielformat klären (Tier1-CSV? welche Felder?),
-   dann pure Writer + Test (Import existiert bereits)
-2. 🟢 Tooltips auf Buttons (`tooltip(widget, text)`-Helfer) + Tastenkürzel-Hilfe
-3. 🟡 MTA ↔ Cluster-Korrelation (EPIC 6) — Daten beidseits vorhanden
-4. 🟡 Triangulations-Bericht als PDF (EPIC 3)
-5. 🟢 mypy schrittweise auf Kernmodule
+1. 🟢 Tooltips auf Buttons (`tooltip(widget, text)`-Helfer) + Tastenkürzel-Hilfe
+2. 🟡 MTA ↔ Cluster-Korrelation (EPIC 6) — Daten beidseits vorhanden
+3. 🟡 Triangulations-Bericht als PDF (EPIC 3)
+4. 🟢 mypy schrittweise auf Kernmodule

@@ -307,6 +307,15 @@ class DownloadTab(ttk.Frame):
         ttk.Button(ftdna_row, text="⬆ FTDNA Matches importieren",
                    command=self._import_ftdna_matches).pack(side="left", padx=(12, 0))
 
+        # GEDmatch-Export der eigenen Matches (One-to-Many-TSV)
+        gmx_row = ttk.Frame(f)
+        gmx_row.grid(row=20, column=0, columnspan=4, sticky="w", padx=14, pady=(90, 2))
+        ttk.Label(gmx_row, text="GEDmatch-Export:").pack(side="left")
+        ttk.Button(gmx_row, text="⬇ Matches als GEDmatch-TSV exportieren",
+                   command=self._export_gedmatch).pack(side="left", padx=(12, 0))
+        ttk.Label(gmx_row, text="(One-to-Many-Format, wieder importierbar)",
+                  foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=8)
+
         # ── Bereich D: Herkunft / Ethnizität + Traits ────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
             row=21, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
@@ -723,6 +732,34 @@ class DownloadTab(ttk.Frame):
         )
         if path:
             self._seg_file_var.set(path)
+
+    def _export_gedmatch(self):
+        from tkinter.filedialog import asksaveasfilename
+
+        from ancestry.core.gedmatch_export import export_gedmatch_matches
+
+        guid = self.get_kit_guid()
+        if not guid:
+            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen oder GUID eingeben.")
+            return
+        matches = self._state.db.get_matches(test_guid=guid)
+        if not matches:
+            messagebox.showinfo("Keine Matches", "Für dieses Kit sind keine Matches vorhanden.")
+            return
+        path = asksaveasfilename(
+            title="GEDmatch-TSV speichern", defaultextension=".tsv",
+            initialfile="gedmatch_matches.tsv",
+            filetypes=[("TSV-Dateien", "*.tsv"), ("Alle Dateien", "*.*")])
+        if not path:
+            return
+        try:
+            with open(path, "w", encoding="utf-8", newline="") as fh:
+                fh.write(export_gedmatch_matches(matches))
+        except OSError as e:
+            messagebox.showerror("Fehler", str(e))
+            return
+        self._set_status(f"GEDmatch-Export: {len(matches)} Matches → {path}")
+        messagebox.showinfo("Export fertig", f"{len(matches)} Matches exportiert:\n{path}")
 
     def _choose_ftdna_file(self):
         from tkinter.filedialog import askopenfilename
