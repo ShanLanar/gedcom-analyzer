@@ -182,8 +182,7 @@ def show_cluster_relationships(app, test_guid, cluster):
     ttk.Label(win, text=(f"{cluster['size']} Mitglieder · {len(pairs)} bekannte "
                          f"Paar-Beziehungen (aus geteilten cM untereinander):"),
               style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10, 2))
-    ttk.Label(win, text="Hohe cM = nah (Eltern/Kind, Geschwister) → engere "
-              "Teil-Familien im Cluster. Hilft, die Struktur zu rekonstruieren.",
+    ttk.Label(win, text=app._t("cv.cm_hint"),
               foreground="#555").pack(anchor="w", padx=10, pady=(0, 4))
 
     if not pairs:

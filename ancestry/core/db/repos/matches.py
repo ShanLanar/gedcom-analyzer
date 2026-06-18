@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from ancestry.models import DnaMatch
 
@@ -125,7 +125,7 @@ class MatchesRepo:
         sort_col  = sort_col if sort_col in valid_cols else "shared_cm"
         direction = "ASC" if sort_asc else "DESC"
 
-        conditions, params = [], []
+        conditions: list[str] = []; params: list[Any] = []
         use_kit_join = bool(test_guid) and not all_sources
         if use_kit_join:
             conditions.append("mkm.test_guid = ?"); params.append(test_guid)

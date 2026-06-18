@@ -103,4 +103,9 @@ files = [
     "ancestry/core/triangulation_report.py",
     "ancestry/core/cluster.py",
     "ancestry/core/mta_import.py",
+    "ancestry/core/db/connection.py",
+    "ancestry/core/db/runner.py",
+    "ancestry/core/gedcom_export.py",
+    "ancestry/core/db/repos/pedigree.py",
+    "ancestry/core/db/repos/matches.py",
 ]

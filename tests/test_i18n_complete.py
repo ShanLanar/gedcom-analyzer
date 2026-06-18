@@ -25,6 +25,8 @@ ALLOWED_IDENTICAL = {
     "dl.dash_sh", "md.fs_link", "mf.kit",
     # Eigennamen / Formate, in beiden Sprachen identisch
     "dlg.gedcom", "dlg.export", "dlg.wikitree",
+    # Ähnlichkeits-Matrix: Spaltenbezeichnungen sind in beiden Sprachen gleich
+    "sm.match_a", "sm.match_b", "sm.score",
 }
 
 

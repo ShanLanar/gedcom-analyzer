@@ -1,10 +1,9 @@
 #!/usr/bin/env python3
 """i18n-Audit: findet hartkodierte deutsche UI-Strings im GUI-Code.
 
-Sucht in ancestry/gui/ nach Widget-Beschriftungen (text=/title=/label=) und
-messagebox-Aufrufen, deren Text deutsche Zeichen/Wörter enthält und NICHT über
-das Übersetzungssystem (theme.translate / t("…")) läuft. Dient als wiederhol-
-barer Fortschrittsbericht beim Zweisprachig-Machen der Oberfläche.
+AST-basierter Scanner: wertet den Syntaxbaum aus, nicht Rohtextzeilen.
+Erfasst dadurch auch messagebox-Body-Texte und mehrzeilige Strings, die
+Regex übersieht. Falsch-positive durch Bezeichner (side_label = …) entfallen.
 
 Aufruf:
     python -m ancestry.tools.i18n_audit            # Bericht
@@ -13,57 +12,105 @@ Aufruf:
 from __future__ import annotations
 
 import argparse
+import ast
 import re
 from collections import Counter
 from pathlib import Path
 
 GUI_DIR = Path(__file__).resolve().parent.parent / "gui"
 
-# typische deutsche Marker (Umlaute oder häufige Funktionswörter)
-_GERMAN = re.compile(r"[äöüßÄÖÜ]|\b(?:und|oder|der|die|das|für|mit|nicht|"
-                     r"laden|wählen|öffnen|speichern|löschen|abbrechen|"
-                     r"importieren|exportieren|berechnen|Datei|Fenster|"
-                     r"keine?|bitte)\b", re.IGNORECASE)
+_WIDGET_TEXT_KEYS = {"text", "title", "label", "message"}
+_MSGBOX_FUNCS = {"showinfo", "showwarning", "showerror", "askyesno",
+                 "askokcancel", "askretrycancel", "askyesnocancel"}
 
-# text="…" / title="…" / label="…" mit Literal (einfache/doppelte Quotes).
-# \b verhindert Treffer in Bezeichnern wie side_label = "…".
-_LABEL = re.compile(r'\b(?:text|title|label)\s*=\s*(["\'])(.*?)\1')
-# messagebox.showinfo("Titel", "Nachricht …")  – erfasst Literale
-_MSGBOX = re.compile(r'messagebox\.(?:showinfo|showwarning|showerror|askyesno)'
-                     r'\s*\(\s*(["\'])(.*?)\1')
+_GERMAN = re.compile(
+    r"[äöüßÄÖÜ]"
+    r"|\b(?:und|oder|der|die|das|für|mit|nicht|"
+    r"laden|wählen|öffnen|speichern|löschen|abbrechen|"
+    r"importieren|exportieren|berechnen|Datei|Fenster|"
+    r"keine?|bitte)\b",
+    re.IGNORECASE,
+)
 
 
 def _is_german(text: str) -> bool:
     if not text or len(text) < 3:
         return False
-    # reine Symbole/Emoji/Format-Strings ignorieren
     if not re.search(r"[A-Za-zÄÖÜäöü]", text):
         return False
     return bool(_GERMAN.search(text))
 
 
+def _func_name(node: ast.expr) -> str:
+    """Returns the last attribute segment of a call's function, e.g. 'showinfo'."""
+    if isinstance(node, ast.Attribute):
+        return node.attr
+    if isinstance(node, ast.Name):
+        return node.id
+    return ""
+
+
+def _is_msgbox_call(call: ast.Call) -> bool:
+    return _func_name(call.func) in _MSGBOX_FUNCS
+
+
+def _scan_file(path: Path) -> list[tuple[int, str]]:
+    """Parse one file and return (lineno, string) pairs for hardcoded German strings."""
+    try:
+        source = path.read_text(encoding="utf-8")
+        tree = ast.parse(source, filename=str(path))
+    except SyntaxError:
+        return []
+
+    hits: list[tuple[int, str]] = []
+
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Call):
+            continue
+
+        # ── keyword args: text=, title=, label=, message= ────────────────────
+        for kw in node.keywords:
+            if kw.arg not in _WIDGET_TEXT_KEYS:
+                continue
+            if not isinstance(kw.value, ast.Constant):
+                continue  # t("key") or variable → already translated / not a literal
+            txt = kw.value.value
+            if isinstance(txt, str) and _is_german(txt):
+                hits.append((kw.value.lineno, txt))
+
+        # ── messagebox positional args (title=arg0, message=arg1) ─────────────
+        if _is_msgbox_call(node):
+            for arg in node.args:
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    txt = arg.value
+                    if _is_german(txt):
+                        hits.append((arg.lineno, txt))
+
+    # Deduplicate by (lineno, text) while preserving order
+    seen: set[tuple[int, str]] = set()
+    unique: list[tuple[int, str]] = []
+    for item in sorted(hits):
+        if item not in seen:
+            seen.add(item)
+            unique.append(item)
+    return unique
+
+
 def scan() -> dict[Path, list[tuple[int, str]]]:
     findings: dict[Path, list[tuple[int, str]]] = {}
     for path in sorted(GUI_DIR.rglob("*.py")):
-        # theme.py enthält bewusst alle Übersetzungen – nicht auditieren
         if path.name == "theme.py":
             continue
-        hits: list[tuple[int, str]] = []
-        for n, line in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-            if "t(" in line and "text=t(" in line.replace(" ", ""):
-                continue  # bereits übersetzt
-            for rx in (_LABEL, _MSGBOX):
-                for m in rx.finditer(line):
-                    txt = m.group(2)
-                    if _is_german(txt):
-                        hits.append((n, txt))
+        hits = _scan_file(path)
         if hits:
             findings[path] = hits
     return findings
 
 
 def main() -> int:
-    ap = argparse.ArgumentParser()
+    ap = argparse.ArgumentParser(
+        description="AST-basierter i18n-Audit für ancestry/gui/"
+    )
     ap.add_argument("--list", action="store_true",
                     help="alle Fundstellen einzeln ausgeben")
     args = ap.parse_args()
@@ -72,7 +119,7 @@ def main() -> int:
     total = sum(len(v) for v in findings.values())
     per_file = Counter({p: len(v) for p, v in findings.items()})
 
-    print(f"i18n-Audit: {total} hartkodierte deutsche UI-Strings "
+    print(f"i18n-Audit (AST): {total} hartkodierte deutsche UI-Strings "
           f"in {len(findings)} Dateien\n")
     for path, n in per_file.most_common():
         rel = path.relative_to(GUI_DIR.parent.parent)

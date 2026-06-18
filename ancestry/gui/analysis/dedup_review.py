@@ -52,8 +52,7 @@ class DedupReview(ttk.Frame):
                    ).pack(fill="x", pady=4)
         ttk.Button(act, text=self._t("dr.not_dup"), command=lambda: self._mark("rejected")
                    ).pack(fill="x", pady=4)
-        ttk.Label(act, text="Entscheidungen werden\nals Labels gespeichert\n"
-                            "und trainieren das Modell.", foreground="#888",
+        ttk.Label(act, text=self._t("dr.model_hint"), foreground="#888",
                   justify="left").pack(pady=(16, 0))
 
     def reload(self):

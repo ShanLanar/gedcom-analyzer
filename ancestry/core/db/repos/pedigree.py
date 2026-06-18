@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ancestry.core.database import Database
@@ -159,7 +159,7 @@ class PedigreeRepo:
                         (self._now_iso(), match_guid, test_guid))
 
     def get_pedigree_groups(self, test_guid: str, min_matches: int = 2,
-                            mode: str = "person", only_guids: list = None) -> list:
+                            mode: str = "person", only_guids: Optional[list[Any]] = None) -> list:
         sql = """
             SELECT p.given_name, p.surname, p.birth_year, p.birth_place,
                    p.generation, p.ahnen_path, p.match_guid,
@@ -287,7 +287,7 @@ class PedigreeRepo:
             result[guid]["generations"][r["generation"]] = r["count"]
         return list(result.values())
 
-    def get_match_birthplaces(self, test_guid: str, match_guids: list = None) -> list:
+    def get_match_birthplaces(self, test_guid: str, match_guids: Optional[list[Any]] = None) -> list:
         """Geburtsorte (mit Koordinaten) aus den Match-Stammbäumen – Rohzeilen
         für die MRCA-Karte. Optional auf bestimmte Matches eingegrenzt."""
         sql = ("SELECT match_guid, place_name, coords, side, person_count "

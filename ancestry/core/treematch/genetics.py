@@ -47,7 +47,7 @@ def longest_to_generation(longest: float) -> int:
 
 
 def cluster_confidence(size: int, density: float, median_cm: float = 0.0,
-                       conv_frac: float = None, endogamy_score: float = 0.0,
+                       conv_frac: float | None = None, endogamy_score: float = 0.0,
                        n_confirmed: int = 0) -> dict:
     """Bewertet einen Cluster. Liefert dict mit:
       realness  – P(Cluster ist echt, kein Zufall) 0..1 (Größe × Dichte)

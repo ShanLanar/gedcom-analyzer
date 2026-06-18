@@ -584,7 +584,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
               "Cluster-Patterns und ist eine Schätzung — keine genealogische Gewissheit.",
         "en": "ℹ  Without a mother or father kit, the assignment is based only on\n"
               "cluster patterns and is an estimate — not genealogical certainty."},
-    "dlg.save": {"de": "Speichern", "en": "Save"},
     "pe2.b_save":   {"de": "💾 Speichern", "en": "💾 Save"},
     "pe2.b_reload": {"de": "🔁 Neu laden", "en": "🔁 Reload"},
     "pe2.hint":     {"de": "  Doppelklick → Überschreibung bearbeiten",
@@ -646,6 +645,26 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.ged_origin":    {"de": "🗺 Herkunft ableiten",        "en": "🗺 Infer origins"},
     "md.ged_endogamy":  {"de": "🧬 Endogamie übertragen",     "en": "🧬 Transfer endogamy"},
     "md.ged_rerun":     {"de": "↺ Nochmals abgleichen",       "en": "↺ Re-run match"},
+    # cluster_views – interne Strukturansicht
+    "cv.cm_hint":       {"de": "Hohe cM = nah (Eltern/Kind, Geschwister) → engere Teil-Familien im Cluster. Hilft, die Struktur zu rekonstruieren.",
+                         "en": "High cM = close relation (parent/child, siblings) → tighter sub-families in cluster. Helps reconstruct structure."},
+    # dedup_review – Hinweistext
+    "dr.model_hint":    {"de": "Entscheidungen werden\nals Labels gespeichert\nund trainieren das Modell.",
+                         "en": "Decisions are saved\nas labels and train\nthe model."},
+    # Ähnlichkeits-Matrix
+    "mn.sur_matrix": {"de": "Ähnlichkeits-Matrix (Nachnamen) …", "en": "Similarity matrix (surnames) …"},
+    "sm.title":      {"de": "Nachnamen-Ähnlichkeits-Matrix",      "en": "Surname Similarity Matrix"},
+    "sm.min_cm":     {"de": "Mindest-cM:",                        "en": "Min cM:"},
+    "sm.min_score":  {"de": "Mindest-Jaccard:",                   "en": "Min Jaccard:"},
+    "sm.calc":       {"de": "Berechnen",                          "en": "Calculate"},
+    "sm.match_a":    {"de": "Match A",                            "en": "Match A"},
+    "sm.match_b":    {"de": "Match B",                            "en": "Match B"},
+    "sm.count":      {"de": "Anzahl",                             "en": "Count"},
+    "sm.score":      {"de": "Jaccard",                            "en": "Jaccard"},
+    "sm.common":     {"de": "Gemeinsame Nachnamen",               "en": "Common Surnames"},
+    "sm.no_data":    {"de": "Keine Stammbaumdaten vorhanden.",    "en": "No pedigree data available."},
+    "sm.computing":  {"de": "Berechne …",                        "en": "Computing …"},
+    "sm.pairs":      {"de": "{n} Paare gefunden ({m} Matches)",   "en": "{n} pairs found ({m} matches)"},
 }
 
 

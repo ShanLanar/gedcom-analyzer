@@ -12,8 +12,8 @@ def merge_person_list(persons: list, thresh: float = 0.72) -> list:
     """Verschmilzt überlappende Personen (Schreibvarianten) zu kanonischen Gruppen.
     persons: Person-Objekte (ref trägt Herkunft). Liefert
     [{'rep':Person, 'items':[Person,...]}] – je Gruppe = eine reale Person."""
-    groups = []
-    by_pre = {}  # Nachnamen-Präfix[:4] -> Liste Gruppen-Indizes
+    groups: list = []
+    by_pre: dict = {}  # Nachnamen-Präfix[:4] -> Liste Gruppen-Indizes
     for p in persons:
         cand = set()
         for t in p.stoks:

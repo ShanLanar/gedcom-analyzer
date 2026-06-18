@@ -216,6 +216,8 @@ class AncestryDnaApp(tk.Frame):
         am.add_separator()
         am.add_command(label=self._t("mn.dashboard"),   command=self._show_research_dashboard)
         am.add_command(label=self._t("mn.copilot_cl"),  command=self._copilot_explain_cluster)
+        am.add_separator()
+        am.add_command(label=self._t("mn.sur_matrix"),  command=self._show_surname_matrix)
         mb.add_cascade(label=self._t("mn.analysis"), menu=am)
         for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
@@ -226,7 +228,8 @@ class AncestryDnaApp(tk.Frame):
                          (20,"mn.exp_ged"),(21,"mn.imp_mta"),
                          (23,"mn.ped_gaps"),(24,"mn.ped_chart"),
                          (25,"mn.endo_score"),(26,"mn.pop_stats"),
-                         (28,"mn.dashboard"),(29,"mn.copilot_cl")]:
+                         (28,"mn.dashboard"),(29,"mn.copilot_cl"),
+                         (31,"mn.sur_matrix")]:
             self._lang_menus.append((am, idx, key))
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
@@ -1905,6 +1908,11 @@ class AncestryDnaApp(tk.Frame):
             explain_async(prompt, on_chunk=_chunk, on_done=_done)
 
         btn.configure(command=_explain)
+
+    def _show_surname_matrix(self):
+        """Öffnet die Nachnamen-Ähnlichkeits-Matrix."""
+        from ancestry.gui.analysis.surname_matrix_view import show_surname_matrix
+        show_surname_matrix(self)
 
     def _run_gedmatch_bridge(self):
         """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches (Name+cM-Ähnlichkeit)."""
