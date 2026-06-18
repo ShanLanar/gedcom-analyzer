@@ -132,11 +132,13 @@ Backlog zu streichen):
 > Eigenprofil, keine Per-Match-Populationen) **nicht sauber fundierbar** —
 > aus dem Sprint genommen. Stattdessen der tragfähige Eltern-Vergleich (6).
 
+8. ✅ Tooltips auf die primären Buttons aller Tabs ausgerollt (Login, Matches,
+   Cluster, Stats, Persons, Matricula, Download)
+
 ## Sofort-Sprint (nächste Sitzung)
 
-1. 🟢 Tooltips auf weitere Buttons ausrollen (Helfer steht; Matches-/Login-/
-   Stats-Tab folgen)
-2. 🟡 Triangulations-Bericht als PDF (EPIC 3) — Bibliothek klären (reportlab?
+1. 🟡 Triangulations-Bericht als PDF (EPIC 3) — Bibliothek klären (reportlab?
    sonst druckbares HTML)
-3. 🟡 Endogamie-Score automatisch an DNA-Matches kennzeichnen (EPIC 3)
-4. 🟢 mypy schrittweise auf Kernmodule
+2. 🟡 Endogamie-Score automatisch an DNA-Matches kennzeichnen (EPIC 3)
+3. 🟢 mypy schrittweise auf Kernmodule
+4. 🟢 Tooltips auf restliche Detail-/Werkzeug-Buttons (Tools-Tab) ergänzen
