@@ -114,3 +114,58 @@ def derive_paternal(self_rows: list[dict], base2_rows: list[dict]) -> list[dict]
         for r in result:
             r["paternal_estimate"] = round(r["paternal_estimate"] / total * 100, 2)
     return result
+
+
+def classify_parental_origin(self_rows: list[dict], base2_rows: list[dict],
+                             min_score: float = 1.0) -> list[dict]:
+    """Ordnet jede Population einer Elternseite zu (Basis 1 vs. Basis 2).
+
+    Basis 1 = eigenes Kit (``self``), Basis 2 = z. B. Mutter-Kit. Aus der
+    linearen Näherung ``paternal ≈ 2·self − maternal`` (siehe derive_paternal)
+    wird je Population eine Tendenz abgeleitet:
+
+      - ``"mütterlich"`` – Komponente praktisch nur über Basis 2 vorhanden
+      - ``"väterlich"``  – Komponente praktisch nur über die väterliche Linie
+      - ``"beide"``      – auf beiden Seiten relevant
+
+    Rauschen (beide Seiten < ``min_score``) wird verworfen. Ergebnis nach
+    Eigen-Score absteigend sortiert.
+
+    Returns: Liste ``{population, era, self_score, maternal_score,
+    paternal_estimate, origin, dominant_side}``.
+    """
+    self_map = {r["population"]: r for r in self_rows}
+    base2_map = {r["population"]: r.get("score", 0.0) for r in base2_rows}
+    eras = {r["population"]: r.get("era", "") for r in self_rows}
+    for r in base2_rows:
+        eras.setdefault(r["population"], r.get("era", ""))
+
+    out = []
+    for pop in set(self_map) | set(base2_map):
+        self_s = float(self_map.get(pop, {}).get("score", 0.0) or 0.0)
+        maternal = float(base2_map.get(pop, 0.0) or 0.0)
+        paternal = max(0.0, 2 * self_s - maternal)
+
+        if maternal < min_score and paternal < min_score:
+            continue
+        has_mat = maternal >= min_score
+        has_pat = paternal >= min_score
+        if has_mat and has_pat:
+            origin = "beide"
+        elif has_mat:
+            origin = "mütterlich"
+        else:
+            origin = "väterlich"
+        dominant = "mütterlich" if maternal > paternal else "väterlich"
+
+        out.append({
+            "population":        pop,
+            "era":              eras.get(pop, ""),
+            "self_score":       round(self_s, 2),
+            "maternal_score":   round(maternal, 2),
+            "paternal_estimate": round(paternal, 2),
+            "origin":           origin,
+            "dominant_side":    dominant,
+        })
+    out.sort(key=lambda r: r["self_score"], reverse=True)
+    return out

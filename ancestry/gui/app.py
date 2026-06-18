@@ -2234,8 +2234,13 @@ class AncestryDnaApp(tk.Frame):
         win = tk.Toplevel(self)
         win.title("MyTrueAncestry – Populationsverteilung")
         win.geometry("820x560")
-        ttk.Label(win, text=f"MyTrueAncestry: {len(rows)} Populationen importiert",
-                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,2))
+        head = ttk.Frame(win)
+        head.pack(fill="x", padx=10, pady=(10, 2))
+        ttk.Label(head, text=f"MyTrueAncestry: {len(rows)} Populationen importiert",
+                  style="Bold.TLabel").pack(side="left", anchor="w")
+        ttk.Button(head, text="⚖ Basis 2 (Mutter) vergleichen …",
+                   command=lambda: self._mta_compare_parents(rows)).pack(
+            side="right")
 
         # Group by era and draw bar chart
         from collections import defaultdict
@@ -2290,6 +2295,59 @@ class AncestryDnaApp(tk.Frame):
             tv.insert("", "end", values=(
                 r["population"][:45], f"{r['score']:.2f}",
                 f"{r['distance']:.4f}", r["era"]))
+
+    def _mta_compare_parents(self, self_rows):
+        """Lädt eine zweite MTA-CSV (Basis 2 = Mutter) und ordnet jede
+        Population einer Elternseite zu (väterlich/mütterlich/beide)."""
+        p = filedialog.askopenfilename(
+            title="Basis 2 (Mutter-Kit) – MyTrueAncestry CSV",
+            filetypes=[("CSV", "*.csv"), ("Alle", "*.*")])
+        if not p:
+            return
+        try:
+            from ancestry.core.mta_import import (
+                classify_parental_origin,
+                parse_mta_csv,
+            )
+            base2 = parse_mta_csv(p)
+        except Exception as e:
+            messagebox.showerror("Import-Fehler", str(e))
+            return
+        if not base2:
+            messagebox.showwarning("Keine Daten", "Keine Zeilen im CSV gefunden.")
+            return
+
+        result = classify_parental_origin(self_rows, base2)
+        win = tk.Toplevel(self)
+        win.title("MTA – Eltern-Vergleich (Basis 1 vs. Basis 2)")
+        win.geometry("760x560")
+        ttk.Label(win, text=f"Eltern-Zuordnung über {len(result)} Populationen "
+                            f"(Näherung: väterlich ≈ 2·eigen − mütterlich)",
+                  style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10, 4))
+
+        cols = ("pop", "self", "mat", "pat", "origin")
+        tv = ttk.Treeview(win, columns=cols, show="headings")
+        for col, (lbl, w, a) in {
+            "pop":    ("Population",     280, "w"),
+            "self":   ("Eigen %",         80, "e"),
+            "mat":    ("Mütterlich %",   100, "e"),
+            "pat":    ("Väterlich ≈ %",  110, "e"),
+            "origin": ("Seite",          100, "center"),
+        }.items():
+            tv.heading(col, text=lbl)
+            tv.column(col, width=w, anchor=a)
+        tv.tag_configure("mütterlich", background="#FFE0EC")
+        tv.tag_configure("väterlich", background="#E0ECFF")
+        tv.tag_configure("beide", background="#E8F5E9")
+        sy = ttk.Scrollbar(win, orient="vertical", command=tv.yview)
+        tv.configure(yscrollcommand=sy.set)
+        tv.pack(side="left", fill="both", expand=True, padx=(10, 0), pady=4)
+        sy.pack(side="right", fill="y", pady=4)
+        for r in result:
+            tv.insert("", "end", tags=(r["origin"],), values=(
+                r["population"][:45], f"{r['self_score']:.1f}",
+                f"{r['maternal_score']:.1f}", f"{r['paternal_estimate']:.1f}",
+                r["origin"]))
 
     def _show_about(self):
         messagebox.showinfo("Über",

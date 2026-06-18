@@ -180,3 +180,57 @@ class TestDerivePaternal:
             self._rows(("Pop_A", 30.0)),
         )
         assert result[0]["method"] == "subtraction_approximation"
+
+
+# ── classify_parental_origin ───────────────────────────────────────────────────
+
+from ancestry.core.mta_import import classify_parental_origin
+
+
+class TestClassifyParentalOrigin:
+    def _self(self):
+        return [
+            {"population": "Steppe", "score": 40.0, "era": "Bronze Age"},
+            {"population": "Farmer", "score": 30.0, "era": "Neolithic"},
+            {"population": "Nordic", "score": 20.0, "era": "Modern"},
+        ]
+
+    def test_maternal_only(self):
+        # self=20, mother=40 -> paternal = max(0, 40-40)=0 -> mütterlich
+        res = classify_parental_origin(
+            [{"population": "X", "score": 20.0, "era": "Modern"}],
+            [{"population": "X", "score": 40.0}])
+        assert res[0]["origin"] == "mütterlich"
+        assert res[0]["paternal_estimate"] == 0.0
+        assert res[0]["maternal_score"] == 40.0
+
+    def test_paternal_only(self):
+        # self=30, mother=0 -> paternal=60 -> väterlich
+        res = classify_parental_origin(
+            [{"population": "Y", "score": 30.0, "era": "Iron Age / Historical"}],
+            [])
+        assert res[0]["origin"] == "väterlich"
+        assert res[0]["paternal_estimate"] == 60.0
+
+    def test_both_sides(self):
+        # self=40, mother=40 -> paternal=40 -> beide
+        res = classify_parental_origin(
+            [{"population": "Z", "score": 40.0, "era": "Bronze Age"}],
+            [{"population": "Z", "score": 40.0}])
+        assert res[0]["origin"] == "beide"
+
+    def test_noise_filtered(self):
+        res = classify_parental_origin(
+            [{"population": "tiny", "score": 0.3, "era": ""}],
+            [{"population": "tiny", "score": 0.2}], min_score=1.0)
+        assert res == []
+
+    def test_sorted_by_self_score(self):
+        res = classify_parental_origin(self.__class__()._self(), [])
+        scores = [r["self_score"] for r in res]
+        assert scores == sorted(scores, reverse=True)
+
+    def test_era_carried_through(self):
+        res = classify_parental_origin(
+            [{"population": "Steppe", "score": 40.0, "era": "Bronze Age"}], [])
+        assert res[0]["era"] == "Bronze Age"
