@@ -33,7 +33,7 @@ def show_mrca_analysis(app, match=None):
     if match is None:
         match = getattr(app, "_selected_match", None)
     if match is None:
-        messagebox.showinfo("Kein Match", "Bitte zuerst einen Match in der Tabelle auswählen.")
+        messagebox.showinfo(app._t("dlg.no_match"), app._t("dlg.m_choose_match"))
         return
 
     try:
@@ -99,7 +99,7 @@ def show_mrca_analysis(app, match=None):
     else:
         lbl_mrca, gen_mrca = match_row[2], match_row[3]
 
-    inf_frame = ttk.LabelFrame(win, text="Schätzung gemeinsamer Vorfahr (MRCA)", padding=8)
+    inf_frame = ttk.LabelFrame(win, text=app._t("av.mrca_title"), padding=8)
     inf_frame.pack(fill="x", padx=14, pady=4)
     ttk.Label(inf_frame,
               text=f"Geschätzte Beziehung: {lbl_mrca}",
@@ -126,7 +126,7 @@ def show_network_graph(app):
     """Popup: Canvas-basierter Netzwerkgraph der Cluster-Mitglieder mit shared-cM als Kantengewicht."""
     test_guid = app._current_guid()
     if not test_guid:
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
 
     win = tk.Toplevel(app)
@@ -134,7 +134,7 @@ def show_network_graph(app):
     win.geometry("1000x700")
 
     top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
-    ttk.Label(top, text="Primäre Matches ab (cM):", style="Bold.TLabel").pack(side="left")
+    ttk.Label(top, text=app._t("av.primary_from_cm"), style="Bold.TLabel").pack(side="left")
     lo_var = tk.StringVar(value="80")
     ttk.Entry(top, textvariable=lo_var, width=6).pack(side="left", padx=4)
     ttk.Label(top, text="bis:").pack(side="left")
@@ -151,8 +151,7 @@ def show_network_graph(app):
     canvas.pack(fill="both", expand=True, padx=6, pady=4)
 
     legend = ttk.Frame(win); legend.pack(fill="x", padx=10, pady=(0,6))
-    ttk.Label(legend, text="● Knotengröße ∝ cM  ·  Liniendicke ∝ shared cM zwischen Matches  "
-                           "·  Farbe = Cluster").pack(side="left")
+    ttk.Label(legend, text=app._t("av.net_legend")).pack(side="left")
 
     _node_data = {}  # tag → (name, cm)
 
@@ -168,7 +167,7 @@ def show_network_graph(app):
 
         clusters = app._db.get_shared_clusters(test_guid, lo, hi)
         if not clusters:
-            canvas.create_text(500, 300, text="Keine Cluster – erst Shared Matches laden (Schritt B).",
+            canvas.create_text(500, 300, text=app._t("av.no_clusters_load_b"),
                                fill="white", font=("Segoe UI",12))
             return
 
@@ -293,7 +292,7 @@ def show_endogamy_analysis(app):
     """Popup: Matches mit erhöhtem Endogamie-Score."""
     test_guid = app._current_guid()
     if not test_guid:
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
 
     win = tk.Toplevel(app)
@@ -333,7 +332,7 @@ def show_endogamy_analysis(app):
         try:
             rows = app._db.get_endogamy_candidates(test_guid, thr)
         except Exception as e:
-            messagebox.showerror("Fehler", str(e)); return
+            messagebox.showerror(app._t("dlg.error"), str(e)); return
         for r in rows:
             tv.insert("", "end", values=(
                 r.get("display_name","?")[:40],

@@ -24,7 +24,7 @@ def show_surname_analysis(app):
     """Popup: häufigste Nachnamen in Match-Ahnentafeln."""
     test_guid = app._current_guid()
     if not test_guid:
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
 
     win = tk.Toplevel(app)
@@ -89,9 +89,9 @@ def show_surname_analysis(app):
         if s:
             open_namenskarte(app, s)
         else:
-            messagebox.showinfo("Kein Name", "Bitte zuerst einen Nachnamen auswählen.")
+            messagebox.showinfo(app._t("mf.no_name_t"), app._t("av.m_choose_surname"))
 
-    ttk.Button(tb, text="🗺 Namenskarte.com öffnen",
+    ttk.Button(tb, text=app._t("av.b_namenskarte"),
                command=_namenskarte).pack(side="left", padx=4)
     ttk.Button(tb, text="↻ Aktualisieren",
                command=lambda: reload()).pack(side="left", padx=4)
@@ -160,7 +160,7 @@ def show_place_analysis(app):
     """Popup: häufigste Geburts­orte in Match-Ahnentafeln."""
     test_guid = app._current_guid()
     if not test_guid:
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
 
     win = tk.Toplevel(app)
@@ -218,7 +218,7 @@ def show_place_analysis(app):
         q = quote(g["label"])
         webbrowser.open(f"https://www.google.com/maps/search/{q}")
 
-    ttk.Button(tb, text="🗺 Google Maps öffnen",
+    ttk.Button(tb, text=app._t("av.b_gmaps"),
                command=_search_maps).pack(side="left", padx=4)
     ttk.Button(tb, text="🔍 Meyers Gazetteer",
                command=lambda: (lambda sel: webbrowser.open(

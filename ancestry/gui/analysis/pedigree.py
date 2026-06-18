@@ -16,13 +16,12 @@ def show_ancestor_groups(app):
     """Popup: Vorfahren, die von mehreren Matches geteilt werden."""
     guid = app._current_guid()
     if not guid:
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
     groups = app._db.get_ancestor_groups(guid, min_matches=2)
     if not groups:
-        messagebox.showinfo("Keine Daten",
-            "Noch keine geteilten Vorfahren gefunden.\n"
-            "Erst 'Vorfahren & Orte laden' ausführen.")
+        messagebox.showinfo(app._t("dlg.no_data"),
+            app._t("av.m_no_shared_anc2"))
         return
 
     win = tk.Toplevel(app)
@@ -78,7 +77,7 @@ def show_pedigree_overlay(app):
     """Popup: Vorfahren, die in mehreren Match-Ahnentafeln vorkommen (gruppierbar)."""
     test_guid = app._current_guid()
     if not test_guid:
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
 
     win = tk.Toplevel(app)
@@ -179,14 +178,14 @@ def show_pedigree_gaps(app):
     """Popup: Zeigt, welche Generationen in Match-Ahnentafeln noch fehlen."""
     test_guid = app._current_guid()
     if not test_guid:
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
 
     win = tk.Toplevel(app)
     win.title("Ahnentafel-Lücken-Analyse")
     win.geometry("900x600")
 
-    ttk.Label(win, text="Matches mit unvollständigen Ahnentafeln (nach Generation):",
+    ttk.Label(win, text=app._t("av.incomplete_peds"),
               style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
 
     cols = ("name","cm","fullto","gap","gen2","gen3","gen4","gen5","gen6")
@@ -216,7 +215,7 @@ def show_pedigree_gaps(app):
     try:
         data = app._db.get_pedigree_completeness_per_match(test_guid)
     except Exception as e:
-        messagebox.showerror("Fehler", str(e))
+        messagebox.showerror(app._t("dlg.error"), str(e))
         return
 
     # Frontier-Analyse (lückenlos bis / erste Lücke) aus der getesteten

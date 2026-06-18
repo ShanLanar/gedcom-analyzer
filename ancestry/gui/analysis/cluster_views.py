@@ -64,7 +64,7 @@ def show_cluster_tree_win(app, cluster, rows, n_with_ped, has_ged, name_by_membe
                     key=lambda r: (len(r["path"]), -len(r["members"])))
     pred = direct[0] if direct else (shared[0] if shared else (rows[0] if rows else None))
     if not pred:
-        ttk.Label(box, text="Zu wenig Daten – Ahnentafeln der Mitglieder laden.",
+        ttk.Label(box, text=app._t("av.too_little_data"),
                   foreground="#a05a00").pack(anchor="w", padx=8, pady=4)
     else:
         rep = pred["rep"]
@@ -84,9 +84,7 @@ def show_cluster_tree_win(app, cluster, rows, n_with_ped, has_ged, name_by_membe
                       f"{pred['own'].display} (nicht direkte Ahnenlinie)"),
                       foreground="#a05a00").pack(anchor="w", padx=8, pady=(0, 4))
         else:
-            ttk.Label(box, text=("❗ NICHT in deinem Baum → Forschungsziel: "
-                      "diese Person suchen/eintragen, dann liefert Ancestry "
-                      "ThruLines-Hints für den ganzen Cluster."),
+            ttk.Label(box, text=(app._t("av.not_in_tree")),
                       foreground="#b00020", style="Bold.TLabel"
                       ).pack(anchor="w", padx=8, pady=(0, 4))
         fa, mo = pred.get("father"), pred.get("mother")
@@ -110,8 +108,7 @@ def show_cluster_tree_win(app, cluster, rows, n_with_ped, has_ged, name_by_membe
                            ).pack(side="left", padx=2)
 
     if not has_ged:
-        ttk.Label(win, text="(GEDCOM nicht geladen → ohne Andock-Spalte. "
-                  "Über 'Cluster-Linie in meinem Baum suchen' wird der Baum geladen.)",
+        ttk.Label(win, text=app._t("av.no_gedcom_note"),
                   foreground="#888").pack(anchor="w", padx=10)
 
     cols = ("person", "shared", "gen", "cms", "dock")
@@ -151,7 +148,7 @@ def show_cluster_tree_win(app, cluster, rows, n_with_ped, has_ged, name_by_membe
 
     nk_frame = ttk.Frame(win)
     nk_frame.pack(anchor="w", padx=10, pady=(0, 4), side="bottom")
-    ttk.Label(nk_frame, text="Ausgewählter Vorfahr → Namenskarte:",
+    ttk.Label(nk_frame, text=app._t("av.sel_anc_namemap"),
               foreground="#555").pack(side="left")
     nk_btn = ttk.Button(nk_frame, text="🗺 Namenskarte.com",
                         state="disabled", command=lambda: None)
@@ -190,8 +187,7 @@ def show_cluster_relationships(app, test_guid, cluster):
               foreground="#555").pack(anchor="w", padx=10, pady=(0, 4))
 
     if not pairs:
-        ttk.Label(win, text="Keine paarweisen cM gespeichert. Dafür müssen die "
-                  "Shared Matches der Mitglieder geladen sein (Schritt B).",
+        ttk.Label(win, text=app._t("av.no_pairwise_cm"),
                   foreground="#a05a00").pack(anchor="w", padx=10, pady=8)
         return
 
@@ -234,13 +230,10 @@ def show_cluster_dock(app, cluster, hits, n_with_ped):
                   style="Bold.TLabel", foreground=COLORS.get("primary", "#1b5e20")
                   ).pack(anchor="w", padx=10, pady=(0, 6))
     elif hits:
-        ttk.Label(win, text=("Kein Treffer auf deiner direkten Ahnenlinie – "
-                             "untenstehende sind Seitenlinien/Vorschläge."),
+        ttk.Label(win, text=(app._t("av.no_direct_hit")),
                   foreground="#a05a00").pack(anchor="w", padx=10, pady=(0, 6))
     else:
-        ttk.Label(win, text=("Keine Treffer im Baum. Mögliche Gründe: Cluster-"
-                             "Mitglieder haben (noch) keine Ahnentafel geladen, "
-                             "oder die Linie liegt tiefer → ‚Cluster tiefer laden'."),
+        ttk.Label(win, text=(app._t("av.no_tree_hits")),
                   foreground="#a05a00").pack(anchor="w", padx=10, pady=(0, 6))
 
     cols = ("count", "line", "anchor", "score")
@@ -268,7 +261,7 @@ def show_cluster_timeline(app):
     """Zeigt Geburtsjahre der Cluster-Vorfahren als Zeitachse."""
     sel = app._cluster_list.selection()
     if not sel:
-        messagebox.showinfo("Kein Cluster", "Bitte Cluster auswählen.")
+        messagebox.showinfo(app._t("dlg.no_cluster"), app._t("dlg.m_choose_cluster"))
         return
     cid = int(sel[0])
     members = app._clusters.get(cid, [])
@@ -282,13 +275,12 @@ def show_cluster_timeline(app):
         guids = [m["guid"] for m in members]
         rows = app._db.get_cluster_ancestor_years(test_guid, guids)
     except Exception as e:
-        messagebox.showerror("Fehler", str(e))
+        messagebox.showerror(app._t("dlg.error"), str(e))
         return
 
     if not rows:
-        messagebox.showinfo("Keine Daten",
-                            "Keine Ahnentafel-Daten für diesen Cluster vorhanden.\n"
-                            "→ Erst 'Ahnentafeln laden' ausführen.")
+        messagebox.showinfo(app._t("dlg.no_data"),
+                            app._t("av.m_no_ped_cluster"))
         return
 
     win = tk.Toplevel(app)
@@ -354,10 +346,15 @@ def show_phasing_dashboard(parent, clusters: dict, *, set_status=None):
     clusters:  {cluster_id: [match-dict, …]} wie vom Cluster-Tab gehalten.
     """
     from ancestry.core.cluster import assign_grandparent_quadrants
+    from ancestry.gui.widgets.theme import translate
+
+    # parent ist der Cluster-Tab (hat _state.t) – sonst Fallback auf Deutsch
+    _tt = getattr(getattr(parent, "_state", None), "t", None)
+    _t = _tt if callable(_tt) else (lambda k: translate(k, "de"))
 
     if not clusters:
-        messagebox.showinfo("Keine Cluster",
-                            "Bitte zuerst Cluster berechnen (Cluster-Tab).")
+        messagebox.showinfo(_t("av.no_clusters_t"),
+                            _t("dlg.m_do_clustering"))
         return
 
     data = assign_grandparent_quadrants(clusters)
@@ -366,7 +363,7 @@ def show_phasing_dashboard(parent, clusters: dict, *, set_status=None):
     win.title("Phasing-Dashboard – Großelternlinien")
     win.geometry("820x600")
 
-    ttk.Label(win, text="Phasing-Dashboard · 4 Großelternlinien (Leeds)",
+    ttk.Label(win, text=_t("av.phasing_head"),
               font=("Segoe UI", 12, "bold")).pack(anchor="w", padx=14, pady=(12, 0))
     ttk.Label(win, text=data["note"], foreground="#444466",
               wraplength=780, justify="left").pack(anchor="w", padx=14, pady=(2, 8))
@@ -390,7 +387,7 @@ def show_phasing_dashboard(parent, clusters: dict, *, set_status=None):
         card.grid(row=r, column=cc, sticky="nsew", padx=6, pady=6)
 
         if not q:
-            ttk.Label(card, text="(leer – kein Cluster)",
+            ttk.Label(card, text=_t("av.empty_slot"),
                       foreground="#999999").pack(anchor="w")
             continue
 

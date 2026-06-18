@@ -30,7 +30,7 @@ def show_triangulation(app) -> None:
     test_guid = app._current_guid()
     if not test_guid:
         from tkinter import messagebox
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
 
     win = tk.Toplevel(app)
@@ -43,7 +43,7 @@ def show_triangulation(app) -> None:
     ttk.Label(top, text="Min. Segment:", style="Bold.TLabel").pack(side="left")
     min_cm_var = tk.StringVar(value="7")
     ttk.Entry(top, textvariable=min_cm_var, width=5).pack(side="left", padx=4)
-    ttk.Label(top, text="cM    Min. Überlappung:").pack(side="left")
+    ttk.Label(top, text=app._t("av.min_overlap")).pack(side="left")
     min_ov_var = tk.StringVar(value="5")
     ttk.Entry(top, textvariable=min_ov_var, width=5).pack(side="left", padx=4)
     ttk.Label(top, text="cM").pack(side="left")
@@ -51,9 +51,7 @@ def show_triangulation(app) -> None:
 
     # Phasing-Hinweis
     ttk.Label(win,
-        text="⚠  Ohne Phasing können IBD- und IBS-Segmente verwechselt werden. "
-             "GEDmatch-Segmente (Chromosome-Browser) empfohlen; MyHeritage ohne "
-             "Phasing ist weniger zuverlässig.",
+        text=app._t("av.phasing_warn"),
         foreground="#a06000", wraplength=980, justify="left",
         font=("Segoe UI", 8)).pack(anchor="w", padx=10, pady=(0, 2))
 
@@ -156,8 +154,7 @@ def show_triangulation(app) -> None:
                 f"(min. {min_cm:.0f} cM, Überlappung ≥ {min_ov:.0f} cM)"))
         else:
             info.configure(
-                text="Keine TGs – erst DNA-Segmente laden (import_segments.py) "
-                     "und Shared Matches abrufen.")
+                text=app._t("av.no_tgs"))
         win.after(50, lambda: _draw_map(tgs))
 
     def on_sel(_event=None):
