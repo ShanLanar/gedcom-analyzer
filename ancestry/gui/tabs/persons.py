@@ -22,6 +22,7 @@ from tkinter import ttk
 
 from ancestry.core.place_concordance import map_place
 from ancestry.gui.state import AppState
+from ancestry.gui.widgets.tooltip import tooltip
 from ancestry.paths import ROOT
 
 # ── Pfarrei-/Konfessions-Lookup (Matricula) ───────────────────────────────────
@@ -164,8 +165,9 @@ class PersonsTab(ttk.Frame):
                                values=list(_CONF_LABELS.values()))
         conf_cb.pack(side="left", padx=4)
         conf_cb.bind("<<ComboboxSelected>>", lambda _: self._pers_reload_list())
-        ttk.Button(bar, text="🔍 Dubletten",
-                   command=self._pers_open_dedup).pack(side="left", padx=4)
+        _b = ttk.Button(bar, text="🔍 Dubletten", command=self._pers_open_dedup)
+        _b.pack(side="left", padx=4)
+        tooltip(_b, "Mögliche doppelte Personen im Baum finden und zusammenführen")
 
         cols = ("name", "years", "rel")
         self._pers_list = ttk.Treeview(left, columns=cols, show="headings",
@@ -190,8 +192,9 @@ class PersonsTab(ttk.Frame):
         mid = ttk.Frame(outer)
         outer.add(mid, weight=3)
         nav = ttk.Frame(mid); nav.pack(fill="x")
-        ttk.Button(nav, text="◀ Zurück", command=self._pers_go_back).pack(
-            side="left", pady=(0, 4))
+        _b = ttk.Button(nav, text="◀ Zurück", command=self._pers_go_back)
+        _b.pack(side="left", pady=(0, 4))
+        tooltip(_b, "Zur zuvor betrachteten Person zurück")
         ttk.Label(nav, text="  Generationen:").pack(side="left")
         self._pers_depth = tk.IntVar(value=2)
         depth_sb = ttk.Spinbox(nav, from_=1, to=5, width=3, textvariable=self._pers_depth,

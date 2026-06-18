@@ -11,6 +11,7 @@ from urllib.parse import quote
 
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
+from ancestry.gui.widgets.tooltip import tooltip
 from ancestry.models import DnaMatch
 
 log = logging.getLogger(__name__)
@@ -167,11 +168,14 @@ class MatchesTab(ttk.Frame):
         self._matches_kit_combo.bind(
             "<<ComboboxSelected>>", lambda _: self.refresh())
         _sv_sides = tk.StringVar(value=t("mf.sides"))
-        ttk.Button(kl, textvariable=_sv_sides,
-                   command=self._on_auto_assign_sides).pack(side="left", padx=(12, 0))
+        _b = ttk.Button(kl, textvariable=_sv_sides, command=self._on_auto_assign_sides)
+        _b.pack(side="left", padx=(12, 0))
+        tooltip(_b, "Matches automatisch väterlich/mütterlich zuordnen "
+                    "(braucht Eltern-Kit oder GEDCOM/Ancestry-Seite)")
         lw.append((_sv_sides, "mf.sides"))
-        ttk.Button(kl, text="⚡ GEDmatch-Brücke",
-                   command=self._on_gedmatch_bridge).pack(side="left", padx=(8, 0))
+        _b = ttk.Button(kl, text="⚡ GEDmatch-Brücke", command=self._on_gedmatch_bridge)
+        _b.pack(side="left", padx=(8, 0))
+        tooltip(_b, "GEDmatch-Kits mit Ancestry-Matches verknüpfen")
 
         # Filter-Leiste
         fl = ttk.Frame(f); fl.pack(fill="x", padx=10, pady=6)
@@ -420,13 +424,19 @@ class MatchesTab(ttk.Frame):
         self._note_text.pack(fill="x", padx=8, pady=4)
         btn_row = ttk.Frame(info_frame); btn_row.pack(fill="x", padx=8, pady=2)
         _sv = tk.StringVar(value=t("md.save_note"))
-        ttk.Button(btn_row, textvariable=_sv, command=self._save_note).pack(side="left", padx=(0,4))
+        _b = ttk.Button(btn_row, textvariable=_sv, command=self._save_note)
+        _b.pack(side="left", padx=(0,4))
+        tooltip(_b, "Notiz zu diesem Match speichern")
         lw.append((_sv, "md.save_note"))
         _sv = tk.StringVar(value=t("md.open_anc"))
-        ttk.Button(btn_row, textvariable=_sv, command=self._open_in_ancestry).pack(side="left", padx=4)
+        _b = ttk.Button(btn_row, textvariable=_sv, command=self._open_in_ancestry)
+        _b.pack(side="left", padx=4)
+        tooltip(_b, "Dieses Match auf ancestry.com im Browser öffnen")
         lw.append((_sv, "md.open_anc"))
         _sv_fs = tk.StringVar(value=t("md.fs_link"))
-        ttk.Button(btn_row, textvariable=_sv_fs, command=self._open_familysearch).pack(side="left", padx=4)
+        _b = ttk.Button(btn_row, textvariable=_sv_fs, command=self._open_familysearch)
+        _b.pack(side="left", padx=4)
+        tooltip(_b, "Namen dieses Matches auf FamilySearch suchen")
         lw.append((_sv_fs, "md.fs_link"))
 
         # Sub-Tab 2: Shared Matches
@@ -493,21 +503,27 @@ class MatchesTab(ttk.Frame):
         ttk.Label(hdr, text="🌳", font=("Segoe UI", 10)).pack(side="left")
         ttk.Label(hdr, textvariable=self._ged_file_var,
                   foreground="#555555", font=("Segoe UI", 8)).pack(side="left", padx=4)
-        ttk.Button(hdr, text="📂", width=3,
-                   command=self._on_choose_gedcom).pack(side="left")
+        _b = ttk.Button(hdr, text="📂", width=3, command=self._on_choose_gedcom)
+        _b.pack(side="left")
+        tooltip(_b, "GEDCOM-Datei wählen (für den Stammbaum-Abgleich)")
         _sv_orig = tk.StringVar(value=t("md.ged_origin"))
-        ttk.Button(hdr, textvariable=_sv_orig,
-                   command=self._on_origin_inference).pack(side="right", padx=4)
+        _b = ttk.Button(hdr, textvariable=_sv_orig, command=self._on_origin_inference)
+        _b.pack(side="right", padx=4)
+        tooltip(_b, "Wahrscheinliche Herkunft der Matches aus den Ahnen-Orten ableiten")
         lw.append((_sv_orig, "md.ged_origin"))
-        ttk.Button(hdr, text="🔗 WikiTree",
-                   command=self._on_wikitree_extend).pack(side="right", padx=4)
-        ttk.Button(hdr, text="🤖 ML-Herkunft",
-                   command=self._on_ml_origin).pack(side="right", padx=4)
-        ttk.Button(hdr, text="👥 Duplikate prüfen",
-                   command=self._on_xref_review).pack(side="right", padx=4)
+        _b = ttk.Button(hdr, text="🔗 WikiTree", command=self._on_wikitree_extend)
+        _b.pack(side="right", padx=4)
+        tooltip(_b, "Ahnentafel über WikiTree erweitern")
+        _b = ttk.Button(hdr, text="🤖 ML-Herkunft", command=self._on_ml_origin)
+        _b.pack(side="right", padx=4)
+        tooltip(_b, "Herkunft per ML-Modell schätzen")
+        _b = ttk.Button(hdr, text="👥 Duplikate prüfen", command=self._on_xref_review)
+        _b.pack(side="right", padx=4)
+        tooltip(_b, "Querverweise/Duplikate zwischen Matches und Baum prüfen")
         _sv_endo_btn = tk.StringVar(value=t("md.ged_endogamy"))
-        ttk.Button(hdr, textvariable=_sv_endo_btn,
-                   command=self._on_endogamy_transfer).pack(side="right", padx=4)
+        _b = ttk.Button(hdr, textvariable=_sv_endo_btn, command=self._on_endogamy_transfer)
+        _b.pack(side="right", padx=4)
+        tooltip(_b, "Endogamie-Erkenntnisse auf die Matches übertragen")
         lw.append((_sv_endo_btn, "md.ged_endogamy"))
 
         # Zeile 2: Status + Re-run + Bulk-Abgleich-Button
@@ -516,8 +532,9 @@ class MatchesTab(ttk.Frame):
         ttk.Label(tb, textvariable=self._ged_link_status,
                   foreground=COLORS["primary"]).pack(side="left")
         _sv_all = tk.StringVar(value=t("md.ged_run_all"))
-        ttk.Button(tb, textvariable=_sv_all,
-                   command=self._on_gedcom_match_all).pack(side="right")
+        _b = ttk.Button(tb, textvariable=_sv_all, command=self._on_gedcom_match_all)
+        _b.pack(side="right")
+        tooltip(_b, "Alle Matches gegen die GEDCOM-Datei abgleichen")
         lw.append((_sv_all, "md.ged_run_all"))
         _sv_rerun = tk.StringVar(value=t("md.ged_rerun"))
         self._ged_rerun_btn = ttk.Button(
