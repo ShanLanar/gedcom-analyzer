@@ -184,6 +184,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.open_anc":  {"de": "🔗 In Ancestry öffnen",                "en": "🔗 Open in Ancestry"},
     # Statistics tab
     "st.refresh":   {"de": "↻ Aktualisieren",                     "en": "↻ Refresh"},
+    "st.ped_gaps":  {"de": "🧬 Pedigree-Lücken",                   "en": "🧬 Pedigree gaps"},
     "st.kz":        {"de": "Kennzahlen",                           "en": "Key Figures"},
     "st.total":     {"de": "Gesamtzahl Matches:",                  "en": "Total matches:"},
     "st.max_cm":    {"de": "Höchste cM:",                          "en": "Highest cM:"},
