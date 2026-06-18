@@ -67,7 +67,7 @@ def show_surname_analysis(app):
     tv.pack(side="left", fill="both", expand=True)
     sy.pack(side="right", fill="y")
 
-    ttk.Label(bframe, text="Matches mit diesem Nachnamen:",
+    ttk.Label(bframe, text=app._t("av.matches_surname"),
               style="Bold.TLabel").pack(anchor="w", pady=(4,2))
     detail = tk.Text(bframe, height=6, wrap="word", font=("Segoe UI", 9))
     ds = ttk.Scrollbar(bframe, orient="vertical", command=detail.yview)
@@ -200,7 +200,7 @@ def show_place_analysis(app):
     tv.pack(side="left", fill="both", expand=True)
     sy.pack(side="right", fill="y")
 
-    ttk.Label(bframe, text="Matches mit diesem Ort:",
+    ttk.Label(bframe, text=app._t("av.matches_place"),
               style="Bold.TLabel").pack(anchor="w", pady=(4,2))
     detail = tk.Text(bframe, height=6, wrap="word", font=("Segoe UI", 9))
     ds = ttk.Scrollbar(bframe, orient="vertical", command=detail.yview)

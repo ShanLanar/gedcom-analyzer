@@ -200,7 +200,7 @@ class StatsTab(ttk.Frame):
             self._ent_tree.heading(c, text=txt)
             self._ent_tree.column(c, width=w, anchor="center", stretch=False)
         self._ent_tree.pack(fill="x", pady=(2, 8))
-        ttk.Label(popf, text="cM-Histogramm der Matches:",
+        ttk.Label(popf, text=self._state.t("st.cm_hist"),
                   foreground="#666666").pack(anchor="w")
         self._cm_tree = ttk.Treeview(popf, columns=("bin", "obs", "hint"),
                                      show="headings", height=6)

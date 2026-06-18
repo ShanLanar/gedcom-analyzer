@@ -84,7 +84,7 @@ def show_triangulation(app) -> None:
                            highlightbackground="#cccccc")
     map_canvas.pack(fill="both", expand=True, padx=4, pady=4)
 
-    ttk.Label(bframe, text="Mitglieder der Triangulationsgruppe:",
+    ttk.Label(bframe, text=app._t("av.tg_members"),
               style="Bold.TLabel").pack(anchor="w", pady=(4, 2))
     detail = tk.Text(bframe, height=8, wrap="word", font=("Segoe UI", 9))
     detail.pack(fill="both", expand=True)

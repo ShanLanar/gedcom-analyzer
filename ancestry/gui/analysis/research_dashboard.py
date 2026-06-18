@@ -184,7 +184,7 @@ def show_research_dashboard(app) -> None:
 
     test_guid = app._current_guid()
     if not test_guid:
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
     db = app._db
 
@@ -231,7 +231,7 @@ def show_research_dashboard(app) -> None:
         _ach_widgets[key] = lbl
 
     # ── Nächste Schritte ──────────────────────────────────────────────────────
-    nf = ttk.LabelFrame(win, text="Nächste Schritte (regelbasiert)", padding=(10, 6))
+    nf = ttk.LabelFrame(win, text=app._t("av.next_steps"), padding=(10, 6))
     nf.pack(fill="x", padx=12, pady=4)
     steps_var = tk.StringVar(value="Daten werden geladen …")
     ttk.Label(nf, textvariable=steps_var, font=("Segoe UI", 9),
@@ -258,10 +258,10 @@ def show_research_dashboard(app) -> None:
     ai_btn = ttk.Button(btn_bar, textvariable=ai_btn_var,
                         state="normal" if is_available() else "disabled")
     ai_btn.pack(side="right")
-    refresh_btn = ttk.Button(btn_bar, text="↻ Neu laden")
+    refresh_btn = ttk.Button(btn_bar, text=app._t("av.reload"))
     refresh_btn.pack(side="left")
 
-    ttk.Button(win, text="Schließen", command=win.destroy).pack(
+    ttk.Button(win, text=app._t("av.close"), command=win.destroy).pack(
         anchor="e", padx=12, pady=(4, 10))
 
     # ── Render & Laden ────────────────────────────────────────────────────────

@@ -25,13 +25,15 @@ _PALETTE = [
 # ── Canvas-Hilfsroutinen ──────────────────────────────────────────────────────
 
 def _bar_chart(canvas: tk.Canvas, bars: list[tuple[str, float]],
-               title: str = "", colors: list[str] | None = None) -> None:
+               title: str = "", colors: list[str] | None = None, t=None) -> None:
     """Einfaches Balkendiagramm auf einem Canvas."""
+    from ancestry.gui.widgets.theme import translate
+    _t = t if callable(t) else (lambda k: translate(k, "de"))
     canvas.delete("all")
     W = canvas.winfo_width() or 800
     H = canvas.winfo_height() or 260
     if not bars:
-        canvas.create_text(W // 2, H // 2, text="Keine Daten", fill="#888",
+        canvas.create_text(W // 2, H // 2, text=_t("dlg.no_data"), fill="#888",
                            font=("Segoe UI", 10))
         return
 
@@ -141,7 +143,7 @@ def show_population_stats(app) -> None:
     from tkinter import messagebox
     test_guid = app._current_guid()
     if not test_guid:
-        messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+        messagebox.showwarning(app._t("dlg.no_kit"), app._t("dlg.m_choose_kit"))
         return
 
     win = tk.Toplevel(app)
@@ -165,7 +167,7 @@ def _build_birth_tab(nb: ttk.Notebook, app) -> None:
     frame = ttk.Frame(nb)
     nb.add(frame, text="Geburtsverteilung")
 
-    info = ttk.Label(frame, text="Lädt …", style="Bold.TLabel")
+    info = ttk.Label(frame, text=app._t("av.loading"), style="Bold.TLabel")
     info.pack(anchor="w", padx=10, pady=(6, 2))
 
     # Oberer Bereich: Canvas-Chart (Gesamt pro Jahrzehnt)
@@ -191,7 +193,7 @@ def _build_birth_tab(nb: ttk.Notebook, app) -> None:
     def _load():
         rows = birth_distribution(app._db)
         if not rows:
-            info.configure(text="Keine Daten – GEDCOM oder Match-Ahnentafeln laden.")
+            info.configure(text=app._t("av.no_data_load_ged"))
             return
 
         total = sum(r["count"] for r in rows)
@@ -209,7 +211,7 @@ def _build_birth_tab(nb: ttk.Notebook, app) -> None:
         bars = [(str(d), v) for d, v in series]
         frame.after(60, lambda: _bar_chart(canvas, bars,
                                            "Personen pro Jahrzehnt (alle Quellen)",
-                                           colors=["#1a73e8"] * len(bars)))
+                                           colors=["#1a73e8"] * len(bars), t=app._t))
 
         tv.delete(*tv.get_children())
         for r in rows:
@@ -226,11 +228,11 @@ def _build_migration_tab(nb: ttk.Notebook, app) -> None:
     frame = ttk.Frame(nb)
     nb.add(frame, text="Migration")
 
-    info = ttk.Label(frame, text="Lädt …", style="Bold.TLabel")
+    info = ttk.Label(frame, text=app._t("av.loading"), style="Bold.TLabel")
     info.pack(anchor="w", padx=10, pady=(6, 2))
 
     ttk.Label(frame,
-              text="Elternregion → Kindregion: wo sind die Kinder im Vergleich zu den Eltern geboren?",
+              text=app._t("av.parent_child_region"),
               font=("Segoe UI", 8), foreground="#666").pack(anchor="w", padx=10)
 
     tf = ttk.Frame(frame)
@@ -255,7 +257,7 @@ def _build_migration_tab(nb: ttk.Notebook, app) -> None:
     def _load():
         rows = migration_matrix(app._db)
         if not rows:
-            info.configure(text="Keine Migrations-Daten – Ahnentafeln und GEDCOM laden.")
+            info.configure(text=app._t("av.no_migration"))
             return
         total_flows = sum(r["count"] for r in rows)
         info.configure(text=(
@@ -279,12 +281,11 @@ def _build_cm_tab(nb: ttk.Notebook, app, test_guid: str) -> None:
     frame = ttk.Frame(nb)
     nb.add(frame, text="cM-Verteilung")
 
-    info = ttk.Label(frame, text="Lädt …", style="Bold.TLabel")
+    info = ttk.Label(frame, text=app._t("av.loading"), style="Bold.TLabel")
     info.pack(anchor="w", padx=10, pady=(6, 2))
 
     ttk.Label(frame,
-              text="Häufigkeit der geteilten cM über alle Matches — "
-                   "Spitze links = viele entfernte Cousins, Ausreißer rechts = nahe Verwandte.",
+              text=app._t("av.cm_hist_hint"),
               font=("Segoe UI", 8), foreground="#666",
               wraplength=940, justify="left").pack(anchor="w", padx=10)
 
@@ -309,7 +310,7 @@ def _build_cm_tab(nb: ttk.Notebook, app, test_guid: str) -> None:
     def _load():
         rows = cm_histogram(app._db, test_guid)
         if not rows:
-            info.configure(text="Keine Matches gefunden.")
+            info.configure(text=app._t("av.no_matches_found"))
             return
         total = sum(r["observed"] for r in rows)
         max_cm_val = max(
@@ -328,7 +329,7 @@ def _build_cm_tab(nb: ttk.Notebook, app, test_guid: str) -> None:
                 for i in range(len(bars))]
         frame.after(50, lambda: _bar_chart(canvas, bars,
                                            "Matches nach geteilten cM",
-                                           colors=clrs))
+                                           colors=clrs, t=app._t))
 
         tv.delete(*tv.get_children())
         for r in rows:
@@ -347,14 +348,13 @@ def _build_entropy_tab(nb: ttk.Notebook, app) -> None:
     from ancestry.core.population_stats import surname_entropy_series
 
     frame = ttk.Frame(nb)
-    nb.add(frame, text="Nachnamen-Entropie")
+    nb.add(frame, text=app._t("av.surname_entropy"))
 
-    info = ttk.Label(frame, text="Lädt …", style="Bold.TLabel")
+    info = ttk.Label(frame, text=app._t("av.loading"), style="Bold.TLabel")
     info.pack(anchor="w", padx=10, pady=(6, 2))
 
     ttk.Label(frame,
-              text="Shannon-Entropie der Nachnamen pro Jahrzehnt — "
-                   "Einbrüche = Gründereffekt / Datenlücke, Anstieg = Zuzug / bessere Quellenabdeckung.",
+              text=app._t("av.entropy_hint"),
               font=("Segoe UI", 8), foreground="#666",
               wraplength=940, justify="left").pack(anchor="w", padx=10)
 
@@ -383,7 +383,7 @@ def _build_entropy_tab(nb: ttk.Notebook, app) -> None:
     def _load():
         rows = surname_entropy_series(app._db)
         if not rows:
-            info.configure(text="Keine Daten – GEDCOM oder Match-Ahnentafeln laden.")
+            info.configure(text=app._t("av.no_data_load_ged"))
             return
         min_e = min(r["entropy"] for r in rows)
         max_e = max(r["entropy"] for r in rows)
@@ -395,7 +395,7 @@ def _build_entropy_tab(nb: ttk.Notebook, app) -> None:
         series = [(r["decade"], r["entropy"]) for r in rows]
         frame.after(50, lambda: _line_chart(
             canvas, series,
-            title="Nachnamen-Entropie pro Jahrzehnt (Shannon H, bits)",
+            title=app._t("av.entropy_axis"),
             y_fmt="{:.2f}", color="#2da44e"))
 
         tv.delete(*tv.get_children())
