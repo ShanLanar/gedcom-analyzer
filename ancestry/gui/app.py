@@ -231,9 +231,12 @@ class AncestryDnaApp(tk.Frame):
         self._lang_menus.append((mb, 2, "mn.analysis"))
 
         hm = tk.Menu(mb, tearoff=False)
+        hm.add_command(label=self._t("mn.shortcuts"), command=self._show_shortcuts)
+        hm.add_separator()
         hm.add_command(label=self._t("mn.about"), command=self._show_about)
         mb.add_cascade(label=self._t("mn.help"), menu=hm)
-        self._lang_menus.append((hm, 0, "mn.about"))
+        self._lang_menus.append((hm, 0, "mn.shortcuts"))
+        self._lang_menus.append((hm, 2, "mn.about"))
         self._lang_menus.append((mb, 3, "mn.help"))
 
     # ── Hauptlayout ───────────────────────────────────────────────────────────
@@ -2354,6 +2357,20 @@ class AncestryDnaApp(tk.Frame):
             "Ancestry DNA Tool v2\n\n"
             "Features: Matches + Shared Matches + Leeds-Clustering\n"
             "Datenbank: " + str(DB_PATH))
+
+    def _show_shortcuts(self):
+        messagebox.showinfo("Tastenkürzel",
+            "Tastenkürzel & Bedienung\n\n"
+            "Matches-Tab:\n"
+            "  Enter          Detail des ausgewählten Matches öffnen\n"
+            "  Esc            Suche leeren / Tabelle zurücksetzen\n"
+            "  Rechtsklick    Kontextmenü (in Ancestry öffnen, GUID kopieren,\n"
+            "                 Namenskarte, Seite zuweisen …)\n\n"
+            "Dialoge / Eingabefelder:\n"
+            "  Enter          Eingabe bestätigen (z. B. Notiz speichern,\n"
+            "                 Suche starten, Ort-Override anwenden)\n\n"
+            "Allgemein:\n"
+            "  Mausrad        Scrollen in Listen, Tabellen und im Download-Tab")
 
     # ── Persistente Einstellungen ──────────────────────────────────────────────
 

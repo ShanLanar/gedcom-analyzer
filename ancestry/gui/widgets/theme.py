@@ -242,6 +242,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mn.chg_ged":   {"de": "GEDCOM / Wurzelperson ändern …",       "en": "Change GEDCOM / root person …"},
     # Help menu items
     "mn.about":     {"de": "Über …",                               "en": "About …"},
+    "mn.shortcuts": {"de": "Tastenkürzel …",                       "en": "Keyboard shortcuts …"},
     # New analysis windows
     "mn.surnames":  {"de": "Nachname-Analyse (Namenskarte) …",     "en": "Surname analysis (name map) …"},
     "mn.places":    {"de": "Geburtsort-Analyse …",                 "en": "Birth place analysis …"},

@@ -245,3 +245,19 @@ def test_phasing_dashboard_renders(fake_tk):
 
     # leere Cluster → kein Fehler (Info-Dialog), kein Status
     show_phasing_dashboard(ttk.Frame(), {})
+
+
+def test_tooltip_helper(fake_tk):
+    """Der Tooltip-Helfer bindet sich an ein Widget und überlebt
+    schedule/show/hide ohne Ausnahme (defensiv)."""
+    from tkinter import ttk
+
+    from ancestry.gui.widgets.tooltip import Tooltip, tooltip
+
+    w = ttk.Button()
+    tip = tooltip(w, "Hilfetext")
+    assert isinstance(tip, Tooltip)
+    tip._schedule()    # plant Anzeige
+    tip._show()        # darf nicht werfen (defensiv gekapselt)
+    tip._hide()        # räumt auf
+    assert tip._tip is None

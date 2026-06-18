@@ -10,6 +10,7 @@ from typing import Callable, Optional
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import COLORS
+from ancestry.gui.widgets.tooltip import tooltip
 
 log = logging.getLogger(__name__)
 
@@ -106,10 +107,14 @@ class ClusterTab(ttk.Frame):
         ttk.Button(cf, textvariable=_sv, command=self._on_assign_side).pack(side="left", padx=4)
         lw.append((_sv, "cl.assign_side"))
         _sv = tk.StringVar(value=t("cl.phasing"))
-        ttk.Button(cf, textvariable=_sv, command=self._show_phasing).pack(side="left", padx=4)
+        _b = ttk.Button(cf, textvariable=_sv, command=self._show_phasing)
+        _b.pack(side="left", padx=4)
+        tooltip(_b, "Ordnet die 4 größten Cluster den Großelternlinien zu (Leeds)")
         lw.append((_sv, "cl.phasing"))
         _sv = tk.StringVar(value=t("cl.mrca_map"))
-        ttk.Button(cf, textvariable=_sv, command=self._show_mrca_map).pack(side="left", padx=4)
+        _b = ttk.Button(cf, textvariable=_sv, command=self._show_mrca_map)
+        _b.pack(side="left", padx=4)
+        tooltip(_b, "Geburtsorte der gemeinsamen Vorfahren als Leaflet-Karte (Browser)")
         lw.append((_sv, "cl.mrca_map"))
 
         # Cluster-Beschreibung
