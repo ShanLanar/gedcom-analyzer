@@ -8,11 +8,13 @@ from __future__ import annotations
 
 import threading
 import tkinter as tk
+from ancestry.gui.widgets.theme import resolve_t
 from tkinter import messagebox, ttk
 
 
 class DedupReview(ttk.Frame):
     def __init__(self, master, db):
+        self._t = resolve_t(master)
         super().__init__(master)
         self._db = db
         self._pairs: dict[str, dict] = {}
@@ -48,7 +50,7 @@ class DedupReview(ttk.Frame):
         act = ttk.Frame(self); act.pack(side="right", fill="y", padx=8, pady=8)
         ttk.Button(act, text="✓ Ist Dublette", command=lambda: self._mark("confirmed")
                    ).pack(fill="x", pady=4)
-        ttk.Button(act, text="✗ Keine Dublette", command=lambda: self._mark("rejected")
+        ttk.Button(act, text=self._t("dr.not_dup"), command=lambda: self._mark("rejected")
                    ).pack(fill="x", pady=4)
         ttk.Label(act, text="Entscheidungen werden\nals Labels gespeichert\n"
                             "und trainieren das Modell.", foreground="#888",
@@ -93,7 +95,7 @@ class DedupReview(ttk.Frame):
                      str(r["ged_id_b"]), r.get("source_b", "gedcom"),
                      status, float(r["score"])))
         except Exception as exc:
-            messagebox.showerror("Speichern", str(exc))
+            messagebox.showerror(self._t("dlg.save"), str(exc))
             return
         self._tree.delete(sel[0])
         self._pairs.pop(sel[0], None)

@@ -118,8 +118,8 @@ def show_gedcom_results(app, results, n_people, n_peds, cluster_lookup=None) -> 
         clusters = getattr(app, "_clusters", {})
         if cid is None or cid not in clusters:
             messagebox.showinfo(
-                "Cluster nicht berechnet",
-                "Bitte zuerst im Cluster-Tab Clustering durchführen.")
+                app._t("gr.no_cluster_calc"),
+                app._t("dlg.m_do_clustering"))
             return
         members = clusters[cid]
         cluster_obj = {"members": [(m["guid"], m["name"], m["cm"]) for m in members]}

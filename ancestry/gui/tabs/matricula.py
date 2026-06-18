@@ -188,18 +188,14 @@ class MatriculaTab(ttk.Frame):
         label = self._parish_var.get()
         parish_id = self._label_to_id.get(label, "")
         if not parish_id:
-            messagebox.showinfo("Matricula", "Bitte eine Pfarrei wählen.")
+            messagebox.showinfo("Matricula", self._state.t("mat.m_choose_parish"))
             return
         if self.is_running():
             return
         if not os.environ.get("ANTHROPIC_API_KEY"):
             if not messagebox.askyesno(
-                "API-Key fehlt",
-                "ANTHROPIC_API_KEY ist nicht gesetzt.\n\n"
-                "Ohne diesen Schlüssel kann Claude Vision die Kirchenbuch-Seiten nicht "
-                "transkribieren — der Scan wird nach dem ersten Bild fehlschlagen.\n\n"
-                "Trotzdem starten? (Sinnvoll nur bei --dry-run oder Re-Transkription "
-                "von bereits vorhandenen Bildern.)"
+                self._state.t("mat.api_missing_t"),
+                self._state.t("mat.m_no_api_key")
             ):
                 return
             self._log_line("⚠ ANTHROPIC_API_KEY nicht gesetzt — Scan ohne Transkription.")

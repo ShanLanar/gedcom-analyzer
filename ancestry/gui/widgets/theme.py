@@ -277,6 +277,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "av.close": {"de": "Schließen", "en": "Close"},
     "av.tg_members": {"de": "Mitglieder der Triangulationsgruppe:", "en": "Members of the triangulation group:"},
     "st.cm_hist": {"de": "cM-Histogramm der Matches:", "en": "cM histogram of the matches:"},
+    "mat.m_choose_parish": {"de": "Bitte eine Pfarrei wählen.", "en": "Please select a parish."},
+    "mat.api_missing_t": {"de": "API-Key fehlt", "en": "API key missing"},
+    "mat.m_no_api_key": {"de": "ANTHROPIC_API_KEY ist nicht gesetzt.\n\nOhne diesen Schlüssel kann Claude Vision die Kirchenbuch-Seiten nicht transkribieren — der Scan wird nach dem ersten Bild fehlschlagen.\n\nTrotzdem starten? (Sinnvoll nur bei --dry-run oder Re-Transkription von bereits vorhandenen Bildern.)", "en": "ANTHROPIC_API_KEY is not set.\n\nWithout this key Claude Vision cannot transcribe the parish-register pages — the scan will fail after the first image.\n\nStart anyway? (Only sensible for --dry-run or re-transcription of existing images.)"},
+    "gr.no_cluster_calc": {"de": "Cluster nicht berechnet", "en": "Clusters not calculated"},
     # Statistics tab
     "st.refresh":   {"de": "↻ Aktualisieren",                     "en": "↻ Refresh"},
     "st.kz":        {"de": "Kennzahlen",                           "en": "Key Figures"},
@@ -575,6 +579,27 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
               "Cluster-Patterns und ist eine Schätzung — keine genealogische Gewissheit.",
         "en": "ℹ  Without a mother or father kit, the assignment is based only on\n"
               "cluster patterns and is an estimate — not genealogical certainty."},
+    "dlg.save": {"de": "Speichern", "en": "Save"},
+    "pe2.b_save":   {"de": "💾 Speichern", "en": "💾 Save"},
+    "pe2.b_reload": {"de": "🔁 Neu laden", "en": "🔁 Reload"},
+    "pe2.hint":     {"de": "  Doppelklick → Überschreibung bearbeiten",
+                     "en": "  Double-click → edit override"},
+    "pe2.col_override": {"de": "Überschreibung", "en": "Override"},
+    "pe2.l_override":   {"de": "Überschreibung:", "en": "Override:"},
+    "pe2.b_apply":  {"de": "✓ Übernehmen", "en": "✓ Apply"},
+    "pe2.b_delete": {"de": "✕ Löschen", "en": "✕ Delete"},
+    "pc.no_anc":    {"de": "Keine Vorfahren gefunden.\nBitte zuerst GEDCOM laden und\nWurzelperson setzen.",
+                     "en": "No ancestors found.\nPlease load a GEDCOM and\nset the root person first."},
+    "pc.no_match_person": {"de": "Kein Anverwandte-Treffer\nfür diese Person.",
+                           "en": "No relative match\nfor this person."},
+    "pc.max_cm_hint": {"de": "(Maximaler cM-Wert eines Matches, der auf diesen Vorfahren verlinkt)",
+                       "en": "(Maximum cM value of a match linking to this ancestor)"},
+    "pc.no_db":     {"de": "Kein Datenbankzugang", "en": "No database access"},
+    "pc.click_hint": {"de": "  |  Klick auf Kästchen → Details rechts",
+                      "en": "  |  Click a box → details on the right"},
+    "dr.not_dup":   {"de": "✗ Keine Dublette", "en": "✗ Not a duplicate"},
+    "os.no_index":  {"de": "Kein Index — erst 'Index neu bauen' klicken.",
+                     "en": "No index — click 'Rebuild index' first."},
     "dlg.about_title": {"de": "Über", "en": "About"},
     "dlg.about_body":  {"de": "Ancestry DNA Tool v2\n\nFunktionen: Matches + "
                               "Shared Matches + Leeds-Clustering\nDatenbank: ",
@@ -654,3 +679,21 @@ def translate(key: str, lang: str) -> str:
     """Gibt die Übersetzung für *key* in *lang* zurück; Fallback: Deutsch, dann key."""
     entry = TRANSLATIONS.get(key, {})
     return entry.get(lang, entry.get("de", key))
+
+
+def resolve_t(widget):
+    """Findet die Übersetzungsfunktion eines Widgets.
+
+    Läuft die master-Kette hoch, bis ein Objekt mit aufrufbarem ``_state.t``
+    gefunden wird (Tab/Hauptfenster). Fällt sonst auf Deutsch zurück – so
+    übersetzen auch klassenbasierte Dialoge ohne expliziten app-Parameter.
+    """
+    w = widget
+    for _ in range(8):
+        if w is None:
+            break
+        t = getattr(getattr(w, "_state", None), "t", None)
+        if callable(t):
+            return t
+        w = getattr(w, "master", None)
+    return lambda key: translate(key, "de")

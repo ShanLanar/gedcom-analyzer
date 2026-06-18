@@ -7,6 +7,7 @@ import json
 import sqlite3
 import threading
 import tkinter as tk
+from ancestry.gui.widgets.theme import resolve_t
 from pathlib import Path
 from tkinter import messagebox, ttk
 
@@ -46,6 +47,7 @@ class PlaceEditorDialog(tk.Toplevel):
     """Toplevel-Dialog: Ortskonkordanz manuell bearbeiten."""
 
     def __init__(self, master, db_paths: list[Path]):
+        self._t = resolve_t(master)
         super().__init__(master)
         self.title("✏ Ortskonkordanz bearbeiten")
         self.geometry("980x620")
@@ -64,8 +66,8 @@ class PlaceEditorDialog(tk.Toplevel):
                   font=("Segoe UI", 11, "bold")).pack(side="left")
         self._status = ttk.Label(bar, text="Lade …", foreground="#666")
         self._status.pack(side="left", padx=12)
-        ttk.Button(bar, text="💾 Speichern", command=self._save).pack(side="right", padx=4)
-        ttk.Button(bar, text="🔁 Neu laden", command=self._load).pack(side="right", padx=4)
+        ttk.Button(bar, text=self._t("pe2.b_save"), command=self._save).pack(side="right", padx=4)
+        ttk.Button(bar, text=self._t("pe2.b_reload"), command=self._load).pack(side="right", padx=4)
 
         # ── Suchzeile ─────────────────────────────────────────────────────
         sf = ttk.Frame(self, padding=(8, 0, 8, 4))
@@ -76,7 +78,7 @@ class PlaceEditorDialog(tk.Toplevel):
         ttk.Entry(sf, textvariable=self._search_var, width=40).pack(side="left", padx=6)
         ttk.Button(sf, text="✕", width=3,
                    command=lambda: self._search_var.set("")).pack(side="left")
-        ttk.Label(sf, text="  Doppelklick → Überschreibung bearbeiten",
+        ttk.Label(sf, text=self._t("pe2.hint"),
                   foreground="#888").pack(side="left", padx=16)
 
         # ── Treeview ──────────────────────────────────────────────────────
@@ -105,7 +107,7 @@ class PlaceEditorDialog(tk.Toplevel):
         self._tree.bind("<Double-1>", self._on_dblclick)
 
         # ── Bearbeitungsleiste ────────────────────────────────────────────
-        ef = ttk.LabelFrame(self, text="Überschreibung", padding=(8, 4))
+        ef = ttk.LabelFrame(self, text=self._t("pe2.col_override"), padding=(8, 4))
         ef.pack(fill="x", padx=8, pady=(4, 8))
         ttk.Label(ef, text="Roh:").grid(row=0, column=0, sticky="w")
         self._lbl_raw = ttk.Label(ef, text="", foreground="#555", width=50)
@@ -113,14 +115,14 @@ class PlaceEditorDialog(tk.Toplevel):
         ttk.Label(ef, text="Auto:").grid(row=0, column=2, sticky="w", padx=(16, 0))
         self._lbl_auto = ttk.Label(ef, text="", foreground="#555", width=50)
         self._lbl_auto.grid(row=0, column=3, sticky="w", padx=4)
-        ttk.Label(ef, text="Überschreibung:").grid(row=1, column=0, sticky="w", pady=(4, 0))
+        ttk.Label(ef, text=self._t("pe2.l_override")).grid(row=1, column=0, sticky="w", pady=(4, 0))
         self._override_var = tk.StringVar()
         self._override_entry = ttk.Entry(ef, textvariable=self._override_var, width=60)
         self._override_entry.grid(row=1, column=1, columnspan=2, sticky="ew",
                                   padx=4, pady=(4, 0))
-        ttk.Button(ef, text="✓ Übernehmen",
+        ttk.Button(ef, text=self._t("pe2.b_apply"),
                    command=self._apply_edit).grid(row=1, column=3, padx=(8, 0), pady=(4, 0))
-        ttk.Button(ef, text="✕ Löschen",
+        ttk.Button(ef, text=self._t("pe2.b_delete"),
                    command=self._delete_edit).grid(row=1, column=4, padx=4, pady=(4, 0))
         ef.columnconfigure(1, weight=1)
         ef.columnconfigure(3, weight=1)
@@ -234,4 +236,4 @@ class PlaceEditorDialog(tk.Toplevel):
             save(conc)
             self._status.configure(text=f"Gespeichert: {CONCORDANCE_PATH}")
         except Exception as exc:
-            messagebox.showerror("Fehler", f"Speichern fehlgeschlagen:\n{exc}", parent=self)
+            messagebox.showerror(self._t("dlg.error"), f"Speichern fehlgeschlagen:\n{exc}", parent=self)

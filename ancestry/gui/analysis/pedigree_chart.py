@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import math
 import tkinter as tk
+from ancestry.gui.widgets.theme import resolve_t
 from tkinter import ttk
 
 log = logging.getLogger(__name__)
@@ -167,6 +168,7 @@ class PedigreeCanvas(tk.Canvas):
     """Canvas, das die Ahnentafel zeichnet und Klick-Events weitergibt."""
 
     def __init__(self, master, on_select=None, **kw):
+        self._t = resolve_t(master)
         super().__init__(master, **kw)
         self._on_select = on_select   # callback(sosa, person_dict)
         self._box_items: dict[int, list[int]] = {}   # sosa → canvas item IDs
@@ -188,7 +190,7 @@ class PedigreeCanvas(tk.Canvas):
         if not persons:
             self.create_text(
                 200, 100,
-                text="Keine Vorfahren gefunden.\nBitte zuerst GEDCOM laden und\nWurzelperson setzen.",
+                text=self._t("pc.no_anc"),
                 font=("Segoe UI", 11), fill=C_MUTED, anchor="nw",
             )
             return
@@ -439,6 +441,7 @@ def _fmt_place(place: str | None, maxlen: int = 35) -> str:
 
 def _build_detail_panel(frame: tk.Frame, sosa: int, person: dict) -> None:
     """Füllt das Detailpanel mit GEDCOM- und Anverwandte-Daten."""
+    _t = resolve_t(frame)
     for w in frame.winfo_children():
         w.destroy()
 
@@ -468,7 +471,7 @@ def _build_detail_panel(frame: tk.Frame, sosa: int, person: dict) -> None:
     else:
         af = ttk.LabelFrame(cols, text="Anverwandte", foreground="#999")
         af.grid(row=0, column=1, padx=(6, 0), sticky="nsew")
-        ttk.Label(af, text="Kein Anverwandte-Treffer\nfür diese Person.",
+        ttk.Label(af, text=_t("pc.no_match_person"),
                   foreground="#999", font=("Segoe UI", 8),
                   justify="center").pack(padx=20, pady=20)
 
@@ -482,7 +485,7 @@ def _build_detail_panel(frame: tk.Frame, sosa: int, person: dict) -> None:
         df.pack(fill="x", padx=8, pady=4)
         ttk.Label(df, text=f"🧬 DNA-Treffer: {person['dna_cm']:.0f} cM",
                   font=("Segoe UI", 9, "bold"), foreground="#c07010").pack(anchor="w")
-        ttk.Label(df, text="(Maximaler cM-Wert eines Matches, der auf diesen Vorfahren verlinkt)",
+        ttk.Label(df, text=_t("pc.max_cm_hint"),
                   font=("Segoe UI", 7), foreground="#888").pack(anchor="w")
 
     # Verwandtschaftsgrad
@@ -538,7 +541,7 @@ def show_pedigree_chart(app) -> None:
 
     db = getattr(app, "_db", None)
     if db is None:
-        messagebox.showwarning("Kein Datenbankzugang", "Bitte zuerst einloggen.")
+        messagebox.showwarning(app._t("pc.no_db"), app._t("dlg.m_login_first"))
         return
 
     test_guid = None
@@ -561,10 +564,10 @@ def show_pedigree_chart(app) -> None:
     gen_spin = ttk.Spinbox(tb, from_=3, to=7, textvariable=gen_var, width=4)
     gen_spin.pack(side="left", padx=(2, 10))
 
-    reload_btn = ttk.Button(tb, text="↻ Neu laden")
+    reload_btn = ttk.Button(tb, text=app._t("av.reload"))
     reload_btn.pack(side="left", padx=4)
 
-    ttk.Label(tb, text="  |  Klick auf Kästchen → Details rechts",
+    ttk.Label(tb, text=app._t("pc.click_hint"),
               foreground="#666", font=("Segoe UI", 8)).pack(side="left")
 
     # Legende

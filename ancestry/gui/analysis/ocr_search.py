@@ -9,11 +9,13 @@ from __future__ import annotations
 import os
 import threading
 import tkinter as tk
+from ancestry.gui.widgets.theme import resolve_t
 from tkinter import ttk
 
 
 class OcrSearch(ttk.Frame):
     def __init__(self, master):
+        self._t = resolve_t(master)
         super().__init__(master)
         self._rows: dict[str, dict] = {}
         self.pack(fill="both", expand=True)
@@ -53,7 +55,7 @@ class OcrSearch(ttk.Frame):
         if os.path.exists(INDEX_PATH):
             self._status.configure(text="Index bereit")
         else:
-            self._status.configure(text="Kein Index — erst 'Index neu bauen' klicken.")
+            self._status.configure(text=self._t("os.no_index"))
 
     def search(self):
         q = self._q.get().strip()

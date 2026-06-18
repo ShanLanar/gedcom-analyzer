@@ -517,7 +517,7 @@ class ToolsTab(ttk.Frame):
             try:
                 p.unlink()
             except OSError as exc:
-                messagebox.showerror("Fehler", f"{p.name}: {exc}", parent=self)
+                messagebox.showerror(self._state.t("dlg.error"), f"{p.name}: {exc}", parent=self)
                 return
         messagebox.showinfo(self._state.t("tl.dbdel_t"), f"Gelöscht:\n{names}", parent=self)
 
