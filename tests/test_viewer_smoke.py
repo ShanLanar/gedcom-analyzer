@@ -8,6 +8,11 @@ import sqlite3
 import pytest
 from pathlib import Path
 
+# Flask ist ein optionales Extra ([viewer]). Ohne es haben diese Smoke-Tests
+# keine Grundlage -> ganzes Modul überspringen, statt mit ImportError/SystemExit
+# rot zu werden.
+pytest.importorskip("flask")
+
 
 @pytest.fixture
 def entity_db(tmp_path):
