@@ -258,6 +258,37 @@ class MatchesRepo:
             ).fetchall()
         return [dict(r) for r in rows]
 
+    def auto_flag_endogamy(self, test_guid: str, label: str = "(auto)",
+                           score_threshold: float = 0.15, min_segments: int = 5,
+                           max_avg_cm: float = 12.0, overwrite: bool = False) -> int:
+        """Markiert Endogamie-verdächtige Matches automatisch (endogamy_cluster).
+
+        Heuristik in ancestry.core.endogamy_dna (viele kurze Segmente). Bereits
+        manuell annotierte Matches bleiben unangetastet (außer overwrite=True).
+        Gibt die Anzahl neu markierter Matches zurück.
+        """
+        from ancestry.core.endogamy_dna import is_endogamy_suspect
+        cands = self.get_endogamy_candidates(test_guid, threshold=score_threshold)
+        flagged = 0
+        with self._db._cursor() as cur:
+            for c in cands:
+                if not is_endogamy_suspect(c["shared_cm"], c["shared_segments"],
+                                           score_threshold, min_segments, max_avg_cm):
+                    continue
+                if not overwrite:
+                    row = cur.execute(
+                        "SELECT COALESCE(endogamy_cluster,'') FROM matches "
+                        "WHERE match_guid=? AND test_guid=?",
+                        (c["match_guid"], test_guid)).fetchone()
+                    if row and (row[0] or "").strip():
+                        continue
+                cur.execute(
+                    "UPDATE matches SET endogamy_cluster=? "
+                    "WHERE match_guid=? AND test_guid=?",
+                    (label, c["match_guid"], test_guid))
+                flagged += 1
+        return flagged
+
     def bulk_set_side(self, guids: list, side: str) -> int:
         if not guids:
             return 0

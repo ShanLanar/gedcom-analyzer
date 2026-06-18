@@ -127,6 +127,7 @@ class Database:
     def set_ml_origin(self, *a, **kw) -> None:           return self._matches.set_ml_origin(*a, **kw)
     def update_research_flags(self, *a, **kw) -> None:   return self._matches.update_research_flags(*a, **kw)
     def get_endogamy_candidates(self, *a, **kw) -> list: return self._matches.get_endogamy_candidates(*a, **kw)
+    def auto_flag_endogamy(self, *a, **kw) -> int:       return self._matches.auto_flag_endogamy(*a, **kw)
     def bulk_set_side(self, *a, **kw) -> int:            return self._matches.bulk_set_side(*a, **kw)
     def get_paternal_maternal_overlap(self, *a, **kw) -> list: return self._matches.get_paternal_maternal_overlap(*a, **kw)
     def link_gedmatch_bridges(self, *a, **kw) -> int:    return self._matches.link_gedmatch_bridges(*a, **kw)

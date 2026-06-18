@@ -215,6 +215,11 @@ class MatchesTab(ttk.Frame):
         ttk.Checkbutton(fl, textvariable=_sv_endo, variable=self._hide_endo_var,
                         command=self.refresh).pack(side="left", padx=6)
         lw.append((_sv_endo, "mf.endo"))
+        _sv_autoendo = tk.StringVar(value=t("mf.endo_auto"))
+        _b = ttk.Button(fl, textvariable=_sv_autoendo, command=self._auto_flag_endogamy)
+        _b.pack(side="left", padx=4)
+        register_tooltip(_b, "tt.mf_endo_auto", self._state)
+        lw.append((_sv_autoendo, "mf.endo_auto"))
 
         self._match_count_var = tk.StringVar(value="")
         ttk.Label(fl, textvariable=self._match_count_var,
@@ -961,6 +966,21 @@ class MatchesTab(ttk.Frame):
         self._state.db.set_endogamy_cluster(match.match_guid, "")
         match.endogamy_cluster = ""
         self.refresh()
+
+    def _auto_flag_endogamy(self):
+        """Markiert Endogamie-verdächtige Matches (viele kurze Segmente)
+        automatisch als endogamy_cluster='(auto)'."""
+        from tkinter import messagebox
+        guid = self._get_test_guid()
+        if not guid:
+            messagebox.showwarning(self._state.t("dlg.no_kit"),
+                                   self._state.t("dlg.m_choose_kit"))
+            return
+        n = self._state.db.auto_flag_endogamy(guid)
+        self.refresh()
+        self._set_status(self._state.t("mf.endo_auto_done").format(n=n))
+        messagebox.showinfo(self._state.t("mf.endo_auto"),
+                            self._state.t("mf.endo_auto_done").format(n=n))
 
     def _set_custom_rel(self, match, rel: str):
         self._state.db.update_note(match.match_guid,
