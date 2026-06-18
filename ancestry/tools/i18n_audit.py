@@ -25,8 +25,9 @@ _GERMAN = re.compile(r"[äöüßÄÖÜ]|\b(?:und|oder|der|die|das|für|mit|nicht
                      r"importieren|exportieren|berechnen|Datei|Fenster|"
                      r"keine?|bitte)\b", re.IGNORECASE)
 
-# text="…" / title="…" / label="…" mit Literal (einfache/doppelte Quotes)
-_LABEL = re.compile(r'(?:text|title|label)\s*=\s*(["\'])(.*?)\1')
+# text="…" / title="…" / label="…" mit Literal (einfache/doppelte Quotes).
+# \b verhindert Treffer in Bezeichnern wie side_label = "…".
+_LABEL = re.compile(r'\b(?:text|title|label)\s*=\s*(["\'])(.*?)\1')
 # messagebox.showinfo("Titel", "Nachricht …")  – erfasst Literale
 _MSGBOX = re.compile(r'messagebox\.(?:showinfo|showwarning|showerror|askyesno)'
                      r'\s*\(\s*(["\'])(.*?)\1')

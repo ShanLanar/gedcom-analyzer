@@ -483,14 +483,14 @@ class AncestryDnaApp(tk.Frame):
     def _export_ancestor_groups(self):
         guid = self._current_guid()
         if not guid:
-            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
         groups = self._db.get_ancestor_groups(guid, min_matches=2)
         if not groups:
-            messagebox.showinfo("Keine Daten", "Noch keine geteilten Vorfahren gefunden.")
+            messagebox.showinfo(self._t("dlg.no_data"), self._t("dlg.m_no_shared_anc"))
             return
         path = filedialog.asksaveasfilename(
-            title="Vorfahren-Gruppen speichern", defaultextension=".csv",
+            title=self._t("dlg.t_save_anc_groups"), defaultextension=".csv",
             filetypes=[("CSV","*.csv")])
         if not path:
             return
@@ -502,22 +502,21 @@ class AncestryDnaApp(tk.Frame):
                 for guid_m, name, pth, cm in sorted(g["matches"], key=lambda x:-(x[3] or 0)):
                     w.writerow([g["ancestor_name"], g["birth_year"], g["count"],
                                 name or guid_m, f"{cm:.0f}" if cm else "", pth or ""])
-        messagebox.showinfo("Export", f"{len(groups)} Vorfahren-Gruppen gespeichert.")
+        messagebox.showinfo(self._t("dlg.export"), f"{len(groups)} Vorfahren-Gruppen gespeichert.")
         self._set_status(f"Vorfahren-Gruppen exportiert: {len(groups)}")
 
     # ── Ahnentafel eines Matches ────────────────────────────────────────────────
 
     def _show_match_pedigree(self):
         if not self._selected_match:
-            messagebox.showinfo("Kein Match", "Bitte zuerst einen Match in der Tabelle wählen.")
+            messagebox.showinfo(self._t("dlg.no_match"), self._t("dlg.m_choose_match"))
             return
         guid = self._selected_match.match_guid
         test_guid = self._current_guid()
         rows = self._db.get_pedigree_for_match(test_guid, guid)
         if not rows:
-            messagebox.showinfo("Keine Ahnentafel",
-                "Für diesen Match ist noch keine Ahnentafel geladen.\n"
-                "Erst '▶ Ahnentafeln laden' ausführen (Match braucht einen Baum).")
+            messagebox.showinfo(self._t("dlg.no_pedigree"),
+                self._t("dlg.m_no_pedigree"))
             return
 
         # Gemeinsame Vorfahren (= wo der Match in DEINEM Baum hängt)
@@ -542,8 +541,7 @@ class AncestryDnaApp(tk.Frame):
                                      f"deine Linie: {mine}"
                                      + (f"  ({rel})" if rel else ""))).pack(anchor="w")
         else:
-            ttk.Label(win, text="(Kein gemeinsamer Vorfahr geladen – ggf. "
-                                "'▶ Vorfahren & Orte laden' ausführen.)",
+            ttk.Label(win, text=self._t("dlg.l_no_common_anc"),
                       foreground="#888888").pack(anchor="w", padx=12)
 
         # Namen+Jahr der gemeinsamen Vorfahren zum Markieren in der Tafel
@@ -597,7 +595,7 @@ class AncestryDnaApp(tk.Frame):
         """Triangulations-Cluster aus den Shared Matches (Connected Components)."""
         test_guid = self._current_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
 
         win = tk.Toplevel(self)
@@ -605,7 +603,7 @@ class AncestryDnaApp(tk.Frame):
         win.geometry("820x600")
 
         top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
-        ttk.Label(top, text="cM-Fenster:", style="Bold.TLabel").pack(side="left")
+        ttk.Label(top, text=self._t("dlg.l_cm_window"), style="Bold.TLabel").pack(side="left")
         lo_var = tk.StringVar(value="20"); hi_var = tk.StringVar(value="400")
         ttk.Entry(top, textvariable=lo_var, width=6).pack(side="left", padx=4)
         ttk.Label(top, text="bis").pack(side="left")
@@ -660,7 +658,7 @@ class AncestryDnaApp(tk.Frame):
         def dock_in_tree():
             sel = tv.selection()
             if not sel:
-                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                messagebox.showinfo(self._t("dlg.no_cluster"), self._t("dlg.m_choose_cluster"))
                 return
             c = store.get(sel[0])
             if not c:
@@ -721,37 +719,37 @@ class AncestryDnaApp(tk.Frame):
         def deepen_cluster():
             sel = tv.selection()
             if not sel:
-                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                messagebox.showinfo(self._t("dlg.no_cluster"), self._t("dlg.m_choose_cluster"))
                 return
             c = store.get(sel[0])
             if not c:
                 return
             guids = [g for g, _n, _cm in c["members"]]
             if not messagebox.askyesno(
-                    "Cluster tiefer laden",
+                    self._t("dlg.deepen_cluster"),
                     f"Für {len(guids)} Cluster-Matches tiefere Ahnentafeln "
                     f"(bis 8 Generationen) laden?\n\n"
                     "Nötig für entfernte Cousins (gemeinsamer Vorfahr >5 Gen.).\n"
                     "Dauert etwas (mehrere Calls pro Match)."):
                 return
             if not self._client:
-                messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+                messagebox.showwarning(self._t("dlg.not_logged"), self._t("dlg.m_login_first"))
                 return
             self._scraper = Scraper(self._client, self._db,
                                     on_progress=self._on_progress,
                                     on_status=lambda m: self.after(0, lambda: self._set_status(m)),
                                     on_done=lambda r: self.after(0, lambda: messagebox.showinfo(
-                                        "Tiefe Ahnentafeln", r.message + "\n\nJetzt erneut "
+                                        self._t("dlg.deep_pedigrees"), r.message + "\n\nJetzt erneut "
                                         "'Cluster-Linie suchen'.")))
             self._scraper.start_deepen_pedigrees(test_guid, guids)
 
-        ttk.Button(top, text="⤓ Cluster tiefer laden (8 Gen.)",
+        ttk.Button(top, text=self._t("dlg.b_deepen_cluster"),
                    command=deepen_cluster).pack(side="left", padx=4)
 
         def combined_tree():
             sel = tv.selection()
             if not sel:
-                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                messagebox.showinfo(self._t("dlg.no_cluster"), self._t("dlg.m_choose_cluster"))
                 return
             c = store.get(sel[0])
             if not c:
@@ -764,7 +762,7 @@ class AncestryDnaApp(tk.Frame):
         def internal_rels():
             sel = tv.selection()
             if not sel:
-                messagebox.showinfo("Kein Cluster", "Bitte einen Cluster wählen.")
+                messagebox.showinfo(self._t("dlg.no_cluster"), self._t("dlg.m_choose_cluster"))
                 return
             c = store.get(sel[0])
             if not c:
@@ -943,10 +941,10 @@ class AncestryDnaApp(tk.Frame):
         """Zieht 'View in tree' + gemeinsamer Vorfahr für ALLE Matches nach."""
         guid = self._get_kit_guid()
         if not guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
         if not self._client:
-            messagebox.showwarning("Nicht eingeloggt", "Bitte zuerst einloggen.")
+            messagebox.showwarning(self._t("dlg.not_logged"), self._t("dlg.m_login_first"))
             return
         self._state.current_test_guid = guid
         self._names_stop_btn.configure(state="normal")
@@ -956,7 +954,7 @@ class AncestryDnaApp(tk.Frame):
                                 on_done=lambda r: self.after(0, lambda: (
                                     self._names_stop_btn.configure(state="disabled"),
                                     self._refresh_match_table(),
-                                    messagebox.showinfo("Verknüpfungen", r.message))))
+                                    messagebox.showinfo(self._t("dlg.links"), r.message))))
         self._scraper.start_refresh_links(guid)
 
     def _reset_name_attempts(self):
@@ -964,11 +962,11 @@ class AncestryDnaApp(tk.Frame):
         nächsten 'Namen laden' erneut versucht werden."""
         test_guid = self._current_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
         n = self._db.reset_name_attempts(test_guid)
         self._set_status(f"Namens-Versuche zurückgesetzt: {n} Matches.")
-        messagebox.showinfo("Zurückgesetzt",
+        messagebox.showinfo(self._t("dlg.reset_done"),
             f"{n} Matches werden beim nächsten 'Namen & Stammbaum laden' "
             "erneut versucht.")
 
@@ -977,17 +975,15 @@ class AncestryDnaApp(tk.Frame):
         Daten) – danach Schritt B neu ausführen."""
         test_guid = self._current_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
         if not messagebox.askyesno(
-                "Shared Matches zurücksetzen",
-                "Alle gespeicherten Shared Matches dieses Kits löschen?\n\n"
-                "Nötig, um die fehlerhaften Alt-Daten (ganze Liste) zu entfernen.\n"
-                "Danach Tab »Herunterladen« → Schritt B erneut ausführen."):
+                self._t("dlg.reset_shared"),
+                self._t("dlg.m_reset_shared")):
             return
         n = self._db.reset_shared_matches(test_guid)
         self._set_status(f"Shared Matches zurückgesetzt: {n} Zeilen gelöscht.")
-        messagebox.showinfo("Zurückgesetzt",
+        messagebox.showinfo(self._t("dlg.reset_done"),
             f"{n} Shared-Match-Zeilen gelöscht.\n"
             "Jetzt Schritt B (Shared Matches herunterladen) neu starten.")
 
@@ -996,12 +992,12 @@ class AncestryDnaApp(tk.Frame):
         und zeigt, wo jeder Match in DEINEM Baum hängt."""
         test_guid = self._current_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte zuerst ein DNA-Kit wählen.")
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
         peds = self._db.get_all_pedigrees(test_guid)
         if not peds:
-            messagebox.showinfo("Keine Ahnentafeln",
-                "Noch keine Ahnentafeln geladen. Erst '▶ Ahnentafeln laden' ausführen.")
+            messagebox.showinfo(self._t("dlg.no_pedigrees"),
+                self._t("dlg.m_no_pedigrees"))
             return
         def _after_load(ged):
             import threading
@@ -1167,7 +1163,7 @@ class AncestryDnaApp(tk.Frame):
         # GEDCOM-Pfad: gemerkten nutzen, wenn er noch existiert – sonst fragen.
         if not path or not os.path.exists(path):
             path = filedialog.askopenfilename(
-                title="Eigenen Stammbaum wählen (GEDCOM)",
+                title=self._t("dlg.t_choose_own_tree"),
                 filetypes=[("GEDCOM", "*.ged *.gedcom"), ("Alle", "*.*")])
             if not path:
                 return
@@ -1198,11 +1194,11 @@ class AncestryDnaApp(tk.Frame):
                 people, individuals, families = load_gedcom_full(path)
             except Exception as e:
                 self.after(0, lambda e=e: messagebox.showerror(
-                    "GEDCOM-Fehler", f"Konnte GEDCOM nicht laden:\n{e}"))
+                    self._t("dlg.ged_error"), f"Konnte GEDCOM nicht laden:\n{e}"))
                 return
             if not people:
                 self.after(0, lambda: messagebox.showwarning(
-                    "Leer", "Kein verwertbarer Inhalt im GEDCOM."))
+                    self._t("dlg.empty"), self._t("dlg.m_ged_empty")))
                 return
             index = TreeIndex(people)
             amap = {}
@@ -1257,7 +1253,7 @@ class AncestryDnaApp(tk.Frame):
         """Bulk-Abgleich aller Matches gegen den GEDCOM-Baum."""
         ged = getattr(self, "_gedcom", None)
         if not ged:
-            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            messagebox.showinfo(self._t("dlg.gedcom"), self._t("md.ged_none"))
             return
         test_guid = self._state.current_test_guid or self._get_kit_guid()
         if not test_guid:
@@ -1302,7 +1298,7 @@ class AncestryDnaApp(tk.Frame):
         """Überträgt GEDCOM-Endogamie-Scores via Geburtsort-Abgleich auf Matches."""
         ged = getattr(self, "_gedcom", None)
         if not ged:
-            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            messagebox.showinfo(self._t("dlg.gedcom"), self._t("md.ged_none"))
             return
         test_guid = self._state.current_test_guid or self._get_kit_guid()
         if not test_guid:
@@ -1350,7 +1346,7 @@ class AncestryDnaApp(tk.Frame):
         try:
             from ancestry.core import bridge
         except Exception as e:
-            messagebox.showerror("Duplikate", f"bridge nicht ladbar: {e}"); return
+            messagebox.showerror(self._t("dlg.duplicates"), f"bridge nicht ladbar: {e}"); return
 
         win = tk.Toplevel(self)
         win.title("Duplikate prüfen – Querbezüge")
@@ -1363,7 +1359,7 @@ class AncestryDnaApp(tk.Frame):
         ttk.Label(bar, text="bis").pack(side="left")
         ttk.Entry(bar, textvariable=hi_var, width=5).pack(side="left", padx=2)
         only_auto = tk.BooleanVar(value=True)
-        ttk.Checkbutton(bar, text="nur ungeprüfte", variable=only_auto).pack(side="left", padx=8)
+        ttk.Checkbutton(bar, text=self._t("dlg.c_unreviewed_only"), variable=only_auto).pack(side="left", padx=8)
 
         cols = ("score", "status", "a", "b")
         tree = ttk.Treeview(win, columns=cols, show="headings", height=15)
@@ -1402,12 +1398,12 @@ class AncestryDnaApp(tk.Frame):
                 tree.set(iid, "status", status)
 
         btns = ttk.Frame(win); btns.pack(fill="x", padx=8, pady=6)
-        ttk.Button(btns, text="🔄 Laden", command=reload).pack(side="left")
-        ttk.Button(btns, text="✓ Dieselbe Person (bestätigen)",
+        ttk.Button(btns, text=self._t("dlg.b_load"), command=reload).pack(side="left")
+        ttk.Button(btns, text=self._t("dlg.b_same_person"),
                    command=lambda: _decide("confirmed")).pack(side="left", padx=4)
         ttk.Button(btns, text="✗ Verschiedene (ablehnen)",
                    command=lambda: _decide("rejected")).pack(side="left", padx=4)
-        ttk.Label(btns, text="Mehrfachauswahl möglich (Strg/Shift)",
+        ttk.Label(btns, text=self._t("dlg.l_multiselect"),
                   foreground="#777").pack(side="right")
         reload()
 
@@ -1437,7 +1433,7 @@ class AncestryDnaApp(tk.Frame):
                 log.warning("ml-origin: %s", exc)
                 msg = str(exc).split("\n")[0]
                 self.after(0, lambda: self._ged_link_status.set(f"ML-Fehler: {msg}"))
-                self.after(0, lambda exc=exc: messagebox.showwarning("ML-Herkunft", str(exc)))
+                self.after(0, lambda exc=exc: messagebox.showwarning(self._t("dlg.ml_origin"), str(exc)))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="ml-origin").start()
@@ -1446,7 +1442,7 @@ class AncestryDnaApp(tk.Frame):
         """Verlängert die Ahnenlinie des gewählten Matches über die WikiTree-API."""
         match = getattr(self, "_selected_match", None)
         if not match:
-            messagebox.showinfo("WikiTree", "Bitte zuerst einen Match in der Tabelle auswählen.")
+            messagebox.showinfo(self._t("dlg.wikitree"), self._t("dlg.m_choose_match"))
             return
         test_guid = self._state.current_test_guid or self._get_kit_guid()
         if not test_guid:
@@ -1481,7 +1477,7 @@ class AncestryDnaApp(tk.Frame):
         """Leitet wahrscheinliche Herkunftsregionen aus Pedigree-Nachnamen × GEDCOM-Orten ab."""
         ged = getattr(self, "_gedcom", None)
         if not ged:
-            messagebox.showinfo("GEDCOM", self._t("md.ged_none"))
+            messagebox.showinfo(self._t("dlg.gedcom"), self._t("md.ged_none"))
             return
         test_guid = self._state.current_test_guid or self._get_kit_guid()
         if not test_guid:
@@ -1552,27 +1548,27 @@ class AncestryDnaApp(tk.Frame):
         from ancestry.core.export import export_csv
         matches = self._db.get_matches()
         if not matches:
-            messagebox.showinfo("Keine Daten", "Keine Matches vorhanden.")
+            messagebox.showinfo(self._t("dlg.no_data"), self._t("dlg.m_no_matches"))
             return
         p = filedialog.asksaveasfilename(title="Matches als CSV",
             defaultextension=".csv", filetypes=[("CSV","*.csv"),("Alle","*.*")],
             initialfile="ancestry_dna_matches.csv")
         if p:
             export_csv(matches, p)
-            messagebox.showinfo("Fertig", f"{len(matches)} Matches → {p}")
+            messagebox.showinfo(self._t("dlg.done"), f"{len(matches)} Matches → {p}")
 
     def _export_shared_csv(self):
         from ancestry.core.export import export_shared_csv
         test_guid = self._state.current_test_guid or self._get_kit_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit auswählen.")
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
         with self._db._cursor() as cur:
             cur.execute("SELECT * FROM shared_matches WHERE test_guid=? ORDER BY shared_cm_b DESC",
                         (test_guid,))
             rows = cur.fetchall()
         if not rows:
-            messagebox.showinfo("Keine Daten", "Keine Shared Matches in der Datenbank.")
+            messagebox.showinfo(self._t("dlg.no_data"), self._t("dlg.m_no_shared_db"))
             return
         from ancestry.models import SharedMatch
         shared = [SharedMatch.from_db_row(dict(r)) for r in rows]
@@ -1583,27 +1579,27 @@ class AncestryDnaApp(tk.Frame):
             initialfile="ancestry_shared_matches.csv")
         if p:
             export_shared_csv(shared, p, matches)
-            messagebox.showinfo("Fertig", f"{len(shared)} Shared Matches → {p}")
+            messagebox.showinfo(self._t("dlg.done"), f"{len(shared)} Shared Matches → {p}")
 
     def _export_xlsx(self):
         from ancestry.core.export import export_xlsx
         matches = self._db.get_matches()
         if not matches:
-            messagebox.showinfo("Keine Daten", "Keine Matches vorhanden.")
+            messagebox.showinfo(self._t("dlg.no_data"), self._t("dlg.m_no_matches"))
             return
         p = filedialog.asksaveasfilename(title="Matches als XLSX",
             defaultextension=".xlsx", filetypes=[("XLSX","*.xlsx"),("Alle","*.*")],
             initialfile="ancestry_dna_matches.xlsx")
         if p:
             export_xlsx(matches, p)
-            messagebox.showinfo("Fertig", f"{len(matches)} Matches → {p}")
+            messagebox.showinfo(self._t("dlg.done"), f"{len(matches)} Matches → {p}")
 
     def _export_all_xlsx(self):
         from ancestry.core.export import export_xlsx
         test_guid = self._state.current_test_guid or self._get_kit_guid()
         matches = self._db.get_matches(test_guid=test_guid)
         if not matches:
-            messagebox.showinfo("Keine Daten", "Keine Matches vorhanden.")
+            messagebox.showinfo(self._t("dlg.no_data"), self._t("dlg.m_no_matches"))
             return
         shared, name_map = [], {}
         if test_guid:
@@ -1651,13 +1647,13 @@ class AncestryDnaApp(tk.Frame):
             log.warning("export_all analysis rows: %s", e)
             analysis = []
 
-        p = filedialog.asksaveasfilename(title="Alles als XLSX exportieren",
+        p = filedialog.asksaveasfilename(title=self._t("dlg.b_export_xlsx"),
             defaultextension=".xlsx", filetypes=[("XLSX","*.xlsx"),("Alle","*.*")],
             initialfile="ancestry_dna_komplett.xlsx")
         if p:
             export_xlsx(matches, p, shared if shared else None, name_map,
                         stats=stats, analysis=analysis)
-            messagebox.showinfo("Fertig",
+            messagebox.showinfo(self._t("dlg.done"),
                                 f"{len(matches)} Matches + {len(shared)} Shared Matches\n"
                                 f"+ Statistik + Herkunft/Seiten → {p}")
 
@@ -1672,7 +1668,7 @@ class AncestryDnaApp(tk.Frame):
         Dedupliziert pro sampleId: bester Name gewinnt.
         """
         path = filedialog.askopenfilename(
-            title="Namen-Datei importieren",
+            title=self._t("dlg.t_import_names"),
             filetypes=[("JSON", "*.json"), ("CSV", "*.csv"), ("Alle", "*.*")],
         )
         if not path:
@@ -1747,7 +1743,7 @@ class AncestryDnaApp(tk.Frame):
                         if sid and name:
                             raw.append((sid, name))
         except Exception as e:
-            messagebox.showerror("Import-Fehler", str(e))
+            messagebox.showerror(self._t("dlg.import_error"), str(e))
             return
 
         # Deduplizieren: bester Name pro sampleId
@@ -1760,8 +1756,8 @@ class AncestryDnaApp(tk.Frame):
                 best[sid] = (name, q)
 
         if not best:
-            messagebox.showinfo("Kein Ergebnis",
-                                "Keine gueltigen Namen gefunden.")
+            messagebox.showinfo(self._t("dlg.no_result"),
+                                self._t("dlg.m_no_valid_names"))
             return
 
         # In DB schreiben. Ueberschrieben werden nur Platzhalter:
@@ -1793,7 +1789,7 @@ class AncestryDnaApp(tk.Frame):
                + str(len(best)) + " eindeutige Matches, "
                + str(updated) + " aktualisiert"
                + (" (" + str(skipped) + " uebersprungen)" if skipped else ""))
-        messagebox.showinfo("Import abgeschlossen", msg)
+        messagebox.showinfo(self._t("dlg.import_done"), msg)
         self._set_status("Namen: " + str(updated) + " importiert")
 
     def _set_status(self, msg: str):
@@ -1843,8 +1839,8 @@ class AncestryDnaApp(tk.Frame):
 
         clusters = getattr(self, "_clusters", {}) or {}
         if not clusters:
-            messagebox.showinfo("Cluster erklären",
-                                "Bitte zuerst im Cluster-Tab Clustering durchführen.")
+            messagebox.showinfo(self._t("dlg.explain_cluster"),
+                                self._t("dlg.m_do_clustering"))
             return
 
         win = tk.Toplevel(self)
@@ -1918,17 +1914,17 @@ class AncestryDnaApp(tk.Frame):
                 n = self._db.link_gedmatch_bridges()
                 msg = (f"{n} GEDmatch-Match/es mit Ancestry/MH-Matches verknüpft.\n"
                        "⚡-Badge erscheint in der Match-Liste wenn Brücke bekannt.")
-                self.after(0, lambda m=msg: messagebox.showinfo("GEDmatch-Brücke", m))
+                self.after(0, lambda m=msg: messagebox.showinfo(self._t("dlg.gedmatch_bridge"), m))
                 self.after(50, self._refresh_match_table)
             except Exception as e:
-                self.after(0, lambda e=e: messagebox.showerror("Fehler", str(e)))
+                self.after(0, lambda e=e: messagebox.showerror(self._t("dlg.error"), str(e)))
         threading.Thread(target=_do, daemon=True).start()
 
     def _auto_assign_sides(self):
         """Weist Seiten (väterlich/mütterlich) zu — via Mutter-Kit oder GEDCOM-Baum."""
         test_guid = self._current_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit wählen.")
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
 
         dlg = tk.Toplevel(self)
@@ -1957,8 +1953,7 @@ class AncestryDnaApp(tk.Frame):
         kit_combo.bind("<Button-1>", lambda _: method_var.set("kit"))
         # Hinweis: ohne zweites Kit ist die Seiten-Zuweisung unzuverlässig
         ttk.Label(dlg,
-            text="ℹ  Ohne ein Mutter- oder Vater-Kit basiert die Zuweisung nur auf\n"
-                 "Cluster-Patterns und ist eine Schätzung — keine genealogische Gewissheit.",
+            text=self._t("dlg.l_side_estimate_note"),
             foreground="#a06000", font=("Segoe UI", 8), justify="left").grid(
             row=2, column=2, padx=(8,14), pady=(0,4), sticky="w")
 
@@ -2002,7 +1997,7 @@ class AncestryDnaApp(tk.Frame):
             n_ancestry = 0
 
         rb_anc = ttk.Radiobutton(dlg,
-            text="Ancestry-Schätzung importieren (Tag 8 / Cluster-Code):",
+            text=self._t("dlg.l_import_anc_est"),
             variable=method_var, value="ancestry")
         rb_anc.grid(row=5, column=0, columnspan=2, sticky="w", padx=14, pady=(4,2))
         ttk.Label(dlg, text=f"{n_ancestry} Matches mit Ancestry-Seitenzuweisung gefunden",
@@ -2026,7 +2021,7 @@ class AncestryDnaApp(tk.Frame):
                 result["kit_index"] = -1
             dlg.destroy()
 
-        ttk.Button(btn_frame, text="Abbrechen", command=dlg.destroy).pack(side="left", padx=4)
+        ttk.Button(btn_frame, text=self._t("dlg.cancel"), command=dlg.destroy).pack(side="left", padx=4)
         ttk.Button(btn_frame, text="✓ Zuweisen", command=_ok).pack(side="left", padx=4)
         self.wait_window(dlg)
         if not result["ok"]:
@@ -2037,7 +2032,7 @@ class AncestryDnaApp(tk.Frame):
         if method == "kit":
             # Via Mutter-Kit
             if not other_kits or kit_index < 0:
-                messagebox.showinfo("Kein Kit", "Kein zweites Kit verfügbar.")
+                messagebox.showinfo(self._t("dlg.no_kit"), self._t("dlg.m_no_second_kit"))
                 return
             parent_kit = other_kits[kit_index]
             overlap = self._db.get_paternal_maternal_overlap(test_guid, parent_kit.guid)
@@ -2046,20 +2041,20 @@ class AncestryDnaApp(tk.Frame):
             n_mat = self._db.bulk_set_side(list(mat), "maternal")
             n_pat = self._db.bulk_set_side(list(pat), "paternal")
             self._refresh_match_table()
-            messagebox.showinfo("Ergebnis",
+            messagebox.showinfo(self._t("dlg.result"),
                                 f"✅ {n_mat} Matches als mütterlich markiert\n"
                                 f"✅ {n_pat} Matches als väterlich markiert\n\n"
                                 f"Mutter-Kit: {parent_kit.name or parent_kit.guid[:16]}")
         elif method == "ged":
             # Via GEDCOM-Baum
             if not has_amap:
-                messagebox.showwarning("Kein Ahnen-Map",
-                                       "Bitte GEDCOM laden und Wurzelperson angeben.")
+                messagebox.showwarning(self._t("dlg.no_anc_map"),
+                                       self._t("dlg.m_load_gedcom"))
                 return
             try:
                 from ancestry.core.bridge import infer_side_from_links
             except ImportError:
-                messagebox.showerror("Fehler", "bridge.py nicht ladbar.")
+                messagebox.showerror(self._t("dlg.error"), self._t("dlg.m_bridge_unloadable"))
                 return
 
             with self._db._cursor() as cur:
@@ -2081,7 +2076,7 @@ class AncestryDnaApp(tk.Frame):
             n_pat = self._db.bulk_set_side(pat_guids, "paternal")
             n_mat = self._db.bulk_set_side(mat_guids, "maternal")
             self._refresh_match_table()
-            messagebox.showinfo("GEDCOM-Seitenableitung",
+            messagebox.showinfo(self._t("dlg.ged_side"),
                                 f"✅ {n_pat} Matches als väterlich markiert\n"
                                 f"✅ {n_mat} Matches als mütterlich markiert\n"
                                 f"   {len(both_guids)} Matches beidseitig (unverändert)\n\n"
@@ -2103,12 +2098,12 @@ class AncestryDnaApp(tk.Frame):
                         "OR match_cluster_code = 'paternal')",
                         (test_guid,)).fetchall()]
             except Exception as e:
-                messagebox.showerror("Fehler", str(e))
+                messagebox.showerror(self._t("dlg.error"), str(e))
                 return
             n_mat = self._db.bulk_set_side(mat_guids, "maternal")
             n_pat = self._db.bulk_set_side(pat_guids, "paternal")
             self._refresh_match_table()
-            messagebox.showinfo("Ancestry-Schätzung",
+            messagebox.showinfo(self._t("dlg.anc_estimate"),
                                 f"✅ {n_mat} Matches als mütterlich markiert\n"
                                 f"✅ {n_pat} Matches als väterlich markiert\n\n"
                                 f"Quelle: Ancestry Tag 8 / Cluster-Code")
@@ -2117,7 +2112,7 @@ class AncestryDnaApp(tk.Frame):
         """Weist allen Mitgliedern des gewählten Clusters eine Seite zu."""
         sel = self._cluster_tab.get_cluster_list_selection()
         if not sel:
-            messagebox.showinfo("Kein Cluster", "Bitte Cluster auswählen.")
+            messagebox.showinfo(self._t("dlg.no_cluster"), self._t("dlg.m_choose_cluster"))
             return
         cid = int(sel[0])
         members = self._cluster_tab.get_clusters().get(cid, [])
@@ -2136,13 +2131,13 @@ class AncestryDnaApp(tk.Frame):
             row=0, column=0, columnspan=2, padx=16, pady=(14, 8), sticky="w")
 
         side_var = tk.StringVar(value="paternal")
-        ttk.Radiobutton(dlg, text="🔵 Väterlich (paternal)",
+        ttk.Radiobutton(dlg, text=self._t("dlg.r_paternal"),
                         variable=side_var, value="paternal").grid(
             row=1, column=0, columnspan=2, padx=24, pady=2, sticky="w")
-        ttk.Radiobutton(dlg, text="🔴 Mütterlich (maternal)",
+        ttk.Radiobutton(dlg, text=self._t("dlg.r_maternal"),
                         variable=side_var, value="maternal").grid(
             row=2, column=0, columnspan=2, padx=24, pady=2, sticky="w")
-        ttk.Radiobutton(dlg, text="✖ Zuweisung entfernen",
+        ttk.Radiobutton(dlg, text=self._t("dlg.r_remove_side"),
                         variable=side_var, value="").grid(
             row=3, column=0, columnspan=2, padx=24, pady=(2, 10), sticky="w")
 
@@ -2153,7 +2148,7 @@ class AncestryDnaApp(tk.Frame):
 
         bf = ttk.Frame(dlg); bf.grid(row=4, column=0, columnspan=2, padx=14, pady=(0, 12))
         ttk.Button(bf, text="OK", command=_ok, width=10).pack(side="left", padx=4)
-        ttk.Button(bf, text="Abbrechen", command=dlg.destroy, width=10).pack(side="left", padx=4)
+        ttk.Button(bf, text=self._t("dlg.cancel"), command=dlg.destroy, width=10).pack(side="left", padx=4)
         dlg.wait_window()
 
         if not result["ok"]:
@@ -2166,11 +2161,11 @@ class AncestryDnaApp(tk.Frame):
 
         if side:
             side_label = "väterlich" if side == "paternal" else "mütterlich"
-            messagebox.showinfo("Seite zugewiesen",
+            messagebox.showinfo(self._t("dlg.side_assigned"),
                                 f"✅ {n} Matches als {side_label} markiert\n"
                                 f"Cluster #{cid} ({len(members)} Mitglieder)")
         else:
-            messagebox.showinfo("Zuweisung entfernt",
+            messagebox.showinfo(self._t("dlg.side_removed"),
                                 f"✅ Seitenzuweisung für {n} Matches entfernt\n"
                                 f"Cluster #{cid} ({len(members)} Mitglieder)")
 
@@ -2182,20 +2177,19 @@ class AncestryDnaApp(tk.Frame):
         """Exportiert Vorfahren-Gruppen als GEDCOM 5.5.1."""
         test_guid = self._current_guid()
         if not test_guid:
-            messagebox.showwarning("Kein Kit", "Bitte DNA-Kit wählen.")
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
         try:
             groups = self._db.get_pedigree_groups(test_guid, min_matches=2, mode="person")
         except Exception as e:
-            messagebox.showerror("Datenbankfehler", str(e))
+            messagebox.showerror(self._t("dlg.db_error"), str(e))
             return
         if not groups:
-            messagebox.showinfo("Keine Daten",
-                                "Keine Vorfahren-Gruppen vorhanden.\n"
-                                "→ Erst 'Ahnentafeln laden' ausführen.")
+            messagebox.showinfo(self._t("dlg.no_data"),
+                                self._t("dlg.m_no_anc_groups"))
             return
         p = filedialog.asksaveasfilename(
-            title="GEDCOM exportieren",
+            title=self._t("dlg.t_export_gedcom"),
             defaultextension=".ged",
             filetypes=[("GEDCOM", "*.ged"), ("Alle", "*.*")],
             initialfile="ancestry_dna_ancestors.ged")
@@ -2213,16 +2207,16 @@ class AncestryDnaApp(tk.Frame):
                         ancestors.append(r)
                 enriched.append({**g, "ancestors": ancestors})
             n = export_gedcom(enriched, p)
-            messagebox.showinfo("Fertig", f"{n} Personen als GEDCOM exportiert → {p}")
+            messagebox.showinfo(self._t("dlg.done"), f"{n} Personen als GEDCOM exportiert → {p}")
         except ImportError:
-            messagebox.showerror("Fehler", "gedcom_export-Modul nicht gefunden.")
+            messagebox.showerror(self._t("dlg.error"), self._t("dlg.m_gedexport_missing"))
         except Exception as e:
-            messagebox.showerror("Fehler", str(e))
+            messagebox.showerror(self._t("dlg.error"), str(e))
 
     def _import_mta(self):
         """Importiert MyTrueAncestry CSV-Export."""
         p = filedialog.askopenfilename(
-            title="MyTrueAncestry CSV importieren",
+            title=self._t("dlg.t_import_mta"),
             filetypes=[("CSV", "*.csv"), ("Alle", "*.*")])
         if not p:
             return
@@ -2230,10 +2224,10 @@ class AncestryDnaApp(tk.Frame):
             from ancestry.core.mta_import import parse_mta_csv
             rows = parse_mta_csv(p)
         except Exception as e:
-            messagebox.showerror("Import-Fehler", str(e))
+            messagebox.showerror(self._t("dlg.import_error"), str(e))
             return
         if not rows:
-            messagebox.showwarning("Keine Daten", "Keine Zeilen im CSV gefunden.")
+            messagebox.showwarning(self._t("dlg.no_data"), self._t("dlg.m_no_csv"))
             return
 
         win = tk.Toplevel(self)
@@ -2316,10 +2310,10 @@ class AncestryDnaApp(tk.Frame):
             )
             base2 = parse_mta_csv(p)
         except Exception as e:
-            messagebox.showerror("Import-Fehler", str(e))
+            messagebox.showerror(self._t("dlg.import_error"), str(e))
             return
         if not base2:
-            messagebox.showwarning("Keine Daten", "Keine Zeilen im CSV gefunden.")
+            messagebox.showwarning(self._t("dlg.no_data"), self._t("dlg.m_no_csv"))
             return
 
         result = classify_parental_origin(self_rows, base2)
@@ -2355,24 +2349,12 @@ class AncestryDnaApp(tk.Frame):
                 r["origin"]))
 
     def _show_about(self):
-        messagebox.showinfo("Über",
-            "Ancestry DNA Tool v2\n\n"
-            "Features: Matches + Shared Matches + Leeds-Clustering\n"
-            "Datenbank: " + str(DB_PATH))
+        messagebox.showinfo(self._t("dlg.about_title"),
+            self._t("dlg.about_body") + "\n" + str(DB_PATH))
 
     def _show_shortcuts(self):
-        messagebox.showinfo("Tastenkürzel",
-            "Tastenkürzel & Bedienung\n\n"
-            "Matches-Tab:\n"
-            "  Enter          Detail des ausgewählten Matches öffnen\n"
-            "  Esc            Suche leeren / Tabelle zurücksetzen\n"
-            "  Rechtsklick    Kontextmenü (in Ancestry öffnen, GUID kopieren,\n"
-            "                 Namenskarte, Seite zuweisen …)\n\n"
-            "Dialoge / Eingabefelder:\n"
-            "  Enter          Eingabe bestätigen (z. B. Notiz speichern,\n"
-            "                 Suche starten, Ort-Override anwenden)\n\n"
-            "Allgemein:\n"
-            "  Mausrad        Scrollen in Listen, Tabellen und im Download-Tab")
+        messagebox.showinfo(self._t("mn.shortcuts").rstrip(" …"),
+                            self._t("dlg.shortcuts_body"))
 
     # ── Persistente Einstellungen ──────────────────────────────────────────────
 
@@ -2433,7 +2415,7 @@ class AncestryDnaApp(tk.Frame):
         mat_running = self._matricula_tab.is_running() if self._matricula_tab else False
         if dl_running or mat_running or (self._scraper and self._scraper.is_running()):
             what = "Matricula-Scan" if mat_running and not dl_running else "Download"
-            if not messagebox.askyesno("Beenden?", f"{what} läuft noch. Wirklich beenden?"):
+            if not messagebox.askyesno(self._t("dlg.quit_q"), f"{what} läuft noch. Wirklich beenden?"):
                 return
             if self._download_tab:
                 self._download_tab.stop_download()

@@ -398,8 +398,116 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
                      "en": "Open this tool"},
     "tt.tl_start":  {"de": "Dieses Werkzeug im Hintergrund starten",
                      "en": "Start this tool in the background"},
+    "dlg.no_kit": {"de": "Kein Kit", "en": "No kit"},
+    "dlg.no_data": {"de": "Keine Daten", "en": "No data"},
+    "dlg.m_choose_kit": {"de": "Bitte zuerst ein DNA-Kit wählen.", "en": "Please select a DNA kit first."},
+    "dlg.done": {"de": "Fertig", "en": "Done"},
+    "dlg.no_cluster": {"de": "Kein Cluster", "en": "No cluster"},
+    "dlg.error": {"de": "Fehler", "en": "Error"},
+    "dlg.m_choose_cluster": {"de": "Bitte einen Cluster wählen.", "en": "Please select a cluster."},
+    "dlg.gedcom": {"de": "GEDCOM", "en": "GEDCOM"},
+    "dlg.m_no_matches": {"de": "Keine Matches vorhanden.", "en": "No matches available."},
+    "dlg.import_error": {"de": "Import-Fehler", "en": "Import error"},
+    "dlg.reset_done": {"de": "Zurückgesetzt", "en": "Reset"},
+    "dlg.not_logged": {"de": "Nicht eingeloggt", "en": "Not logged in"},
+    "dlg.m_login_first": {"de": "Bitte zuerst einloggen.", "en": "Please log in first."},
+    "dlg.m_no_csv": {"de": "Keine Zeilen im CSV gefunden.", "en": "No rows found in the CSV."},
+    "dlg.export": {"de": "Export", "en": "Export"},
+    "dlg.import_done": {"de": "Import abgeschlossen", "en": "Import complete"},
+    "dlg.m_no_shared_anc": {"de": "Noch keine geteilten Vorfahren gefunden.", "en": "No shared ancestors found yet."},
+    "dlg.no_match": {"de": "Kein Match", "en": "No match"},
+    "dlg.m_choose_match": {"de": "Bitte zuerst einen Match in der Tabelle wählen.", "en": "Please select a match in the table first."},
+    "dlg.no_pedigree": {"de": "Keine Ahnentafel", "en": "No pedigree"},
+    "dlg.m_no_pedigree": {"de": "Für diesen Match ist noch keine Ahnentafel geladen.\nErst '▶ Ahnentafeln laden' ausführen (Match braucht einen Baum).", "en": "No pedigree loaded for this match yet.\nRun '▶ Load pedigrees' first (the match needs a tree)."},
+    "dlg.reset_shared": {"de": "Shared Matches zurücksetzen", "en": "Reset shared matches"},
+    "dlg.m_reset_shared": {"de": "Alle gespeicherten Shared Matches dieses Kits löschen?\n\nNötig, um die fehlerhaften Alt-Daten (ganze Liste) zu entfernen.\nDanach Tab »Herunterladen« → Schritt B erneut ausführen.", "en": "Delete all stored shared matches for this kit?\n\nNeeded to remove the faulty legacy data (whole list).\nThen run tab \"Download\" → step B again."},
+    "dlg.no_pedigrees": {"de": "Keine Ahnentafeln", "en": "No pedigrees"},
+    "dlg.m_no_pedigrees": {"de": "Noch keine Ahnentafeln geladen. Erst '▶ Ahnentafeln laden' ausführen.", "en": "No pedigrees loaded yet. Run '▶ Load pedigrees' first."},
+    "dlg.wikitree": {"de": "WikiTree", "en": "WikiTree"},
+    "dlg.m_no_shared_db": {"de": "Keine Shared Matches in der Datenbank.", "en": "No shared matches in the database."},
+    "dlg.no_result": {"de": "Kein Ergebnis", "en": "No result"},
+    "dlg.m_no_valid_names": {"de": "Keine gueltigen Namen gefunden.", "en": "No valid names found."},
+    "dlg.explain_cluster": {"de": "Cluster erklären", "en": "Explain cluster"},
+    "dlg.m_do_clustering": {"de": "Bitte zuerst im Cluster-Tab Clustering durchführen.", "en": "Please run clustering in the Cluster tab first."},
+    "dlg.result": {"de": "Ergebnis", "en": "Result"},
+    "dlg.side_assigned": {"de": "Seite zugewiesen", "en": "Side assigned"},
+    "dlg.side_removed": {"de": "Zuweisung entfernt", "en": "Assignment removed"},
+    "dlg.m_no_anc_groups": {"de": "Keine Vorfahren-Gruppen vorhanden.\n→ Erst 'Ahnentafeln laden' ausführen.", "en": "No ancestor groups available.\n→ Run 'Load pedigrees' first."},
+    "dlg.deepen_cluster": {"de": "Cluster tiefer laden", "en": "Load cluster deeper"},
+    "dlg.duplicates": {"de": "Duplikate", "en": "Duplicates"},
+    "dlg.m_no_second_kit": {"de": "Kein zweites Kit verfügbar.", "en": "No second kit available."},
+    "dlg.ged_side": {"de": "GEDCOM-Seitenableitung", "en": "GEDCOM side inference"},
+    "dlg.db_error": {"de": "Datenbankfehler", "en": "Database error"},
+    "dlg.m_gedexport_missing": {"de": "gedcom_export-Modul nicht gefunden.", "en": "gedcom_export module not found."},
+    "dlg.quit_q": {"de": "Beenden?", "en": "Quit?"},
+    "dlg.no_anc_map": {"de": "Kein Ahnen-Map", "en": "No ancestor map"},
+    "dlg.m_load_gedcom": {"de": "Bitte GEDCOM laden und Wurzelperson angeben.", "en": "Please load a GEDCOM and set the root person."},
+    "dlg.anc_estimate": {"de": "Ancestry-Schätzung", "en": "Ancestry estimate"},
+    "dlg.empty": {"de": "Leer", "en": "Empty"},
+    "dlg.m_ged_empty": {"de": "Kein verwertbarer Inhalt im GEDCOM.", "en": "No usable content in the GEDCOM."},
+    "dlg.gedmatch_bridge": {"de": "GEDmatch-Brücke", "en": "GEDmatch bridge"},
+    "dlg.m_bridge_unloadable": {"de": "bridge.py nicht ladbar.", "en": "bridge.py could not be loaded."},
+    "dlg.ged_error": {"de": "GEDCOM-Fehler", "en": "GEDCOM error"},
+    "dlg.ml_origin": {"de": "ML-Herkunft", "en": "ML origin"},
+    "dlg.deep_pedigrees": {"de": "Tiefe Ahnentafeln", "en": "Deep pedigrees"},
+    "dlg.links": {"de": "Verknüpfungen", "en": "Links"},
+    "dlg.t_save_anc_groups": {"de": "Vorfahren-Gruppen speichern", "en": "Save ancestor groups"},
+    "dlg.l_cm_window": {"de": "cM-Fenster:", "en": "cM window:"},
+    "dlg.b_deepen_cluster": {"de": "⤓ Cluster tiefer laden (8 Gen.)", "en": "⤓ Load cluster deeper (8 gen.)"},
+    "dlg.t_choose_own_tree": {"de": "Eigenen Stammbaum wählen (GEDCOM)", "en": "Choose your own tree (GEDCOM)"},
+    "dlg.c_unreviewed_only": {"de": "nur ungeprüfte", "en": "unreviewed only"},
+    "dlg.b_load": {"de": "🔄 Laden", "en": "🔄 Load"},
+    "dlg.b_same_person": {"de": "✓ Dieselbe Person (bestätigen)", "en": "✓ Same person (confirm)"},
+    "dlg.l_multiselect": {"de": "Mehrfachauswahl möglich (Strg/Shift)", "en": "Multi-select possible (Ctrl/Shift)"},
+    "dlg.b_export_xlsx": {"de": "Alles als XLSX exportieren", "en": "Export all as XLSX"},
+    "dlg.t_import_names": {"de": "Namen-Datei importieren", "en": "Import names file"},
+    "dlg.l_import_anc_est": {"de": "Ancestry-Schätzung importieren (Tag 8 / Cluster-Code):", "en": "Import Ancestry estimate (tag 8 / cluster code):"},
+    "dlg.cancel": {"de": "Abbrechen", "en": "Cancel"},
+    "dlg.r_paternal": {"de": "🔵 Väterlich (paternal)", "en": "🔵 Paternal"},
+    "dlg.r_maternal": {"de": "🔴 Mütterlich (maternal)", "en": "🔴 Maternal"},
+    "dlg.r_remove_side": {"de": "✖ Zuweisung entfernen", "en": "✖ Remove assignment"},
+    "dlg.t_export_gedcom": {"de": "GEDCOM exportieren", "en": "Export GEDCOM"},
+    "dlg.t_import_mta": {"de": "MyTrueAncestry CSV importieren", "en": "Import MyTrueAncestry CSV"},
     "tt.tl_stop":   {"de": "Das laufende Werkzeug stoppen",
                      "en": "Stop the running tool"},
+    "dlg.l_no_common_anc": {
+        "de": "(Kein gemeinsamer Vorfahr geladen – ggf. "
+              "'▶ Vorfahren & Orte laden' ausführen.)",
+        "en": "(No common ancestor loaded – run "
+              "'▶ Load ancestors & places' if needed.)"},
+    "dlg.l_side_estimate_note": {
+        "de": "ℹ  Ohne ein Mutter- oder Vater-Kit basiert die Zuweisung nur auf\n"
+              "Cluster-Patterns und ist eine Schätzung — keine genealogische Gewissheit.",
+        "en": "ℹ  Without a mother or father kit, the assignment is based only on\n"
+              "cluster patterns and is an estimate — not genealogical certainty."},
+    "dlg.about_title": {"de": "Über", "en": "About"},
+    "dlg.about_body":  {"de": "Ancestry DNA Tool v2\n\nFunktionen: Matches + "
+                              "Shared Matches + Leeds-Clustering\nDatenbank: ",
+                        "en": "Ancestry DNA Tool v2\n\nFeatures: matches + "
+                              "shared matches + Leeds clustering\nDatabase: "},
+    "dlg.shortcuts_body": {
+        "de": "Tastenkürzel & Bedienung\n\n"
+              "Matches-Tab:\n"
+              "  Enter          Detail des ausgewählten Matches öffnen\n"
+              "  Esc            Suche leeren / Tabelle zurücksetzen\n"
+              "  Rechtsklick    Kontextmenü (in Ancestry öffnen, GUID kopieren,\n"
+              "                 Namenskarte, Seite zuweisen …)\n\n"
+              "Dialoge / Eingabefelder:\n"
+              "  Enter          Eingabe bestätigen (z. B. Notiz speichern,\n"
+              "                 Suche starten, Ort-Override anwenden)\n\n"
+              "Allgemein:\n"
+              "  Mausrad        Scrollen in Listen, Tabellen und im Download-Tab",
+        "en": "Keyboard shortcuts & usage\n\n"
+              "Matches tab:\n"
+              "  Enter          Open the selected match's detail\n"
+              "  Esc            Clear search / reset the table\n"
+              "  Right-click    Context menu (open in Ancestry, copy GUID,\n"
+              "                 name map, assign side …)\n\n"
+              "Dialogs / input fields:\n"
+              "  Enter          Confirm input (e.g. save note,\n"
+              "                 start search, apply place override)\n\n"
+              "General:\n"
+              "  Mouse wheel    Scroll lists, tables and the Download tab"},
     # Statistics tab
     "st.with_tree_pct": {"de": "Mit Baum %:", "en": "With tree %:"},
     "st.side_pct":      {"de": "Seite bekannt %:", "en": "Side known %:"},

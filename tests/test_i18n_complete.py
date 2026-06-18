@@ -23,6 +23,8 @@ ALLOWED_IDENTICAL = {
     "cl.frm_left", "gc.f.cluster", "lg.email", "dl.filter", "md.tab_shared",
     "md.cm", "st.kit_kz", "mf.chip_200", "dl.pause", "dl.dash_mat",
     "dl.dash_sh", "md.fs_link", "mf.kit",
+    # Eigennamen / Formate, in beiden Sprachen identisch
+    "dlg.gedcom", "dlg.export", "dlg.wikitree",
 }
 
 
