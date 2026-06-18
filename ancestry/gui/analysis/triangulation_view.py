@@ -49,6 +49,28 @@ def show_triangulation(app) -> None:
     ttk.Label(top, text="cM").pack(side="left")
     ttk.Button(top, text="↻", width=3, command=lambda: reload()).pack(side="left", padx=8)
 
+    def _export_report():
+        import webbrowser
+        from tkinter import messagebox
+
+        from ancestry.core.triangulation_report import build_triangulation_report_html
+        from ancestry.paths import EXPORT_DIR
+        tgs = list(store.values())
+        if not tgs:
+            messagebox.showinfo(app._t("dlg.no_data"), app._t("av.no_tgs"))
+            return
+        names = {m.match_guid: m.display_name
+                 for m in app._db.get_matches(test_guid=test_guid)}
+        html = build_triangulation_report_html(
+            tgs, name_by_guid=names, kit_label=test_guid[:12])
+        EXPORT_DIR.mkdir(parents=True, exist_ok=True)
+        out = EXPORT_DIR / "triangulation_report.html"
+        out.write_text(html, encoding="utf-8")
+        webbrowser.open(out.as_uri())
+
+    ttk.Button(top, text=app._t("av.tg_export"),
+               command=_export_report).pack(side="left", padx=4)
+
     # Phasing-Hinweis
     ttk.Label(win,
         text=app._t("av.phasing_warn"),

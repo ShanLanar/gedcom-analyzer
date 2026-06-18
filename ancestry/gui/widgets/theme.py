@@ -281,6 +281,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mat.api_missing_t": {"de": "API-Key fehlt", "en": "API key missing"},
     "mat.m_no_api_key": {"de": "ANTHROPIC_API_KEY ist nicht gesetzt.\n\nOhne diesen Schlüssel kann Claude Vision die Kirchenbuch-Seiten nicht transkribieren — der Scan wird nach dem ersten Bild fehlschlagen.\n\nTrotzdem starten? (Sinnvoll nur bei --dry-run oder Re-Transkription von bereits vorhandenen Bildern.)", "en": "ANTHROPIC_API_KEY is not set.\n\nWithout this key Claude Vision cannot transcribe the parish-register pages — the scan will fail after the first image.\n\nStart anyway? (Only sensible for --dry-run or re-transcription of existing images.)"},
     "gr.no_cluster_calc": {"de": "Cluster nicht berechnet", "en": "Clusters not calculated"},
+    "av.tg_export": {"de": "🖨 Bericht (HTML/PDF)", "en": "🖨 Report (HTML/PDF)"},
     # Statistics tab
     "st.refresh":   {"de": "↻ Aktualisieren",                     "en": "↻ Refresh"},
     "st.kz":        {"de": "Kennzahlen",                           "en": "Key Figures"},
