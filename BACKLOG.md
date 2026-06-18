@@ -114,11 +114,19 @@ Backlog zu streichen):
 4. ✅ Headless GUI-Smoke-Tests für alle 8 Tab-Builder (Fake-tkinter)
 5. ✅ Phasing-Dashboard: 4-Quadranten-Visualisierung der Großelternlinien
 
+### Sprint 2 erledigt (gleiche Sitzung)
+
+1. ✅ MRCA-Karte: Leaflet-HTML der Vorfahren-Geburtsorte (Cluster-Tab-Button)
+2. ✅ Pedigree-Lücken-Analyse: Vollständigkeit/Brick-Wall-Front pro Match
+   (Stats-Tab-Button)
+3. ✅ Inkrementeller Pedigree-Refresh als Checkbox im Download-Tab verdrahtet
+4. ✅ Einzelne DB-Migrationen getestet (v_n→v_{n+1}, parametrisiert)
+
 ## Sofort-Sprint (nächste Sitzung)
 
-1. 🔴 MRCA-Karte (Leaflet/Folium) — bisher nur Text-Tabelle
-2. 🔴 Pedigree-Lücken-Analyse (fehlende Generationen pro Match)
-3. 🟡 GUI: Inkrementellen Pedigree-Refresh als Button/Option im Download-Tab
-   verdrahten (Backend `max_age_days` ist da)
-4. 🟡 Einzelne DB-Migrationen testen (v_n→v_{n+1}, nicht nur End-to-End)
-5. 🟢 GedMatch-**Export** (Import existiert bereits), Tooltips, Tastenkürzel-Hilfe
+1. 🟢 GedMatch-**Export** — Zielformat klären (Tier1-CSV? welche Felder?),
+   dann pure Writer + Test (Import existiert bereits)
+2. 🟢 Tooltips auf Buttons (`tooltip(widget, text)`-Helfer) + Tastenkürzel-Hilfe
+3. 🟡 MTA ↔ Cluster-Korrelation (EPIC 6) — Daten beidseits vorhanden
+4. 🟡 Triangulations-Bericht als PDF (EPIC 3)
+5. 🟢 mypy schrittweise auf Kernmodule
