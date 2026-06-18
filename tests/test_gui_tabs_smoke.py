@@ -245,26 +245,3 @@ def test_phasing_dashboard_renders(fake_tk):
 
     # leere Cluster → kein Fehler (Info-Dialog), kein Status
     show_phasing_dashboard(ttk.Frame(), {})
-
-
-def test_pedigree_gaps_view_renders(fake_tk, app_state):
-    """Die Pedigree-Lücken-Übersicht baut ihr Fenster ohne Fehler."""
-    from tkinter import ttk
-
-    from ancestry.gui.analysis.pedigree_gaps import show_pedigree_gaps
-
-    class _DB:
-        def get_pedigree_completeness_per_match(self, test_guid):
-            return [
-                {"match_guid": "m1", "display_name": "Deep", "shared_cm": 120,
-                 "generations": {2: 2, 3: 4, 4: 8}},
-                {"match_guid": "m2", "display_name": "Shallow", "shared_cm": 80,
-                 "generations": {2: 1}},
-            ]
-
-    status = []
-    show_pedigree_gaps(ttk.Frame(), _DB(), "KIT", set_status=status.append)
-    assert status and "Pedigree-Lücken" in status[0]
-
-    # ohne test_guid → Warnung, kein Crash
-    show_pedigree_gaps(ttk.Frame(), _DB(), None)

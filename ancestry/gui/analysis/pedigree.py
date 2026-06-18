@@ -189,19 +189,21 @@ def show_pedigree_gaps(app):
     ttk.Label(win, text="Matches mit unvollständigen Ahnentafeln (nach Generation):",
               style="Bold.TLabel").pack(anchor="w", padx=10, pady=(10,4))
 
-    cols = ("name","cm","gen2","gen3","gen4","gen5","gen6")
+    cols = ("name","cm","fullto","gap","gen2","gen3","gen4","gen5","gen6")
     tv = ttk.Treeview(win, columns=cols, show="headings")
     for col, (lbl, w) in {
-        "name": ("Match",     200),
-        "cm":   ("cM",         65),
-        "gen2": ("Gen 2",      60),
-        "gen3": ("Gen 3",      60),
-        "gen4": ("Gen 4",      60),
-        "gen5": ("Gen 5",      60),
-        "gen6": ("Gen 6+",     60),
+        "name":   ("Match",        190),
+        "cm":     ("cM",            60),
+        "fullto": ("Voll bis Gen",  90),
+        "gap":    ("Lücke ab Gen",  90),
+        "gen2":   ("Gen 2",         55),
+        "gen3":   ("Gen 3",         55),
+        "gen4":   ("Gen 4",         55),
+        "gen5":   ("Gen 5",         55),
+        "gen6":   ("Gen 6+",        55),
     }.items():
         tv.heading(col, text=lbl)
-        tv.column(col, width=w, anchor=("e" if col=="cm" else "center" if col!="name" else "w"))
+        tv.column(col, width=w, anchor=("e" if col=="cm" else "w" if col=="name" else "center"))
 
     tv.tag_configure("gap3", background="#FFF3CD")
     tv.tag_configure("gap2", background="#FFD6D6")
@@ -217,19 +219,31 @@ def show_pedigree_gaps(app):
         messagebox.showerror("Fehler", str(e))
         return
 
+    # Frontier-Analyse (lückenlos bis / erste Lücke) aus der getesteten
+    # Kernlogik; tiefste & vollständigste Ahnentafeln zuerst.
+    from ancestry.core.pedigree_gaps import analyze_pedigree_gaps
+    data = sorted(
+        data,
+        key=lambda e: analyze_pedigree_gaps(e.get("generations", {}))["complete_through"],
+        reverse=True)
+
     max_gen = {2: 4, 3: 8, 4: 16, 5: 32, 6: 64}
     for entry in data[:200]:
         gens = entry.get("generations", {})
+        ana = analyze_pedigree_gaps(gens)
         def fmt(g):
             got = gens.get(g, 0)
             exp = max_gen.get(g, 0)
             return f"{got}/{exp}" if exp else f"{got}"
         g3 = gens.get(3, 0); g4 = gens.get(4, 0)
         tags = ("gap2",) if g3 < 4 else (("gap3",) if g4 < 8 else ())
+        gap = ana["first_gap_gen"]
         tv.insert("", "end", tags=tags, values=(
             entry.get("display_name","?")[:30],
             f"{entry.get('shared_cm',0):.0f}",
+            ana["complete_through"] if ana["complete_through"] >= 2 else "—",
+            gap if gap is not None else "—",
             fmt(2), fmt(3), fmt(4), fmt(5), fmt(6),
         ))
     if not data:
-        tv.insert("", "end", values=("—",) * 7)
+        tv.insert("", "end", values=("—",) * len(cols))

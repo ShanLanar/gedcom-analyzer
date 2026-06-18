@@ -51,16 +51,10 @@ class StatsTab(ttk.Frame):
         lw = s.lang_widgets
         lh = s.lang_headings
 
-        topbar = ttk.Frame(self)
-        topbar.pack(anchor="ne", padx=14, pady=8)
         _sv = tk.StringVar(value=t("st.refresh"))
-        ttk.Button(topbar, textvariable=_sv,
-                   command=self.refresh).pack(side="left", padx=(0, 6))
+        ttk.Button(self, textvariable=_sv,
+                   command=self.refresh).pack(anchor="ne", padx=14, pady=8)
         lw.append((_sv, "st.refresh"))
-        _sv = tk.StringVar(value=t("st.ped_gaps"))
-        ttk.Button(topbar, textvariable=_sv,
-                   command=self._show_pedigree_gaps).pack(side="left")
-        lw.append((_sv, "st.ped_gaps"))
 
         kz = ttk.LabelFrame(self, text=t("st.kz"), padding=10)
         kz.pack(fill="x", padx=14, pady=4)
@@ -228,10 +222,6 @@ class StatsTab(ttk.Frame):
         """Markiert die Statistik als veraltet (Neuberechnung beim nächsten
         Öffnen des Reiters bzw. via on_show())."""
         self._stats_dirty = True
-
-    def _show_pedigree_gaps(self):
-        from ancestry.gui.analysis.pedigree_gaps import show_pedigree_gaps
-        show_pedigree_gaps(self, self._state.db, self._get_test_guid())
 
     def refresh(self):
         self._stats_dirty = False
