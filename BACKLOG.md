@@ -92,10 +92,33 @@ Legende: 🔴 Hoch · 🟡 Mittel · 🟢 Niedrig | Aufwand: S=klein M=mittel L=
 
 ---
 
+## Bestandsaufnahme 2026-06 (Code-verifiziert)
+
+Eine Scrum-Bestandsaufnahme hat das Backlog gegen den realen Code geprüft.
+Viele „offene" Punkte waren längst implementiert. Bereits **fertig** (aus dem
+Backlog zu streichen):
+
+- EPIC 1: Dark-Mode, Schnellfilter-Chips, Rechtsklick-Kontextmenü, Download-ETA
+- EPIC 2: Cookie-Ablauf-Erkennung (401/403), 429-Retry mit Backoff
+- EPIC 3/6: Maternal/Paternal-Seitenzuweisung, MyTrueAncestry-CSV-Import,
+  Zeitachsen-Ansicht
+- EPIC 4: GEDCOM-Export, FamilySearch-Links
+
+### Sprint erledigt (diese Sitzung)
+
+1. ✅ Coverage in CI aktiviert (`--cov`) + `[tool.coverage]`-Konfiguration
+2. ✅ Inkrementeller Pedigree-Refresh: Zeitstempel (Migration 0023) +
+   `max_age_days` (30-Tage-Logik)
+3. ✅ Core-API-Tests mit Mock-HTTP (`_session`/`_matches`/`_pedigree`):
+   0 % → 42 % Coverage im Download-Kern
+4. ✅ Headless GUI-Smoke-Tests für alle 8 Tab-Builder (Fake-tkinter)
+5. ✅ Phasing-Dashboard: 4-Quadranten-Visualisierung der Großelternlinien
+
 ## Sofort-Sprint (nächste Sitzung)
 
-1. 🔴 Rechtsklick-Kontextmenü Match-Tabelle
-2. 🔴 Download-Fortschritts-Dashboard  
-3. 🔴 Cookie-Ablauf-Erkennung
-4. 🔴 Mütterliche/väterliche Seiten-Zuweisung (wenn Mutter-Kit da)
-5. 🔴 MyTrueAncestry CSV-Import (manuelle Variante)
+1. 🔴 MRCA-Karte (Leaflet/Folium) — bisher nur Text-Tabelle
+2. 🔴 Pedigree-Lücken-Analyse (fehlende Generationen pro Match)
+3. 🟡 GUI: Inkrementellen Pedigree-Refresh als Button/Option im Download-Tab
+   verdrahten (Backend `max_age_days` ist da)
+4. 🟡 Einzelne DB-Migrationen testen (v_n→v_{n+1}, nicht nur End-to-End)
+5. 🟢 GedMatch-**Export** (Import existiert bereits), Tooltips, Tastenkürzel-Hilfe
