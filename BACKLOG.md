@@ -117,15 +117,23 @@ Backlog zu streichen):
 ### Sprint 2 erledigt (gleiche Sitzung)
 
 1. ✅ MRCA-Karte: Leaflet-HTML der Vorfahren-Geburtsorte (Cluster-Tab-Button)
-2. ✅ Pedigree-Lücken-Analyse: Vollständigkeit/Brick-Wall-Front pro Match
-   (Stats-Tab-Button)
+2. ✅ Pedigree-Lücken-Analyse: getestete Kernlogik (`analyze_pedigree_gaps`)
+   in die **bestehende** Analyse-Menü-View integriert (Frontier-Spalten);
+   versehentliche Dublette wieder zurückgebaut
 3. ✅ Inkrementeller Pedigree-Refresh als Checkbox im Download-Tab verdrahtet
 4. ✅ Einzelne DB-Migrationen getestet (v_n→v_{n+1}, parametrisiert)
 5. ✅ GEDmatch-Export (One-to-Many-TSV, round-trip zum Import; Download-Tab-Button)
+6. ✅ MTA Eltern-Vergleich Basis 1 vs. Basis 2 (`classify_parental_origin`,
+   Button im MTA-Fenster)
+
+> Hinweis MTA↔Cluster-Korrelation: mit den vorhandenen Daten (ein
+> Eigenprofil, keine Per-Match-Populationen) **nicht sauber fundierbar** —
+> aus dem Sprint genommen. Stattdessen der tragfähige Eltern-Vergleich (6).
 
 ## Sofort-Sprint (nächste Sitzung)
 
 1. 🟢 Tooltips auf Buttons (`tooltip(widget, text)`-Helfer) + Tastenkürzel-Hilfe
-2. 🟡 MTA ↔ Cluster-Korrelation (EPIC 6) — Daten beidseits vorhanden
-3. 🟡 Triangulations-Bericht als PDF (EPIC 3)
+2. 🟡 Triangulations-Bericht als PDF (EPIC 3) — Bibliothek klären (reportlab?
+   sonst druckbares HTML)
+3. 🟡 Endogamie-Score automatisch an DNA-Matches kennzeichnen (EPIC 3)
 4. 🟢 mypy schrittweise auf Kernmodule
