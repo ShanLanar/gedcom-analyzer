@@ -219,9 +219,11 @@ class ToolsTab(ttk.Frame):
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
         ttk.Label(row, text="Match-CSV:").pack(side="left")
         ttk.Entry(row, textvariable=self._tl_mh_csv, width=26).pack(side="left", padx=4)
-        ttk.Button(row, text="…", width=3,
+        _pb = ttk.Button(row, text="…", width=3,
                    command=lambda: self._tl_pick(self._tl_mh_csv, "CSV", "*.csv")
-                   ).pack(side="left")
+                   )
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
         # cM-Schwelle + unvollständige nachholen
         opt = ttk.Frame(sec); opt.pack(fill="x", pady=2)
         ttk.Label(opt, text="ab cM:").pack(side="left")
@@ -237,18 +239,22 @@ class ToolsTab(ttk.Frame):
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
         ttk.Label(row, text="MH-CSV:").pack(side="left")
         ttk.Entry(row, textvariable=self._tl_imp_mh, width=24).pack(side="left", padx=4)
-        ttk.Button(row, text="…", width=3,
+        _pb = ttk.Button(row, text="…", width=3,
                    command=lambda: self._tl_pick(self._tl_imp_mh, "CSV", "*.csv")
-                   ).pack(side="left")
+                   )
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
         self._tool_action(sec, "MyHeritage-CSV → DB", "imp_mh",
                           lambda: [sys.executable, "-u", _tool("import_mh_csv.py")]
                           + self._arg(self._tl_imp_mh))
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
         ttk.Label(row, text="GEDmatch:").pack(side="left")
         ttk.Entry(row, textvariable=self._tl_imp_gm, width=24).pack(side="left", padx=4)
-        ttk.Button(row, text="…", width=3,
+        _pb = ttk.Button(row, text="…", width=3,
                    command=lambda: self._tl_pick(self._tl_imp_gm, "TSV/CSV", "*.*")
-                   ).pack(side="left")
+                   )
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
         self._tool_action(sec, "GEDmatch-TSV → DB", "imp_gm",
                           lambda: [sys.executable, "-u", _tool("import_gedmatch.py")]
                           + self._arg(self._tl_imp_gm))
@@ -260,9 +266,11 @@ class ToolsTab(ttk.Frame):
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
         ttk.Label(row, text="Match-CSV:").pack(side="left")
         ttk.Entry(row, textvariable=self._tl_match_csv, width=24).pack(side="left", padx=4)
-        ttk.Button(row, text="…", width=3,
+        _pb = ttk.Button(row, text="…", width=3,
                    command=lambda: self._tl_pick(self._tl_match_csv, "CSV", "*.csv")
-                   ).pack(side="left")
+                   )
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
         _b = register_lang(self._state, ttk.Button(sec, text=self._state.t("tl.b_impmatch"),
                         command=self._import_match_csv), "tl.b_impmatch")
         _b.pack(anchor="w", pady=(2, 0))
@@ -296,9 +304,11 @@ class ToolsTab(ttk.Frame):
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
         register_lang(self._state, ttk.Label(row, text=self._state.t("tl.mapping_file")), "tl.mapping_file").pack(side="left")
         ttk.Entry(row, textvariable=self._tl_conc, width=24).pack(side="left", padx=4)
-        ttk.Button(row, text="…", width=3,
+        _pb = ttk.Button(row, text="…", width=3,
                    command=lambda: self._tl_pick(self._tl_conc, "JSON/CSV", "*.json *.csv")
-                   ).pack(side="left")
+                   )
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
         self._tool_action(sec, "📥 Ortskonkordanz importieren", "conc_imp",
                           self._tl_cmd_conc_import)
 

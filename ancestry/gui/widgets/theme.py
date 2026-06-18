@@ -285,6 +285,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mf.endo_auto": {"de": "🔇 Endogamie auto-markieren", "en": "🔇 Auto-flag endogamy"},
     "mf.endo_auto_done": {"de": "{n} Matches als Endogamie-Verdacht markiert.", "en": "{n} matches flagged as endogamy suspects."},
     "tt.mf_endo_auto": {"de": "Matches mit vielen kurzen Segmenten automatisch als Endogamie-Verdacht kennzeichnen", "en": "Automatically flag matches with many short segments as endogamy suspects"},
+    "tt.pick_file": {"de": "Datei wählen …", "en": "Choose file …"},
     # Statistics tab
     "st.refresh":   {"de": "↻ Aktualisieren",                     "en": "↻ Refresh"},
     "st.kz":        {"de": "Kennzahlen",                           "en": "Key Figures"},

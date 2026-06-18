@@ -278,8 +278,10 @@ class DownloadTab(ttk.Frame):
         self._seg_file_var = tk.StringVar()
         ttk.Entry(seg_row, textvariable=self._seg_file_var, width=38).pack(
             side="left", padx=4)
-        ttk.Button(seg_row, text="…", width=3,
-                   command=self._choose_seg_file).pack(side="left")
+        _pb = ttk.Button(seg_row, text="…", width=3,
+                   command=self._choose_seg_file)
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
         register_lang(self._state, ttk.Label(seg_row,
             text=self._state.t("dl.seg_hint"),
             foreground="#777777", font=("Segoe UI", 8)), "dl.seg_hint").pack(side="left", padx=8)
@@ -293,8 +295,10 @@ class DownloadTab(ttk.Frame):
         self._ftdna_file_var = tk.StringVar()
         ttk.Entry(ftdna_row, textvariable=self._ftdna_file_var, width=38).pack(
             side="left", padx=4)
-        ttk.Button(ftdna_row, text="…", width=3,
-                   command=self._choose_ftdna_file).pack(side="left")
+        _pb = ttk.Button(ftdna_row, text="…", width=3,
+                   command=self._choose_ftdna_file)
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
         ttk.Label(ftdna_row, text="(FTDNA Family Finder matches.csv)",
                   foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=8)
         register_lang(self._state, ttk.Button(ftdna_row, text=self._state.t("dl.b_ftdna_import"),
