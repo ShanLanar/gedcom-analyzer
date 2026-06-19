@@ -87,6 +87,9 @@ class MatriculaTab(ttk.Frame):
         _btn.pack(side="left", padx=6)
         register_tooltip(_btn, "tt.mat_refresh", self._state)
         lw.append((_btn, "mat.refresh"))
+        self._ner_btn = ttk.Button(bar, text="NER extrahieren", command=self._extract_ner)
+        self._ner_btn.pack(side="left", padx=6)
+        register_tooltip(self._ner_btn, "tt.mat_ner", self._state)
 
         self._autonext_var = tk.BooleanVar(value=False)
         _sv = tk.StringVar(value=t("mat.autonext"))
@@ -261,12 +264,35 @@ class MatriculaTab(ttk.Frame):
         else:
             self._set_status(f"Matricula-Scan beendet (Code {rc}).")
 
+    def _extract_ner(self):
+        if self.is_running():
+            messagebox.showinfo("NER", "Bitte warte bis der Scan abgeschlossen ist.")
+            return
+        self._ner_btn.configure(state="disabled")
+        self._log_line("▶ NER-Extraktion gestartet …")
+
+        def _run():
+            try:
+                from ancestry.tools.extract_matrikula_ner import extract_ner
+                result = extract_ner()
+                self._log_queue.put(
+                    f"NER fertig: {result.get('persons', 0)} Personen aus "
+                    f"{result.get('entries', 0)} Einträgen "
+                    f"({result.get('skipped', 0)} übersprungen)")
+            except Exception as exc:
+                self._log_queue.put(f"NER-Fehler: {exc}")
+            self._log_queue.put("__NER_DONE__")
+
+        threading.Thread(target=_run, daemon=True, name="matricula-ner").start()
+
     def _poll_log(self):
         try:
             while True:
                 line = self._log_queue.get_nowait()
                 if line.startswith("__EXIT__"):
                     self._on_scan_exit(int(line[8:] or 0))
+                elif line == "__NER_DONE__":
+                    self._ner_btn.configure(state="normal")
                 else:
                     self._log_line(line)
         except queue.Empty:

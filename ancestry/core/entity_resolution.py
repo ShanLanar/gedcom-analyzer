@@ -668,6 +668,97 @@ def _build_name_cache(db: sqlite3.Connection) -> None:
         log.warning("Webtrees-Import in name_index fehlgeschlagen: %s", e)
 
 
+# ── Phase 3b: NER-Kandidaten (Sekundärpersonen) ───────────────────────────────
+
+def phase3b_ner_candidates(
+    db: sqlite3.Connection,
+    max_year_diff: int = 10,
+    min_confidence: float = 0.55,
+    dry_run: bool = False,
+) -> dict:
+    """
+    Erzeugt entity_candidates durch Namensvergleich zwischen:
+      source_webtrees ↔ matrikula_ner (Paten, Zeugen, Väter, Bräute usw.)
+
+    matrikula_ner enthält Sekundärpersonen (nicht nur Hauptperson) — daher
+    größere Jahrestoleranz (10 J.) und niedrigere Mindestkonfidenz (0.55),
+    weil event_year ≠ birth_year.
+    """
+    stats = {"pairs_checked": 0, "candidates": 0}
+
+    if _kp is None:
+        return stats
+
+    try:
+        ner_rows = db.execute("""
+            SELECT ner_id, name_norm, koeln_code, event_year, rolle, entry_id, book_id
+            FROM matrikula_ner
+            WHERE ner_id NOT IN (
+                SELECT source_row_id FROM entity_assignments
+                WHERE source_table='matrikula_ner' AND is_active=1
+            )
+            AND koeln_code != ''
+        """).fetchall()
+    except sqlite3.OperationalError:
+        return stats
+
+    try:
+        wt_rows = db.execute("""
+            SELECT wt_id, given_name, surname, birth_date
+            FROM source_webtrees
+        """).fetchall()
+    except sqlite3.OperationalError:
+        wt_rows = []
+
+    if not ner_rows or not wt_rows:
+        return stats
+
+    ner_by_code: dict[str, list] = {}
+    for n in ner_rows:
+        code = n["koeln_code"]
+        if code:
+            ner_by_code.setdefault(code, []).append(n)
+
+    pairs: list = []
+    for wt in wt_rows:
+        sn = (wt["surname"] or "").strip()
+        if not sn:
+            continue
+        wt_code = _kp(sn)
+        if not wt_code:
+            continue
+        wt_name = f"{wt['given_name'] or ''} {sn}".strip()
+        wt_year = _extract_year(wt["birth_date"])
+
+        for ner in ner_by_code.get(wt_code, []):
+            stats["pairs_checked"] += 1
+            score, evidence = _score_match(
+                wt_name, wt_code, wt_year,
+                ner["name_norm"], ner["koeln_code"], ner["event_year"],
+                max_year_diff=max_year_diff,
+            )
+            if score >= min_confidence:
+                pairs.append((
+                    "source_webtrees", str(wt["wt_id"]), "person",
+                    "matrikula_ner", str(ner["ner_id"]), ner["rolle"],
+                    score,
+                    {"type": "ner_name_match", **evidence,
+                     "wt_name": wt_name, "ner_name": ner["name_norm"],
+                     "rolle": ner["rolle"], "book_id": ner["book_id"]},
+                ))
+
+    if not dry_run:
+        for *src_pair, score, evidence in pairs:
+            if _add_candidate(db, tuple(src_pair[:3]), tuple(src_pair[3:6]),
+                              score, evidence):
+                stats["candidates"] += 1
+        db.commit()
+    else:
+        stats["candidates"] = len(pairs)
+
+    return stats
+
+
 # ── Haupt-Lauf ─────────────────────────────────────────────────────────────────
 
 def run(
@@ -721,6 +812,12 @@ def run(
         r = phase3_name_candidates(db, max_year_diff, min_confidence, dry_run)
         print(f"{r['pairs_checked']:,} Paare geprüft → {r['candidates']} Kandidaten")
         results["phase3"] = r
+
+        print(f"Phase 3b  NER-Kandidaten (Sekundärpersonen, Δ≤{max_year_diff*2}J) …",
+              end=" ", flush=True)
+        r = phase3b_ner_candidates(db, max_year_diff * 2, min_confidence - 0.05, dry_run)
+        print(f"{r['pairs_checked']:,} Paare geprüft → {r['candidates']} Kandidaten")
+        results["phase3b"] = r
 
     # Zusammenfassung
     print()

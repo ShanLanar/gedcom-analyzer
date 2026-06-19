@@ -742,6 +742,7 @@ class PersonsTab(ttk.Frame):
         self._pers_render_parish(p)        # Kirchspiel / Konfession (Matricula)
         self._pers_render_relations(p)     # Eltern/Partner/Kinder/Geschwister (Links)
         self._pers_render_xref(ged_id)     # GEDCOM-Verknüpfung (Quellen-Dedup)
+        self._pers_render_ner(p)           # Kirchenbuch-NER (Paten, Zeugen, …)
         self._pers_render_dna(ged_id)      # DNA-Matches (Anker)
 
     # ── Detail-Abschnitt: Beziehungen (anklickbar) ────────────────────────────
@@ -893,6 +894,47 @@ class PersonsTab(ttk.Frame):
                             foreground=_LINK, cursor="hand2", wraplength=210)
             lbl.pack(side="left")
             lbl.bind("<Button-1>", lambda e, i=str(other_id): self._pers_navigate(i))
+
+    def _pers_render_ner(self, p: dict):
+        sn = (p.get("surname") or "").strip()
+        if not sn:
+            return
+        try:
+            from ancestry.core.bridge._text import _koelner
+            code = _koelner(sn)
+            if not code:
+                return
+            with self._db._cursor() as cur:
+                rows = cur.execute("""
+                    SELECT n.name_raw, n.rolle, n.event_year, n.ort,
+                           e.entry_type, e.book_id, e.village
+                    FROM matrikula_ner n
+                    JOIN source_matrikula_entries e ON e.entry_id = n.entry_id
+                    WHERE n.koeln_code = ?
+                    ORDER BY n.event_year ASC
+                    LIMIT 20
+                """, (code,)).fetchall()
+        except Exception:
+            return
+        if not rows:
+            return
+        _ROLLE = {
+            "kind": "Täufling", "vater": "Vater", "mutter": "Mutter",
+            "pate": "Pate/Patin", "braeutigam": "Bräutigam", "braut": "Braut",
+            "braeutigam_vater": "Vater d. Bräutigams", "braut_vater": "Vater d. Braut",
+            "zeuge": "Zeuge", "verstorbener": "Verstorbener", "elternteil": "Elternteil",
+        }
+        self._pers_hdr(f"⛪ Kirchenbuch-NER ({len(rows)})")
+        for r in rows:
+            row = ttk.Frame(self._pers_detail); row.pack(fill="x", padx=10, pady=1)
+            rolle_lbl = _ROLLE.get(r["rolle"], r["rolle"])
+            yr = str(r["event_year"] or "?")
+            village = (r["ort"] or r["village"] or "").strip()
+            ttk.Label(row, text=rolle_lbl, width=18, foreground=_MUTED).pack(side="left")
+            txt = f"{r['name_raw']} · {r['entry_type']} {yr}"
+            if village:
+                txt += f" · {village}"
+            ttk.Label(row, text=txt, wraplength=185).pack(side="left")
 
     def _pers_render_dna(self, ged_id: str):
         try:

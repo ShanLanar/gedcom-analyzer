@@ -49,6 +49,7 @@ def _gather(db, test_guid: str, app) -> dict:
         "total": 0, "clustered": 0, "with_pedigree": 0, "with_origin": 0,
         "gedcom_persons": 0, "sosa_filled": 0, "clusters": 0,
         "ml_model_exists": False, "matricula": 0, "birth_dist": 0,
+        "ner_count": 0, "ner_total": 0, "entity_pending_cands": 0,
     }
 
     def _q(sql: str, params: tuple = ()) -> int:
@@ -69,7 +70,10 @@ def _gather(db, test_guid: str, app) -> dict:
     s["gedcom_persons"]= _q("SELECT COUNT(*) FROM gedcom_persons")
     s["sosa_filled"]  = _q("SELECT COUNT(DISTINCT sosa_number) FROM gedcom_persons "
                             "WHERE sosa_number BETWEEN 1 AND 31")
-    s["matricula"]    = _q("SELECT COUNT(*) FROM matricula_entries")  # graceful if missing
+    s["matricula"]    = _q("SELECT COUNT(*) FROM source_matrikula_entries")
+    s["ner_count"]    = _q("SELECT COUNT(DISTINCT entry_id) FROM matrikula_ner")
+    s["ner_total"]    = _q("SELECT COUNT(*) FROM source_matrikula_entries WHERE raw_json != ''")
+    s["entity_pending_cands"] = _q("SELECT COUNT(*) FROM entity_candidates WHERE status='pending'")
 
     clusters = getattr(app, "_clusters", {}) or {}
     s["clusters"]  = len(clusters)
@@ -125,6 +129,11 @@ def _steps(s: dict) -> list[str]:
         result.append(f"🌳  GEDCOM ergänzen — nur {s['sosa_filled']}/31 direkte Vorfahren (Gen. 1–5)")
     if s["matricula"] == 0 and s["gedcom_persons"] > 0:
         result.append("⛪  Kirchenbücher scannen (Matricula-Tab) — noch kein Eintrag")
+    ner_pending = s.get("ner_total", 0) - s.get("ner_count", 0)
+    if ner_pending > 0 and s.get("ner_total", 0) > 0:
+        result.append(f"🔍  NER extrahieren — {ner_pending} Kirchenbuch-Einträge noch ohne Personen-Rollen")
+    if s.get("entity_pending_cands", 0) > 0:
+        result.append(f"🔗  Entity Resolution: {s['entity_pending_cands']} Kandidaten ungeprüft")
     if not result:
         result.append("✅  Exzellenter Forschungsstand — alle Hauptdimensionen gut abgedeckt!")
     return result[:3]
