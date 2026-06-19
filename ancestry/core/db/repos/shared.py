@@ -37,9 +37,40 @@ class SharedRepo:
             """, d)
 
     def bulk_upsert_shared(self, items: list[SharedMatch]) -> int:
-        for sm in items:
-            self.upsert_shared_match(sm)
-        self.register_shared_stubs(items)
+        if not items:
+            return 0
+        with self._db._cursor() as cur:
+            for sm in items:
+                d = sm.to_dict()
+                cur.execute("""
+                    INSERT INTO shared_matches (
+                        test_guid, match_guid_a, match_guid_b, display_name_b,
+                        shared_cm_b, shared_cm_ab, shared_segments_b,
+                        relationship_b, has_tree_b, fetched_at
+                    ) VALUES (
+                        :test_guid, :match_guid_a, :match_guid_b, :display_name_b,
+                        :shared_cm_b, :shared_cm_ab, :shared_segments_b,
+                        :relationship_b, :has_tree_b, :fetched_at
+                    )
+                    ON CONFLICT(test_guid, match_guid_a, match_guid_b) DO UPDATE SET
+                        display_name_b    = excluded.display_name_b,
+                        shared_cm_b       = excluded.shared_cm_b,
+                        shared_cm_ab      = excluded.shared_cm_ab,
+                        shared_segments_b = excluded.shared_segments_b,
+                        relationship_b    = excluded.relationship_b,
+                        has_tree_b        = excluded.has_tree_b,
+                        fetched_at        = excluded.fetched_at
+                """, d)
+            for sm in items:
+                if not sm.match_guid_b:
+                    continue
+                cur.execute("""
+                    INSERT OR IGNORE INTO matches
+                        (match_guid, test_guid, display_name, shared_cm,
+                         predicted_relationship)
+                    VALUES (?,?,?,?,?)
+                """, (sm.match_guid_b, sm.test_guid, "",
+                      float(sm.shared_cm_b or 0), sm.relationship_b or ""))
         return len(items)
 
     def register_shared_stubs(self, items: list[SharedMatch]) -> None:

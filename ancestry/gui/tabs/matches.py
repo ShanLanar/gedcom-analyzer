@@ -617,7 +617,14 @@ class MatchesTab(ttk.Frame):
                 self.after(0, lambda: self._fill_ged_link_tree(rows, match))
             except Exception as exc:
                 log.warning("bridge: %s", exc)
-                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
+                msg = str(exc).lower()
+                if "no such table" in msg or "no table" in msg:
+                    hint = "Bitte zuerst GEDCOM-Datei laden (Werkzeuge → GEDCOM-Import)"
+                elif "no column" in msg or "no such column" in msg:
+                    hint = "DB-Schema veraltet — bitte Anwendung neu starten"
+                else:
+                    hint = f"Fehler: {exc}"
+                self.after(0, lambda h=hint: self._ged_link_status.set(h))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="bridge").start()
@@ -1086,11 +1093,15 @@ class MatchesTab(ttk.Frame):
         def _load_ped(guid=match.match_guid, tg=test_guid_af):
             try:
                 summary = self._state.db.get_pedigree_summary_for_match(tg, guid)
-                self.after(0, lambda s=summary: self._detail_fields["Ahnentafel"].set(
-                    s if s else "—"))
+                def _set_ped(s=summary, g=guid):
+                    if self._selected_match and self._selected_match.match_guid == g:
+                        self._detail_fields["Ahnentafel"].set(s if s else "—")
+                self.after(0, _set_ped)
             except Exception as e:
                 log.debug("_load_ped %s: %s", guid[:8], e)
-                self.after(0, lambda: self._detail_fields["Ahnentafel"].set("—"))
+                self.after(0, lambda g=guid: (
+                    self._selected_match and self._selected_match.match_guid == g and
+                    self._detail_fields["Ahnentafel"].set("—")))
         import threading as _thr
         _thr.Thread(target=_load_ped, daemon=True, name="ped-summary").start()
 
@@ -1112,10 +1123,15 @@ class MatchesTab(ttk.Frame):
                     label  = f"{region} ({score:.2f})" + (f"  [{sn}]" if sn else "")
                 else:
                     label = "—"
-                self.after(0, lambda lb=label: self._detail_fields["Herkunft"].set(lb))
+                def _set_orig(lb=label, g=guid):
+                    if self._selected_match and self._selected_match.match_guid == g:
+                        self._detail_fields["Herkunft"].set(lb)
+                self.after(0, _set_orig)
             except Exception as e:
                 log.debug("_load_origin %s: %s", guid[:8], e)
-                self.after(0, lambda: self._detail_fields["Herkunft"].set("—"))
+                self.after(0, lambda g=guid: (
+                    self._selected_match and self._selected_match.match_guid == g and
+                    self._detail_fields["Herkunft"].set("—")))
         _thr.Thread(target=_load_origin, daemon=True, name="origin-load").start()
 
         # ML-Herkunft (zweite Meinung) aus ml_origin-Spalte laden
@@ -1139,10 +1155,15 @@ class MatchesTab(ttk.Frame):
                             f"{a['region']} {a['prob']*100:.0f}%" for a in alts[:2])
                 else:
                     label = "—"
-                self.after(0, lambda lb=label: self._detail_fields["Herkunft (ML)"].set(lb))
+                def _set_ml(lb=label, g=guid):
+                    if self._selected_match and self._selected_match.match_guid == g:
+                        self._detail_fields["Herkunft (ML)"].set(lb)
+                self.after(0, _set_ml)
             except Exception as e:
                 log.debug("_load_ml_origin %s: %s", guid[:8], e)
-                self.after(0, lambda: self._detail_fields["Herkunft (ML)"].set("—"))
+                self.after(0, lambda g=guid: (
+                    self._selected_match and self._selected_match.match_guid == g and
+                    self._detail_fields["Herkunft (ML)"].set("—")))
         _thr.Thread(target=_load_ml_origin, daemon=True, name="ml-origin-load").start()
 
         self._note_text.delete("1.0","end")

@@ -42,6 +42,11 @@ def build_clusters(
     if not shared_data:
         return {}
 
+    if min_cm_primary > max_cm_primary > 0:
+        log.warning("build_clusters: min_cm_primary (%.0f) > max_cm_primary (%.0f) — Werte getauscht",
+                    min_cm_primary, max_cm_primary)
+        min_cm_primary, max_cm_primary = max_cm_primary, min_cm_primary
+
     def in_primary_range(cm) -> bool:
         if cm is None or cm < min_cm_primary:
             return False
