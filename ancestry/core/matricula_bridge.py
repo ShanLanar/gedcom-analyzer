@@ -83,10 +83,12 @@ def find_matricula_for_names(
 
     try:
         with db._cursor() as cur:
-            rows = cur.execute(f"""
+            # name_index: klassische Rollen (person/father/mother/…)
+            ni_rows = cur.execute(f"""
                 SELECT
-                    ni.entry_id,  ni.book_id,  ni.page_nr,
-                    ni.name_raw,  ni.name_norm, ni.koeln_code, ni.name_role,
+                    ni.entry_id,  ni.book_id,  e.page_nr,
+                    ni.name_raw,  ni.name_norm, ni.koeln_code,
+                    ni.name_role  AS found_rolle,
                     e.entry_type, e.event_date, e.event_year,
                     e.person_name,  e.person2_name,
                     e.father_name,  e.mother_name,
@@ -103,7 +105,49 @@ def find_matricula_for_names(
                 LIMIT ?
             """, (*like_name_args, *codes_list, *suffix_args, *like_name_args, max_results)
             ).fetchall()
-            return [dict(r) for r in rows]
+
+            # matrikula_ner: Paten, Zeugen, Väter der Braut/Bräutigam usw.
+            # Nachnamen-Code (letztes Wort) ist in NER gespeichert
+            surn_codes = list({_koelner(s.split()[-1]) for s in surnames if _koelner(s.split()[-1])})
+            ner_rows: list = []
+            if surn_codes:
+                sc_ph = ",".join("?" * len(surn_codes))
+                lk_ph = " OR ".join("n.name_norm LIKE ?" for _ in norms)
+                try:
+                    ner_rows = cur.execute(f"""
+                        SELECT
+                            n.entry_id,  n.book_id,  e.page_nr,
+                            n.name_raw,  n.name_norm, n.koeln_code,
+                            n.rolle      AS found_rolle,
+                            e.entry_type, e.event_date, e.event_year,
+                            e.person_name,  e.person2_name,
+                            e.father_name,  e.mother_name,
+                            e.village,      e.notes,
+                            CASE WHEN {lk_ph}
+                                 THEN 1 ELSE 0 END AS exact_match
+                        FROM matrikula_ner n
+                        LEFT JOIN source_matrikula_entries e
+                               ON e.entry_id = n.entry_id
+                        WHERE n.koeln_code IN ({sc_ph})
+                           OR ({lk_ph})
+                        ORDER BY exact_match DESC, e.event_year ASC
+                        LIMIT ?
+                    """, (*like_name_args, *surn_codes, *like_name_args, max_results)
+                    ).fetchall()
+                except Exception:
+                    ner_rows = []
+
+            # Zusammenführen, Duplikate nach (entry_id, name_raw) entfernen
+            seen: set[tuple] = set()
+            combined: list[dict] = []
+            for r in list(ni_rows) + list(ner_rows):
+                key = (r["entry_id"], r["name_raw"].lower())
+                if key in seen:
+                    continue
+                seen.add(key)
+                combined.append(dict(r))
+            combined.sort(key=lambda x: (-x["exact_match"], x.get("event_year") or 9999))
+            return combined[:max_results]
     except Exception:
         return []
 
