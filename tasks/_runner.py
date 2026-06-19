@@ -305,7 +305,8 @@ def collect_report_sheets():
                         family_structure, lineage, naming, imputation,
                         brickwalls, research_suggestions, sources,
                         onomastics, endogamy_network, sosa, familysearch,
-                        online_research, book_statistics)
+                        online_research, book_statistics,
+                        gov_lookup, grabstein, externe_quellen)
 
     indiv = _state["individuals"]
     ld    = _state["location_data"]
@@ -572,6 +573,15 @@ def collect_report_sheets():
         ("Online Sterbedaten-Vorschläge", online_research.ONLINE_RESEARCH_HEADERS,
          _state.get("online_research_rows", [])[:5_000]),
 
+        ("GOV-Orte & Archiv-Links", gov_lookup.GOV_LOOKUP_HEADERS,
+         _state.get("gov_lookup_rows", [])[:5_000]),
+
+        ("Grabstein-Suche", grabstein.GRABSTEIN_HEADERS,
+         _state.get("grabstein_rows", [])[:10_000]),
+
+        ("Externe Recherche-Links", externe_quellen.EXTERNE_QUELLEN_HEADERS,
+         _state.get("externe_quellen_rows", [])[:10_000]),
+
         ("Quellen-Inventar", sources.SOURCE_INVENTORY_HEADERS,
          _state.get("source_inventory", [])[:10_000]),
 
@@ -715,6 +725,9 @@ def collect_report_sheets():
         "Unerreichbare Personen":           "FFC000",
         "FamilySearch-Vergleich":           "FFC000",
         "Online Sterbedaten-Vorschläge":    "FFC000",
+        "GOV-Orte & Archiv-Links":          "FFC000",
+        "Grabstein-Suche":                  "FFC000",
+        "Externe Recherche-Links":          "FFC000",
         "Quellen-Inventar":                 "FFC000",
         "Quellen-Qualität pro Person":      "FFC000",
         # H: Militär & Linien – Braun
@@ -1158,6 +1171,32 @@ def run_online_research(progress_cb=None, stop_event=None):
     from tasks.online_research import run_online_death_research
     _state["online_research_rows"] = run_online_death_research(
         _state["individuals"], _state["families"],
+        root_related_ids=_state.get("root_related_ids"),
+        progress_cb=progress_cb)
+
+
+def run_gov_lookup(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.gov_lookup import run_gov_lookup as _run
+    _state["gov_lookup_rows"] = _run(
+        _state["individuals"],
+        progress_cb=progress_cb)
+
+
+def run_grabstein(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.grabstein import run_grabstein_search
+    _state["grabstein_rows"] = run_grabstein_search(
+        _state["individuals"],
+        root_related_ids=_state.get("root_related_ids"),
+        progress_cb=progress_cb)
+
+
+def run_externe_quellen(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.externe_quellen import run_externe_quellen as _run
+    _state["externe_quellen_rows"] = _run(
+        _state["individuals"],
         root_related_ids=_state.get("root_related_ids"),
         progress_cb=progress_cb)
 
