@@ -193,6 +193,12 @@ class MatchesTab(ttk.Frame):
         self._rel_combo.pack(side="left")
         self._rel_combo.bind("<<ComboboxSelected>>", lambda _: self.refresh())
 
+        ttk.Label(fl, text="Seite:").pack(side="left", padx=(10,4))
+        self._side_var = tk.StringVar(value="(alle)")
+        ttk.Combobox(fl, textvariable=self._side_var, width=12, state="readonly",
+                     values=["(alle)", "paternal", "maternal", "both"]).pack(side="left")
+        self._side_var.trace_add("write", lambda *_: self.refresh())
+
         _sv_c = tk.StringVar(value=t("mf.mincm"))
         ttk.Label(fl, textvariable=_sv_c).pack(side="left", padx=(10,4))
         lw.append((_sv_c, "mf.mincm"))
@@ -751,17 +757,18 @@ class MatchesTab(ttk.Frame):
         # Ein Eintrag mehr als das Limit holen, um zu erkennen, ob mehr
         # Treffer existieren als angezeigt werden (→ Hinweis im Zähler).
         self._matches = self._state.db.get_matches(
-            test_guid      = active_kit,
-            all_sources    = all_sources_mode,
-            search         = self._search_var.get().strip() or None,
-            relationship   = self._rel_var.get() if hasattr(self,"_rel_var") else None,
-            starred_only   = self._starred_var.get() if hasattr(self,"_starred_var") else False,
-            has_tree_only  = self._tree_var.get() if hasattr(self,"_tree_var") else False,
-            min_cm         = min_cm,
-            hide_endogamy  = getattr(self, "_hide_endo_var", tk.BooleanVar()).get(),
-            sort_col       = sort_col,
-            sort_asc       = self._sort_asc,
-            limit          = self._MAX_DISPLAY_ROWS + 1,
+            test_guid          = active_kit,
+            all_sources        = all_sources_mode,
+            search             = self._search_var.get().strip() or None,
+            relationship       = self._rel_var.get() if hasattr(self,"_rel_var") else None,
+            starred_only       = self._starred_var.get() if hasattr(self,"_starred_var") else False,
+            has_tree_only      = self._tree_var.get() if hasattr(self,"_tree_var") else False,
+            min_cm             = min_cm,
+            hide_endogamy      = getattr(self, "_hide_endo_var", tk.BooleanVar()).get(),
+            paternal_maternal  = getattr(self, "_side_var", tk.StringVar()).get() or None,
+            sort_col           = sort_col,
+            sort_asc           = self._sort_asc,
+            limit              = self._MAX_DISPLAY_ROWS + 1,
         )
         capped = len(self._matches) > self._MAX_DISPLAY_ROWS
         if capped:

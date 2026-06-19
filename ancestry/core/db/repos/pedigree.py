@@ -80,9 +80,16 @@ class PedigreeRepo:
                 "ORDER BY generation, ahnen_path", (test_guid, match_guid))
             return [dict(r) for r in cur.fetchall()]
 
-    def get_all_pedigrees(self, test_guid: str) -> dict:
+    def get_all_pedigrees(self, test_guid: str,
+                          match_guids: "list[str] | None" = None) -> dict:
+        extra = ""
+        params: list = [test_guid]
+        if match_guids:
+            placeholders = ",".join("?" * len(match_guids))
+            extra = f" AND p.match_guid IN ({placeholders})"
+            params.extend(match_guids)
         with self._db._cursor() as cur:
-            cur.execute("""
+            cur.execute(f"""
                 SELECT p.match_guid, m.display_name, m.shared_cm,
                        m.has_common_ancestor,
                        COALESCE(m.linked_in_tree,0) AS linked_in_tree,
@@ -91,9 +98,9 @@ class PedigreeRepo:
                        p.birth_place, p.death_year
                 FROM match_pedigree p
                 JOIN matches m ON m.match_guid=p.match_guid AND m.test_guid=p.test_guid
-                WHERE p.test_guid=? AND p.generation>=2
+                WHERE p.test_guid=? AND p.generation>=2{extra}
                 ORDER BY m.shared_cm DESC, p.generation, p.ahnen_path
-            """, (test_guid,))
+            """, params)
             rows = cur.fetchall()
         out: dict = {}
         for r in rows:

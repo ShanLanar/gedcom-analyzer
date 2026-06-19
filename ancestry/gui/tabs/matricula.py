@@ -90,6 +90,8 @@ class MatriculaTab(ttk.Frame):
         self._ner_btn = ttk.Button(bar, text="NER extrahieren", command=self._extract_ner)
         self._ner_btn.pack(side="left", padx=6)
         register_tooltip(self._ner_btn, "tt.mat_ner", self._state)
+        ttk.Button(bar, text="🔍 Personensuche",
+                   command=self._show_ner_search).pack(side="left", padx=6)
 
         self._autonext_var = tk.BooleanVar(value=False)
         _sv = tk.StringVar(value=t("mat.autonext"))
@@ -269,6 +271,10 @@ class MatriculaTab(ttk.Frame):
                     self._log_line("✓ Alle Pfarreien fertig.")
         else:
             self._set_status(f"Matricula-Scan beendet (Code {rc}).")
+
+    def _show_ner_search(self):
+        from ancestry.gui.analysis.ner_search import show_ner_search
+        show_ner_search(self.winfo_toplevel(), self._state.db)
 
     def _extract_ner(self):
         if self.is_running():

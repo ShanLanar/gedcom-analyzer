@@ -105,19 +105,20 @@ class MatchesRepo:
 
     def get_matches(
         self,
-        test_guid: Optional[str]    = None,
-        search: Optional[str]       = None,
-        relationship: Optional[str] = None,
-        starred_only: bool          = False,
-        has_tree_only: bool         = False,
-        min_cm: float               = 0.0,
-        hide_endogamy: bool         = False,
-        sort_col: str               = "shared_cm",
-        sort_asc: bool              = False,
-        limit: int                  = 0,
-        offset: int                 = 0,
-        source: Optional[str]       = None,
-        all_sources: bool           = False,
+        test_guid: Optional[str]            = None,
+        search: Optional[str]               = None,
+        relationship: Optional[str]         = None,
+        starred_only: bool                  = False,
+        has_tree_only: bool                 = False,
+        min_cm: float                       = 0.0,
+        hide_endogamy: bool                 = False,
+        sort_col: str                       = "shared_cm",
+        sort_asc: bool                      = False,
+        limit: int                          = 0,
+        offset: int                         = 0,
+        source: Optional[str]               = None,
+        all_sources: bool                   = False,
+        paternal_maternal: Optional[str]    = None,
     ) -> list[DnaMatch]:
         valid_cols = {"display_name", "shared_cm", "shared_segments",
                       "predicted_relationship", "fetched_at", "starred",
@@ -143,6 +144,8 @@ class MatchesRepo:
             conditions.append("m.shared_cm >= ?"); params.append(min_cm)
         if hide_endogamy:
             conditions.append("(m.endogamy_cluster IS NULL OR m.endogamy_cluster = '')")
+        if paternal_maternal and paternal_maternal not in ("(alle)", ""):
+            conditions.append("m.paternal_maternal = ?"); params.append(paternal_maternal)
 
         where        = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         limit_clause = f"LIMIT {limit} OFFSET {offset}" if limit else ""

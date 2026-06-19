@@ -124,6 +124,7 @@ class ClusterTab(ttk.Frame):
         _b.pack(side="left", padx=4)
         register_tooltip(_b, "tt.cl_mrca", self._state)
         lw.append((_sv, "cl.mrca_map"))
+        ttk.Button(cf, text="📥 CSV", command=self._export_clusters).pack(side="left", padx=4)
 
         # Cluster-Beschreibung
         df = ttk.Frame(self)
@@ -407,6 +408,45 @@ class ClusterTab(ttk.Frame):
         webbrowser.open(out.as_uri())
         self._set_status(f"MRCA-Karte: {len(places)} Orte → {out}")
 
+    def _export_clusters(self):
+        if not self._clusters:
+            messagebox.showinfo("Export", "Zuerst Cluster berechnen.")
+            return
+        import csv
+        from tkinter import filedialog
+        p = filedialog.asksaveasfilename(
+            title="Cluster als CSV exportieren",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("Alle", "*.*")],
+            initialfile="cluster_export.csv")
+        if not p:
+            return
+        with open(p, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f)
+            w.writerow(["Cluster", "Mitglieder", "Top-Match", "Max-cM",
+                         "Ø-cM", "Seite", "Beschreibung"])
+            descs = self._state.ui_settings.get("cluster_descs", {})
+            test_guid = self._get_current_guid() or ""
+            try:
+                rows_side = self._state.db._get_conn().execute(
+                    "SELECT match_guid, paternal_maternal FROM matches WHERE test_guid=?",
+                    (test_guid,)).fetchall()
+                side_map = {r["match_guid"]: (r["paternal_maternal"] or "") for r in rows_side}
+            except Exception:
+                side_map = {}
+            for cid, members in sorted(self._clusters.items()):
+                cms = [m["cm"] for m in members]
+                top = members[0]["name"] if members else ""
+                sides = {side_map.get(m["guid"], "") for m in members} - {""}
+                w.writerow([
+                    f"#{cid}", len(members), top,
+                    f"{max(cms):.1f}" if cms else "",
+                    f"{sum(cms)/len(cms):.1f}" if cms else "",
+                    "/".join(sorted(sides)),
+                    descs.get(str(cid), ""),
+                ])
+        messagebox.showinfo("Export", f"{len(self._clusters)} Cluster → {p}")
+
     # ── Stammbaum-Analyse-Popup ───────────────────────────────────────────────
 
     def _show_tree(self):
@@ -426,7 +466,7 @@ class ClusterTab(ttk.Frame):
 
         guids   = {m["guid"] for m in members}
         id_name = {m["guid"]: m["name"] for m in members}
-        all_peds = self._state.db.get_all_pedigrees(test_guid)
+        all_peds = self._state.db.get_all_pedigrees(test_guid, match_guids=list(guids))
 
         merged: dict = {}
         for guid in guids:

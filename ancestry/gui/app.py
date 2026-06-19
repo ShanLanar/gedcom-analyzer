@@ -220,6 +220,8 @@ class AncestryDnaApp(tk.Frame):
         am.add_command(label=self._t("mn.sur_matrix"),  command=self._show_surname_matrix)
         am.add_command(label="🔗 Entity-Kandidaten prüfen",
                        command=self._show_entity_review)
+        am.add_command(label="🔍 Kirchenbuch-Personensuche (NER)",
+                       command=self._show_ner_search)
         mb.add_cascade(label=self._t("mn.analysis"), menu=am)
         for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
@@ -1919,6 +1921,10 @@ class AncestryDnaApp(tk.Frame):
     def _show_entity_review(self):
         from ancestry.gui.analysis.entity_review import open_entity_review
         open_entity_review(self, self._db)
+
+    def _show_ner_search(self):
+        from ancestry.gui.analysis.ner_search import show_ner_search
+        show_ner_search(self, self._db)
 
     def _run_gedmatch_bridge(self):
         """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches (Name+cM-Ähnlichkeit)."""
