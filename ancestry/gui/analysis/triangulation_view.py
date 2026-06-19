@@ -202,5 +202,28 @@ def show_triangulation(app) -> None:
                 f"  {name[:42]:<44} {m['length_cm']:6.1f} cM  "
                 f"({m['start']/1e6:.1f}–{m['end']/1e6:.1f} Mbp)\n")
 
+        # Geburtsorte der Generation 2–4 aller Segment-Mitglieder aggregieren
+        detail.insert("end", "\n")
+        try:
+            guids = [m["match_guid"] for m in tg["members"]]
+            if guids:
+                placeholders = ",".join("?" * len(guids))
+                with app._db._cursor() as cur:
+                    place_rows = cur.execute(
+                        f"SELECT birth_place FROM match_pedigree "
+                        f"WHERE match_guid IN ({placeholders}) "
+                        f"AND generation BETWEEN 2 AND 4 "
+                        f"AND birth_place IS NOT NULL AND birth_place != ''",
+                        guids).fetchall()
+                from collections import Counter
+                counts = Counter(r["birth_place"] for r in place_rows)
+                if counts:
+                    top = counts.most_common(5)
+                    places_str = ", ".join(f"{p} ({n}x)" for p, n in top)
+                    detail.insert("end", f"Herkunftsorte (Gen. 2–4): {places_str}\n")
+                    detail.insert("end", "→ Kirchenbuch-Suche empfohlen?\n")
+        except Exception as e:
+            log.debug("Triangulation Geburtsorte: %s", e)
+
     tv.bind("<<TreeviewSelect>>", on_sel)
     win.after(100, reload)

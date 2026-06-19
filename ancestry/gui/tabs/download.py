@@ -419,9 +419,10 @@ class DownloadTab(ttk.Frame):
             self._dl_t0 = time.monotonic()
         elapsed = time.monotonic() - self._dl_t0
         remaining = fetched and elapsed and (elapsed / fetched * max(total - fetched, 0))
-        if remaining and remaining < 3600 * 5:
-            mins, secs = divmod(int(remaining), 60)
-            eta_txt = f"~{mins}m {secs:02d}s"
+        if remaining and remaining > 0:
+            hrs, rest = divmod(int(remaining), 3600)
+            mins, secs = divmod(rest, 60)
+            eta_txt = f"~{hrs}h {mins}m" if hrs else f"~{mins}m {secs:02d}s"
         else:
             eta_txt = ""
         try:

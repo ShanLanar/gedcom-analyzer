@@ -52,6 +52,8 @@ def show_ner_search(parent: tk.Widget, db) -> None:
 
     search_btn = ttk.Button(top, text="Suchen")
     search_btn.pack(side="left")
+    bridge_btn = ttk.Button(top, text="🤖 KI-Brückenanalyse")
+    bridge_btn.pack(side="left", padx=(8, 0))
 
     status_var = tk.StringVar(value="")
     ttk.Label(win, textvariable=status_var, foreground="#666").pack(
@@ -147,7 +149,65 @@ def show_ner_search(parent: tk.Widget, db) -> None:
         count = len(rows)
         suffix = " (Limit 500 erreicht)" if count == 500 else ""
         status_var.set(f"{count} Treffer{suffix}")
+        _last_rows.clear()
+        _last_rows.extend(rows)
 
+    _last_rows: list = []
+
+    def _bridge_analysis(_event=None):
+        from tkinter import scrolledtext
+        from ancestry.core.ai_copilot import (
+            availability_hint, explain_async, kirchenbuch_bridge_prompt,
+        )
+        hint = availability_hint()
+        if hint:
+            import tkinter.messagebox as mb
+            mb.showinfo("KI-Copilot", hint)
+            return
+        if not _last_rows:
+            import tkinter.messagebox as mb
+            mb.showinfo("KI-Brückenanalyse", "Bitte zuerst eine Suche durchführen.")
+            return
+        ner_persons = [
+            {"name_raw": r["name_raw"], "rolle": r["rolle"],
+             "pfarrei": r["parish_id"], "year": r["event_year"], "ort": r["ort"]}
+            for r in _last_rows[:20]
+        ]
+        try:
+            cluster_rows = db._get_conn().execute(
+                "SELECT cluster_id, top_match_name, max_cm, paternal_maternal "
+                "FROM cluster_cache LIMIT 10"
+            ).fetchall()
+            cluster_summary = [
+                {"cluster_id": r["cluster_id"], "top_match": r.get("top_match_name","?"),
+                 "max_cm": r.get("max_cm","?"), "side": r.get("paternal_maternal","")}
+                for r in cluster_rows
+            ]
+        except Exception:
+            cluster_summary = []
+
+        prompt = kirchenbuch_bridge_prompt(ner_persons, cluster_summary)
+
+        result_win = tk.Toplevel(win)
+        result_win.title("🤖 KI-Brückenanalyse")
+        result_win.geometry("620x420")
+        txt = scrolledtext.ScrolledText(result_win, wrap="word",
+                                        font=("Segoe UI", 9), state="disabled", bg="#fafafa")
+        txt.pack(fill="both", expand=True, padx=10, pady=10)
+
+        def _append(t):
+            txt.configure(state="normal")
+            txt.insert("end", t)
+            txt.see("end")
+            txt.configure(state="disabled")
+
+        txt.configure(state="normal")
+        txt.insert("end", "Claude analysiert …\n\n")
+        txt.configure(state="disabled")
+        explain_async(prompt, on_chunk=lambda t: result_win.after(0, lambda c=t: _append(c)),
+                      on_done=lambda _: None, max_tokens=400)
+
+    bridge_btn.configure(command=_bridge_analysis)
     search_btn.configure(command=_search)
     name_entry.bind("<Return>", _search)
     name_entry.focus_set()

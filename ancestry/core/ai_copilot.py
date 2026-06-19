@@ -205,3 +205,43 @@ def gaps_prompt(stats: dict) -> str:
         "",
         "Format: nummerierte Liste, jeder Punkt max. 2 Sätze.",
     ])
+
+
+def kirchenbuch_bridge_prompt(
+    ner_persons: list[dict],
+    cluster_summary: list[dict],
+) -> str:
+    """Prompt: verbindet Kirchenbuch-NER-Treffer mit DNA-Clustern.
+
+    ner_persons: [{"name_raw", "rolle", "pfarrei", "year", "ort"}, ...]
+    cluster_summary: [{"cluster_id", "top_match", "max_cm", "side"}, ...]
+    """
+    ner_lines = "\n".join(
+        f"  {p.get('name_raw','?')} ({p.get('rolle','')}) "
+        f"– {p.get('pfarrei','?')} {p.get('year','')}, Ort: {p.get('ort','?')}"
+        for p in ner_persons[:20]
+    ) or "  (keine Treffer)"
+
+    cl_lines = "\n".join(
+        f"  Cluster #{c.get('cluster_id','?')}: Top-Match={c.get('top_match','?')}, "
+        f"max {c.get('max_cm','?')} cM, Seite={c.get('side','?')}"
+        for c in cluster_summary[:10]
+    ) or "  (keine Cluster)"
+
+    return "\n".join([
+        "Du bist ein genetischer Genealoge. Analysiere die folgenden "
+        "Kirchenbuch-Personen und DNA-Cluster und erkläre mögliche Zusammenhänge "
+        "(max. 250 Wörter, Deutsch):",
+        "",
+        "Kirchenbuch-Treffer (NER):",
+        ner_lines,
+        "",
+        "DNA-Cluster:",
+        cl_lines,
+        "",
+        "Fragen: Welche Kirchenbuch-Personen könnten Vorfahren in welchen Clustern sein? "
+        "Welche Orte/Zeiträume überschneiden sich? "
+        "Welche Forschungsschritte empfiehlst du als nächstes?",
+        "",
+        "Format: 2–3 kurze Absätze.",
+    ])

@@ -297,15 +297,28 @@ class StatsTab(ttk.Frame):
             side_known = endo_known = 0
 
         gedcom_linked = stats.get("gedcom_linked", 0) or 0
+        try:
+            tg2 = self._get_test_guid()
+            if tg2:
+                with self._state.db._cursor() as cur:
+                    sm_fetched = cur.execute(
+                        "SELECT COUNT(*) FROM shared_matches_fetched WHERE test_guid=?",
+                        (tg2,)).fetchone()[0]
+            else:
+                sm_fetched = 0
+        except Exception as e:
+            log.debug("stats sm_fetched: %s", e)
+            sm_fetched = 0
         rings = [
-            (with_tree / total,                   f"{with_tree}/{total}",      "Mit Baum",       COLORS["accent"]),
-            (ped_loaded / max(with_tree, 1),       f"{ped_loaded}/{with_tree}", "Ahnentafel",     COLORS["success"]),
-            (side_known / total,                   f"{side_known}/{total}",     "Seite bekannt",  "#8B4513"),
-            (gedcom_linked / total,                f"{gedcom_linked}/{total}",  "GEDCOM-Treffer", COLORS["primary"]),
+            (with_tree / total,                   f"{with_tree}/{total}",       "Mit Baum",       COLORS["accent"]),
+            (ped_loaded / max(with_tree, 1),       f"{ped_loaded}/{with_tree}",  "Ahnentafel",     COLORS["success"]),
+            (side_known / total,                   f"{side_known}/{total}",      "Seite bekannt",  "#8B4513"),
+            (gedcom_linked / total,                f"{gedcom_linked}/{total}",   "GEDCOM-Treffer", COLORS["primary"]),
+            (sm_fetched / max(total, 1),           f"{sm_fetched}/{total}",      "SM geholt",      "#9b59b6"),
         ]
         R = 35; cx_start = 55
         for i, (pct, label_cnt, title, color) in enumerate(rings):
-            cx = cx_start + i * 160
+            cx = cx_start + i * 130
             cy = 45
             c.create_arc(cx - R, cy - R, cx + R, cy + R, start=90, extent=360,
                          style="arc", outline=COLORS["light"], width=8)
