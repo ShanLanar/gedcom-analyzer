@@ -218,6 +218,8 @@ class AncestryDnaApp(tk.Frame):
         am.add_command(label=self._t("mn.copilot_cl"),  command=self._copilot_explain_cluster)
         am.add_separator()
         am.add_command(label=self._t("mn.sur_matrix"),  command=self._show_surname_matrix)
+        am.add_command(label="🔗 Entity-Kandidaten prüfen",
+                       command=self._show_entity_review)
         mb.add_cascade(label=self._t("mn.analysis"), menu=am)
         for idx, key in [(0,"mn.anc_groups"),(1,"mn.exp_anc"),(3,"mn.pedigree"),
                          (4,"mn.ped_overlay"),(6,"mn.own_tree"),(7,"mn.sh_cluster"),
@@ -1913,6 +1915,10 @@ class AncestryDnaApp(tk.Frame):
         """Öffnet die Nachnamen-Ähnlichkeits-Matrix."""
         from ancestry.gui.analysis.surname_matrix_view import show_surname_matrix
         show_surname_matrix(self)
+
+    def _show_entity_review(self):
+        from ancestry.gui.analysis.entity_review import open_entity_review
+        open_entity_review(self, self._db)
 
     def _run_gedmatch_bridge(self):
         """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches (Name+cM-Ähnlichkeit)."""

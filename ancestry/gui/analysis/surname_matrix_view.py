@@ -48,6 +48,10 @@ def show_surname_matrix(app) -> None:
     calc_btn = ttk.Button(top, text=_t("sm.calc"))
     calc_btn.pack(side="left", padx=(4, 0))
 
+    export_btn = ttk.Button(top, text="📥 CSV")
+    export_btn.pack(side="left", padx=(4, 0))
+    export_btn.configure(state="disabled")
+
     # ── treeview ─────────────────────────────────────────────────────────────
     cols = ("match_a", "match_b", "count", "score", "common")
     col_cfg = {
@@ -162,10 +166,34 @@ def show_surname_matrix(app) -> None:
                 _t("sm.pairs")
                 .format(n=shown, m=n_matches)
             )
+            export_btn.configure(state="normal")
 
         except Exception as exc:  # noqa: BLE001
             status_var.set(str(exc))
         finally:
             calc_btn.state(["!disabled"])
 
+    def _export() -> None:
+        import csv
+        from tkinter import filedialog, messagebox
+        rows = tv.get_children()
+        if not rows:
+            messagebox.showinfo(_t("sm.title"), "Keine Daten zum Exportieren.")
+            return
+        p = filedialog.asksaveasfilename(
+            title="Nachnamen-Matrix als CSV",
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("Alle", "*.*")],
+            initialfile="nachnamen_matrix.csv")
+        if not p:
+            return
+        headers = [tv.heading(c)["text"] for c in cols]
+        with open(p, "w", newline="", encoding="utf-8-sig") as f:
+            w = csv.writer(f)
+            w.writerow(headers)
+            for iid in rows:
+                w.writerow(tv.item(iid)["values"])
+        messagebox.showinfo("Export", f"{len(rows)} Paare gespeichert → {p}")
+
+    export_btn.configure(command=_export)
     calc_btn.configure(command=_calculate)

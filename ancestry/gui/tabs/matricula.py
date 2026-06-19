@@ -97,6 +97,10 @@ class MatriculaTab(ttk.Frame):
         cb.pack(side="left", padx=(16, 0))
         lw.append((_sv, "mat.autonext"))
 
+        self._auto_ner_var = tk.BooleanVar(value=True)
+        ttk.Checkbutton(bar, variable=self._auto_ner_var,
+                        text="Auto-NER").pack(side="left", padx=(8, 0))
+
         # Pfarreien-Übersicht: fertig = ✓ + ausgegraut
         _sv = tk.StringVar(value=t("mat.overview"))
         ttk.Label(self, textvariable=_sv, style="Bold.TLabel").pack(
@@ -253,6 +257,8 @@ class MatriculaTab(ttk.Frame):
         self.refresh_parishes()
         if rc == 0 and not self._stop_requested:
             self._set_status("Matricula-Scan abgeschlossen.")
+            if self._auto_ner_var.get():
+                self.after(800, self._extract_ner)
             if self._autonext_var.get():
                 nxt = [v for v in self._parish_combo["values"]]
                 if nxt:

@@ -16,6 +16,27 @@ from tkinter import ttk
 
 log = logging.getLogger(__name__)
 
+
+def _export_tv_csv(tv: "ttk.Treeview", filename: str) -> None:
+    """Exportiert Treeview-Inhalt als CSV."""
+    import csv
+    from tkinter import filedialog, messagebox
+    p = filedialog.asksaveasfilename(
+        title="Als CSV exportieren",
+        defaultextension=".csv",
+        filetypes=[("CSV", "*.csv"), ("Alle", "*.*")],
+        initialfile=filename)
+    if not p:
+        return
+    cols = tv["columns"]
+    headers = [tv.heading(c)["text"] for c in cols]
+    rows = [tv.item(iid)["values"] for iid in tv.get_children()]
+    with open(p, "w", newline="", encoding="utf-8-sig") as f:
+        csv.writer(f).writerow(headers)
+        csv.writer(f).writerows(rows)
+    messagebox.showinfo("Export", f"{len(rows)} Zeilen gespeichert → {p}")
+
+
 _PALETTE = [
     "#1a73e8", "#e8711a", "#2da44e", "#a832a8", "#e81a4b",
     "#1ab8e8", "#8e8e00", "#e8a81a", "#888", "#444",
@@ -190,6 +211,10 @@ def _build_birth_tab(nb: ttk.Notebook, app) -> None:
     tv.pack(side="left", fill="both", expand=True)
     sb.pack(side="right", fill="y")
 
+    ttk.Button(frame, text="📥 CSV",
+               command=lambda: _export_tv_csv(tv, "geburtsverteilung.csv")).pack(
+        anchor="e", padx=8, pady=(0, 4))
+
     def _load():
         rows = birth_distribution(app._db)
         if not rows:
@@ -254,6 +279,10 @@ def _build_migration_tab(nb: ttk.Notebook, app) -> None:
     tv.pack(side="left", fill="both", expand=True)
     sb.pack(side="right", fill="y")
 
+    ttk.Button(frame, text="📥 CSV",
+               command=lambda: _export_tv_csv(tv, "migration.csv")).pack(
+        anchor="e", padx=8, pady=(0, 4))
+
     def _load():
         rows = migration_matrix(app._db)
         if not rows:
@@ -306,6 +335,10 @@ def _build_cm_tab(nb: ttk.Notebook, app, test_guid: str) -> None:
     tv.configure(yscrollcommand=sb.set)
     tv.pack(side="left", fill="both", expand=True)
     sb.pack(side="right", fill="y")
+
+    ttk.Button(frame, text="📥 CSV",
+               command=lambda: _export_tv_csv(tv, "cm_verteilung.csv")).pack(
+        anchor="e", padx=8, pady=(0, 4))
 
     def _load():
         rows = cm_histogram(app._db, test_guid)
@@ -379,6 +412,10 @@ def _build_entropy_tab(nb: ttk.Notebook, app) -> None:
     tv.configure(yscrollcommand=sb.set)
     tv.pack(side="left", fill="both", expand=True)
     sb.pack(side="right", fill="y")
+
+    ttk.Button(frame, text="📥 CSV",
+               command=lambda: _export_tv_csv(tv, "nachnamen_entropie.csv")).pack(
+        anchor="e", padx=8, pady=(0, 4))
 
     def _load():
         rows = surname_entropy_series(app._db)

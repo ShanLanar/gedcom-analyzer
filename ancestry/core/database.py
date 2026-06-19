@@ -99,6 +99,18 @@ class Database:
                 log.info("match_kit_membership repariert: %d Einträge ergänzt", m_cnt - mkm_cnt)
         except Exception as e:
             log.debug("mkm-Reparatur: %s", e)
+        # Waisenzeilen bereinigen (FK=OFF → manuelle Integrität)
+        try:
+            conn.execute(
+                "DELETE FROM shared_matches "
+                "WHERE match_guid NOT IN (SELECT match_guid FROM matches)")
+            conn.execute(
+                "DELETE FROM match_pedigree "
+                "WHERE match_guid NOT IN (SELECT match_guid FROM matches)")
+            conn.commit()
+            log.debug("FK-Cleanup: Waisenzeilen bereinigt")
+        except Exception as e:
+            log.debug("FK-Cleanup übersprungen: %s", e)
         log.debug("DB initialisiert: %s (Schema v%d)", self.db_file, self.SCHEMA_VERSION)
 
     # ── Kits ──────────────────────────────────────────────────────────────────

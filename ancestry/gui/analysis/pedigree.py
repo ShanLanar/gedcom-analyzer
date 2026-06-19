@@ -174,6 +174,92 @@ def show_pedigree_overlay(app):
 
 # ── Ahnentafel-Lücken-Analyse ──────────────────────────────────────────────────
 
+def _show_sosa_detail(parent, app, entry: dict) -> None:
+    """Zeigt welche konkreten SOSA-Nummern in der Ahnentafel des Matches fehlen."""
+    match_guid = entry.get("match_guid", "")
+    match_name = entry.get("display_name", "?")
+    test_guid  = app._current_guid()
+
+    win2 = tk.Toplevel(parent)
+    win2.title(f"SOSA-Lücken: {match_name}")
+    win2.geometry("600x500")
+
+    ttk.Label(win2, text=f"Fehlende SOSA-Nummern: {match_name}",
+              font=("Segoe UI", 11, "bold")).pack(anchor="w", padx=10, pady=(10,4))
+
+    cols2 = ("sosa", "gen", "linie", "status", "name_match", "name_own")
+    tv2 = ttk.Treeview(win2, columns=cols2, show="headings", height=20)
+    for col, lbl, w in [
+        ("sosa",       "SOSA",      60),
+        ("gen",        "Gen.",       40),
+        ("linie",      "Linie",      80),
+        ("status",     "Status",     80),
+        ("name_match", "Name im Match-Baum", 170),
+        ("name_own",   "Eigener Baum",       150),
+    ]:
+        tv2.heading(col, text=lbl)
+        tv2.column(col, width=w, anchor="center" if col in ("sosa","gen") else "w")
+    tv2.tag_configure("missing",  foreground="#c0392b")
+    tv2.tag_configure("present",  foreground="#2da44e")
+    sy2 = ttk.Scrollbar(win2, orient="vertical", command=tv2.yview)
+    tv2.configure(yscrollcommand=sy2.set)
+    tv2.pack(side="left", fill="both", expand=True, padx=(10,0), pady=4)
+    sy2.pack(side="right", fill="y", pady=4)
+
+    try:
+        with app._db._cursor() as cur:
+            ped_rows = cur.execute(
+                "SELECT ahnentafel_nr, given_name, surname, generation "
+                "FROM match_pedigree WHERE match_guid=? AND test_guid=?",
+                (match_guid, test_guid)).fetchall()
+            own_rows = cur.execute(
+                "SELECT sosa_number, given_name, surname FROM gedcom_persons "
+                "WHERE sosa_number BETWEEN 1 AND 127").fetchall()
+    except Exception as e:
+        ttk.Label(win2, text=f"Fehler: {e}", foreground="red").pack()
+        return
+
+    present = {int(r["ahnentafel_nr"]): r for r in ped_rows if r["ahnentafel_nr"]}
+    own_by_sosa = {int(r["sosa_number"]): r for r in own_rows if r["sosa_number"]}
+
+    _LINIE = {
+        (2,3): "Vater/Mutter",
+        (4,7): "Großeltern",
+        (8,15): "Urgroßeltern",
+        (16,31): "2×Urgroßeltern",
+        (32,63): "3×Urgroßeltern",
+        (64,127): "4×Urgroßeltern",
+    }
+    def _linie(n):
+        for (lo, hi), lbl in _LINIE.items():
+            if lo <= n <= hi:
+                return lbl
+        return ""
+    def _gen(n):
+        g = 1
+        while n >= 2:
+            n //= 2
+            g += 1
+        return g
+
+    for sosa in range(2, 128):
+        gen = _gen(sosa)
+        if gen > 7:
+            break
+        in_match = sosa in present
+        in_own   = sosa in own_by_sosa
+        mr = present.get(sosa)
+        or_ = own_by_sosa.get(sosa)
+        name_match = (f"{mr['given_name'] or ''} {mr['surname'] or ''}".strip()
+                      if mr else "")
+        name_own   = (f"{or_['given_name'] or ''} {or_['surname'] or ''}".strip()
+                      if or_ else "")
+        status = "✓ vorhanden" if in_match else "✗ fehlt"
+        tag    = "present" if in_match else "missing"
+        tv2.insert("", "end", tags=(tag,), values=(
+            sosa, gen, _linie(sosa), status, name_match, name_own))
+
+
 def show_pedigree_gaps(app):
     """Popup: Zeigt, welche Generationen in Match-Ahnentafeln noch fehlen."""
     test_guid = app._current_guid()
@@ -246,3 +332,32 @@ def show_pedigree_gaps(app):
         ))
     if not data:
         tv.insert("", "end", values=("—",) * len(cols))
+
+    def _on_dblclick(_):
+        sel = tv.selection()
+        if not sel:
+            return
+        entry_data = next(
+            (e for e in data if e.get("display_name","?")[:30] == tv.item(sel[0])["values"][0]),
+            None)
+        if not entry_data:
+            return
+        test_guid = app._current_guid()
+        try:
+            with app._db._cursor() as cur:
+                r = cur.execute(
+                    "SELECT match_guid FROM matches WHERE display_name=? AND test_guid=? LIMIT 1",
+                    (entry_data.get("display_name",""), test_guid)
+                ).fetchone()
+                if r:
+                    entry_data = dict(entry_data)
+                    entry_data["match_guid"] = r["match_guid"]
+        except Exception:
+            pass
+        _show_sosa_detail(win, app, entry_data)
+
+    tv.bind("<Double-1>", _on_dblclick)
+
+    ttk.Label(win,
+        text="Doppelklick auf einen Match → fehlende SOSA-Nummern anzeigen",
+        foreground="#888", font=("Segoe UI", 8)).pack(anchor="w", padx=10, pady=(2,4))

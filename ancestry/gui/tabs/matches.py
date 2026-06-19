@@ -443,6 +443,13 @@ class MatchesTab(ttk.Frame):
         register_tooltip(_b, "tt.md_fs", self._state)
         lw.append((_sv_fs, "md.fs_link"))
 
+        _ai_btn_var = tk.StringVar(value="🤖")
+        self._match_ai_btn = ttk.Button(btn_row, textvariable=_ai_btn_var,
+                                         command=self._copilot_explain_match, width=4)
+        self._match_ai_btn.pack(side="left", padx=4)
+        self._match_ai_btn.configure(state="disabled")
+        self._match_ai_btn_var = _ai_btn_var
+
         # Sub-Tab 2: Shared Matches
         sm_frame = ttk.Frame(self._detail_nb)
         self._detail_nb.add(sm_frame, text=t("md.tab_shared"))
@@ -1044,6 +1051,10 @@ class MatchesTab(ttk.Frame):
         match = next((m for m in self._matches if m.match_guid == sel[0]), None)
         if not match: return
         self._selected_match = match
+        if hasattr(self, "_match_ai_btn"):
+            from ancestry.core.ai_copilot import is_available
+            self._match_ai_btn.configure(
+                state="normal" if is_available() else "disabled")
 
         # Detail-Felder befüllen
         self._detail_name_var.set(match.display_name)
@@ -1152,6 +1163,61 @@ class MatchesTab(ttk.Frame):
         self.load_gedcom_link_panel(match)
         self._load_ancestors_panel(match)
         self._load_kirchenbuch_panel(match)
+
+    def _copilot_explain_match(self):
+        """Erklärt den ausgewählten Match via Claude-Copilot."""
+        from tkinter import scrolledtext
+        from ancestry.core.ai_copilot import (
+            availability_hint, explain_async, is_available, match_prompt,
+        )
+        match = self._selected_match
+        if match is None:
+            return
+        win = tk.Toplevel(self)
+        win.title(f"🤖 KI-Erklärung: {match.display_name}")
+        win.geometry("580x380")
+        txt = scrolledtext.ScrolledText(win, wrap="word", font=("Segoe UI", 9),
+                                        state="disabled", bg="#fafafa")
+        txt.pack(fill="both", expand=True, padx=10, pady=10)
+        hint = availability_hint()
+        if hint:
+            txt.configure(state="normal")
+            txt.insert("end", hint)
+            txt.configure(state="disabled")
+            return
+        # Sammle Kontext
+        try:
+            shared = self._state.db.get_shared_matches(
+                self._get_test_guid(), match.match_guid)
+            shared_count = len(shared) if shared else 0
+        except Exception:
+            shared_count = 0
+        try:
+            from ancestry.core.matricula_bridge import _pedigree_surnames
+            surnames = _pedigree_surnames(
+                self._state.db, self._get_test_guid(), match.match_guid, 2)
+        except Exception:
+            surnames = []
+        prompt = match_prompt(
+            match_name=match.display_name or "",
+            shared_cm=float(match.shared_cm or 0),
+            predicted_rel=match.predicted_relationship or "",
+            shared_count=shared_count,
+            pedigree_names=surnames[:8],
+        )
+        txt.configure(state="normal")
+        txt.insert("end", "Claude analysiert …\n\n")
+        txt.configure(state="disabled")
+        def _chunk(t):
+            win.after(0, lambda c=t: _append(c))
+        def _done(_):
+            pass
+        def _append(t):
+            txt.configure(state="normal")
+            txt.insert("end", t)
+            txt.see("end")
+            txt.configure(state="disabled")
+        explain_async(prompt, on_chunk=_chunk, on_done=_done, max_tokens=350)
 
     def _load_shared_panel(self, match: DnaMatch):
         """Lädt Shared Matches für den ausgewählten primären Match."""
@@ -1318,6 +1384,18 @@ class MatchesTab(ttk.Frame):
         self._kb_surnames_var.set("")
         if match is None:
             return
+        # Zeige Hinweis wenn NER noch nicht extrahiert wurde
+        try:
+            with self._state.db._cursor() as cur:
+                ner_count = cur.execute("SELECT COUNT(*) FROM matrikula_ner").fetchone()[0]
+                mat_count = cur.execute("SELECT COUNT(*) FROM source_matrikula_entries").fetchone()[0]
+            if mat_count > 0 and ner_count == 0:
+                self._kb_surnames_var.set(
+                    "⚠  Kirchenbücher vorhanden, aber NER noch nicht extrahiert "
+                    "→ Matricula-Tab → „NER extrahieren“")
+                return
+        except Exception:
+            pass
         t = self._state.t
         try:
             min_gen = int(self._kb_gen_var.get() or 2)

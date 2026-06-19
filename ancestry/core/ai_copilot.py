@@ -152,6 +152,36 @@ def cluster_prompt(cluster_id: int, members: list[dict]) -> str:
     return "\n".join(lines)
 
 
+def match_prompt(
+    match_name: str,
+    shared_cm: float,
+    predicted_rel: str,
+    shared_count: int,
+    pedigree_names: list[str],
+) -> str:
+    """Erklärungs-Prompt für einen einzelnen DNA-Match."""
+    lines = [
+        "Du bist ein erfahrener genetischer Genealoge. "
+        "Erkläre diesen DNA-Match auf Deutsch (max. 180 Wörter):",
+        "",
+        f"Match-Name: {match_name}",
+        f"Geteilte cM: {shared_cm:.0f} cM",
+        f"Vorausgesagte Beziehung: {predicted_rel or 'unbekannt'}",
+        f"Anzahl gemeinsamer Matches (Shared Matches): {shared_count}",
+    ]
+    if pedigree_names:
+        lines.append(
+            f"Häufige Nachnamen in Ahnentafel: {', '.join(pedigree_names[:8])}")
+    lines += [
+        "",
+        "Beantworte (nummerierte Liste):",
+        "1. Welche Beziehung ist wahrscheinlich (mit cM-Begründung)?",
+        "2. Welchen gemeinsamen Vorfahren (MRCA) vermutete ich?",
+        "3. Einen konkreten nächsten Forschungsschritt.",
+    ]
+    return "\n".join(lines)
+
+
 def gaps_prompt(stats: dict) -> str:
     """Baut den Forschungsempfehlungs-Prompt aus Dashboard-Statistiken."""
     total = max(1, stats.get("total", 0))
