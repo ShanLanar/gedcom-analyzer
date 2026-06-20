@@ -217,7 +217,7 @@ def run(
     db_path: str | None = None,
     output_path: str | None = None,
     source_anv: str = "anverwandte",
-    source_own: str = "gedcom",
+    source_own: str = "ftm",
     include_new: bool = True,
     all_new: bool = False,
     test_one: bool = False,
@@ -398,8 +398,8 @@ def main():
     ap.add_argument("-o", "--output", default=None,
                     help="Ausgabe .ged-Datei (Standard: diff_anv_ftm.ged neben der DB)")
     ap.add_argument("--source-anv", default="anverwandte")
-    ap.add_argument("--source-own", default="gedcom",
-                    help="Eigene GEDCOM-Quelle als Vergleichspartner (Standard: 'gedcom')")
+    ap.add_argument("--source-own", default="ftm",
+                    help="Vergleichspartner (Standard: 'ftm'; alternativ: 'gedcom')")
     ap.add_argument("--no-new", action="store_true",
                     help="Nur Anreicherungen, keine neuen Personen")
     ap.add_argument("--all-new", action="store_true",
