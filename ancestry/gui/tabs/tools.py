@@ -140,6 +140,33 @@ class ToolsTab(ttk.Frame):
         self._tl_wk_id = tk.StringVar(value="")
         self._tl_match_csv = tk.StringVar(value="")
         self._tl_conc = tk.StringVar(value="")
+        self._tl_ftm_file = tk.StringVar(value="")
+        self._tl_ftm_source = tk.StringVar(value="ftm")
+        self._tl_ftm_no_link = tk.BooleanVar(value=False)
+
+        # ── Abschnitt A0: FTM-Direktbrücke ────────────────────────────────
+        sec = self._tool_section(inner, "🔀  Family Tree Maker — Direktbrücke")
+        ttk.Label(sec,
+                  text="FTM synchronisiert mit Ancestry → direkte Brücke ohne GED-Export.",
+                  foreground=self._state.colors().get("text_dim", "#888888"),
+                  wraplength=380).pack(anchor="w", pady=(0, 4))
+        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="FTM-Datei:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_ftm_file, width=22).pack(
+            side="left", padx=(4, 2))
+        _pb = ttk.Button(row, text="…", width=3,
+                         command=lambda: self._tl_pick(
+                             self._tl_ftm_file, "FTM", "*.ftm *.ftmb *.FTM *.FTMB"))
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
+        row2 = ttk.Frame(sec); row2.pack(fill="x", pady=2)
+        ttk.Label(row2, text="Quelle:").pack(side="left")
+        ttk.Entry(row2, textvariable=self._tl_ftm_source, width=14).pack(
+            side="left", padx=(4, 10))
+        ttk.Checkbutton(row2, text="nur importieren (kein Querbezug)",
+                        variable=self._tl_ftm_no_link).pack(side="left")
+        self._tool_action(sec, "🔀 FTM → Bridge importieren", "ftm_bridge",
+                          self._tl_cmd_ftm_bridge)
 
         # ── Abschnitt A: Webtrees ─────────────────────────────────────────
         sec = self._tool_section(inner, "⬇  Webtrees-Stammbaum")
@@ -494,6 +521,24 @@ class ToolsTab(ttk.Frame):
             filetypes=[(label, pattern), ("Alle Dateien", "*.*")])
         if p:
             var.set(p)
+
+    # ── FTM-Direktbrücke ──────────────────────────────────────────────────
+    def _tl_cmd_ftm_bridge(self) -> list[str]:
+        ftm = self._tl_ftm_file.get().strip()
+        if not ftm:
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "FTM-Datei fehlt",
+                "Bitte zuerst eine .ftm-Datei auswählen.",
+                parent=self)
+            return []
+        cmd = [sys.executable, "-u",
+               _tool("import_ftm_bridge.py"),
+               ftm,
+               "--source", self._tl_ftm_source.get().strip() or "ftm"]
+        if self._tl_ftm_no_link.get():
+            cmd.append("--no-link")
+        return cmd
 
     # ── Befehlszeilen ─────────────────────────────────────────────────────
     def _tl_cmd_wt_crawl(self) -> list[str]:
