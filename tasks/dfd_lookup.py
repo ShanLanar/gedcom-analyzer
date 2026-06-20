@@ -32,12 +32,16 @@ Kein Schreibzugriff auf GEDCOM / Datenbank.
 
 import html as _html_mod
 import json
+import os
 import re
 import time
 import urllib.error
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
+
+_HERE = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+_VARIANTS_JSON = os.path.join(_HERE, "data", "dfd_variants.json")
 
 _BASE       = "https://www.namenforschung.net"
 _LIST_URL   = _BASE + "/dfd/woerterbuch/liste/"
@@ -347,6 +351,16 @@ def run_dfd_lookup(individuals: dict, progress_cb=None,
             "; ".join(sorted(data.get("variants", set())))[:120],
             article_link or search_url,
         ])
+
+    # Varianten persistent speichern, damit bridge/_text.py sie laden kann
+    if variants:
+        try:
+            os.makedirs(os.path.dirname(_VARIANTS_JSON), exist_ok=True)
+            with open(_VARIANTS_JSON, "w", encoding="utf-8") as f:
+                json.dump({k: sorted(v) for k, v in variants.items()},
+                          f, ensure_ascii=False, indent=2)
+        except OSError:
+            pass
 
     mode = f"(davon {scraped_ok} mit Artikel-Inhalt)" if scrape else "(URL-Modus)"
     p(f"DFD-Lookup abgeschlossen: {len(rows):,} Nachnamen {mode}", tag="ok")

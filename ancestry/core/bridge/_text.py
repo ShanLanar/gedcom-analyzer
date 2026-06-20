@@ -2,9 +2,48 @@
 _text.py — Normalisierung, Phonetik und String-Distanzen für das Bridge-Modul.
 """
 
+import json
+import os
 import re
 import unicodedata
 from difflib import SequenceMatcher
+
+# ── DFD-Varianten-Cache ───────────────────────────────────────────────────────
+# Befüllt beim ersten Aufruf von expand_surname_variants() aus data/dfd_variants.json.
+
+_SURNAME_VARIANTS: dict[str, list[str]] = {}
+_VARIANTS_LOADED = False
+
+
+def _load_surname_variants() -> None:
+    global _SURNAME_VARIANTS, _VARIANTS_LOADED
+    if _VARIANTS_LOADED:
+        return
+    _VARIANTS_LOADED = True
+    try:
+        _here = os.path.dirname(os.path.dirname(os.path.dirname(
+            os.path.dirname(os.path.abspath(__file__)))))
+        path = os.path.join(_here, "data", "dfd_variants.json")
+        if os.path.exists(path):
+            with open(path, encoding="utf-8") as f:
+                raw: dict = json.load(f)
+            _SURNAME_VARIANTS = {k: list(v) for k, v in raw.items()}
+    except (OSError, json.JSONDecodeError, ValueError):
+        pass
+
+
+def expand_surname_variants(sn_norm: str) -> set[str]:
+    """Gibt {sn_norm} plus alle normierten DFD-Varianten zurück."""
+    _load_surname_variants()
+    result = {sn_norm}
+    for raw_sn, variants in _SURNAME_VARIANTS.items():
+        if _norm(raw_sn) == sn_norm:
+            for v in variants:
+                nv = _norm(v)
+                if nv:
+                    result.add(nv)
+            break
+    return result
 
 # ── Normalisierung (standalone, kein Import aus treematch nötig) ──────────────
 

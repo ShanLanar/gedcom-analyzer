@@ -8,7 +8,7 @@ import json
 import logging
 from collections import defaultdict
 
-from ._text import _extract_region, _koelner, _norm
+from ._text import _extract_region, _koelner, _norm, expand_surname_variants
 from .gedcom_import import iter_unique_persons
 from .scoring import MIN_LINK_SCORE, compute_link_score
 
@@ -101,11 +101,17 @@ def run_match_for_match(db, test_guid: str, match_guid: str) -> list[dict]:
             continue
         ped_koe = _koelner(ped_sn)
 
-        # Kandidaten zusammenstellen (Exact-first, dann Phonetik)
+        # Kandidaten zusammenstellen (Exact-first, dann DFD-Varianten, dann Phonetik)
         seen: set = set()
         candidates = []
         for g in ged_by_sn.get(ped_sn, []):
             candidates.append(g); seen.add(g["ged_id"])
+        for variant_sn in expand_surname_variants(ped_sn):
+            if variant_sn == ped_sn:
+                continue
+            for g in ged_by_sn.get(variant_sn, []):
+                if g["ged_id"] not in seen:
+                    candidates.append(g); seen.add(g["ged_id"])
         for g in ged_by_koelner.get(ped_koe, []):
             if g["ged_id"] not in seen:
                 candidates.append(g); seen.add(g["ged_id"])
