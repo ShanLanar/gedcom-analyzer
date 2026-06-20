@@ -1548,6 +1548,153 @@ def matricula_report(db_path: Path = DB_PATH):
     c.close()
 
 
+# ── auto-remap subcommand ─────────────────────────────────────────────────────
+
+_PARISHES_DB_DEFAULT = SCRIPT_DIR / "matricula_parishes.db"
+_BAND_OLD_RE = re.compile(r'^\d+$')           # rein numerisch = alter Slug
+_KB_TYPES    = ("Taufe", "Heirat", "Tod", "gemischt", "Firmung")
+
+
+def _slug_to_parish_id(kb: sqlite3.Connection, slug: str) -> str | None:
+    """Pfarrei-Slug → parishes.id (vollständiger Pfad)."""
+    row = kb.execute(
+        "SELECT id FROM parishes WHERE slug=? OR id LIKE ?",
+        (slug, f"%/{slug}")
+    ).fetchone()
+    return row["id"] if row else None
+
+
+def auto_remap_bands(crawl_db: Path = DB_PATH,
+                     parishes_db: Path | None = None,
+                     dry_run: bool = False,
+                     progress_cb=None) -> dict:
+    """Befüllt matricula_remap.db aus kirchenbuecher + Personenjahren.
+
+    Middlelayer für den GEDCOM-Export — wt_persons bleibt unberührt.
+    Für jeden numerischen Band-Slug (z.B. 0007) wird per Jahr+Typ in
+    kirchenbuecher nachgeschlagen welches aktuelle Buch passt.
+
+    Returns dict mit mapped/ambiguous/skipped/total.
+    """
+    p = progress_cb or (lambda m, **kw: print(m, flush=True))
+    pdb = parishes_db or _PARISHES_DB_DEFAULT
+
+    if not pdb.exists():
+        raise FileNotFoundError(
+            f"Kirchenbuch-DB nicht gefunden: {pdb}\n"
+            "Zuerst fetch_matricula_books.py ausführen.")
+    if not crawl_db.exists():
+        raise FileNotFoundError(f"Crawl-DB nicht gefunden: {crawl_db}")
+
+    pm = _load_parish_map()
+
+    wt = sqlite3.connect(str(crawl_db));  wt.row_factory = sqlite3.Row
+    kb = sqlite3.connect(str(pdb));       kb.row_factory = sqlite3.Row
+
+    rows = wt.execute(
+        "SELECT id, birth_year, death_year, matricula_json FROM wt_persons "
+        "WHERE COALESCE(matricula_json,'') NOT IN ('','[]')"
+    ).fetchall()
+    wt.close()
+    p(f"  {len(rows):,} Personen mit Matricula-Belegen")
+
+    # (diocese, parish_new, band_old) → {new_slug: vote_count}
+    votes: dict[tuple, dict[str, int]] = {}
+
+    for r in rows:
+        try:
+            entries = json.loads(r["matricula_json"] or "[]")
+        except Exception:
+            continue
+
+        years = [int(y) for y in (r["birth_year"], r["death_year"]) if y]
+        if not years:
+            continue
+
+        for e in entries:
+            url_old    = e.get("url_old", "")
+            mf         = _MATRIC_FULL.search(url_old)
+            if not mf:
+                continue
+            diocese    = e.get("diocese", "") or mf.group(1)
+            parish_old = e.get("parish_old", "") or mf.group(2)
+            band_old   = mf.group(3)
+
+            if not _BAND_OLD_RE.match(band_old):
+                continue   # Slug schon neu — kein Remap nötig
+
+            parish_new = pm.get(parish_old, parish_old)
+            parish_id  = _slug_to_parish_id(kb, parish_new)
+            if not parish_id:
+                continue   # Pfarrei nicht in kirchenbuecher
+
+            key = (diocese, parish_new, band_old)
+            if key not in votes:
+                votes[key] = {}
+
+            for year in years:
+                for btype in _KB_TYPES:
+                    for kb_row in kb.execute("""
+                        SELECT book_id FROM kirchenbuecher
+                        WHERE parish_id = ?
+                          AND book_type  = ?
+                          AND (year_from IS NULL OR year_from <= ?)
+                          AND (year_to   IS NULL OR year_to   >= ?)
+                        ORDER BY year_from
+                    """, (parish_id, btype, year, year)):
+                        sub_id = kb_row["book_id"].split("/", 1)[-1]
+                        votes[key][sub_id] = votes[key].get(sub_id, 0) + 1
+
+    kb.close()
+
+    rconn  = _ensure_remap_db()
+    mapped = ambiguous = skipped = 0
+
+    for key, slug_votes in sorted(votes.items()):
+        diocese, parish, band_old = key
+
+        existing = rconn.execute(
+            "SELECT band_new FROM matricula_band_remap "
+            "WHERE diocese=? AND parish=? AND band_old=?",
+            (diocese, parish, band_old)
+        ).fetchone()
+        if existing:
+            skipped += 1
+            continue
+
+        if not slug_votes:
+            continue
+
+        ranked = sorted(slug_votes, key=lambda s: -slug_votes[s])
+        best   = ranked[0]
+        if len(ranked) == 1 or slug_votes[best] > slug_votes[ranked[1]]:
+            if not dry_run:
+                rconn.execute(
+                    "INSERT OR REPLACE INTO matricula_band_remap "
+                    "(diocese, parish, band_old, band_new, note) VALUES (?,?,?,?,?)",
+                    (diocese, parish, band_old, best,
+                     f"auto:{slug_votes[best]}")
+                )
+            p(f"  {'[DRY] ' if dry_run else ''}→ {diocese}/{parish}  "
+              f"{band_old} → {best}  ({slug_votes[best]} Treffer)")
+            mapped += 1
+        else:
+            top3 = ", ".join(f"{s}({slug_votes[s]})" for s in ranked[:3])
+            p(f"  ? {diocese}/{parish}  {band_old}  mehrdeutig: {top3}")
+            ambiguous += 1
+
+    if not dry_run:
+        rconn.commit()
+    rconn.close()
+
+    result = {"mapped": mapped, "ambiguous": ambiguous,
+              "skipped": skipped, "total": len(votes)}
+    p(f"\n{mapped} gemappt, {skipped} bereits vorhanden, "
+      f"{ambiguous} mehrdeutig, {len(votes)} gesamt."
+      + (" (Dry-run — nichts gespeichert)" if dry_run else ""))
+    return result
+
+
 # ── list-sites subcommand ─────────────────────────────────────────────────────
 
 def list_sites():
@@ -2046,6 +2193,15 @@ def main(argv):
     ar.add_argument("band_new", help="Neuer Band-Slug (z.B. D101)")
     ar.add_argument("--note",   default="", help="Optionale Notiz")
 
+    arp = sub.add_parser("auto-remap",
+                         help="Band-Slugs automatisch aus kirchenbuecher + Personenjahren mappen")
+    arp.add_argument("--parishes-db", default=None,
+                     help=f"Pfad zur matricula_parishes.db (Standard: {_PARISHES_DB_DEFAULT})")
+    arp.add_argument("--db", default=None,
+                     help="Pfad zur webtrees_crawl.db")
+    arp.add_argument("--dry-run", action="store_true",
+                     help="Nur zeigen, nicht in matricula_remap.db schreiben")
+
     ge = sub.add_parser("export-gedcom",
                         help="Gecrawlte Personen als GEDCOM-Datei (.ged) exportieren")
     ge.add_argument("--out", default=None,
@@ -2267,6 +2423,15 @@ def main(argv):
         )
         conn.commit(); conn.close()
         print(f"Gespeichert: {args.diocese}/{args.parish}  {args.band_old} → {args.band_new}")
+
+    elif args.cmd == "auto-remap":
+        db  = Path(args.db) if getattr(args, "db", None) else DB_PATH
+        pdb = Path(args.parishes_db) if getattr(args, "parishes_db", None) else None
+        try:
+            auto_remap_bands(crawl_db=db, parishes_db=pdb, dry_run=args.dry_run)
+        except FileNotFoundError as exc:
+            print(f"Fehler: {exc}")
+            sys.exit(1)
 
     elif args.cmd == "profiles":
         list_profiles()
