@@ -283,6 +283,10 @@ def import_external_persons(db, persons: list[dict], source: str) -> int:
             "ged_file":     source,
             "sosa_number":  0,
             "source":       source,
+            "parents_json":  p.get("parents_json")  or "[]",
+            "spouses_json":  p.get("spouses_json")  or "[]",
+            "children_json": p.get("children_json") or "[]",
+            "siblings_json": p.get("siblings_json") or "[]",
         })
     with db._cursor() as cur:
         cur.execute("DELETE FROM gedcom_persons WHERE source=?", (source,))
@@ -290,10 +294,12 @@ def import_external_persons(db, persons: list[dict], source: str) -> int:
             """INSERT OR REPLACE INTO gedcom_persons
                (ged_id, given_name, surname, surname_norm, koelner_code,
                 sex, birth_year, birth_qual, birth_place,
-                death_year, death_place, ged_file, sosa_number, source)
+                death_year, death_place, ged_file, sosa_number, source,
+                parents_json, spouses_json, children_json, siblings_json)
                VALUES (:ged_id, :given_name, :surname, :surname_norm, :koelner_code,
                        :sex, :birth_year, :birth_qual, :birth_place,
-                       :death_year, :death_place, :ged_file, :sosa_number, :source)""",
+                       :death_year, :death_place, :ged_file, :sosa_number, :source,
+                       :parents_json, :spouses_json, :children_json, :siblings_json)""",
             rows,
         )
     log.info("bridge: %d Personen aus '%s' importiert", len(rows), source)

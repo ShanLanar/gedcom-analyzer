@@ -2,28 +2,40 @@
 """
 diff_anv_ftm.py — GEDCOM-Diff-Export: Anverwandte → FTM
 
-Vergleicht gedcom_persons (source='anverwandte') mit gedcom_persons
-(source='ftm') und exportiert nur die Felder, die in Anverwandte vorhanden
-sind, im FTM aber fehlen. Das resultierende GEDCOM importierst du in
-Family Tree Maker (Datei → Import → Merge) — FTM erkennt die Personen
-anhand der INDI-IDs und merged die Extrafelder ohne Duplikate.
+Exportiert als GEDCOM:
+
+  1. Anreicherungen: Personen, die in BEIDEN Quellen vorkommen (via xref),
+     aber in FTM Felder fehlen, die Anverwandte hat.
+
+  2. Fehlende Verwandte: Personen aus Anverwandte, die per BFS von den
+     bestätigten Cousins (xref-Ankerpunkte) aus erreichbar sind:
+       • Blutsverwandte (Eltern / Kinder / Geschwister): beliebig tief
+       • Direkte Ehepartner der Blutsverwandten: 1 Hop
+       • Verwandtschaft der Ehepartner: NICHT exportiert
+     → Voraussetzung: Anverwandte wurde mit Beziehungsdaten importiert
+       (gilt für webtrees-Crawl ab dieser Version automatisch).
+
+--test-one: exportiert genau 1 Kandidaten → Testlauf für FTM-Merge-Import
+--all-new:  kein BFS-Filter, alle Anverwandte-Personen ohne FTM-Match
+--no-new:   nur Anreicherungen (kein Neu-Export)
 
 Voraussetzungen (Reihenfolge):
   1. FTM-Brücke:        python import_ftm_bridge.py mein_baum.ftm
   2. Anverwandte-Import: Webtrees-Crawl-Workflow (Werkzeuge-Tab)
-  → Beide legen Querbezüge über den eigenen GEDCOM an (gedcom_person_xref)
 
 Aufruf:
   python diff_anv_ftm.py
   python diff_anv_ftm.py --db ancestry_dna.db -o diff.ged
-  python diff_anv_ftm.py --include-new     # auch neue Personen exportieren
-  python diff_anv_ftm.py --source-anv anverwandte --source-ftm ftm
+  python diff_anv_ftm.py --test-one
+  python diff_anv_ftm.py --all-new
 """
 from __future__ import annotations
 
 import argparse
+import json as _json
 import sqlite3
 import sys
+from collections import deque
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -41,7 +53,6 @@ def _log(msg: str):
 
 
 def _strip_src(ged_id: str, source: str) -> str:
-    """'ftm:@I42@' → '@I42@'"""
     prefix = f"{source}:"
     return ged_id[len(prefix):] if ged_id.startswith(prefix) else ged_id
 
@@ -53,9 +64,83 @@ def _fmt_year(year) -> str:
         return ""
 
 
+def _jload(raw) -> list:
+    try:
+        return _json.loads(raw or "[]") or []
+    except (ValueError, TypeError):
+        return []
+
+
+# ── BFS: Erreichbare Anverwandte-Personen ────────────────────────────────────
+
+def _reachable_from_cousins(conn: sqlite3.Connection, source_anv: str) -> set[str]:
+    """Gibt alle Anverwandte-ged_ids zurück, die per BFS von bestätigten
+    Cousins (xref-Ankerpunkte) aus erreichbar sind.
+
+    Traversal-Regeln:
+      • Blut (parents / children / siblings): beliebig tief
+      • Direkte Ehepartner von Blutsverwandten: 1 Hop, danach kein
+        weiteres Traversal (keine Verwandtschaft der Ehepartner)
+    """
+    rows = conn.execute(
+        "SELECT ged_id, parents_json, children_json, siblings_json, spouses_json "
+        "FROM gedcom_persons WHERE source=?", (source_anv,)
+    ).fetchall()
+
+    blood_adj:  dict[str, list[str]] = {}
+    spouse_adj: dict[str, list[str]] = {}
+
+    for r in rows:
+        gid = r["ged_id"]
+        blood_adj[gid] = [x for x in
+                          _jload(r["parents_json"]) +
+                          _jload(r["children_json"]) +
+                          _jload(r["siblings_json"]) if x]
+        spouse_adj[gid] = [x for x in _jload(r["spouses_json"]) if x]
+
+    # Ankerpunkte: bestätigte Cousins (Anverwandte-Personen, die in xref stehen)
+    anchor_rows = conn.execute(
+        "SELECT ged_id_other FROM gedcom_person_xref "
+        "WHERE source_other=? AND status != 'rejected'",
+        (source_anv,)
+    ).fetchall()
+    anchors = {r["ged_id_other"] for r in anchor_rows}
+
+    export_set:    set[str] = set()
+    blood_visited: set[str] = set()
+    spouse_visited: set[str] = set()
+    queue: deque = deque()
+
+    for a in anchors:
+        if a in blood_adj or a in spouse_adj:
+            blood_visited.add(a)
+            export_set.add(a)
+            queue.append((a, "blood"))
+
+    while queue:
+        gid, state = queue.popleft()
+        if state != "blood":
+            continue  # Ehepartner → kein weiteres Traversal
+
+        for nb in blood_adj.get(gid, []):
+            if nb not in blood_visited:
+                blood_visited.add(nb)
+                export_set.add(nb)
+                queue.append((nb, "blood"))
+
+        for sp in spouse_adj.get(gid, []):
+            if sp not in blood_visited and sp not in spouse_visited:
+                spouse_visited.add(sp)
+                export_set.add(sp)
+                # "spouse" state → wird enqueued, aber popleft überspringt
+
+    return export_set
+
+
+# ── Diff ─────────────────────────────────────────────────────────────────────
+
 def _diff_fields(ftm: dict, anv: dict) -> dict:
-    """Gibt Felder zurück, die Anverwandte hat und FTM nicht hat.
-    Leeres dict = kein Diff, Person nicht exportieren."""
+    """Felder, die Anverwandte hat und FTM nicht. Leeres dict = kein Mehrwert."""
     diff = {}
     if anv.get("birth_year") and not ftm.get("birth_year"):
         diff["birth_year"] = anv["birth_year"]
@@ -70,8 +155,9 @@ def _diff_fields(ftm: dict, anv: dict) -> dict:
     return diff
 
 
+# ── GEDCOM-Ausgabe ────────────────────────────────────────────────────────────
+
 def _write_gedcom(records: list[dict], output_path: Path) -> int:
-    """Schreibt GEDCOM-Datei; gibt Anzahl exportierter INDIs zurück."""
     today = datetime.now(timezone.utc).strftime("%d %b %Y").upper()
     lines = [
         "0 HEAD",
@@ -104,8 +190,7 @@ def _write_gedcom(records: list[dict], output_path: Path) -> int:
         if r.get("birth_place"):
             birt.append(f"2 PLAC {r['birth_place']}")
         if birt:
-            lines.append("1 BIRT")
-            lines.extend(birt)
+            lines.append("1 BIRT"); lines.extend(birt)
 
         deat = []
         if r.get("death_year"):
@@ -113,8 +198,7 @@ def _write_gedcom(records: list[dict], output_path: Path) -> int:
         if r.get("death_place"):
             deat.append(f"2 PLAC {r['death_place']}")
         if deat:
-            lines.append("1 DEAT")
-            lines.extend(deat)
+            lines.append("1 DEAT"); lines.extend(deat)
 
         note = (r.get("note") or "").strip()
         if note:
@@ -127,35 +211,28 @@ def _write_gedcom(records: list[dict], output_path: Path) -> int:
     return len(records)
 
 
+# ── Haupt-Funktion ────────────────────────────────────────────────────────────
+
 def run(
     db_path: str | None = None,
     output_path: str | None = None,
     source_anv: str = "anverwandte",
     source_ftm: str = "ftm",
     include_new: bool = True,
+    all_new: bool = False,
+    test_one: bool = False,
     progress_cb=None,
 ) -> dict:
-    """Erstellt GEDCOM-Diff: Felder aus source_anv, die source_ftm fehlen.
+    """GEDCOM-Diff: Anreicherungen + per BFS erreichbare fehlende Verwandte.
 
     Parameters
     ----------
-    db_path:
-        Pfad zur ancestry_dna.db (None = Standardpfad).
-    output_path:
-        Ausgabe .ged-Datei (None = diff_anv_ftm.ged neben der DB).
-    source_anv:
-        Quelle der Anverwandte-Personen (Standard: 'anverwandte').
-    source_ftm:
-        Quelle der FTM-Personen (Standard: 'ftm').
     include_new:
-        True (Standard) = Personen ohne FTM-Match (potenzielle Cousins u. a.)
-        werden ebenfalls exportiert. False = nur Anreicherungen.
-    progress_cb:
-        Optionaler Callback ``(msg: str, **kw) -> None``.
-
-    Returns
-    -------
-    dict mit 'enriched', 'new', 'total', 'output_path'
+        True (Standard) = fehlende Blutsverwandte per BFS exportieren.
+    all_new:
+        True = BFS-Filter deaktivieren, alle ungematchten Anverwandte nehmen.
+    test_one:
+        True = nur 1 BFS-Kandidaten exportieren (Test des FTM-Merge-Imports).
     """
     p = progress_cb or (lambda m, **kw: _log(m))
 
@@ -163,7 +240,8 @@ def run(
     if not Path(_db).exists():
         raise FileNotFoundError(f"DB nicht gefunden: {_db}")
 
-    _out = Path(output_path) if output_path else Path(_db).parent / "diff_anv_ftm.ged"
+    suffix = "_test1.ged" if test_one else ".ged"
+    _out = Path(output_path) if output_path else Path(_db).parent / f"diff_anv_ftm{suffix}"
 
     p(f"📂 Lese Datenbank: {Path(_db).name}")
     conn = sqlite3.connect(_db)
@@ -185,17 +263,22 @@ def run(
 
         if not anv_persons:
             raise ValueError(
-                f"Keine Personen mit source='{source_anv}' in der DB. "
+                f"Keine Personen mit source='{source_anv}'. "
                 f"Bitte zuerst Anverwandte importieren (Webtrees-Crawl)."
             )
         if not ftm_persons:
             raise ValueError(
-                f"Keine Personen mit source='{source_ftm}' in der DB. "
+                f"Keine Personen mit source='{source_ftm}'. "
                 f"Bitte zuerst FTM-Brücke ausführen."
             )
 
-        # ── Paare über gemeinsamen GEDCOM-Anker ───────────────────────────────
-        # xf: FTM ↔ GEDCOM;  xa: Anverwandte ↔ GEDCOM (gleiche ged_id_primary)
+        # ── BFS: erreichbare Verwandte von bestätigten Cousins ────────────────
+        reachable: set[str] = set()
+        if include_new and not all_new:
+            reachable = _reachable_from_cousins(conn, source_anv)
+            p(f"  BFS: {len(reachable):,} Personen von Cousins aus erreichbar")
+
+        # ── Xref: Anreicherungen für gematche Paare ───────────────────────────
         pairs = conn.execute("""
             SELECT xf.ged_id_other AS ftm_id,
                    xa.ged_id_other AS anv_id
@@ -209,8 +292,8 @@ def run(
 
         p(f"  {len(pairs):,} Paare über GEDCOM-Anker verknüpft")
 
-        records: list[dict] = []
-        processed_anv: set[str] = set()
+        records:       list[dict] = []
+        processed_anv: set[str]  = set()
         enriched = 0
 
         for pair in pairs:
@@ -227,9 +310,8 @@ def run(
             if not diff:
                 continue
 
-            raw_id = _strip_src(ftm_id, source_ftm)
+            raw_id  = _strip_src(ftm_id, source_ftm)
             indi_id = raw_id if raw_id.startswith("@") else f"@{raw_id}@"
-
             records.append({
                 "indi_id":    indi_id,
                 "given_name": ftm_p["given_name"],
@@ -240,13 +322,20 @@ def run(
             })
             enriched += 1
 
-        # ── Neue Personen (nur in Anverwandte, optional) ──────────────────────
-        new_count = 0
+        # ── Neue Personen: BFS-erreichbare Verwandte ohne FTM-Eintrag ─────────
+        new_count  = 0
+        skipped    = 0
+
         if include_new:
             new_idx = 0
             for anv_id, anv_p in anv_persons.items():
                 if anv_id in processed_anv:
                     continue
+
+                if not all_new and anv_id not in reachable:
+                    skipped += 1
+                    continue
+
                 new_idx += 1
                 records.append({
                     "indi_id":    f"@ANV{new_idx}@",
@@ -257,47 +346,64 @@ def run(
                     "birth_place": anv_p.get("birth_place", ""),
                     "death_year":  anv_p.get("death_year"),
                     "death_place": anv_p.get("death_place", ""),
-                    "note":       "[Anverwandte] Neue Person — nicht in FTM",
+                    "note":       "[Anverwandte] Verwandter — nicht in FTM",
                 })
                 new_count += 1
+
+                if test_one:
+                    break
+
+            if skipped:
+                p(f"  ⚠️  {skipped:,} Personen übersprungen "
+                  f"(nicht per BFS von Cousins erreichbar → "
+                  f"angeheiratete Verwandtschaft?)", tag="warn")
 
     finally:
         conn.close()
 
     if not records:
-        p("ℹ️  Kein Diff gefunden — FTM und Anverwandte sind bereits konsistent.",
-          tag="warn")
-        return {"enriched": 0, "new": 0, "total": 0, "output_path": str(_out)}
+        p("ℹ️  Kein Diff — FTM und Anverwandte bereits konsistent.", tag="warn")
+        return {"enriched": 0, "new": 0, "skipped": skipped,
+                "total": 0, "output_path": str(_out)}
 
-    p(f"📝 Schreibe {len(records):,} GEDCOM-Einträge → {_out.name} …")
+    mode = "TEST (1 Person)" if test_one else f"{len(records):,} Einträge"
+    p(f"📝 Schreibe {mode} → {_out.name} …")
     total = _write_gedcom(records, _out)
+
     p(f"✅ {enriched:,} Anreicherungen"
-      + (f", {new_count:,} neue Personen" if include_new else "")
+      + (f", {new_count:,} fehlende Verwandte" if new_count else "")
+      + (f"  (übersprungen: {skipped})" if skipped else "")
       + f" → {_out}", tag="ok")
+    if test_one:
+        p("ℹ️  Testlauf: In FTM importieren (Datei → Import → Merge) und "
+          "prüfen ob Quellen/Matricula-Links ankommen.", tag="info")
 
     return {
         "enriched": enriched,
         "new":      new_count,
+        "skipped":  skipped,
         "total":    total,
         "output_path": str(_out),
     }
 
 
-# ── CLI ────────────────────────────────────────────────────────────────────────
+# ── CLI ───────────────────────────────────────────────────────────────────────
 
 def main():
     ap = argparse.ArgumentParser(
-        description="GEDCOM-Diff-Export: Anverwandte-Extrafelder für FTM-Merge-Import")
+        description="GEDCOM-Diff: Anverwandte-Anreicherungen + fehlende Verwandte für FTM")
     ap.add_argument("--db", default=None,
-                    help="Pfad zur ancestry_dna.db (Standard: ancestry/ancestry_dna.db)")
+                    help="Pfad zur ancestry_dna.db")
     ap.add_argument("-o", "--output", default=None,
                     help="Ausgabe .ged-Datei (Standard: diff_anv_ftm.ged neben der DB)")
-    ap.add_argument("--source-anv", default="anverwandte",
-                    help="Quellname Anverwandte (Standard: 'anverwandte')")
-    ap.add_argument("--source-ftm", default="ftm",
-                    help="Quellname FTM (Standard: 'ftm')")
+    ap.add_argument("--source-anv", default="anverwandte")
+    ap.add_argument("--source-ftm", default="ftm")
     ap.add_argument("--no-new", action="store_true",
-                    help="Neue Personen (Cousins u.a., nur in Anverwandte) NICHT exportieren")
+                    help="Nur Anreicherungen, keine neuen Personen")
+    ap.add_argument("--all-new", action="store_true",
+                    help="Alle neuen Personen ohne BFS-Filter")
+    ap.add_argument("--test-one", action="store_true",
+                    help="Nur 1 BFS-Kandidaten exportieren (FTM-Merge testen)")
     args = ap.parse_args()
 
     result = run(
@@ -306,9 +412,12 @@ def main():
         source_anv=args.source_anv,
         source_ftm=args.source_ftm,
         include_new=not args.no_new,
+        all_new=args.all_new,
+        test_one=args.test_one,
     )
     print(f"\nFertig: {result['enriched']} Anreicherungen, "
-          f"{result['new']} neue Personen → {result['output_path']}")
+          f"{result['new']} fehlende Verwandte "
+          f"({result['skipped']} übersprungen) → {result['output_path']}")
 
 
 if __name__ == "__main__":

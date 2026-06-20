@@ -189,10 +189,12 @@ class ToolsTab(ttk.Frame):
                   foreground=self._state.colors().get("text_dim", "#888888")
                   ).pack(side="left", padx=(6, 0))
         row2 = ttk.Frame(sec); row2.pack(fill="x", pady=2)
-        ttk.Checkbutton(row2, text="Cousins / neue Personen einschließen (nur in Anverwandte)",
+        ttk.Checkbutton(row2, text="Fehlende Verwandte einschließen (BFS von Cousins)",
                         variable=self._tl_diff_include_new).pack(side="left")
         self._tool_action(sec, "📤 Diff-GEDCOM erzeugen", "diff_anv_ftm",
                           self._tl_cmd_diff_anv_ftm)
+        self._tool_action(sec, "🧪 1 Cousin testen (FTM-Merge prüfen)", "diff_anv_ftm_test",
+                          self._tl_cmd_diff_anv_ftm_test)
 
         # ── Abschnitt A: Webtrees ─────────────────────────────────────────
         sec = self._tool_section(inner, "⬇  Webtrees-Stammbaum")
@@ -585,6 +587,9 @@ class ToolsTab(ttk.Frame):
         if not self._tl_diff_include_new.get():
             cmd.append("--no-new")
         return cmd
+
+    def _tl_cmd_diff_anv_ftm_test(self) -> list[str]:
+        return [sys.executable, "-u", _tool("diff_anv_ftm.py"), "--test-one"]
 
     # ── Befehlszeilen ─────────────────────────────────────────────────────
     def _tl_cmd_wt_crawl(self) -> list[str]:

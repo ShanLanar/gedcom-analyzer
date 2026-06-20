@@ -13,6 +13,7 @@ Aufruf:
   python import_webtrees.py --no-link        # nur importieren, nicht verknüpfen
 """
 import argparse
+import json
 import sqlite3
 import sys
 from pathlib import Path
@@ -25,12 +26,22 @@ CRAWL_DB   = SCRIPT_DIR / "webtrees_crawl.db"
 SOURCE     = "anverwandte"
 
 
-def load_wt_persons(crawl_db: Path) -> list[dict]:
+def load_wt_persons(crawl_db: Path, source: str = SOURCE) -> list[dict]:
     if not crawl_db.exists():
         print(f"Crawl-DB nicht gefunden: {crawl_db}")
         sys.exit(1)
     c = sqlite3.connect(str(crawl_db)); c.row_factory = sqlite3.Row
+
+    def _remap(raw_json: str) -> str:
+        """Webtrees-IDs ['X12', 'X34'] → ['source:X12', 'source:X34']."""
+        try:
+            ids = json.loads(raw_json or "[]")
+            return json.dumps([f"{source}:{i}" for i in ids if i])
+        except (ValueError, TypeError):
+            return "[]"
+
     out = []
+    cols = {d[1].lower() for d in c.execute("PRAGMA table_info(wt_persons)")}
     for r in c.execute("SELECT * FROM wt_persons"):
         out.append({
             "ext_id":      r["id"],
@@ -41,6 +52,10 @@ def load_wt_persons(crawl_db: Path) -> list[dict]:
             "birth_place": r["birth_place"] or "",
             "death_year":  r["death_year"] or "",
             "death_place": r["death_place"] or "",
+            "parents_json":  _remap(r["parents_json"])  if "parents_json"  in cols else "[]",
+            "children_json": _remap(r["children_json"]) if "children_json" in cols else "[]",
+            "spouses_json":  _remap(r["spouses_json"])  if "spouses_json"  in cols else "[]",
+            "siblings_json": _remap(r["siblings_json"]) if "siblings_json" in cols else "[]",
         })
     c.close()
     return out
