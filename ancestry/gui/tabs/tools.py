@@ -196,6 +196,38 @@ class ToolsTab(ttk.Frame):
         self._tool_action(sec, "🧪 1 Cousin testen (FTM-Merge prüfen)", "diff_anv_ftm_test",
                           self._tl_cmd_diff_anv_ftm_test)
 
+        # ── Abschnitt A0c: Matricula-Priorität ───────────────────────────
+        sec = self._tool_section(inner, "📊  Matricula-Priorität (Pfarrei-Statistik)")
+        ttk.Label(sec,
+                  text="Welche Kirchengemeinde hat die meisten Anverwandte-Belege? "
+                       "→ Transkriptions-Reihenfolge.",
+                  foreground=self._state.colors().get("text_dim", "#888888"),
+                  wraplength=380).pack(anchor="w", pady=(0, 4))
+        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Diözese-Filter:").pack(side="left")
+        self._tl_mat_prio_diocese = tk.StringVar(value="")
+        ttk.Entry(row, textvariable=self._tl_mat_prio_diocese, width=16).pack(
+            side="left", padx=(4, 10))
+        ttk.Label(row, text="(leer = alle)",
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(side="left")
+        row2 = ttk.Frame(sec); row2.pack(fill="x", pady=2)
+        ttk.Label(row2, text="Top:").pack(side="left")
+        self._tl_mat_prio_top = tk.StringVar(value="30")
+        ttk.Spinbox(row2, from_=0, to=500, increment=10, width=6,
+                    textvariable=self._tl_mat_prio_top).pack(side="left", padx=(4, 10))
+        ttk.Label(row2, text="CSV:",
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(side="left")
+        self._tl_mat_prio_csv = tk.StringVar(value="")
+        ttk.Entry(row2, textvariable=self._tl_mat_prio_csv, width=14).pack(
+            side="left", padx=(4, 2))
+        ttk.Button(row2, text="…", width=3,
+                   command=lambda: self._tl_pick_save(
+                       self._tl_mat_prio_csv, "CSV", "*.csv")).pack(side="left")
+        self._tool_action(sec, "📊 Pfarrei-Priorität auswerten", "mat_prio",
+                          self._tl_cmd_mat_prio)
+
         # ── Abschnitt A: Webtrees ─────────────────────────────────────────
         sec = self._tool_section(inner, "⬇  Webtrees-Stammbaum")
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
@@ -590,6 +622,28 @@ class ToolsTab(ttk.Frame):
 
     def _tl_cmd_diff_anv_ftm_test(self) -> list[str]:
         return [sys.executable, "-u", _tool("diff_anv_ftm.py"), "--test-one"]
+
+    # ── Matricula-Priorität ───────────────────────────────────────────────
+    def _tl_pick_save(self, var: tk.StringVar, label: str, pattern: str):
+        from tkinter import filedialog
+        p = filedialog.asksaveasfilename(
+            title=f"{label} speichern unter",
+            filetypes=[(label, pattern), ("Alle Dateien", "*.*")])
+        if p:
+            var.set(p)
+
+    def _tl_cmd_mat_prio(self) -> list[str]:
+        cmd = [sys.executable, "-u", _tool("matricula_prio.py")]
+        dio = self._tl_mat_prio_diocese.get().strip()
+        if dio:
+            cmd += ["--diocese", dio]
+        top = self._tl_mat_prio_top.get().strip()
+        if top and top != "0":
+            cmd += ["--top", top]
+        csv_out = self._tl_mat_prio_csv.get().strip()
+        if csv_out:
+            cmd += ["--csv", csv_out]
+        return cmd
 
     # ── Befehlszeilen ─────────────────────────────────────────────────────
     def _tl_cmd_wt_crawl(self) -> list[str]:
