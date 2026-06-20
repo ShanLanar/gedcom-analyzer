@@ -101,6 +101,10 @@ _MATRIC_CITE = re.compile(
 # /de/deutschland/<diözese>/<pfarrei>/<register>/...
 _MATRIC_PATH = re.compile(
     r'data\.matricula-online\.eu/\w+/\w+/([^/]+)/([^/]+)/')
+# Vollständiger Pfad inkl. Band-Slug (Seite wird separat per _PG_RE extrahiert)
+_MATRIC_FULL = re.compile(
+    r'data\.matricula-online\.eu/[^/]+/[^/]+/([^/]+)/([^/]+)/([^/?]+)')
+_PG_RE = re.compile(r'[?&]pg=(\d+)')
 
 # ── Fakten-Tabelle (wt-tab-facts) — die reichhaltigen Ereignisdaten ───────────
 # Jede Tatsache ist eine <tr> mit <div class="wt-fact-label ut">TYP</div> und
@@ -1384,19 +1388,20 @@ def training_run(seed_url: str, n_pages: int = 100, delay: float = 4.0,
 
 # ── Matricula-Link-Reparatur (Pfarrei-Slug alt -> neu) ────────────────────────
 # Matricula hat die Pfarrei-Slugs UND Register-IDs neu vergeben. Die Register-ID
-# (z.B. 0035 -> D1_001) ist ohne Matricula-Katalog NICHT herleitbar; den
-# Pfarrei-Slug können wir aber für den überschaubaren Raum (südl. Kreis
-# Osnabrück) pflegen, sodass wir auf die aktuelle PFARREI-Übersicht verlinken.
-# Erweiterbar über tools/matricula_parish_map.json  {"<alt-slug>": "<neu-slug>"}.
+# (z.B. 0035 -> D1_001) ist ohne Matricula-Katalog NICHT herleitbar.
+# Pfarrei-Remap: tools/matricula_parish_map.json  {"<alt-slug>": "<neu-slug>"}
+# Band-Remap:    tools/matricula_remap.db  Tabelle matricula_band_remap
+# Original-Daten in wt_persons.matricula_json bleiben unberührt.
 MATRICULA_PARISH_MAP = {
     # bestätigt:
     "hagen-st-martinus": "hagen-a-t-w-st-martinus",
 }
 
+_REMAP_DB = Path(__file__).resolve().parent / "matricula_remap.db"
+
 
 def _load_parish_map() -> dict:
     m = dict(MATRICULA_PARISH_MAP)
-    f = SCRIPT_DIR / "matricula_parish_map.json" if "SCRIPT_DIR" in globals() else None
     try:
         p = Path(__file__).resolve().parent / "matricula_parish_map.json"
         if p.exists():
@@ -1406,44 +1411,140 @@ def _load_parish_map() -> dict:
     return m
 
 
-def matricula_current_url(entry: dict, parish_map: dict | None = None) -> str:
+def _ensure_remap_db() -> sqlite3.Connection:
+    """Öffnet (und legt ggf. an) matricula_remap.db mit Remap-Tabelle."""
+    conn = sqlite3.connect(str(_REMAP_DB))
+    conn.row_factory = sqlite3.Row
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS matricula_band_remap (
+            diocese  TEXT NOT NULL,
+            parish   TEXT NOT NULL,
+            band_old TEXT NOT NULL,
+            band_new TEXT NOT NULL,
+            note     TEXT DEFAULT '',
+            PRIMARY KEY (diocese, parish, band_old)
+        )""")
+    conn.commit()
+    return conn
+
+
+def _load_band_remap() -> dict[tuple, str]:
+    """Lädt (diocese, parish, band_old) → band_new aus matricula_remap.db."""
+    remap: dict[tuple, str] = {}
+    if not _REMAP_DB.exists():
+        return remap
+    try:
+        conn = sqlite3.connect(str(_REMAP_DB))
+        conn.row_factory = sqlite3.Row
+        for r in conn.execute(
+                "SELECT diocese, parish, band_old, band_new FROM matricula_band_remap"):
+            remap[(r["diocese"], r["parish"], r["band_old"])] = r["band_new"]
+        conn.close()
+    except Exception:
+        pass
+    return remap
+
+
+def matricula_current_url(entry: dict, parish_map: dict | None = None,
+                          band_remap: dict | None = None) -> str:
     """Bestmögliche AKTUELLE Matricula-URL für einen Beleg.
-    Bekannte Pfarrei -> aktuelle Pfarrei-Übersicht; sonst Diözesen-Seite.
-    Die genaue Register-/Seitenangabe steckt im 'ref' (z.B. 'S. 352')."""
+
+    Auflösungs-Reihenfolge:
+    1. Band-Remap (matricula_remap.db): vollständige URL inkl. neuer Band-ID + Seite
+    2. Pfarrei-Remap (matricula_parish_map.json): Pfarrei-Übersichtsseite
+    3. Diözesen-Seite (Fallback)
+
+    Original-Daten in wt_persons.matricula_json bleiben unberührt.
+    """
     pm = parish_map if parish_map is not None else _load_parish_map()
-    dio = entry.get("diocese", "")
+    br = band_remap if band_remap is not None else _load_band_remap()
+
+    url_old    = entry.get("url_old", "")
+    diocese    = entry.get("diocese", "")
     parish_old = entry.get("parish_old", "")
-    new_parish = pm.get(parish_old)
-    if dio and new_parish:
-        return f"https://data.matricula-online.eu/de/deutschland/{dio}/{new_parish}/"
-    return entry.get("diocese_url", "")
+
+    # Band-Slug + Seite aus alter URL extrahieren
+    band_old = ""
+    page_suffix = ""
+    mf = _MATRIC_FULL.search(url_old)
+    if mf:
+        if not diocese:    diocese    = mf.group(1)
+        if not parish_old: parish_old = mf.group(2)
+        band_old = mf.group(3)
+    pg = _PG_RE.search(url_old)
+    if pg:
+        page_suffix = f"?pg={pg.group(1)}"
+
+    # Pfarrei-Remap (parish_old → parish_new)
+    parish_new = pm.get(parish_old, parish_old)
+
+    # Band-Remap: neue vollständige URL mit Seitennummer
+    if br and band_old and diocese:
+        band_new = (br.get((diocese, parish_new, band_old))
+                    or br.get((diocese, parish_old, band_old)))
+        if band_new:
+            return (f"https://data.matricula-online.eu/de/deutschland/"
+                    f"{diocese}/{parish_new}/{band_new}/{page_suffix}")
+
+    # Pfarrei-Remap: Übersichtsseite
+    if diocese and parish_new and parish_new != parish_old:
+        return f"https://data.matricula-online.eu/de/deutschland/{diocese}/{parish_new}/"
+
+    return entry.get("diocese_url", "") or url_old
 
 
 def matricula_report(db_path: Path = DB_PATH):
-    """Listet alle gesammelten Matricula-Belege mit reparierter (Pfarrei-)URL."""
+    """Listet alle gesammelten Matricula-Belege mit reparierter URL."""
     if not db_path.exists():
         print(f"DB nicht gefunden: {db_path}"); return
     pm = _load_parish_map()
+    br = _load_band_remap()
     c = sqlite3.connect(str(db_path)); c.row_factory = sqlite3.Row
-    n = unmapped = 0
-    seen_parishes = {}
+    n = 0
+    seen_parishes: dict[str, str] = {}       # parish_slug → diocese
+    seen_bands: dict[tuple, str] = {}        # (diocese, parish, band_old) → url_old
     for r in c.execute("SELECT name, birth_place, matricula_json FROM wt_persons "
                        "WHERE COALESCE(matricula_json,'') NOT IN ('','[]')"):
         for e in json.loads(r["matricula_json"]):
             n += 1
-            cur = matricula_current_url(e, pm)
-            mapped = e.get("parish_old") in pm
-            if not mapped and e.get("parish_old"):
-                unmapped += 1
-                seen_parishes[e["parish_old"]] = e.get("diocese", "")
+            cur = matricula_current_url(e, pm, br)
+            parish_slug = e.get("parish_old", "")
+            parish_mapped = parish_slug in pm
+            url_old = e.get("url_old", "")
+            m = _MATRIC_FULL.search(url_old)
+            band_old = m.group(3) if m else ""
+            # Band als veraltet markieren wenn rein numerisch (z.B. 0007)
+            band_stale = bool(band_old and re.fullmatch(r'\d+', band_old))
+            if band_stale:
+                dio  = e.get("diocese", "") or (m.group(1) if m else "")
+                par  = pm.get(parish_slug, parish_slug)
+                key  = (dio, par, band_old)
+                if key not in br:
+                    seen_bands[key] = url_old
+            if not parish_mapped and parish_slug:
+                seen_parishes[parish_slug] = e.get("diocese", "")
+            _dio = e.get("diocese", "") or (m.group(1) if m else "")
+            _par = pm.get(parish_slug, parish_slug)
+            if band_old and br.get((_dio, _par, band_old)):
+                status = "Band+Seite"
+            elif parish_mapped:
+                status = "Pfarrei"
+            else:
+                status = "Diözese"
             print(f"- {r['name']}  [{e.get('ref','')}]")
-            print(f"    alt:    {e.get('url_old','')}")
-            print(f"    aktuell:{' (Pfarrei)' if mapped else ' (Diözese)'} {cur}")
-    print(f"\n{n} Belege. {unmapped} mit noch nicht gemappter Pfarrei.")
+            print(f"    alt:    {url_old}")
+            print(f"    aktuell:({status}) {cur}")
+    print(f"\n{n} Belege.")
     if seen_parishes:
-        print("Noch zu mappen (in matricula_parish_map.json eintragen):")
+        print(f"\n{len(seen_parishes)} Pfarreien noch nicht gemappt "
+              "(in matricula_parish_map.json eintragen):")
         for slug, dio in sorted(seen_parishes.items()):
             print(f'    "{slug}": "",   // {dio}')
+    if seen_bands:
+        print(f"\n{len(seen_bands)} Band-Slugs noch nicht gemappt "
+              "(per 'add-remap' eintragen):")
+        for (dio, par, band), _url in sorted(seen_bands.items()):
+            print(f"    python crawl_webtrees.py add-remap {dio} {par} {band} <neuer-slug>")
     c.close()
 
 
@@ -1935,6 +2036,15 @@ def main(argv):
     sub.add_parser("matricula", help="Matricula-Belege + reparierte URLs ausgeben")
     sub.add_parser("profiles", help="Alle gespeicherten Profile auflisten")
     sub.add_parser("list-sites", help="Alle lokalen webtrees-DBs auflisten")
+    sub.add_parser("list-remaps",
+                   help="Band-Remap-Einträge aus matricula_remap.db auflisten")
+    ar = sub.add_parser("add-remap",
+                        help="Band-Slug-Remap eintragen (diocese parish old new)")
+    ar.add_argument("diocese",  help="Diözese (z.B. osnabrueck)")
+    ar.add_argument("parish",   help="Pfarrei-Slug (z.B. glane-st-jacobus)")
+    ar.add_argument("band_old", help="Alter Band-Slug (z.B. 0007)")
+    ar.add_argument("band_new", help="Neuer Band-Slug (z.B. D101)")
+    ar.add_argument("--note",   default="", help="Optionale Notiz")
 
     ge = sub.add_parser("export-gedcom",
                         help="Gecrawlte Personen als GEDCOM-Datei (.ged) exportieren")
@@ -2128,6 +2238,35 @@ def main(argv):
 
     elif args.cmd == "matricula":
         matricula_report()
+
+    elif args.cmd == "list-remaps":
+        if not _REMAP_DB.exists():
+            print("matricula_remap.db noch nicht vorhanden (noch keine Einträge).")
+        else:
+            conn = _ensure_remap_db()
+            rows = conn.execute(
+                "SELECT diocese, parish, band_old, band_new, note "
+                "FROM matricula_band_remap ORDER BY diocese, parish, band_old"
+            ).fetchall()
+            conn.close()
+            if not rows:
+                print("Keine Band-Remap-Einträge.")
+            else:
+                print(f"{'Diözese':<18}  {'Pfarrei':<28}  {'Alt':>8}  {'Neu':<12}  Notiz")
+                print("─" * 80)
+                for r in rows:
+                    print(f"{r['diocese']:<18}  {r['parish']:<28}  "
+                          f"{r['band_old']:>8}  {r['band_new']:<12}  {r['note']}")
+
+    elif args.cmd == "add-remap":
+        conn = _ensure_remap_db()
+        conn.execute(
+            "INSERT OR REPLACE INTO matricula_band_remap "
+            "(diocese, parish, band_old, band_new, note) VALUES (?,?,?,?,?)",
+            (args.diocese, args.parish, args.band_old, args.band_new, args.note)
+        )
+        conn.commit(); conn.close()
+        print(f"Gespeichert: {args.diocese}/{args.parish}  {args.band_old} → {args.band_new}")
 
     elif args.cmd == "profiles":
         list_profiles()
