@@ -207,6 +207,7 @@ class AncestryDnaApp(tk.Frame):
         am.add_command(label=self._t("mn.net_graph"),   command=self._show_network_graph)
         am.add_separator()
         am.add_command(label=self._t("mn.exp_ged"),     command=self._export_gedcom)
+        am.add_command(label=self._t("mn.exp_gramps"),  command=self._export_gramps)
         am.add_command(label=self._t("mn.imp_mta"),     command=self._import_mta)
         am.add_separator()
         am.add_command(label=self._t("mn.ped_gaps"),    command=self._show_pedigree_gaps)
@@ -2230,6 +2231,37 @@ class AncestryDnaApp(tk.Frame):
             messagebox.showinfo(self._t("dlg.done"), f"{n} Personen als GEDCOM exportiert → {p}")
         except ImportError:
             messagebox.showerror(self._t("dlg.error"), self._t("dlg.m_gedexport_missing"))
+        except Exception as e:
+            messagebox.showerror(self._t("dlg.error"), str(e))
+
+    def _export_gramps(self):
+        """Exportiert Vorfahren-Gruppen als Gramps XML 1.7.1."""
+        test_guid = self._current_guid()
+        if not test_guid:
+            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
+            return
+        try:
+            groups = self._db.get_pedigree_groups(test_guid, min_matches=2, mode="person")
+        except Exception as e:
+            messagebox.showerror(self._t("dlg.db_error"), str(e))
+            return
+        if not groups:
+            messagebox.showinfo(self._t("dlg.no_data"), self._t("dlg.m_no_anc_groups"))
+            return
+        p = filedialog.asksaveasfilename(
+            title=self._t("dlg.t_export_gramps"),
+            defaultextension=".gramps",
+            filetypes=[("Gramps XML", "*.gramps"), ("Alle", "*.*")],
+            initialfile="ancestry_dna_ancestors.gramps")
+        if not p:
+            return
+        try:
+            from ancestry.core.gramps_export import export_gramps
+            n = export_gramps(groups, p, mask_living=True)
+            messagebox.showinfo(
+                self._t("dlg.done"),
+                f"{n} Personen als Gramps XML exportiert → {p}\n"
+                "Lebende Personen wurden als [privat] maskiert (DSGVO).")
         except Exception as e:
             messagebox.showerror(self._t("dlg.error"), str(e))
 

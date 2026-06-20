@@ -277,7 +277,7 @@ def extract_ner(
 
     _flush(batch)
 
-    print(f"\nFertig:")
+    print("\nFertig:")
     print(f"  {total_entries - skipped} Einträge verarbeitet")
     print(f"  {skipped} übersprungen (bereits in NER-Tabelle)")
     print(f"  {total_persons} Personen-Einträge neu geschrieben")

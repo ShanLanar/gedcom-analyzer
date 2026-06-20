@@ -356,6 +356,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mn.darkmode":  {"de": "🌙 Dunkelmodus",                       "en": "🌙 Dark mode"},
     # New export/analysis menu items
     "mn.exp_ged":   {"de": "Vorfahren als GEDCOM exportieren …",   "en": "Export ancestors as GEDCOM …"},
+    "mn.exp_gramps":{"de": "Vorfahren als Gramps XML exportieren …","en": "Export ancestors as Gramps XML …"},
     "mn.imp_mta":   {"de": "MyTrueAncestry CSV importieren …",     "en": "Import MyTrueAncestry CSV …"},
     "mn.ped_gaps":  {"de": "Ahnentafel-Lücken analysieren …",      "en": "Pedigree gap analysis …"},
     "mn.ped_chart": {"de": "🌳 Ahnentafel-Diagramm …",            "en": "🌳 Pedigree chart …"},
@@ -372,6 +373,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mf.chip_200":  {"de": ">200 cM",        "en": ">200 cM"},
     "mf.chip_pat":  {"de": "🔵 Väterlich",   "en": "🔵 Paternal"},
     "mf.chip_mat":  {"de": "🔴 Mütterlich",  "en": "🔴 Maternal"},
+    "mf.chip_new":  {"de": "🆕 Neu (7 Tage)", "en": "🆕 New (7 days)"},
     # Empty state
     "mf.empty":     {"de": "📭  Noch keine Matches geladen",       "en": "📭  No matches loaded yet"},
     "mf.empty_hint":{"de": "→ Tab »Herunterladen« öffnen",         "en": "→ Open »Download« tab"},
@@ -395,6 +397,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.tab_gedcom":{"de": "🌳 GEDCOM-Treffer",                   "en": "🌳 GEDCOM Hits"},
     "md.tab_ancestors":{"de": "👨‍👩‍👧 Gemeinsame Vorfahren",           "en": "👨‍👩‍👧 Common Ancestors"},
     "md.tab_kirchenbuch":{"de": "⛪ Kirchenbücher",                 "en": "⛪ Church Records"},
+    "md.tab_wikitree":  {"de": "🌐 WikiTree",                      "en": "🌐 WikiTree"},
+    "md.wt_no_match":   {"de": "Kein Match ausgewählt.",            "en": "No match selected."},
+    "md.wt_search":     {"de": "🔍 WikiTree-Suche öffnen",         "en": "🔍 Open WikiTree search"},
+    "md.wt_profile":    {"de": "Profil öffnen",                    "en": "Open profile"},
+    "md.wt_no_data":    {"de": "Keine WikiTree-Daten vorhanden.\nEinmalig »🔗 WikiTree« (GEDCOM-Tab) ausführen.",
+                         "en": "No WikiTree data available.\nRun »🔗 WikiTree« (GEDCOM tab) once."},
     "md.kb_min_gen": {"de": "ab Generation:",                       "en": "from generation:"},
     "md.kb_reload":  {"de": "↻ Suchen",                             "en": "↻ Search"},
     "md.kb_no_ped":  {"de": "Keine Ahnentafel für diesen Match.\n"
@@ -571,6 +579,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "dlg.r_maternal": {"de": "🔴 Mütterlich (maternal)", "en": "🔴 Maternal"},
     "dlg.r_remove_side": {"de": "✖ Zuweisung entfernen", "en": "✖ Remove assignment"},
     "dlg.t_export_gedcom": {"de": "GEDCOM exportieren", "en": "Export GEDCOM"},
+    "dlg.t_export_gramps": {"de": "Gramps XML exportieren", "en": "Export Gramps XML"},
     "dlg.t_import_mta": {"de": "MyTrueAncestry CSV importieren", "en": "Import MyTrueAncestry CSV"},
     "tt.tl_stop":   {"de": "Das laufende Werkzeug stoppen",
                      "en": "Stop the running tool"},

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any, Optional
 
 from ancestry.models import DnaMatch
@@ -22,6 +23,10 @@ class MatchesRepo:
                 INSERT OR IGNORE INTO dna_kits (guid, name, test_type)
                 VALUES (?, ?, ?)
             """, (m.test_guid, m.test_guid[:8] + "…", "AncestryDNA"))
+            _now = datetime.now(timezone.utc).isoformat()
+            d.setdefault("first_seen_at", _now)
+            if not d.get("first_seen_at"):
+                d["first_seen_at"] = _now
             cur.execute("""
                 INSERT INTO matches (
                     match_guid, test_guid, display_name,
@@ -29,7 +34,7 @@ class MatchesRepo:
                     predicted_relationship, confidence, relationship_range,
                     has_hint, has_tree, tree_size, tree_id,
                     starred, note, custom_relationship,
-                    ethnicity_regions, last_login, fetched_at, raw_json,
+                    ethnicity_regions, last_login, fetched_at, first_seen_at, raw_json,
                     match_cluster_code, created_date,
                     tag_surname, tag_gender, tag_path, tags_json, meiosis, ignored,
                     paternal_maternal, source
@@ -39,7 +44,7 @@ class MatchesRepo:
                     :predicted_relationship, :confidence, :relationship_range,
                     :has_hint, :has_tree, :tree_size, :tree_id,
                     :starred, :note, :custom_relationship,
-                    :ethnicity_regions, :last_login, :fetched_at, :raw_json,
+                    :ethnicity_regions, :last_login, :fetched_at, :first_seen_at, :raw_json,
                     :match_cluster_code, :created_date,
                     :tag_surname, :tag_gender, :tag_path, :tags_json, :meiosis, :ignored,
                     :paternal_maternal, :source

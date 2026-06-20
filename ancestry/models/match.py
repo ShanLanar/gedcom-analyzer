@@ -126,6 +126,7 @@ class DnaMatch:
     ethnicity_regions: list = field(default_factory=list)
     last_login: str = ""
     fetched_at: str = ""
+    first_seen_at: str = ""
     raw_json: str = ""
 
     def to_dict(self) -> dict:
