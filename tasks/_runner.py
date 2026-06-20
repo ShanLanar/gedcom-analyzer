@@ -306,7 +306,7 @@ def collect_report_sheets():
                         brickwalls, research_suggestions, sources,
                         onomastics, endogamy_network, sosa, familysearch,
                         online_research, book_statistics,
-                        gov_lookup, grabstein, externe_quellen)
+                        gov_lookup, grabstein, externe_quellen, dfd_lookup)
 
     indiv = _state["individuals"]
     ld    = _state["location_data"]
@@ -582,6 +582,9 @@ def collect_report_sheets():
         ("Externe Recherche-Links", externe_quellen.EXTERNE_QUELLEN_HEADERS,
          _state.get("externe_quellen_rows", [])[:10_000]),
 
+        ("DFD-Familiennamen", dfd_lookup.DFD_LOOKUP_HEADERS,
+         _state.get("dfd_lookup_rows", [])[:2_000]),
+
         ("Quellen-Inventar", sources.SOURCE_INVENTORY_HEADERS,
          _state.get("source_inventory", [])[:10_000]),
 
@@ -728,6 +731,7 @@ def collect_report_sheets():
         "GOV-Orte & Archiv-Links":          "FFC000",
         "Grabstein-Suche":                  "FFC000",
         "Externe Recherche-Links":          "FFC000",
+        "DFD-Familiennamen":                "FFC000",
         "Quellen-Inventar":                 "FFC000",
         "Quellen-Qualität pro Person":      "FFC000",
         # H: Militär & Linien – Braun
@@ -1199,6 +1203,18 @@ def run_externe_quellen(progress_cb=None, stop_event=None):
         _state["individuals"],
         root_related_ids=_state.get("root_related_ids"),
         progress_cb=progress_cb)
+
+
+def run_dfd_lookup(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.dfd_lookup import run_dfd_lookup as _run
+    rows, variants = _run(
+        _state["individuals"],
+        progress_cb=progress_cb,
+        scrape=True)
+    _state["dfd_lookup_rows"] = rows
+    # Varianten für Phonetik-Matching zugänglich machen
+    _state["dfd_variants"] = variants
 
 
 def run_book_statistics(progress_cb=None, stop_event=None):
