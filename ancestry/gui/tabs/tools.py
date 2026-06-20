@@ -144,7 +144,7 @@ class ToolsTab(ttk.Frame):
         self._tl_ftm_source = tk.StringVar(value="ftm")
         self._tl_ftm_no_link = tk.BooleanVar(value=False)
         self._tl_diff_out = tk.StringVar(value="")
-        self._tl_diff_include_new = tk.BooleanVar(value=False)
+        self._tl_diff_include_new = tk.BooleanVar(value=True)
 
         # ── Abschnitt A0: FTM-Direktbrücke ────────────────────────────────
         sec = self._tool_section(inner, "🔀  Family Tree Maker — Direktbrücke")
@@ -189,7 +189,7 @@ class ToolsTab(ttk.Frame):
                   foreground=self._state.colors().get("text_dim", "#888888")
                   ).pack(side="left", padx=(6, 0))
         row2 = ttk.Frame(sec); row2.pack(fill="x", pady=2)
-        ttk.Checkbutton(row2, text="Neue Personen einschließen (nur in Anverwandte)",
+        ttk.Checkbutton(row2, text="Cousins / neue Personen einschließen (nur in Anverwandte)",
                         variable=self._tl_diff_include_new).pack(side="left")
         self._tool_action(sec, "📤 Diff-GEDCOM erzeugen", "diff_anv_ftm",
                           self._tl_cmd_diff_anv_ftm)
@@ -582,8 +582,8 @@ class ToolsTab(ttk.Frame):
         out = self._tl_diff_out.get().strip()
         if out:
             cmd += ["-o", out]
-        if self._tl_diff_include_new.get():
-            cmd.append("--include-new")
+        if not self._tl_diff_include_new.get():
+            cmd.append("--no-new")
         return cmd
 
     # ── Befehlszeilen ─────────────────────────────────────────────────────

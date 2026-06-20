@@ -132,7 +132,7 @@ def run(
     output_path: str | None = None,
     source_anv: str = "anverwandte",
     source_ftm: str = "ftm",
-    include_new: bool = False,
+    include_new: bool = True,
     progress_cb=None,
 ) -> dict:
     """Erstellt GEDCOM-Diff: Felder aus source_anv, die source_ftm fehlen.
@@ -148,7 +148,8 @@ def run(
     source_ftm:
         Quelle der FTM-Personen (Standard: 'ftm').
     include_new:
-        True = auch Personen exportieren, die nur in Anverwandte vorkommen.
+        True (Standard) = Personen ohne FTM-Match (potenzielle Cousins u. a.)
+        werden ebenfalls exportiert. False = nur Anreicherungen.
     progress_cb:
         Optionaler Callback ``(msg: str, **kw) -> None``.
 
@@ -295,8 +296,8 @@ def main():
                     help="Quellname Anverwandte (Standard: 'anverwandte')")
     ap.add_argument("--source-ftm", default="ftm",
                     help="Quellname FTM (Standard: 'ftm')")
-    ap.add_argument("--include-new", action="store_true",
-                    help="Neue Personen (nur in Anverwandte) mit exportieren")
+    ap.add_argument("--no-new", action="store_true",
+                    help="Neue Personen (Cousins u.a., nur in Anverwandte) NICHT exportieren")
     args = ap.parse_args()
 
     result = run(
@@ -304,7 +305,7 @@ def main():
         output_path=args.output,
         source_anv=args.source_anv,
         source_ftm=args.source_ftm,
-        include_new=args.include_new,
+        include_new=not args.no_new,
     )
     print(f"\nFertig: {result['enriched']} Anreicherungen, "
           f"{result['new']} neue Personen → {result['output_path']}")
