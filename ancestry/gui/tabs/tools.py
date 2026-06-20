@@ -143,6 +143,8 @@ class ToolsTab(ttk.Frame):
         self._tl_ftm_file = tk.StringVar(value="")
         self._tl_ftm_source = tk.StringVar(value="ftm")
         self._tl_ftm_no_link = tk.BooleanVar(value=False)
+        self._tl_diff_out = tk.StringVar(value="")
+        self._tl_diff_include_new = tk.BooleanVar(value=False)
 
         # ── Abschnitt A0: FTM-Direktbrücke ────────────────────────────────
         sec = self._tool_section(inner, "🔀  Family Tree Maker — Direktbrücke")
@@ -167,6 +169,30 @@ class ToolsTab(ttk.Frame):
                         variable=self._tl_ftm_no_link).pack(side="left")
         self._tool_action(sec, "🔀 FTM → Bridge importieren", "ftm_bridge",
                           self._tl_cmd_ftm_bridge)
+
+        # ── Abschnitt A0b: Anverwandte → FTM Diff-Export ─────────────────
+        sec = self._tool_section(inner, "📤  Anverwandte → FTM (Diff-GEDCOM)")
+        ttk.Label(sec,
+                  text="Exportiert nur die Felder, die Anverwandte hat und FTM nicht → "
+                       "in FTM importieren (Datei → Import → Merge).",
+                  foreground=self._state.colors().get("text_dim", "#888888"),
+                  wraplength=380).pack(anchor="w", pady=(0, 4))
+        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Ausgabe .ged:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_diff_out, width=20).pack(
+            side="left", padx=(4, 2))
+        _pb2 = ttk.Button(row, text="…", width=3,
+                          command=self._tl_diff_pick_out)
+        _pb2.pack(side="left")
+        register_tooltip(_pb2, "tt.pick_file", self._state)
+        ttk.Label(row, text="(leer = neben DB)",
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(side="left", padx=(6, 0))
+        row2 = ttk.Frame(sec); row2.pack(fill="x", pady=2)
+        ttk.Checkbutton(row2, text="Neue Personen einschließen (nur in Anverwandte)",
+                        variable=self._tl_diff_include_new).pack(side="left")
+        self._tool_action(sec, "📤 Diff-GEDCOM erzeugen", "diff_anv_ftm",
+                          self._tl_cmd_diff_anv_ftm)
 
         # ── Abschnitt A: Webtrees ─────────────────────────────────────────
         sec = self._tool_section(inner, "⬇  Webtrees-Stammbaum")
@@ -538,6 +564,26 @@ class ToolsTab(ttk.Frame):
                "--source", self._tl_ftm_source.get().strip() or "ftm"]
         if self._tl_ftm_no_link.get():
             cmd.append("--no-link")
+        return cmd
+
+    # ── Anverwandte → FTM Diff ────────────────────────────────────────────
+    def _tl_diff_pick_out(self):
+        from tkinter import filedialog
+        p = filedialog.asksaveasfilename(
+            title="Diff-GEDCOM speichern unter",
+            defaultextension=".ged",
+            initialfile="diff_anv_ftm.ged",
+            filetypes=[("GEDCOM", "*.ged"), ("Alle Dateien", "*.*")])
+        if p:
+            self._tl_diff_out.set(p)
+
+    def _tl_cmd_diff_anv_ftm(self) -> list[str]:
+        cmd = [sys.executable, "-u", _tool("diff_anv_ftm.py")]
+        out = self._tl_diff_out.get().strip()
+        if out:
+            cmd += ["-o", out]
+        if self._tl_diff_include_new.get():
+            cmd.append("--include-new")
         return cmd
 
     # ── Befehlszeilen ─────────────────────────────────────────────────────
