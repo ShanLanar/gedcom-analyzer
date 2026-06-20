@@ -44,6 +44,14 @@ Matricula-Kirchenbücher). Python, Tkinter-GUI (`ancestry/gui`), SQLite.
   `analysis/` (Dialoge), `widgets/`.
 - `ancestry/tools/` — eigenständige CLI-/GUI-Tools (Crawler, Importe,
   `ged_slim.py`, Matricula-Scan/Viewer, Entity-Browser).
+- `tasks/` — 50+ Analyse-Module für die GEDCOM-Auswertung. Alle werden über
+  `tasks/_runner.py` orchestriert. Neue Module immer dort als `run_*()`
+  eintragen und in `collect_report_sheets()` + Tab-Farben aufnehmen.
+  Wichtige Online-Module (schlecht erschlossene Quellen, Stand 2026-06):
+  - `gov_lookup.py`     — GOV + Nominatim + Wikidata → Orts-Anreicherung
+  - `grabstein.py`      — BillionGraves, FindAGrave, Volksbund, jüd. Friedhöfe
+  - `externe_quellen.py`— 27 Recherche-Links pro Person (Archiv, DNA, Presse …)
+  - `dfd_lookup.py`     — DFD namenforschung.net (Etymologie, Varianten, Rang)
 
 ### Konventionen
 - GUI-Tabs sind `ttk.Frame`-Subklassen, konstruiert mit

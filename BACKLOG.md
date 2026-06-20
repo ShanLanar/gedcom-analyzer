@@ -57,9 +57,9 @@ Legende: 🔴 Hoch · 🟡 Mittel · 🟢 Niedrig | Aufwand: S=klein M=mittel L=
 | Prio | Titel | Aufwand | Beschreibung |
 |------|-------|---------|--------------|
 | 🔴 | **GEDCOM-Export** | L | Gemeinsame Vorfahren als GEDCOM exportieren (für andere Tools) |
-| 🟡 | **FamilySearch-Link** | S | Match-Detail: "🔍 FamilySearch" Button öffnet Namenssuche |
-| 🟡 | **Archion/Matricula-Link** | S | Geburtsort-Analyse: direkter Link zu Archion/Matricula für deutschen Ort |
-| 🟡 | **GenWiki-GOV-Integration** | S | Schon in Orte-Analyse: ausbauen auf automatische Koordinaten-Abfrage |
+| ✅ | **FamilySearch-Link** | S | Erledigt: `tasks/familysearch.py` + `tasks/externe_quellen.py` |
+| ✅ | **Archion/Matricula-Link** | S | Erledigt: `tasks/externe_quellen.py` + `tasks/gov_lookup.py` |
+| ✅ | **GenWiki-GOV-Integration** | S | Erledigt: `tasks/gov_lookup.py` (Nominatim + Wikidata GOV-ID + Archiv-Links) |
 | 🟡 | **MyTrueAncestry API-Login** | XL | Automatischer Login + Datenabruf (erfordert Reverse-Engineering der API) |
 | 🟢 | **GedMatch-Export** | M | Cluster-Ergebnisse als GedMatch-kompatibles Format |
 | 🟢 | **Gramps XML Export** | M | Gemeinsame Vorfahren als Gramps-XML für direkten Import |
@@ -144,6 +144,37 @@ Backlog zu streichen):
 5. ✅ mypy schrittweise (7 Kernmodule, CI-Job `typecheck`)
 6. ✅ Tooltips auf alle „…"-Dateiwähler-Buttons
 
+### Sprint 4 erledigt (2026-06-20) — Schlecht erschlossene Online-Daten
+
+Expertengremium (Archivar, DNA-Genetikerin, Data Engineer, Historiker,
+Datenschutzjurist) → folgende Tasks realisiert:
+
+1. ✅ **GOV-Orte-Lookup** (`tasks/gov_lookup.py`)
+   - Nominatim (OpenStreetMap) → Koordinaten für jeden GEDCOM-Ort
+   - Wikidata SPARQL → GOV-ID (P3519), Diözese, Kirchspiel
+   - Archiv-Links: Matricula, Archion, ArcInSys NI, Archivportal-D, GOV
+   - Sheet „GOV-Orte & Archiv-Links"
+
+2. ✅ **Grabstein-Suche** (`tasks/grabstein.py`)
+   - BillionGraves, FindAGrave, Grabstein-Projekt, Volksbund VDK,
+     Steinheim-Institut (jüdische Friedhöfe)
+   - Konfidenz-Klasse HOCH/MITTEL/NIEDRIG
+   - Sheet „Grabstein-Suche"
+
+3. ✅ **Externe Recherche-Links** (`tasks/externe_quellen.py`)
+   - 27 plattform-spezifische Links pro Person
+   - Zeitraum-basiert: Kirchenbücher (<1874) / Standesamt (≥1874)
+   - Auswanderer-, Militär-, Presse-, Adressbuch-, Linked-Data-Links
+   - Sheet „Externe Recherche-Links"
+
+4. ✅ **DFD-Namenforschung** (`tasks/dfd_lookup.py`)
+   - Digitales Familiennamenwörterbuch Deutschlands (namenforschung.net)
+   - URL-Modus (immer) + optionaler 2-Stufen-HTML-Scraper
+   - Häufigkeit, Rang, Namentyp, Etymologie, Schreibvarianten
+   - Varianten → `_state["dfd_variants"]` für Phonetik-Matching
+   - K/C/V/W-Phonetik-Äquivalenz in `_similar_enough()`
+   - Sheet „DFD-Familiennamen"
+
 ## Sofort-Sprint (nächste Sitzung)
 
 1. 🟢 Live-Switch auf restliche on-demand-Dialog-Labels ausweiten (Tabs sind
@@ -152,6 +183,10 @@ Backlog zu streichen):
 2. 🟢 mypy-Abdeckung erweitern (weitere Kernmodule aufnehmen, sobald sauber)
 3. 🟡 Ähnlichkeits-Matrix (Nachnamen-Overlap zweier Matches, EPIC 3)
 4. 🟢 i18n-Audit-Tool auf AST umstellen (fängt auch messagebox-Nachrichten)
+5. 🟡 DFD-Varianten in `bridge.py`/`treematch.py` einbinden
+   (`_state["dfd_variants"]` → Synonym-Erweiterung beim Fuzzy-Name-Match)
+6. 🟡 Unit-Tests für die 4 neuen Online-Module (gov_lookup, grabstein,
+   externe_quellen, dfd_lookup) — derzeit keine Tests vorhanden
 
 > ✅ Erledigt (diese Sitzung): GESAMTE GUI zweisprachig (179 → 0 hartkodierte
 > Strings) + Live-Sprachwechsel, Guard-Test + Audit-Tool, Tooltip-Helfer +
