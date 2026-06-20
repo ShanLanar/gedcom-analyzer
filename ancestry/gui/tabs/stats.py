@@ -210,6 +210,15 @@ class StatsTab(ttk.Frame):
             self._cm_tree.column(c, width=w, anchor="w", stretch=False)
         self._cm_tree.pack(fill="x", pady=(2, 0))
 
+        # ── cM-Zeitreihe ─────────────────────────────────────────────────────────
+        tsf = ttk.LabelFrame(self, text="📈 cM-Zeitreihe (Match-Verlauf)", padding=8)
+        tsf.pack(fill="x", padx=14, pady=(0, 8))
+        ttk.Label(tsf, text="Neue Matches und Ø cM pro Download-Tag:",
+                  foreground="#666666").pack(anchor="w")
+        self._ts_canvas = tk.Canvas(tsf, height=90, bg=COLORS["bg"],
+                                    highlightthickness=0)
+        self._ts_canvas.pack(fill="x", expand=True, pady=(4, 0))
+
         # Bewusst KEIN refresh() hier — siehe __init__ (_stats_dirty).
 
     # ── Daten ────────────────────────────────────────────────────────────────
@@ -246,6 +255,7 @@ class StatsTab(ttk.Frame):
         self.after(50, self._draw_ethnicity)
         self.after(60, self._draw_traits)
         self.after(70, self._refresh_population)
+        self.after(80, self._refresh_timeseries)
 
     def _refresh_population(self):
         from ancestry.core import population_stats as ps
@@ -267,6 +277,92 @@ class StatsTab(ttk.Frame):
                         r.get("rel_hint", "")))
         except Exception as e:
             log.debug("cm_histogram: %s", e)
+
+    def _refresh_timeseries(self):
+        """Zeichnet die cM-Zeitreihe: Match-Neuzugänge + Ø cM pro Tag."""
+        c = self._ts_canvas
+        c.delete("all")
+        tg = self._get_test_guid()
+        if not tg:
+            c.configure(height=22)
+            c.create_text(10, 11, text="Kein Kit ausgewählt", anchor="w",
+                          fill="#777777", font=("Segoe UI", 9))
+            return
+        try:
+            with self._state.db._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT date(fetched_at) AS day, COUNT(*) AS cnt, "
+                    "ROUND(AVG(shared_cm), 1) AS avg_cm "
+                    "FROM matches WHERE test_guid=? AND fetched_at IS NOT NULL "
+                    "GROUP BY day ORDER BY day",
+                    (tg,),
+                ).fetchall()
+        except Exception as e:
+            log.debug("timeseries query: %s", e)
+            rows = []
+
+        if not rows or len(rows) < 2:
+            c.configure(height=22)
+            c.create_text(10, 11, text="Noch keine Zeitreihen-Daten (min. 2 Download-Tage nötig)",
+                          anchor="w", fill="#777777", font=("Segoe UI", 9))
+            return
+
+        c.update_idletasks()
+        W = c.winfo_width() or 600
+        H = 80
+        c.configure(height=H)
+        PAD_L, PAD_R, PAD_T, PAD_B = 48, 12, 8, 20
+
+        counts = [r[1] for r in rows]
+        avgs   = [float(r[2] or 0) for r in rows]
+        days   = [r[0] for r in rows]
+        n      = len(rows)
+
+        max_cnt = max(counts) or 1
+        max_avg = max(avgs)   or 1
+        chart_w = W - PAD_L - PAD_R
+        chart_h = H - PAD_T - PAD_B
+
+        def xp(i): return PAD_L + i * chart_w / max(n - 1, 1)
+        def yp_cnt(v): return PAD_T + chart_h - (v / max_cnt) * chart_h
+        def yp_avg(v): return PAD_T + chart_h - (v / max_avg) * chart_h
+
+        # Achsen
+        c.create_line(PAD_L, PAD_T, PAD_L, H - PAD_B, fill="#555566")
+        c.create_line(PAD_L, H - PAD_B, W - PAD_R, H - PAD_B, fill="#555566")
+
+        # Match-Anzahl (Balken, blau)
+        bar_w = max(2, chart_w // n - 2)
+        for i, cnt in enumerate(counts):
+            x = xp(i)
+            y = yp_cnt(cnt)
+            c.create_rectangle(x - bar_w // 2, y, x + bar_w // 2,
+                                H - PAD_B, fill=COLORS["primary"], outline="")
+
+        # Ø cM-Linie (orange)
+        pts = [(xp(i), yp_avg(v)) for i, v in enumerate(avgs)]
+        for i in range(len(pts) - 1):
+            c.create_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
+                          fill="#ffaa33", width=2)
+
+        # Beschriftungen: erstes + letztes Datum
+        c.create_text(PAD_L, H - PAD_B + 4, text=days[0][:10],
+                      anchor="nw", font=("Segoe UI", 7), fill="#999999")
+        c.create_text(W - PAD_R, H - PAD_B + 4, text=days[-1][:10],
+                      anchor="ne", font=("Segoe UI", 7), fill="#999999")
+        c.create_text(PAD_L - 4, PAD_T, text=str(max_cnt),
+                      anchor="e", font=("Segoe UI", 7), fill=COLORS["primary"])
+        c.create_text(PAD_L - 4, H - PAD_B, text="0",
+                      anchor="e", font=("Segoe UI", 7), fill="#777777")
+        # Legende
+        c.create_rectangle(W - PAD_R - 90, PAD_T, W - PAD_R - 82, PAD_T + 8,
+                           fill=COLORS["primary"], outline="")
+        c.create_text(W - PAD_R - 80, PAD_T + 1, text="Matches",
+                      anchor="nw", font=("Segoe UI", 7), fill=COLORS["primary"])
+        c.create_line(W - PAD_R - 40, PAD_T + 4, W - PAD_R - 32, PAD_T + 4,
+                      fill="#ffaa33", width=2)
+        c.create_text(W - PAD_R - 30, PAD_T + 1, text="Ø cM",
+                      anchor="nw", font=("Segoe UI", 7), fill="#ffaa33")
 
     def _draw_rings(self, stats: dict):
         c = self._ring_canvas

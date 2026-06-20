@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import time
 import tkinter as tk
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Optional
 
 from ancestry.core.scraper import DownloadResult, Scraper
@@ -388,6 +388,48 @@ class DownloadTab(ttk.Frame):
         f.columnconfigure(1, weight=1)
         f.rowconfigure(26, weight=1)
         install_gui_log_handler(self._log_text)
+        self._log_text.bind("<Button-3>", self._log_context_menu)
+
+    # ── Log-Kontextmenü ───────────────────────────────────────────────────────
+
+    def _log_context_menu(self, event: tk.Event):
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(label="📋 Alles kopieren",
+                         command=self._log_copy_all)
+        menu.add_command(label="💾 Als .txt speichern …",
+                         command=self._log_save_txt)
+        menu.add_separator()
+        menu.add_command(label="🗑 Log leeren",
+                         command=self._log_clear)
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _log_copy_all(self):
+        text = self._log_text.get("1.0", "end-1c")
+        self.clipboard_clear()
+        self.clipboard_append(text)
+
+    def _log_save_txt(self):
+        path = filedialog.asksaveasfilename(
+            defaultextension=".txt",
+            filetypes=[("Textdatei", "*.txt"), ("Alle Dateien", "*.*")],
+            title="Download-Protokoll speichern",
+        )
+        if not path:
+            return
+        text = self._log_text.get("1.0", "end-1c")
+        try:
+            with open(path, "w", encoding="utf-8") as f:
+                f.write(text)
+        except OSError as e:
+            messagebox.showerror("Fehler", f"Konnte Datei nicht schreiben:\n{e}")
+
+    def _log_clear(self):
+        self._log_text.configure(state="normal")
+        self._log_text.delete("1.0", "end")
+        self._log_text.configure(state="disabled")
 
     # ── Public API ────────────────────────────────────────────────────────────
 

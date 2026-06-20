@@ -306,7 +306,8 @@ def collect_report_sheets():
                         brickwalls, research_suggestions, sources,
                         onomastics, endogamy_network, sosa, familysearch,
                         online_research, book_statistics,
-                        gov_lookup, grabstein, externe_quellen, dfd_lookup)
+                        gov_lookup, grabstein, externe_quellen, dfd_lookup,
+                        wikitree_lookup)
 
     indiv = _state["individuals"]
     ld    = _state["location_data"]
@@ -585,6 +586,9 @@ def collect_report_sheets():
         ("DFD-Familiennamen", dfd_lookup.DFD_LOOKUP_HEADERS,
          _state.get("dfd_lookup_rows", [])[:2_000]),
 
+        ("WikiTree-Profile", wikitree_lookup.WIKITREE_HEADERS,
+         _state.get("wikitree_rows", [])[:5_000]),
+
         ("Quellen-Inventar", sources.SOURCE_INVENTORY_HEADERS,
          _state.get("source_inventory", [])[:10_000]),
 
@@ -732,6 +736,7 @@ def collect_report_sheets():
         "Grabstein-Suche":                  "FFC000",
         "Externe Recherche-Links":          "FFC000",
         "DFD-Familiennamen":                "FFC000",
+        "WikiTree-Profile":                 "FFC000",
         "Quellen-Inventar":                 "FFC000",
         "Quellen-Qualität pro Person":      "FFC000",
         # H: Militär & Linien – Braun
@@ -1215,6 +1220,16 @@ def run_dfd_lookup(progress_cb=None, stop_event=None):
     _state["dfd_lookup_rows"] = rows
     # Varianten für Phonetik-Matching zugänglich machen
     _state["dfd_variants"] = variants
+
+
+def run_wikitree_lookup(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.wikitree_lookup import run_wikitree_lookup as _run
+    _state["wikitree_rows"] = _run(
+        _state["individuals"],
+        root_related_ids=_state.get("root_related_ids"),
+        progress_cb=progress_cb,
+        scrape=True)
 
 
 def run_book_statistics(progress_cb=None, stop_event=None):

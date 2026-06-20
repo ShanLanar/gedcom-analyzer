@@ -129,14 +129,14 @@ class TestGovLookupArchiveLinks:
 
 from tasks.grabstein import (
     run_grabstein_search,
-    _confidence,
+    _confidence as _grabstein_confidence,
     _billiongraves,
     _findagrave,
     _grabstein_projekt,
     _volksbund,
     _jewish_cemeteries,
     _might_be_jewish,
-    _split_name,
+    _split_name as _grabstein_split_name,
     GRABSTEIN_HEADERS,
 )
 
@@ -178,13 +178,13 @@ class TestGrabsteinFilter:
 
 class TestGrabsteinConfidence:
     def test_hoch(self):
-        assert _confidence("Schulze", 1870, 1940) == "HOCH"
+        assert _grabstein_confidence("Schulze", 1870, 1940) == "HOCH"
 
     def test_mittel(self):
-        assert _confidence("Schulze", 1870, None) == "MITTEL"
+        assert _grabstein_confidence("Schulze", 1870, None) == "MITTEL"
 
     def test_niedrig(self):
-        assert _confidence("Schulze", None, None) == "NIEDRIG"
+        assert _grabstein_confidence("Schulze", None, None) == "NIEDRIG"
 
 
 class TestGrabsteinUrls:
@@ -217,12 +217,12 @@ class TestGrabsteinUrls:
 
 class TestGrabsteinHelpers:
     def test_split_name_slash(self):
-        given, sn = _split_name("Johann /Schulze/")
+        given, sn = _grabstein_split_name("Johann /Schulze/")
         assert given == "Johann"
         assert sn == "Schulze"
 
     def test_split_name_plain(self):
-        given, sn = _split_name("Johann Schulze")
+        given, sn = _grabstein_split_name("Johann Schulze")
         assert sn == "Schulze"
 
     def test_might_be_jewish_true(self):
@@ -370,7 +370,7 @@ from tasks.dfd_lookup import (
     _similar_enough,
     _normalize_first,
     _collect_surnames,
-    _search_url,
+    _search_url as _dfd_search_url,
     _find_article_link,
     _parse_article,
     run_dfd_lookup,
@@ -447,15 +447,15 @@ class TestDfdCollectSurnames:
 
 class TestDfdSearchUrl:
     def test_contains_name(self):
-        url = _search_url("Schulze")
+        url = _dfd_search_url("Schulze")
         assert "Schulze" in url or "schulze" in url.lower()
 
     def test_contains_base(self):
-        url = _search_url("Schulze")
+        url = _dfd_search_url("Schulze")
         assert "namenforschung.net" in url
 
     def test_contains_action(self):
-        url = _search_url("Schulze")
+        url = _dfd_search_url("Schulze")
         assert "list" in url
 
 
@@ -553,6 +553,101 @@ class TestDfdVariantsJson:
             assert json_path.exists()
             loaded = json.loads(json_path.read_text(encoding="utf-8"))
             assert isinstance(loaded, dict)
+
+
+# ═══════════════════════════════════════════════════════════════════════════════
+# wikitree_lookup
+# ═══════════════════════════════════════════════════════════════════════════════
+
+from tasks.wikitree_lookup import (
+    run_wikitree_lookup,
+    _search_url as _wt_search_url,
+    _confidence as _wt_confidence,
+    _split_name as _wt_split_name,
+    WIKITREE_HEADERS,
+)
+
+
+class TestWikiTreeHelpers:
+    def test_split_name_slash(self):
+        given, sn = _wt_split_name("Johann /Schulze/")
+        assert given == "Johann"
+        assert sn == "Schulze"
+
+    def test_split_name_plain(self):
+        given, sn = _wt_split_name("Anna Müller")
+        assert sn == "Müller"
+
+    def test_split_empty(self):
+        given, sn = _wt_split_name("")
+        assert given == ""
+        assert sn == ""
+
+
+class TestWikiTreeSearchUrl:
+    def test_contains_surname(self):
+        url = _wt_search_url("Johann", "Schulze", 1850)
+        assert "Schulze" in url
+        assert "wikitree.com" in url
+
+    def test_contains_birth_year(self):
+        url = _wt_search_url("Johann", "Schulze", 1850)
+        assert "1850" in url
+
+    def test_no_birth_year(self):
+        url = _wt_search_url("Johann", "Schulze", None)
+        assert "Schulze" in url
+
+
+class TestWikiTreeConfidence:
+    _WT_HOCH = {"LastNameAtBirth": "Schulze", "BirthDate": "1850-01-01"}
+    _WT_MITTEL = {"LastNameAtBirth": "Schulze", "BirthDate": "1900-01-01"}
+    _WT_NIEDRIG = {"LastNameAtBirth": "Müller", "BirthDate": "1850-01-01"}
+
+    def test_hoch(self):
+        assert _wt_confidence("Johann", "Schulze", 1850, self._WT_HOCH) == "HOCH"
+
+    def test_mittel_name_match_wrong_year(self):
+        assert _wt_confidence("Johann", "Schulze", 1850, self._WT_MITTEL) == "MITTEL"
+
+    def test_niedrig_wrong_name(self):
+        assert _wt_confidence("Johann", "Schulze", 1850, self._WT_NIEDRIG) == "NIEDRIG"
+
+    def test_no_surname(self):
+        assert _wt_confidence("Johann", "Schulze", 1850, {}) == "NIEDRIG"
+
+
+class TestWikiTreeRunLookupNoScrape:
+    def test_returns_list(self):
+        rows = run_wikitree_lookup(_INDIVIDUALS, scrape=False)
+        assert isinstance(rows, list)
+
+    def test_row_structure(self):
+        rows = run_wikitree_lookup(_INDIVIDUALS, scrape=False)
+        assert len(rows) > 0
+        assert len(rows[0]) == len(WIKITREE_HEADERS)
+
+    def test_headers_count(self):
+        assert len(WIKITREE_HEADERS) == 13
+
+    def test_search_url_in_last_column(self):
+        rows = run_wikitree_lookup(_INDIVIDUALS, scrape=False)
+        for row in rows:
+            assert "wikitree.com" in row[-1]
+
+    def test_too_young_filtered(self):
+        inds = {"@I1@": {**_INDIVIDUALS["@I1@"],
+                          "BIRT": {"YEAR": 1970, "PLAC": "Berlin"}}}
+        rows = run_wikitree_lookup(inds, scrape=False)
+        assert rows == []
+
+    def test_no_name_filtered(self):
+        rows = run_wikitree_lookup({"@I6@": _INDIVIDUALS["@I6@"]}, scrape=False)
+        assert rows == []
+
+    def test_max_persons_respected(self):
+        rows = run_wikitree_lookup(_INDIVIDUALS, scrape=False, max_persons=1)
+        assert len(rows) <= 1
 
 
 _FAKE_ARTICLE_HTML = """

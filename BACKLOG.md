@@ -175,18 +175,44 @@ Datenschutzjurist) → folgende Tasks realisiert:
    - K/C/V/W-Phonetik-Äquivalenz in `_similar_enough()`
    - Sheet „DFD-Familiennamen"
 
+### Sprint 5 erledigt (2026-06-20) — Expertengremium Sprint 2
+
+Gremium: Archivar, DNA-Genetikerin, Data Engineer, Historiker, Datenschutzjurist
+
+1. ✅ **WikiTree-Profil-Suche** (`tasks/wikitree_lookup.py`)
+   - Öffentliche API (https://api.wikitree.com/api.php, kein API-Key)
+   - Für jeden Ahnen: Such-URL (immer) + optionaler API-Abruf
+   - Konfidenz HOCH/MITTEL/NIEDRIG (Name + Geburtsjahr ± 2 J.)
+   - Sheet „WikiTree-Profile" im Excel-Export (13 Spalten)
+
+2. ✅ **cM-Zeitreihe im Stats-Tab**
+   - Query auf `fetched_at` in `matches`-Tabelle → Neuzugänge + Ø cM pro Tag
+   - Canvas-Linien-/Balken-Chart (blaue Balken = Match-Anzahl, orangene Linie = Ø cM)
+   - Automatisch nach jedem Stats-Refresh neu gezeichnet
+
+3. ✅ **Download-Protokoll exportieren** (Rechtsklick-Kontextmenü auf Log)
+   - „Alles kopieren" / „Als .txt speichern …" / „Log leeren"
+
+4. ✅ **Drag-and-Drop Cookie-Datei** (`login.py`)
+   - Drop-Zone für `.json`-Dateien (wenn tkinterdnd2 installiert; sonst Fallback)
+   - Pfad wird gesetzt → direkter Login möglich
+
+5. ✅ **DFD-Varianten in `bridge.py`/`treematch.py` einbinden** (Sprint 4b)
+   - `expand_surname_variants()` in `_text.py`
+   - Varianten-Schritt in `matching.py` Kandidaten-Aufbau
+   - JSON-Persistenz in `tasks/dfd_lookup.py`
+
+6. ✅ **Unit-Tests für alle 5 Online-Module** (95 → 112 Tests)
+   - gov_lookup, grabstein, externe_quellen, dfd_lookup, wikitree_lookup
+
 ## Sofort-Sprint (nächste Sitzung)
 
-1. 🟢 Live-Switch auf restliche on-demand-Dialog-Labels ausweiten (Tabs sind
-   abgedeckt; Analyse-Popups werden bei Öffnen ohnehin in aktueller Sprache
-   gebaut — nur live geöffnete Fenster ständen veraltet).
+1. 🟢 Live-Switch auf restliche on-demand-Dialog-Labels ausweiten
 2. 🟢 mypy-Abdeckung erweitern (weitere Kernmodule aufnehmen, sobald sauber)
-3. 🟡 Ähnlichkeits-Matrix (Nachnamen-Overlap zweier Matches, EPIC 3)
-4. 🟢 i18n-Audit-Tool auf AST umstellen (fängt auch messagebox-Nachrichten)
-5. 🟡 DFD-Varianten in `bridge.py`/`treematch.py` einbinden
-   (`_state["dfd_variants"]` → Synonym-Erweiterung beim Fuzzy-Name-Match)
-6. 🟡 Unit-Tests für die 4 neuen Online-Module (gov_lookup, grabstein,
-   externe_quellen, dfd_lookup) — derzeit keine Tests vorhanden
+3. 🟢 i18n-Audit-Tool auf AST umstellen (fängt auch messagebox-Nachrichten)
+4. 🟡 cM-Zeitreihe: „Neu seit letztem Download"-Kennzeichnung in Match-Tab
+5. 🟡 WikiTree-Profile direkt im Matches-Detailpanel verlinken (Bridge-Tab)
+6. 🟡 Gramps XML Export (EPIC 4 🟢 M) — Gramps 5.1 XML für direkten Import
 
 > ✅ Erledigt (diese Sitzung): GESAMTE GUI zweisprachig (179 → 0 hartkodierte
 > Strings) + Live-Sprachwechsel, Guard-Test + Audit-Tool, Tooltip-Helfer +

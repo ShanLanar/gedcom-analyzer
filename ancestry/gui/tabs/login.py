@@ -76,8 +76,33 @@ class LoginTab(ttk.Frame):
         register_lang(self._state, ttk.Label(f, text=(
             self._state.t("lg.cookie_steps")
         ), foreground="#555555"), "lg.cookie_steps").grid(row=6, column=0, columnspan=3, sticky="w", padx=16)
-        ttk.Entry(f, textvariable=self._cookie_file_var, width=36,
-                  state="readonly").grid(row=7, column=1, sticky="w", **p)
+        # Drop-Zone für Cookie-JSON (optionales tkinterdnd2; fallback: reguläres Entry)
+        try:
+            import tkinterdnd2 as _dnd
+            _dnd_ok = True
+        except ImportError:
+            _dnd_ok = False
+
+        if _dnd_ok:
+            drop_lbl = tk.Label(
+                f, textvariable=self._cookie_file_var,
+                width=36, anchor="w", relief="groove",
+                bg="#2a2a3e", fg="#A0D0FF", cursor="hand2",
+                font=("Consolas", 9),
+            )
+            drop_lbl.grid(row=7, column=1, sticky="ew", **p)
+            try:
+                drop_lbl.drop_target_register(_dnd.DND_FILES)
+                drop_lbl.dnd_bind("<<Drop>>", self._on_file_drop)
+            except Exception:
+                pass
+            self._drop_widget: tk.Widget = drop_lbl
+        else:
+            _entry = ttk.Entry(f, textvariable=self._cookie_file_var, width=36,
+                               state="readonly")
+            _entry.grid(row=7, column=1, sticky="w", **p)
+            self._drop_widget = _entry
+
         _sv = tk.StringVar(value=t("lg.choose"))
         _b = ttk.Button(f, textvariable=_sv, command=self._choose_cookie_file)
         _b.grid(row=7, column=0, sticky="e", **p)
@@ -110,6 +135,16 @@ class LoginTab(ttk.Frame):
                                      style="Warning.TLabel")
         self._status_lbl.grid(row=13, column=0, columnspan=3, **p)
         f.columnconfigure(1, weight=1)
+
+    # ── Drag-and-Drop ─────────────────────────────────────────────────────────
+
+    def _on_file_drop(self, event):
+        path = event.data.strip().strip("{}")
+        if os.path.isfile(path) and path.lower().endswith(".json"):
+            self._cookie_file_var.set(path)
+            self._status_var.set("Datei eingelesen — bitte »Cookie-Login« klicken.")
+        else:
+            self._status_var.set("Bitte eine .json-Cookie-Datei einwerfen.")
 
     # ── Login-Logik ───────────────────────────────────────────────────────────
 
