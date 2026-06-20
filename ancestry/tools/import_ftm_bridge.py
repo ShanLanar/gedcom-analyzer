@@ -174,19 +174,30 @@ def run(
     """
     p = progress_cb or (lambda m, **kw: _log(m))
 
-    # ── FTM laden ─────────────────────────────────────────────────────────────
-    p(f"📂 Lese FTM-Datei: {ftm_path}")
-    from tasks.import_ftm import is_ftm_file, load_ftm
+    # ── FTM oder GEDCOM laden ─────────────────────────────────────────────────
+    suffix = Path(ftm_path).suffix.lower()
 
-    if not is_ftm_file(ftm_path):
-        raise ValueError(
-            f"Die Datei '{ftm_path}' ist keine FTM-SQLite-Datenbank "
-            f"(kein SQLite-Magic-Header). "
-            f"Bitte eine .ftm-Datei von Family Tree Maker 2014+ wählen."
-        )
+    if suffix in (".ged", ".gedcom"):
+        p(f"📂 Lese GEDCOM-Datei: {ftm_path}")
+        sys.path.insert(0, str(REPO_DIR))
+        from lib.gedcom import robust_load_gedcom
+        individuals, families = robust_load_gedcom(str(ftm_path))
+        p(f"✅ {len(individuals):,} Personen, {len(families):,} Familien gelesen.")
+    else:
+        p(f"📂 Lese FTM-Datei: {ftm_path}")
+        from tasks.import_ftm import is_ftm_file, load_ftm
 
-    individuals, families = load_ftm(ftm_path, progress_cb=progress_cb)
-    p(f"✅ {len(individuals):,} Personen, {len(families):,} Familien gelesen.")
+        if not is_ftm_file(ftm_path):
+            raise ValueError(
+                f"Die Datei '{ftm_path}' ist keine FTM-SQLite-Datenbank "
+                f"(kein SQLite-Magic-Header).\n"
+                f"FTM 2024 (MacKiev) komprimiert .ftm-Dateien — bitte in FTM\n"
+                f"nach GEDCOM exportieren (Datei → Exportieren → GEDCOM) und\n"
+                f"dann diese .ged-Datei als Argument übergeben."
+            )
+
+        individuals, families = load_ftm(ftm_path, progress_cb=progress_cb)
+        p(f"✅ {len(individuals):,} Personen, {len(families):,} Familien gelesen.")
 
     persons = _individuals_to_person_list(individuals, families, source)
     p(f"🔄 {len(persons):,} Personen mit vollständigem Namen zur Übernahme bereit.")
@@ -231,9 +242,15 @@ def run(
 
 def main():
     ap = argparse.ArgumentParser(
-        description="Family Tree Maker (.ftm) direkt in ancestry_dna.db importieren.")
+        description=(
+            "Family Tree Maker in ancestry_dna.db importieren.\n"
+            "Akzeptiert .ftm (FTM 2014–2017, SQLite) oder .ged (GEDCOM-Export\n"
+            "aus FTM 2024/MacKiev: Datei → Exportieren → GEDCOM)."
+        ),
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+    )
     ap.add_argument("ftm_file",
-                    help="Pfad zur .ftm Datei (Family Tree Maker 2014+)")
+                    help="Pfad zur .ftm- oder .ged-Datei")
     ap.add_argument("--source", default="ftm",
                     help="Quell-Label in gedcom_persons (Standard: 'ftm')")
     ap.add_argument("--db", default=None,
