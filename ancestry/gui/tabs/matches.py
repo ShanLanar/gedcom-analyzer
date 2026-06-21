@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import threading
 import tkinter as tk
 import webbrowser
 from tkinter import messagebox, ttk
@@ -137,6 +138,11 @@ class MatchesTab(ttk.Frame):
         if names and self._matches_kit_var.get() not in names:
             self._matches_kit_combo.current(0)
 
+    def _on_search_changed(self, *_):
+        if hasattr(self, "_search_after_id"):
+            self.after_cancel(self._search_after_id)
+        self._search_after_id = self.after(300, self.refresh)
+
     def refresh(self, *_):
         try:
             self._refresh_match_table_inner()
@@ -182,7 +188,7 @@ class MatchesTab(ttk.Frame):
         ttk.Label(fl, textvariable=_sv_s).pack(side="left", padx=(0,4))
         lw.append((_sv_s, "mf.search"))
         self._search_var = tk.StringVar()
-        self._search_var.trace_add("write", lambda *_: self.refresh())
+        self._search_var.trace_add("write", self._on_search_changed)
         ttk.Entry(fl, textvariable=self._search_var, width=20).pack(side="left")
 
         _sv_r = tk.StringVar(value=t("mf.rel"))
@@ -718,13 +724,19 @@ class MatchesTab(ttk.Frame):
         sy.pack(side="right", fill="y", pady=2)
 
     def _load_ancestors_panel(self, match: "DnaMatch"):
-        """Füllt den Gemeinsame-Vorfahren-Tab für den ausgewählten Match."""
+        """Füllt den Gemeinsame-Vorfahren-Tab für den ausgewählten Match (im Hintergrund)."""
         self._anc_tree.delete(*self._anc_tree.get_children())
-        try:
-            rows = self._state.db.get_ancestors_for_match(match.match_guid)
-        except Exception as e:
-            log.debug("get_ancestors_for_match %s: %s", match.match_guid[:8], e)
-            rows = []
+        def _worker():
+            try:
+                rows = self._state.db.get_ancestors_for_match(match.match_guid)
+            except Exception as e:
+                log.debug("get_ancestors_for_match %s: %s", match.match_guid[:8], e)
+                rows = []
+            self.after(0, lambda: self._fill_ancestors_panel(match, rows))
+        threading.Thread(target=_worker, daemon=True).start()
+
+    def _fill_ancestors_panel(self, match: "DnaMatch", rows):
+        self._anc_tree.delete(*self._anc_tree.get_children())
         if not rows:
             self._anc_status_var.set(self._state.t("md.anc_none"))
             return
@@ -1275,14 +1287,18 @@ class MatchesTab(ttk.Frame):
         explain_async(prompt, on_chunk=_chunk, on_done=_done, max_tokens=350)
 
     def _load_shared_panel(self, match: DnaMatch):
-        """Lädt Shared Matches für den ausgewählten primären Match."""
+        """Lädt Shared Matches für den ausgewählten primären Match (im Hintergrund)."""
         test_guid = self._get_test_guid()
         if not test_guid:
             return
+        self._sm_count_var.set("…")
+        def _worker():
+            shared = self._state.db.get_shared_matches(test_guid, match.match_guid)
+            self.after(0, lambda: self._fill_shared_panel(match, shared, test_guid))
+        threading.Thread(target=_worker, daemon=True).start()
 
-        shared = self._state.db.get_shared_matches(test_guid, match.match_guid)
+    def _fill_shared_panel(self, match: DnaMatch, shared, test_guid: str):
         self._sm_tree.delete(*self._sm_tree.get_children())
-
         if not shared:
             fetched = self._state.db.is_shared_fetched(test_guid, match.match_guid)
             self._sm_count_var.set(
@@ -1291,7 +1307,6 @@ class MatchesTab(ttk.Frame):
                 "Noch nicht heruntergeladen. → Tab »Herunterladen« → Schritt B"
             )
             return
-
         self._sm_count_var.set(f"{len(shared)} Shared Match(es) mit {match.display_name}")
         for sm in shared:
             self._sm_tree.insert("", "end", values=(

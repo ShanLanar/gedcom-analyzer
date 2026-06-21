@@ -324,10 +324,12 @@ class ClusterTab(ttk.Frame):
 
         test_guid = self._get_current_guid()
         guid_match: dict = {}
-        if test_guid:
+        if test_guid and members:
             try:
+                member_guids = [m["guid"] for m in members]
                 guid_match = {m.match_guid: m
-                              for m in self._state.db.get_matches(test_guid)}
+                              for m in self._state.db.get_matches(
+                                  test_guid, guid_filter=member_guids)}
             except Exception as e:
                 log.debug("cluster guid_match: %s", e)
 

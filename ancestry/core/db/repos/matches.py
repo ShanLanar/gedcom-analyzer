@@ -129,6 +129,7 @@ class MatchesRepo:
         all_sources: bool                   = False,
         paternal_maternal: Optional[str]    = None,
         new_only: bool                      = False,
+        guid_filter: Optional[list]         = None,
     ) -> list[DnaMatch]:
         valid_cols = {"display_name", "shared_cm", "shared_segments",
                       "predicted_relationship", "fetched_at", "starred",
@@ -158,6 +159,10 @@ class MatchesRepo:
             conditions.append("m.paternal_maternal = ?"); params.append(paternal_maternal)
         if new_only:
             conditions.append("m.first_seen_at >= datetime('now', '-7 days')")
+        if guid_filter:
+            placeholders = ",".join("?" * len(guid_filter))
+            conditions.append(f"m.match_guid IN ({placeholders})")
+            params.extend(guid_filter)
 
         where        = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         limit_clause = f"LIMIT {limit} OFFSET {offset}" if limit else ""
