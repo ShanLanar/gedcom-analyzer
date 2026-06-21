@@ -104,27 +104,27 @@ class Database:
         except Exception as e:
             log.debug("mkm-Reparatur: %s", e)
         # Waisenzeilen bereinigen (FK=OFF → manuelle Integrität).
-        # Im Hintergrund ausführen — NOT EXISTS nutzt den PK-Index statt Tabellen-Scan.
+        # Läuft im Hintergrund und NUR wenn tatsächlich Waisen vorhanden sind
+        # (EXISTS-Check zuerst — verhindert unnötige DELETEs auf gefüllten DBs).
         def _fk_cleanup():
             try:
-                import sqlite3 as _sq3
                 from ancestry.core.db.connection import _open
                 bg = _open(self.db_file)
-                bg.execute(
-                    "DELETE FROM shared_matches "
-                    "WHERE NOT EXISTS ("
-                    "  SELECT 1 FROM matches WHERE matches.match_guid=shared_matches.match_guid"
-                    ")"
-                )
-                bg.execute(
-                    "DELETE FROM match_pedigree "
-                    "WHERE NOT EXISTS ("
-                    "  SELECT 1 FROM matches WHERE matches.match_guid=match_pedigree.match_guid"
-                    ")"
-                )
+                for tbl, col in (("shared_matches", "match_guid"),
+                                 ("match_pedigree", "match_guid")):
+                    has_orphan = bg.execute(
+                        f"SELECT 1 FROM {tbl} t "
+                        f"WHERE NOT EXISTS (SELECT 1 FROM matches m WHERE m.match_guid=t.{col}) "
+                        "LIMIT 1"
+                    ).fetchone()
+                    if has_orphan:
+                        bg.execute(
+                            f"DELETE FROM {tbl} t "
+                            f"WHERE NOT EXISTS (SELECT 1 FROM matches m WHERE m.match_guid=t.{col})"
+                        )
+                        log.info("FK-Cleanup: Waisenzeilen in %s bereinigt", tbl)
                 bg.commit()
                 bg.close()
-                log.debug("FK-Cleanup: Waisenzeilen bereinigt (Hintergrund)")
             except Exception as e:
                 log.debug("FK-Cleanup übersprungen: %s", e)
         threading.Thread(target=_fk_cleanup, daemon=True, name="fk_cleanup").start()

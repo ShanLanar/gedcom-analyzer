@@ -42,6 +42,12 @@ def run(conn: sqlite3.Connection) -> int:
                 if "duplicate column name" in msg or "already exists" in msg:
                     log.debug("Migration: übersprungen (idempotent): %s", e)
                     continue
+                # Index/View auf noch nicht vorhandene Tabelle überspringen
+                # (z. B. gedcom_persons vor erstem GEDCOM-Import)
+                stmt_upper = stmt.lstrip().upper()
+                if "no such table" in msg and stmt_upper.startswith(("CREATE INDEX", "CREATE VIEW")):
+                    log.debug("Migration: Index/View übersprungen (Tabelle fehlt): %s", e)
+                    continue
                 raise
 
     if row:
