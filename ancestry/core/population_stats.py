@@ -162,25 +162,43 @@ def cm_histogram(db, test_guid: str) -> list[dict]:
     Returns: [{"bin_lo": 0, "bin_hi": 50, "label": "0–50", "observed": 1823,
                "rel_hint": "4–5C+"}, ...]
     """
+    # Bin-Zählung direkt in SQL — spart das Laden aller Einzel-cM-Werte nach Python.
+    _sql = """
+        SELECT
+            CASE
+                WHEN shared_cm <   50 THEN 0
+                WHEN shared_cm <  100 THEN 1
+                WHEN shared_cm <  150 THEN 2
+                WHEN shared_cm <  200 THEN 3
+                WHEN shared_cm <  300 THEN 4
+                WHEN shared_cm <  400 THEN 5
+                WHEN shared_cm <  600 THEN 6
+                WHEN shared_cm <  900 THEN 7
+                WHEN shared_cm < 1400 THEN 8
+                WHEN shared_cm < 2000 THEN 9
+                ELSE 10
+            END AS bin_idx,
+            COUNT(*) AS cnt
+        FROM matches
+        WHERE test_guid=? AND shared_cm > 0
+        GROUP BY bin_idx
+        ORDER BY bin_idx
+    """
     try:
         with db._cursor() as cur:
-            values = [
-                float(r["shared_cm"])
-                for r in cur.execute(
-                    "SELECT shared_cm FROM matches WHERE test_guid=? AND shared_cm > 0",
-                    (test_guid,),
-                ).fetchall()
-            ]
+            bin_counts: dict[int, int] = {
+                r[0]: r[1] for r in cur.execute(_sql, (test_guid,)).fetchall()
+            }
     except Exception as e:
         log.warning("cm_histogram: %s", e)
         return []
 
-    if not values:
+    if not bin_counts:
         return []
 
     result = []
     for i, (lo, hi) in enumerate(CM_BINS):
-        cnt = sum(1 for v in values if lo <= v < hi)
+        cnt = bin_counts.get(i, 0)
         lbl = f"{lo}–{hi}" if hi < 4000 else f"≥{lo}"
         result.append({
             "bin_lo": lo, "bin_hi": hi, "label": lbl,
@@ -188,7 +206,8 @@ def cm_histogram(db, test_guid: str) -> list[dict]:
             "rel_hint": CM_BIN_REL[i] if i < len(CM_BIN_REL) else "",
         })
 
-    log.info("cm_histogram: %d Matches, %d Bins", len(values), len(result))
+    total = sum(bin_counts.values())
+    log.info("cm_histogram: %d Matches, %d Bins", total, len(result))
     return result
 
 
@@ -203,39 +222,44 @@ def surname_entropy_series(db, decade_step: int = 10,
 
     Returns: [{"decade": 1800, "entropy": 3.42, "unique": 87, "total": 234}, ...]
     """
+    # Gruppierung Jahrzehnt × Nachname direkt in SQL per UNION ALL;
+    # nur Entropie-Arithmetik verbleibt in Python.
+    _sql = f"""
+        SELECT decade, surname, SUM(cnt) AS cnt
+        FROM (
+            SELECT
+                CAST(birth_year AS INTEGER) / {decade_step} * {decade_step} AS decade,
+                LOWER(TRIM(surname)) AS surname,
+                COUNT(*) AS cnt
+            FROM gedcom_persons
+            WHERE CAST(birth_year AS INTEGER) BETWEEN ? AND ?
+              AND TRIM(surname) != ''
+            GROUP BY decade, surname
+            UNION ALL
+            SELECT
+                CAST(birth_year AS INTEGER) / {decade_step} * {decade_step} AS decade,
+                LOWER(TRIM(surname)) AS surname,
+                COUNT(*) AS cnt
+            FROM match_pedigree
+            WHERE birth_year IS NOT NULL AND birth_year != ''
+              AND CAST(birth_year AS INTEGER) BETWEEN ? AND ?
+              AND TRIM(surname) != ''
+              AND generation >= 2
+            GROUP BY decade, surname
+        )
+        GROUP BY decade, surname
+        ORDER BY decade
+    """
+    params = (_MIN_YEAR, _MAX_YEAR, _MIN_YEAR, _MAX_YEAR)
+
     decade_counts: dict[int, Counter[str]] = defaultdict(Counter)
-
     try:
         with db._cursor() as cur:
-            for r in cur.execute(
-                """SELECT birth_year, surname FROM gedcom_persons
-                   WHERE birth_year BETWEEN ? AND ? AND TRIM(surname) != ''""",
-                (_MIN_YEAR, _MAX_YEAR),
-            ).fetchall():
-                sn = (r["surname"] or "").strip().lower()
-                if sn:
-                    decade_counts[int(r["birth_year"]) // decade_step * decade_step][sn] += 1
+            for row in cur.execute(_sql, params).fetchall():
+                decade_counts[row[0]][row[1]] += row[2]
     except Exception as e:
-        log.warning("surname_entropy gedcom_persons: %s", e)
-
-    try:
-        with db._cursor() as cur:
-            for r in cur.execute(
-                """SELECT birth_year, surname FROM match_pedigree
-                   WHERE birth_year IS NOT NULL AND birth_year != ''
-                     AND TRIM(surname) != '' AND generation >= 2"""
-            ).fetchall():
-                try:
-                    yr = int(r["birth_year"])
-                except (ValueError, TypeError):
-                    continue
-                if not (_MIN_YEAR <= yr <= _MAX_YEAR):
-                    continue
-                sn = (r["surname"] or "").strip().lower()
-                if sn:
-                    decade_counts[yr // decade_step * decade_step][sn] += 1
-    except Exception as e:
-        log.debug("surname_entropy match_pedigree: %s", e)
+        log.warning("surname_entropy SQL: %s", e)
+        return []
 
     result = []
     for decade in sorted(decade_counts):
