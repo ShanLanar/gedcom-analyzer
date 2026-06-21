@@ -6,6 +6,7 @@ Endogamie-Übertragung und Herkunfts-Analyse.
 
 import json
 import logging
+import math
 from collections import defaultdict
 
 from ._text import _extract_region, _koelner, _norm, expand_surname_variants
@@ -538,6 +539,8 @@ def infer_match_origins(
     # ── 3. Scoring pro Match × Region ────────────────────────────────────────
     results: list[dict] = []
 
+    n_regions = max(1, len(region_index))
+
     for match_guid, mdata in match_data.items():
         region_scores: dict[str, float] = defaultdict(float)
         matched_surnames: dict[str, list] = defaultdict(list)
@@ -546,7 +549,9 @@ def infer_match_origins(
         for anc in mdata["ancestors"]:
             sn_raw = anc["surname"]
             gen    = max(1, anc["generation"])
-            weight = 1.0 / gen
+            # Steilere Generations-Gewichtung (1/gen² statt 1/gen): tiefe Ahnen
+            # tragen mehr Rauschen bei (häufige Namen, größerer Personenpool).
+            gen_w  = 1.0 / (gen * gen)
 
             sn_norm   = _norm(sn_raw)
             sn_koelner = _koelner(sn_raw)
@@ -555,13 +560,21 @@ def infer_match_origins(
             # die ihn NICHT exakt führen, bekommen den phonetischen Treffer (0.7).
             exact_regions = norm_to_regions.get(sn_norm, set()) if sn_norm else set()
             koelner_regions = koelner_to_regions.get(sn_koelner, set()) if sn_koelner else set()
+            koelner_only = koelner_regions - exact_regions
+
+            # Inverse-Häufigkeits-Gewichtung (TF-IDF): ein Nachname, der in vielen
+            # Regionen vorkommt (z.B. "Müller"), ist kaum aussagekräftig; ein
+            # regional einzigartiger Name dominiert. df = Anzahl Regionen mit Name.
+            idf_exact   = math.log(1 + n_regions / len(exact_regions)) if exact_regions else 0.0
+            idf_koelner = math.log(1 + n_regions / len(koelner_regions)) if koelner_regions else 0.0
+
             for region in exact_regions:
-                region_scores[region] += 1.0 * weight
+                region_scores[region] += 1.0 * gen_w * idf_exact
                 matched_surnames[region].append(sn_raw)
                 if anc["birth_place"]:
                     matched_places[region].append(anc["birth_place"])
-            for region in koelner_regions - exact_regions:
-                region_scores[region] += 0.7 * weight
+            for region in koelner_only:
+                region_scores[region] += 0.7 * gen_w * idf_koelner
                 matched_surnames[region].append(sn_raw)
                 if anc["birth_place"]:
                     matched_places[region].append(anc["birth_place"])

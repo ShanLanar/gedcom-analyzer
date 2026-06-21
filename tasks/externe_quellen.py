@@ -88,6 +88,9 @@ EXTERNE_QUELLEN_HEADERS = [
     "ZEFYS-Zeitung", "Zeitungsportal NRW",
     # Adressbücher
     "Adressbuch-Portal", "HathiTrust-Adressbücher",
+    # CompGen-Datenbanken / regionale Quellen
+    "GEDBAS", "Verlustlisten WWI", "Poznań-Projekt",
+    "ANNO (Österreich)", "Arcanum ADT", "Deutsche Digitale Bibliothek",
     # Linked Data
     "Wikidata-Suche", "GND/lobid",
 ]
@@ -102,6 +105,23 @@ _DACH = {
 _NRW_INDICATORS = {
     "westfalen", "rheinland", "nordrhein", "köln", "dortmund",
     "düsseldorf", "münster", "bielefeld", "paderborn",
+}
+
+# Ehemalige deutsche Ostgebiete / preußische Ostprovinzen → Poznań Project u.a.
+_OSTGEBIETE = {
+    "posen", "poznań", "poznan", "pommern", "pommerania", "westpreußen",
+    "westpreussen", "ostpreußen", "ostpreussen", "schlesien", "silesia",
+    "danzig", "gdańsk", "breslau", "wrocław", "stettin", "szczecin",
+    "bromberg", "thorn", "königsberg", "kaliningrad",
+}
+
+# Österreich / k.u.k.-Länder → ANNO + Arcanum (österr./Habsburger Presse)
+_AUSTRIA_HABSBURG = {
+    "österreich", "austria", "wien", "vienna", "tirol", "tyrol",
+    "steiermark", "styria", "kärnten", "salzburg", "oberösterreich",
+    "niederösterreich", "burgenland", "vorarlberg",
+    "böhmen", "bohemia", "mähren", "moravia", "galizien", "galicia",
+    "k.u.k", "habsburg", "böhmisch", "prag", "prague", "brünn",
 }
 
 
@@ -137,6 +157,14 @@ def _is_dach(plac: str) -> bool:
 
 def _is_nrw(plac: str) -> bool:
     return any(w in plac.lower() for w in _NRW_INDICATORS)
+
+
+def _is_ostgebiet(plac: str) -> bool:
+    return bool(plac) and any(w in plac.lower() for w in _OSTGEBIETE)
+
+
+def _is_austria(plac: str) -> bool:
+    return bool(plac) and any(w in plac.lower() for w in _AUSTRIA_HABSBURG)
 
 
 def _is_emigrant(pdata: dict) -> bool:
@@ -389,6 +417,50 @@ def _gnd(given, surname, by):
     return "https://lobid.org/gnd/search?" + urllib.parse.urlencode(params)
 
 
+def _gedbas(surname, place):
+    """GEDBAS — CompGen-Datenbank verwandter (lineage-linked) Bäume."""
+    params: dict = {"lastname": surname}
+    p = _first(place)
+    if p:
+        params["placename"] = p
+    return "https://gedbas.genealogy.net/search/simple?" + urllib.parse.urlencode(params)
+
+
+def _verlustlisten(given, surname):
+    """Verlustlisten 1. Weltkrieg (DES/CompGen) — 8,5 Mio. indexierte Einträge."""
+    params: dict = {"lastname": surname}
+    if given:
+        params["firstname"] = given.split()[0]
+    return ("https://des.genealogy.net/eingabe-verlustlisten/search/index?"
+            + urllib.parse.urlencode(params))
+
+
+def _poznan(given, surname):
+    """Poznań Project — Heiratsindex Provinz Posen 1800–1899."""
+    params: dict = {"lang": "en", "sn1": surname}
+    if given:
+        params["fn1"] = given.split()[0]
+    return "https://poznan-project.psnc.pl/search.php?" + urllib.parse.urlencode(params)
+
+
+def _anno(surname):
+    """ANNO — Austrian Newspapers Online (ÖNB), Volltext ab 1568."""
+    return ("https://anno.onb.ac.at/anno-suche/#searchMode=simple&query="
+            + urllib.parse.quote(surname) + "&from=1")
+
+
+def _arcanum(surname):
+    """Arcanum ADT — Zeitungen der Donaumonarchie (Volltext)."""
+    return "https://adt.arcanum.com/en/search/results/?query=" + urllib.parse.quote(surname)
+
+
+def _ddb(surname, place):
+    """Deutsche Digitale Bibliothek — Aggregator von 600+ Archiven/Bibliotheken."""
+    q = " ".join(filter(None, [surname, _first(place)]))
+    return ("https://www.deutsche-digitale-bibliothek.de/searchresults?query="
+            + urllib.parse.quote(q))
+
+
 # ── Haupt-Funktion ────────────────────────────────────────────────────────────
 
 def run_externe_quellen(individuals: dict, root_related_ids=None,
@@ -472,6 +544,13 @@ def run_externe_quellen(individuals: dict, root_related_ids=None,
             # Adressbücher (relevant ab ~1850)
             _adressbuch(surname, place, by) if is_dach and (not by or by > 1800) else "",
             _hathitrust(surname, place, by) if is_dach else "",
+            # CompGen-Datenbanken / regionale Quellen
+            _gedbas(surname, place)        if is_dach else "",
+            _verlustlisten(given, surname) if is_war else "",
+            _poznan(given, surname)        if _is_ostgebiet(place) else "",
+            _anno(surname)                 if _is_austria(place) else "",
+            _arcanum(surname)              if _is_austria(place) else "",
+            _ddb(surname, place)           if is_dach else "",
             # Linked Data
             _wikidata_person(given, surname, by),
             _gnd(given, surname, by),

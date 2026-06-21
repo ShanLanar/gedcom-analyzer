@@ -307,8 +307,11 @@ class ClusterTab(ttk.Frame):
             possible = n * (n - 1) / 2
             density  = (_edge_counts.get(cid, 0) / possible) if possible > 0 else 0.0
             try:
+                from statistics import median
                 from ancestry.core.treematch import cluster_confidence
-                med_cm = sum(m["cm"] for m in members) / n if n else 0.0
+                # Echter Median statt Mittelwert: cM-Verteilung im Cluster ist
+                # rechtsschief (ein naher Verwandter zieht den Schnitt hoch).
+                med_cm = median(m["cm"] for m in members) if n else 0.0
                 conf   = cluster_confidence(n, density, median_cm=med_cm)
                 r = conf.get("realness", 0)
                 quality_icon = "🟢" if r >= 0.85 else ("🟡" if r >= 0.5 else "🔴")
