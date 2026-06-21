@@ -317,10 +317,13 @@ def scrape(headless: bool = True, pause: float = 1.5):
             abp["child_id"] = best
 
     # ── In DB schreiben ───────────────────────────────────────────────────────
+    # Nur Osnabrück-Daten ersetzen — andere Bistümer bleiben erhalten.
     with db:
-        db.execute("DELETE FROM parishes")
-        db.execute("DELETE FROM abpfarrungen")
-        db.execute("DELETE FROM parish_villages")
+        db.execute("DELETE FROM parishes WHERE diocese=?", (DIOCESE_PATH,))
+        db.execute("DELETE FROM abpfarrungen WHERE parent_id LIKE ?",
+                   (f"{DIOCESE_PATH}/%",))
+        db.execute("DELETE FROM parish_villages WHERE parish_id LIKE ?",
+                   (f"{DIOCESE_PATH}/%",))
 
         for p in parishes:
             db.execute("""
@@ -344,38 +347,33 @@ def scrape(headless: bool = True, pause: float = 1.5):
                         VALUES (?, ?)
                     """, (p["id"], v))
 
-    # ── JSON-Lookup für Viewer exportieren ────────────────────────────────────
-    # Format: { "ortsname_lowercase": {parish_id, parish, confession, parent} }
-    lookup: dict = {}
-    for p in parishes:
-        # Parent-Pfarrei (= erstes Abpfarrungs-Ziel von oben, umgekehrt betrachtet)
-        # Für den Lookup brauchen wir: für jede Pfarrei, wer ist ihr Mutter?
-        # Das ermitteln wir aus der abpfarrungen-Tabelle: wenn B abgepfarrt wurde
-        # von A, dann ist A der parent von B.
-        pass  # wird unten via DB gelöst
-
-    # parent_map: child_id → parent_id
+    # ── JSON-Lookup für Viewer exportieren (alle Bistümer aus DB) ────────────────
+    # Liest alle Pfarreien aus der DB — nicht nur die gerade gescrapten Osnabrück-
+    # Daten — damit Einträge anderer Bistümer erhalten bleiben.
     parent_map: dict[str, str] = {}
-    for p in parishes:
-        for abp in p["abpfarrungen"]:
-            cid = abp.get("child_id", "")
-            if cid:
-                parent_map[cid] = p["id"]
+    for r in db.execute(
+            "SELECT parent_id, child_id FROM abpfarrungen WHERE child_id!=''"):
+        parent_map[r[0]] = r[1]
 
-    for p in parishes:
+    lookup: dict = {}
+    for row in db.execute("""
+        SELECT p.id, p.name, p.confession, p.founded_year,
+               pv.village
+        FROM parishes p
+        LEFT JOIN parish_villages pv ON pv.parish_id = p.id
+    """):
         entry = {
-            "parish_id":  p["id"],
-            "parish":     p["name"],
-            "confession": p["confession"],
-            "parent_id":  parent_map.get(p["id"], ""),
-            "founded":    p["founded_year"],
+            "parish_id":  row[0],
+            "parish":     row[1],
+            "confession": row[2],
+            "parent_id":  parent_map.get(row[0], ""),
+            "founded":    row[3],
         }
-        # Pfarrort selbst
-        loc_key = p["name"].lower().strip()
-        lookup.setdefault(loc_key, entry)
-        # Alle Ortsteile
-        for v in p["villages"]:
-            vk = v.lower().strip()
+        loc_key = row[1].lower().strip() if row[1] else ""
+        if loc_key:
+            lookup.setdefault(loc_key, entry)
+        if row[4]:
+            vk = row[4].lower().strip()
             if vk:
                 lookup.setdefault(vk, entry)
 
