@@ -477,6 +477,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
                                "robuster gegen über-geteilte Brücken-Matches",
                          "en": "Modularity clustering (Louvain) instead of Leeds/union-find — "
                                "more robust against over-shared bridge matches"},
+    "tt.cl_hypo":   {"de": "Hypothese festhalten, von welchem gemeinsamen Vorfahren dieser "
+                           "Cluster abstammt (mit Vorschlägen aus der GEDCOM-Brücke)",
+                     "en": "Record a hypothesis for which common ancestor this cluster "
+                           "descends from (with suggestions from the GEDCOM bridge)"},
     "tt.cl_tree":   {"de": "Kombinierten Stammbaum des gewählten Clusters anzeigen",
                      "en": "Show the combined tree of the selected cluster"},
     "tt.cl_timeline": {"de": "Geburtsjahre der Cluster-Vorfahren als Zeitachse",

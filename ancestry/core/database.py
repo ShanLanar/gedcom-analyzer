@@ -9,6 +9,7 @@ import threading
 from contextlib import contextmanager
 from typing import Generator, Optional
 
+from ancestry.core.db.repos.cluster_hypotheses import ClusterHypothesesRepo
 from ancestry.core.db.repos.kits import KitsRepo
 from ancestry.core.db.repos.matches import MatchesRepo
 from ancestry.core.db.repos.pedigree import PedigreeRepo
@@ -24,7 +25,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 33
+    SCHEMA_VERSION = 34
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -42,6 +43,7 @@ class Database:
         self._stats   = StatsRepo(self)
         self._segs    = SegmentsRepo(self)
         self._tasks   = ResearchTasksRepo(self)
+        self._hypos   = ClusterHypothesesRepo(self)
 
     # ── Verbindung ────────────────────────────────────────────────────────────
 
@@ -178,6 +180,14 @@ class Database:
     def delete_task(self, *a, **kw) -> None:             return self._tasks.delete_task(*a, **kw)
     def get_tasks(self, *a, **kw) -> list:               return self._tasks.get_tasks(*a, **kw)
     def count_open_tasks(self, *a, **kw) -> int:         return self._tasks.count_open(*a, **kw)
+
+    # ── Cluster-Hypothesen (B3) ─────────────────────────────────────────────────
+
+    def set_cluster_hypothesis(self, *a, **kw) -> None:  return self._hypos.set_hypothesis(*a, **kw)
+    def get_cluster_hypothesis(self, *a, **kw):          return self._hypos.get_hypothesis(*a, **kw)
+    def get_cluster_hypotheses(self, *a, **kw) -> list:  return self._hypos.get_all_for_kit(*a, **kw)
+    def delete_cluster_hypothesis(self, *a, **kw) -> None: return self._hypos.delete_hypothesis(*a, **kw)
+    def suggest_cluster_mrca(self, *a, **kw) -> list:    return self._hypos.suggest_mrca(*a, **kw)
 
     # ── Pedigree ──────────────────────────────────────────────────────────────
 

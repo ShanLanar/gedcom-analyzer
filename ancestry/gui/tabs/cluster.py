@@ -142,6 +142,17 @@ class ClusterTab(ttk.Frame):
         ttk.Entry(df, textvariable=self._desc_var, width=50).pack(side="left", padx=6)
         ttk.Button(df, text="💾", command=self._save_desc, width=3).pack(side="left")
 
+        # Ahn-Hypothese je Cluster (B3): von welchem Vorfahren stammt der Cluster?
+        hf = ttk.Frame(self)
+        hf.pack(fill="x", padx=14, pady=(0, 4))
+        ttk.Label(hf, text="MRCA-Hypothese:").pack(side="left")
+        self._hypo_var = tk.StringVar(value="—")
+        ttk.Label(hf, textvariable=self._hypo_var, foreground=COLORS["primary"],
+                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=6)
+        _hb = ttk.Button(hf, text="🧬 Ahn-Hypothese …", command=self._edit_hypothesis)
+        _hb.pack(side="left", padx=6)
+        register_tooltip(_hb, "tt.cl_hypo", self._state)
+
         self._text_var = tk.StringVar(value="")
         ttk.Label(self, textvariable=self._text_var,
                   foreground="#444466", font=("Segoe UI", 9),
@@ -364,6 +375,10 @@ class ClusterTab(ttk.Frame):
         descs   = self._load_settings().get("cluster_descs", {})
         self._desc_var.set(descs.get(str(cid), ""))
         self._desc_cid = cid
+        # Ahn-Hypothese dieses Clusters laden (B3)
+        self._hypo_cid = cid
+        self._hypo_members = [m["guid"] for m in members]
+        self._load_hypothesis(cid)
         color = self._cluster_side_colors.get(
             cid, COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])])
 
@@ -438,6 +453,122 @@ class ClusterTab(ttk.Frame):
         descs[str(cid)] = desc
         self._save_settings(cluster_descs=descs)
         self._set_status(f"Cluster #{cid} Beschreibung gespeichert.")
+
+    # ── Ahn-Hypothese je Cluster (B3) ─────────────────────────────────────────
+
+    def _load_hypothesis(self, cid: int):
+        tg = self._get_current_guid()
+        h = None
+        if tg:
+            try:
+                h = self._state.db.get_cluster_hypothesis(tg, cid)
+            except Exception as e:
+                log.debug("load hypothesis: %s", e)
+        if h and (h.get("mrca_label") or h.get("mrca_ged_id")):
+            conf = h.get("confidence") or ""
+            self._hypo_var.set(
+                (h.get("mrca_label") or h.get("mrca_ged_id"))
+                + (f"  ({conf})" if conf else ""))
+        else:
+            self._hypo_var.set("—")
+
+    def _edit_hypothesis(self):
+        cid = getattr(self, "_hypo_cid", None)
+        tg  = self._get_current_guid()
+        if cid is None or not tg:
+            messagebox.showinfo("Ahn-Hypothese", "Bitte zuerst einen Cluster auswählen.")
+            return
+        members = getattr(self, "_hypo_members", [])
+        # Vorschläge aus den GEDCOM-Brücken-Links der Cluster-Mitglieder
+        suggestions = []
+        try:
+            suggestions = self._state.db.suggest_cluster_mrca(tg, members)
+        except Exception as e:
+            log.debug("suggest mrca: %s", e)
+        existing = None
+        try:
+            existing = self._state.db.get_cluster_hypothesis(tg, cid)
+        except Exception:
+            pass
+
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Ahn-Hypothese — Cluster #{cid}")
+        dlg.geometry("560x440")
+        ttk.Label(dlg, text=f"Von welchem gemeinsamen Vorfahren stammt Cluster #{cid}?",
+                  font=("Segoe UI", 10, "bold")).pack(anchor="w", padx=12, pady=(10, 4))
+
+        if suggestions:
+            ttk.Label(dlg, text="Vorschläge (GEDCOM-Brücke, ≥2 Mitglieder docken an):",
+                      foreground="#555").pack(anchor="w", padx=12)
+            sug_tree = ttk.Treeview(dlg, columns=("name", "year", "n", "score"),
+                                    show="headings", height=5, selectmode="browse")
+            for c, (lbl, w) in {"name": ("Vorfahr", 240), "year": ("Jahr", 60),
+                                "n": ("Mitgl.", 60), "score": ("Ø-Score", 70)}.items():
+                sug_tree.heading(c, text=lbl); sug_tree.column(c, width=w)
+            sug_tree.pack(fill="x", padx=12, pady=4)
+            sug_by_iid = {}
+            for s in suggestions:
+                iid = sug_tree.insert("", "end", values=(
+                    s["name"], s["year"], s["member_count"], s["avg_score"]))
+                sug_by_iid[iid] = s
+        else:
+            ttk.Label(dlg, text="Keine automatischen Vorschläge (noch keine "
+                                "GEDCOM-Verknüpfungen für diese Mitglieder).",
+                      foreground="#a05a00").pack(anchor="w", padx=12, pady=2)
+            sug_tree = None
+            sug_by_iid = {}
+
+        frm = ttk.Frame(dlg); frm.pack(fill="x", padx=12, pady=(8, 2))
+        ttk.Label(frm, text="Vorfahr (Name):").grid(row=0, column=0, sticky="w")
+        label_var = tk.StringVar(value=(existing or {}).get("mrca_label", ""))
+        ttk.Entry(frm, textvariable=label_var, width=40).grid(row=0, column=1, sticky="we", padx=4)
+        ttk.Label(frm, text="GEDCOM-ID:").grid(row=1, column=0, sticky="w")
+        gid_var = tk.StringVar(value=(existing or {}).get("mrca_ged_id", ""))
+        ttk.Entry(frm, textvariable=gid_var, width=24).grid(row=1, column=1, sticky="w", padx=4)
+        ttk.Label(frm, text="Konfidenz:").grid(row=2, column=0, sticky="w")
+        conf_var = tk.StringVar(value=(existing or {}).get("confidence", "mittel") or "mittel")
+        ttk.Combobox(frm, textvariable=conf_var, width=12, state="readonly",
+                     values=["hoch", "mittel", "niedrig"]).grid(row=2, column=1, sticky="w", padx=4)
+        frm.columnconfigure(1, weight=1)
+
+        ttk.Label(dlg, text="Begründung / Belege:").pack(anchor="w", padx=12, pady=(6, 0))
+        ev_txt = tk.Text(dlg, height=4, wrap="word")
+        ev_txt.pack(fill="x", padx=12)
+        ev_txt.insert("1.0", (existing or {}).get("evidence", ""))
+
+        def _use_suggestion(_=None):
+            if not sug_tree:
+                return
+            sel = sug_tree.selection()
+            if not sel:
+                return
+            s = sug_by_iid.get(sel[0])
+            if s:
+                label_var.set(f"{s['name']}" + (f" ({s['year']})" if s["year"] else ""))
+                gid_var.set(s["ged_id"])
+        if sug_tree:
+            sug_tree.bind("<Double-1>", _use_suggestion)
+
+        def _save():
+            self._state.db.set_cluster_hypothesis(
+                tg, cid, mrca_ged_id=gid_var.get().strip(),
+                mrca_label=label_var.get().strip(), confidence=conf_var.get(),
+                evidence=ev_txt.get("1.0", "end").strip())
+            self._load_hypothesis(cid)
+            self._set_status(f"Cluster #{cid}: Ahn-Hypothese gespeichert.")
+            dlg.destroy()
+
+        def _delete():
+            self._state.db.delete_cluster_hypothesis(tg, cid)
+            self._load_hypothesis(cid)
+            dlg.destroy()
+
+        bf = ttk.Frame(dlg); bf.pack(fill="x", padx=12, pady=8)
+        if sug_tree:
+            ttk.Button(bf, text="◀ Vorschlag übernehmen", command=_use_suggestion).pack(side="left")
+        ttk.Button(bf, text="🗑 Löschen", command=_delete).pack(side="left", padx=4)
+        ttk.Button(bf, text="Abbrechen", command=dlg.destroy).pack(side="right")
+        ttk.Button(bf, text="💾 Speichern", command=_save).pack(side="right", padx=4)
 
     # ── Phasing-Dashboard ─────────────────────────────────────────────────────
 
