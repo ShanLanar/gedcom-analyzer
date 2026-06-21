@@ -46,10 +46,30 @@ Such-Links generiert:
 Keine API-Keys erforderlich. Nur Lesezugriff.
 """
 
+import json
 import re
 import urllib.parse
+from pathlib import Path
 
 from lib.gedcom import safe_extract_year
+
+# Optionale Archion-Archiv-Karte (wird von scrape_archion_archives.py erzeugt)
+_ARCHION_JSON = Path(__file__).resolve().parent.parent / "ancestry" / "tools" / "archion_archives.json"
+_ARCHION_CATALOG: dict[str, list[dict]] = {}
+try:
+    if _ARCHION_JSON.exists():
+        _ARCHION_CATALOG = json.loads(_ARCHION_JSON.read_text(encoding="utf-8"))
+except Exception:
+    pass
+
+# Optionale Matricula-Pfarrei-Karte (Ort → Pfarrei/Diözese)
+_MATRICULA_JSON = Path(__file__).resolve().parent.parent / "ancestry" / "tools" / "matricula_parishes.json"
+_MATRICULA_LOOKUP: dict[str, dict] = {}
+try:
+    if _MATRICULA_JSON.exists():
+        _MATRICULA_LOOKUP = json.loads(_MATRICULA_JSON.read_text(encoding="utf-8"))
+except Exception:
+    pass
 
 EXTERNE_QUELLEN_HEADERS = [
     "Person-ID", "Name", "Geb.", "Geb.-Ort", "Gest.", "Gest.-Ort",
@@ -151,12 +171,79 @@ def _url(base: str, **params) -> str:
 
 def _matricula(given, surname, place, by):
     p = _first(place)
+    # Pfarrei-spezifische URL wenn Ort bekannt ist
+    if p and _MATRICULA_LOOKUP:
+        entry = _MATRICULA_LOOKUP.get(p.lower().strip())
+        if entry:
+            parish_url = (
+                f"https://data.matricula-online.eu/de/{entry['parish_id']}/"
+            )
+            return parish_url
     q = urllib.parse.quote(p or surname)
     return f"https://data.matricula-online.eu/de/suche/?q={q}"
 
 
+# Mapping von Schlüsselwörtern im Ort → Archion-Region-Slug
+_ARCHION_REGION_MAP: list[tuple[str, str]] = [
+    # Niedersachsen / Hannover
+    ("niedersachsen", "niedersachsen"),
+    ("hannover", "niedersachsen"),
+    ("braunschweig", "niedersachsen"),
+    ("lüneburg", "niedersachsen"),
+    ("osnabrück", "niedersachsen"),
+    ("göttingen", "niedersachsen"),
+    ("hildesheim", "niedersachsen"),
+    # NRW / Westfalen
+    ("westfalen", "nordrhein-westfalen"),
+    ("nordrhein", "nordrhein-westfalen"),
+    ("westfalia", "nordrhein-westfalen"),
+    ("münster", "nordrhein-westfalen"),
+    ("paderborn", "nordrhein-westfalen"),
+    ("bielefeld", "nordrhein-westfalen"),
+    ("dortmund", "nordrhein-westfalen"),
+    ("köln", "nordrhein-westfalen"),
+    ("düsseldorf", "nordrhein-westfalen"),
+    ("aachen", "nordrhein-westfalen"),
+    # Rheinland-Pfalz
+    ("rheinland-pfalz", "rheinland-pfalz"),
+    ("koblenz", "rheinland-pfalz"),
+    ("mainz", "rheinland-pfalz"),
+    # Bayern
+    ("bavaria", "bayern"), ("münchen", "bayern"), ("nürnberg", "bayern"),
+    # Baden-Württemberg
+    ("württemberg", "baden-wuerttemberg"), ("stuttgart", "baden-wuerttemberg"),
+    # Hessen
+    ("hessen", "hessen"), ("kassel", "hessen"), ("frankfurt", "hessen"),
+    # Berlin/Brandenburg
+    ("berlin", "berlin"), ("brandenburg", "berlin"),
+    # Sachsen
+    ("sachsen", "sachsen"), ("dresden", "sachsen"), ("leipzig", "sachsen"),
+    # Thüringen
+    ("thüringen", "thueringen"), ("erfurt", "thueringen"),
+]
+
+
+def _archion_url_for_place(place: str) -> str:
+    """Gibt Archion-URL für eine Region zurück; priorisiert Archiv-spezifische Links."""
+    if not place:
+        return ""
+    place_lower = place.lower()
+    if not _ARCHION_CATALOG:
+        # Kein Katalog — generische Suche
+        return ""
+    for keyword, region_slug in _ARCHION_REGION_MAP:
+        if keyword in place_lower:
+            archives = _ARCHION_CATALOG.get(region_slug, [])
+            if archives:
+                return archives[0]["url"]   # erstes Archiv der Region
+    return ""
+
+
 def _archion(given, surname, place):
     p = _first(place)
+    specific = _archion_url_for_place(place)
+    if specific:
+        return specific
     q = urllib.parse.quote(p or surname)
     return f"https://www.archion.de/p/browse/?search=1&q={q}"
 

@@ -18,6 +18,7 @@ import subprocess
 import sys
 import threading
 import tkinter as tk
+from pathlib import Path
 from tkinter import messagebox, ttk
 from typing import Callable, Optional
 
@@ -56,7 +57,25 @@ class MatriculaTab(ttk.Frame):
         t  = self._state.t
         lw = self._state.lang_widgets
 
-        top = ttk.Frame(self); top.pack(fill="x", padx=14, pady=(10, 4))
+        # ── Bistums-Zeile ─────────────────────────────────────────────────────
+        dioc_row = ttk.Frame(self); dioc_row.pack(fill="x", padx=14, pady=(10, 2))
+        ttk.Label(dioc_row, text="Bistum/Archiv:", style="Bold.TLabel").pack(side="left")
+        self._diocese_var = tk.StringVar(value="(alle)")
+        self._diocese_combo = ttk.Combobox(
+            dioc_row, textvariable=self._diocese_var, width=42, state="readonly")
+        self._diocese_combo.pack(side="left", padx=(6, 12))
+        self._diocese_combo.bind("<<ComboboxSelected>>", lambda _: self.refresh_parishes())
+        ttk.Button(dioc_row, text="Katalog laden",
+                   command=self._start_catalog_scraper).pack(side="left", padx=(0, 6))
+        register_tooltip(
+            ttk.Label(dioc_row,
+                      text="ⓘ scrape_matricula.py --diocese <slug>",
+                      foreground="#888888", font=("Segoe UI", 8)),
+            "tt.mat_catalog", self._state
+        )
+
+        # ── Pfarrei-Zeile ─────────────────────────────────────────────────────
+        top = ttk.Frame(self); top.pack(fill="x", padx=14, pady=(2, 4))
 
         _sv = tk.StringVar(value=t("mat.next"))
         ttk.Label(top, textvariable=_sv, style="Bold.TLabel").pack(side="left")
@@ -154,14 +173,39 @@ class MatriculaTab(ttk.Frame):
 
     def refresh_parishes(self):
         """Dropdown + Übersicht aus matricula_parishes.db neu laden."""
-        parishes = mstat.get_parish_status()
+        # Bistümer-Liste aktualisieren
+        dioceses = mstat.get_dioceses()
+        dioc_labels = ["(alle)"] + [
+            f"{d['slug']}  —  {d['name']}" if d.get("name") and d["name"] != d["path"]
+            else d["path"]
+            for d in dioceses
+        ]
+        cur_dioc = self._diocese_var.get()
+        self._diocese_combo.configure(values=dioc_labels)
+        if cur_dioc not in dioc_labels:
+            self._diocese_var.set("(alle)")
+
+        # Diözesen-Filter bestimmen
+        diocese_filter: Optional[str] = None
+        if cur_dioc and cur_dioc != "(alle)":
+            # Slug aus dem Label extrahieren
+            slug = cur_dioc.split("  —  ")[0].strip()
+            # In DB-Pfad übersetzen (z.B. "osnabrueck" → "deutschland/osnabrueck")
+            diocese_filter = next(
+                (d["path"] for d in dioceses if d["slug"] == slug or d["path"] == slug),
+                None)
+
+        parishes = mstat.get_parish_status(diocese=diocese_filter)
         self._tv.delete(*self._tv.get_children())
         self._label_to_id.clear()
 
         if not parishes:
             self._parish_combo.configure(values=[])
             self._start_btn.configure(state="disabled")
-            self._log_line(self._state.t("mat.no_db"))
+            if not dioceses:
+                self._log_line(self._state.t("mat.no_db"))
+            else:
+                self._log_line("Für dieses Bistum wurden noch keine Pfarreien gescrapt.")
             return
         self._start_btn.configure(state="normal" if self._proc is None else "disabled")
 
@@ -177,15 +221,45 @@ class MatriculaTab(ttk.Frame):
             self._tv.insert("", "end", values=(p["name"], p["n_books"] or "—",
                                                pages, p["status"]),
                             tags=(tag,) if tag else ())
-            # Fertige Pfarreien nicht als "nächste" anbieten
             if p["status"] != mstat.STATUS_DONE:
                 combo_values.append(label)
 
         self._parish_combo.configure(values=combo_values)
         if combo_values and not self._parish_var.get():
-            # Teilweise gescannte zuerst vorschlagen (Wiederaufnahme)
             partial = [v for v in combo_values if v.startswith("◐")]
             self._parish_var.set(partial[0] if partial else combo_values[0])
+
+    def _start_catalog_scraper(self):
+        """Startet scrape_matricula.py für das gewählte Bistum."""
+        if self.is_running():
+            messagebox.showwarning("Läuft", "Es läuft bereits ein Scan-Prozess.")
+            return
+        cur = self._diocese_var.get()
+        if cur == "(alle)" or not cur:
+            messagebox.showinfo(
+                "Bistum wählen",
+                "Bitte zuerst ein Bistum im Dropdown auswählen.\n\n"
+                "Oder starten Sie scrape_matricula.py manuell ohne --diocese\n"
+                "um alle verfügbaren Bistümer aufzulisten.")
+            return
+        slug = cur.split("  —  ")[0].strip()
+        args = [sys.executable, "-m", "ancestry.tools.scrape_matricula",
+                "--diocese", slug]
+        self._log_line(f"Starte Katalog-Scraper: {' '.join(args)}")
+        try:
+            self._proc = subprocess.Popen(
+                args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, encoding="utf-8", errors="replace",
+                cwd=str(Path(sys.executable).resolve().parent.parent),
+            )
+            self._stop_requested = False
+            self._start_btn.configure(state="disabled")
+            self._stop_btn.configure(state="normal")
+            threading.Thread(target=self._pump_output, daemon=True,
+                             name="matricula-catalog").start()
+        except Exception as e:
+            self._log_line(f"Fehler beim Starten: {e}")
+            self._proc = None
 
     def _on_tree_select(self, _event=None):
         sel = self._tv.selection()

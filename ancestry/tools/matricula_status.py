@@ -38,10 +38,44 @@ def _open(db_path: Path | str | None = None) -> sqlite3.Connection | None:
     return db
 
 
-def get_parish_status(db_path: Path | str | None = None) -> list[dict]:
+def get_dioceses(db_path: Path | str | None = None) -> list[dict]:
+    """Gibt alle bekannten Diözesen aus der DB zurück.
+
+    Jeder Eintrag: {path, slug, country, name, url}
+    Fällt auf die parishes.diocese-Spalte zurück wenn die dioceses-Tabelle
+    noch nicht existiert (Altdaten von scrape_matricula_osnabrueck.py).
+    """
+    db = _open(db_path)
+    if db is None:
+        return []
+    try:
+        try:
+            rows = db.execute(
+                "SELECT path, slug, country, name, url FROM dioceses ORDER BY country, name"
+            ).fetchall()
+            if rows:
+                return [dict(r) for r in rows]
+        except sqlite3.OperationalError:
+            pass
+        # Fallback: eindeutige diocese-Werte aus der parishes-Tabelle
+        rows = db.execute(
+            "SELECT DISTINCT diocese AS path FROM parishes WHERE diocese!='' ORDER BY diocese"
+        ).fetchall()
+        return [{"path": r[0], "slug": r[0].split("/")[-1],
+                 "country": r[0].split("/")[0] if "/" in r[0] else "?",
+                 "name": r[0], "url": ""} for r in rows]
+    except sqlite3.OperationalError:
+        return []
+    finally:
+        db.close()
+
+
+def get_parish_status(db_path: Path | str | None = None,
+                      diocese: str | None = None) -> list[dict]:
     """Liste aller Pfarreien mit Scan-Fortschritt, alphabetisch sortiert.
 
-    Jeder Eintrag: {id, name, n_books, pages_done, pages_total, status}
+    diocese — optionaler Filter auf eine Diözese (z.B. 'deutschland/osnabrueck').
+    Jeder Eintrag: {id, name, diocese, n_books, pages_done, pages_total, status}
     pages_total ist None solange nicht jedes Buch eine bekannte
     Seitenanzahl hat."""
     db = _open(db_path)
@@ -54,8 +88,10 @@ def get_parish_status(db_path: Path | str | None = None) -> list[dict]:
             for r in db.execute("PRAGMA table_info(kirchenbuecher)")
         )
         total_col = "kb.total_pages" if has_totals else "NULL"
+        diocese_where = "AND p.diocese=?" if diocese else ""
+        params = (diocese,) if diocese else ()
         rows = db.execute(f"""
-            SELECT p.id, p.name,
+            SELECT p.id, p.name, p.diocese,
                    COUNT(DISTINCT kb.book_id)            AS n_books,
                    COUNT(DISTINCT CASE WHEN {total_col} IS NULL
                                        THEN kb.book_id END) AS n_books_unsized,
@@ -69,9 +105,10 @@ def get_parish_status(db_path: Path | str | None = None) -> list[dict]:
                    ), 0)                                  AS pages_done
             FROM parishes p
             LEFT JOIN kirchenbuecher kb ON kb.parish_id = p.id
+            WHERE 1=1 {diocese_where}
             GROUP BY p.id, p.name
             ORDER BY p.name
-        """).fetchall()
+        """, params).fetchall()
     except sqlite3.OperationalError:
         # Matricula-Schema (parishes/kirchenbuecher) noch nicht angelegt –
         # Katalog wurde nie importiert. Leer statt Absturz.
@@ -83,7 +120,6 @@ def get_parish_status(db_path: Path | str | None = None) -> list[dict]:
     for r in rows:
         n_books   = r["n_books"]
         done      = r["pages_done"]
-        # Gesamtumfang nur bekannt, wenn JEDES Buch eine Seitenanzahl hat
         total     = r["pages_total"] if (n_books and not r["n_books_unsized"]) else None
         if total and done >= total:
             status = STATUS_DONE
@@ -92,7 +128,9 @@ def get_parish_status(db_path: Path | str | None = None) -> list[dict]:
         else:
             status = STATUS_OPEN
         out.append({
-            "id": r["id"], "name": r["name"], "n_books": n_books,
+            "id": r["id"], "name": r["name"],
+            "diocese": r["diocese"] if "diocese" in r.keys() else "",
+            "n_books": n_books,
             "pages_done": done, "pages_total": total, "status": status,
         })
     return out
@@ -114,9 +152,15 @@ def format_parish_label(p: dict) -> str:
 
 
 if __name__ == "__main__":
-    parishes = get_parish_status()
-    if not parishes:
+    dioceses = get_dioceses()
+    if not dioceses:
         print(f"Keine Pfarrei-DB gefunden: {PARISH_DB}")
-        print("Zuerst ausführen: python scrape_matricula_osnabrueck.py")
+        print("Zuerst ausführen: python -m ancestry.tools.scrape_matricula --diocese osnabrueck")
+    else:
+        print(f"Bekannte Diözesen ({len(dioceses)}):")
+        for d in dioceses:
+            print(f"  {d['path']}")
+        print()
+    parishes = get_parish_status()
     for p in parishes:
         print(format_parish_label(p))
