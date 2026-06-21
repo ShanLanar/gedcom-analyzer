@@ -242,6 +242,14 @@ class ToolsTab(ttk.Frame):
 
         # ── Abschnitt E: Extras / Viewer ──────────────────────────────────
         sec = self._tool_section(inner, "🧰  Extras")
+        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
+        _bw = ttk.Button(row, text="🧱 Brick-Wall-Finder",
+                         command=self._open_brickwall_finder)
+        _bw.pack(side="left", padx=(0, 8))
+        ttk.Label(row, text="Gut dokumentierte Ahnen ohne bekannte Eltern "
+                            "(hochpriore Forschungsziele).",
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(side="left")
         self._tool_action(sec, "GEDCOM verkleinern (GED Slim)", "ged_slim",
                           None, gui=_tool("ged_slim.py"))
         self._tool_action(sec, "Entity-Browser (Port 5001)", "entity",
@@ -770,6 +778,13 @@ class ToolsTab(ttk.Frame):
                 pass
             return None   # nicht in den Log schreiben
         return line
+
+    # ── Brick-Wall-Finder ─────────────────────────────────────────────────
+    def _open_brickwall_finder(self):
+        from ancestry.gui.analysis.brickwall_finder import show_brickwall_finder
+        show_brickwall_finder(
+            self, self._state,
+            set_status=lambda msg: self._tool_append(msg + "\n"))
 
     # ── Ortskonkordanz-Editor ─────────────────────────────────────────────
     def _open_place_editor(self):
