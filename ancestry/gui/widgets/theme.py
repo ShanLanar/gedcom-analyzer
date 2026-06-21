@@ -510,6 +510,34 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
                      "en": "Open this tool"},
     "tt.tl_start":  {"de": "Dieses Werkzeug im Hintergrund starten",
                      "en": "Start this tool in the background"},
+    # ── Personen-Tab ────────────────────────────────────────────────────────
+    "tt.pe_search": {"de": "Vor- oder Nachname suchen (Teilsuche möglich)",
+                     "en": "Search by first or last name (partial match supported)"},
+    "tt.pe_src":    {"de": "Personen nach Datenquelle filtern: GEDCOM = eigene Forschung, "
+                           "Webtrees = Anverwandte-Crawl, WikiTree = WikiTree-Import",
+                     "en": "Filter persons by data source: GEDCOM = own research, "
+                           "Webtrees = Anverwandte crawl, WikiTree = WikiTree import"},
+    "tt.pe_conf":   {"de": "Personen nach Konfession filtern — abgeleitet aus dem Geburtsort "
+                           "via Matricula-Pfarreikatalog (kath./ev./unbekannt)",
+                     "en": "Filter persons by religion — derived from birthplace "
+                           "via Matricula parish catalogue (cath./prot./unknown)"},
+    "tt.pe_depth":  {"de": "Anzahl der Vorfahren-Generationen im Stammbaum-Canvas (1–5)",
+                     "en": "Number of ancestor generations shown in the tree canvas (1–5)"},
+    # ── Matricula-Tab ────────────────────────────────────────────────────────
+    "tt.mat_ner":   {"de": "Namen und Rollen aus transkribierten Einträgen extrahieren "
+                           "(Taufpaten, Eltern, Zeugen …) — befüllt die Personen-NER-Tabelle",
+                     "en": "Extract names and roles from transcribed entries "
+                           "(godparents, parents, witnesses …) — populates the persons NER table"},
+    "tt.mat_ocr":   {"de": "Aktive OCR-Engine (Umgebungsvariable MATRICULA_OCR_BACKEND). "
+                           "claude = Claude Vision API (kostenpflichtig, strukturiert); "
+                           "tesseract = lokal/gratis, gut für gedruckte Register; "
+                           "kraken = lokal/gratis, für Handschriften (HTR). "
+                           "Ändern: MATRICULA_OCR_BACKEND=tesseract in der Umgebung setzen.",
+                     "en": "Active OCR engine (env var MATRICULA_OCR_BACKEND). "
+                           "claude = Claude Vision API (paid, structured output); "
+                           "tesseract = local/free, good for printed registers; "
+                           "kraken = local/free, for handwritten records (HTR). "
+                           "Change: set MATRICULA_OCR_BACKEND=tesseract in your environment."},
     "dlg.no_kit": {"de": "Kein Kit", "en": "No kit"},
     "dlg.no_data": {"de": "Keine Daten", "en": "No data"},
     "dlg.m_choose_kit": {"de": "Bitte zuerst ein DNA-Kit wählen.", "en": "Please select a DNA kit first."},

@@ -103,6 +103,15 @@ class MatriculaTab(ttk.Frame):
         ttk.Checkbutton(bar, variable=self._auto_ner_var,
                         text="Auto-NER").pack(side="left", padx=(8, 0))
 
+        # OCR-Backend-Anzeige (MATRICULA_OCR_BACKEND, read-only info)
+        _ocr_backend = os.environ.get("MATRICULA_OCR_BACKEND", "claude")
+        _ocr_color = {"claude": "#b45309", "tesseract": "#166534", "kraken": "#1e40af"}.get(
+            _ocr_backend, "#374151")
+        _ocr_lbl = ttk.Label(bar, text=f"OCR: {_ocr_backend}",
+                             foreground=_ocr_color, font=("Segoe UI", 8, "bold"))
+        _ocr_lbl.pack(side="right", padx=(0, 4))
+        register_tooltip(_ocr_lbl, "tt.mat_ocr", self._state)
+
         # Pfarreien-Übersicht: fertig = ✓ + ausgegraut
         _sv = tk.StringVar(value=t("mat.overview"))
         ttk.Label(self, textvariable=_sv, style="Bold.TLabel").pack(

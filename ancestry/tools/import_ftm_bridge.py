@@ -1,22 +1,40 @@
 #!/usr/bin/env python3
 """
-import_ftm_bridge.py — FTM-Direktbrücke zu gedcom_persons
+import_ftm_bridge.py — FTM/GEDCOM-Brücke → gedcom_persons
 
-Liest eine Family Tree Maker (.ftm) Datei — die FTM mit Ancestry synchronisiert
-halten kann — und importiert alle Personen als eigene Quelle (Standard: 'ftm')
-in gedcom_persons. Danach werden automatisch Querbezüge zum eigenen GEDCOM
-(source='gedcom') angelegt.
+[DE] Importiert Family Tree Maker- oder GEDCOM-Daten in gedcom_persons.
+Unterstützte Eingaben:
+  • .ftm  — FTM 2014–2017 (SQLite-Format); direkt lesbar.
+  • .ged / .gedcom — GEDCOM-Export aus FTM 2019/2024 (MacKiev), Webtrees,
+                     Gramps oder einem anderen Programm.
 
-Vorteil gegenüber dem GED-Export-Umweg:
-  - Keine manuelle Export-Schritte (FTM → .ged → Import)
-  - FTM ist immer aktuell (Ancestry-Sync) → Brücke mit einem Klick auffrischen
-  - Vollständige Relationsdaten (Eltern/Kind/Ehe direkt aus der SQLite-DB)
+Hinweis FTM 2024 (MacKiev): Die .ftm-Datei ist verschlüsselt/komprimiert und
+KEIN SQLite mehr. Bitte in FTM exportieren: Datei → Exportieren → GEDCOM,
+dann diese .ged-Datei als Argument übergeben.
 
 Aufruf:
-  python import_ftm_bridge.py mein_baum.ftm
-  python import_ftm_bridge.py mein_baum.ftm --source anverwandte
-  python import_ftm_bridge.py mein_baum.ftm --no-link       # nur importieren
-  python import_ftm_bridge.py mein_baum.ftm --dry-run       # nur Statistik
+  python import_ftm_bridge.py mein_baum.ged
+  python import_ftm_bridge.py mein_baum.ftm  --source anverwandte
+  python import_ftm_bridge.py mein_baum.ged  --no-link    # nur importieren
+  python import_ftm_bridge.py mein_baum.ged  --dry-run    # nur Statistik
+
+----
+
+[EN] Imports Family Tree Maker or GEDCOM data into the gedcom_persons table.
+Supported inputs:
+  • .ftm  — FTM 2014–2017 (SQLite format); read directly.
+  • .ged / .gedcom — GEDCOM export from FTM 2019/2024 (MacKiev), Webtrees,
+                     Gramps, or any other genealogy program.
+
+Note for FTM 2024 (MacKiev): The .ftm file is encrypted/compressed and is
+NO LONGER plain SQLite. Please export from FTM: File → Export → GEDCOM,
+then pass the resulting .ged file as the argument.
+
+Usage:
+  python import_ftm_bridge.py my_tree.ged
+  python import_ftm_bridge.py my_tree.ftm  --source relatives
+  python import_ftm_bridge.py my_tree.ged  --no-link    # import only, no links
+  python import_ftm_bridge.py my_tree.ged  --dry-run    # statistics only
 """
 from __future__ import annotations
 

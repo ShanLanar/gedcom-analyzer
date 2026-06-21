@@ -151,14 +151,16 @@ class PersonsTab(ttk.Frame):
         ttk.Label(bar, text="Suche:").pack(side="left")
         self._pers_search = tk.StringVar()
         self._pers_search.trace_add("write", lambda *_: self._pers_reload_list())
-        ttk.Entry(bar, textvariable=self._pers_search, width=18).pack(
-            side="left", padx=4)
+        _search_e = ttk.Entry(bar, textvariable=self._pers_search, width=18)
+        _search_e.pack(side="left", padx=4)
+        register_tooltip(_search_e, "tt.pe_search", self._state)
         self._pers_source = tk.StringVar(value="Alle Quellen")
         src_cb = ttk.Combobox(bar, textvariable=self._pers_source, width=12,
                               state="readonly",
                               values=list(_SRC_LABEL.values()))
         src_cb.pack(side="left", padx=4)
         src_cb.bind("<<ComboboxSelected>>", lambda _: self._pers_reload_list())
+        register_tooltip(src_cb, "tt.pe_src", self._state)
         # Konfessions-Filter (aus Geburtsort via Matricula-Pfarrei)
         self._pers_conf = tk.StringVar(value="Alle Konfessionen")
         conf_cb = ttk.Combobox(bar, textvariable=self._pers_conf, width=13,
@@ -166,6 +168,7 @@ class PersonsTab(ttk.Frame):
                                values=list(_CONF_LABELS.values()))
         conf_cb.pack(side="left", padx=4)
         conf_cb.bind("<<ComboboxSelected>>", lambda _: self._pers_reload_list())
+        register_tooltip(conf_cb, "tt.pe_conf", self._state)
         _b = ttk.Button(bar, text="🔍 Dubletten", command=self._pers_open_dedup)
         _b.pack(side="left", padx=4)
         register_tooltip(_b, "tt.pe_dedup", self._state)
@@ -201,6 +204,7 @@ class PersonsTab(ttk.Frame):
         depth_sb = ttk.Spinbox(nav, from_=1, to=5, width=3, textvariable=self._pers_depth,
                                command=self._pers_redraw_tree)
         depth_sb.pack(side="left", padx=(2, 8))
+        register_tooltip(depth_sb, "tt.pe_depth", self._state)
         cwrap = ttk.Frame(mid); cwrap.pack(fill="both", expand=True)
         self._pers_canvas = tk.Canvas(cwrap, bg="#ffffff", highlightthickness=0)
         cvsb = ttk.Scrollbar(cwrap, orient="vertical",

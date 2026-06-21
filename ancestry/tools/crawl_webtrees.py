@@ -1,50 +1,64 @@
 #!/usr/bin/env python3
 """
-webtrees-Crawler — iterativer, höflicher Crawler für öffentliche
-webtrees-Stammbäume (z.B. https://stammbaum.anverwandte.info/).
+crawl_webtrees.py — höflicher Crawler für öffentliche webtrees-Stammbäume
 
-Geht von einer Start-Person aus, folgt den Verwandtschafts-Links
-(Eltern/Partner/Kinder) im Breitensuch-Verfahren und legt jede Person in
-einer lokalen SQLite-DB ab. Resumierbar: Frontier und besuchte IDs werden
-gespeichert, ein erneuter Aufruf macht da weiter, wo er aufhörte.
+[DE] Crawlt einen öffentlichen webtrees-Stammbaum (z. B. stammbaum.anverwandte.info)
+und speichert alle Personen in einer lokalen SQLite-DB. Resumierbar: Der Crawl
+macht beim nächsten Aufruf dort weiter, wo er aufgehört hat.
 
-WICHTIG / fair use — DIESE SEITE BITTE SCHONEN:
-  * robots.txt wird respektiert (Abbruch, wenn das Ziel verboten ist).
-  * Standard-Rate-Limit: 1,5 s zwischen Anfragen + zufälliger Jitter
-    (~1,5–2,25 s real). Mit --delay kann der Wert erhöht oder gesenkt werden.
-  * Standard nur 300 Seiten pro Lauf; danach Pause. Resumierbar, also über
-    mehrere Läufe verteilen statt alles am Stück.
-  * Klarer User-Agent. Nur öffentlich zugängliche Seiten werden gelesen.
-  Bitte ausschließlich für eigene Forschung und im Rahmen der
-  Nutzungsbedingungen der Seite verwenden.
+Erste Schritte:
+  1. Startseite einer Person im Stammbaum im Browser öffnen → URL kopieren.
+  2. Crawl starten:
+       python crawl_webtrees.py crawl "https://stammbaum.anverwandte.info/tree/anverwandte/individual/I114571/..."
+  3. Nach dem Crawl in die Datenbank importieren:
+       python crawl_webtrees.py import-db
+  4. Als GEDCOM exportieren (optional):
+       python crawl_webtrees.py export-gedcom
+
+Fair-Use-Regeln: robots.txt wird respektiert · Rate-Limit 1,5 s + Jitter ·
+max. 300 Seiten pro Lauf · Nur öffentlich zugängliche Seiten.
+Bitte ausschließlich für eigene Forschung und im Rahmen der Nutzungsbedingungen
+der jeweiligen Seite verwenden.
 
 Da sich das HTML je nach webtrees-Theme unterscheidet, ist der Parser
 HEURISTISCH. Erst eine echte Seite prüfen:
-
     python crawl_webtrees.py dump "https://stammbaum.anverwandte.info/tree/anverwandte/individual/I114571/..."
 
-Gerichteter Crawl (Standard 'both'): erst alle Vorfahren des Vaters,
-dann von jedem Vorfahren alle Nachkommen = die ganze Blutsverwandtschaft:
+Gerichteter Crawl (Standard 'both'): erst alle Vorfahren, dann Nachkommen:
+    python crawl_webtrees.py crawl "https://.../I114571/..." --mode both
 
-    python crawl_webtrees.py crawl "https://.../individual/I114571/..." --mode both
-
-Nachkommen-Explosion eindämmen (optional, Raum/Zeit):
-
+Nachkommen-Explosion eindämmen:
     python crawl_webtrees.py crawl "https://.../I114571/..." \\
-        --place "Osnabrück,Hagen,Oesede,Ostercappeln,Mettingen" \\
-        --year-min 1650 --year-max 1930
+        --place "Osnabrück,Hagen,Oesede" --year-min 1650 --year-max 1930
 
-Matricula-Belege samt reparierter (Pfarrei-)URLs ausgeben:
+Weitere Befehle:
+    python crawl_webtrees.py matricula        # Matricula-URLs anzeigen
+    python crawl_webtrees.py profiles         # gespeicherte Profile auflisten
+    python crawl_webtrees.py list-sites       # alle bekannten Instanzen
 
-    python crawl_webtrees.py matricula
+----
 
-Gespeicherte Profile auflisten:
+[EN] Crawls a public webtrees family tree (e.g. stammbaum.anverwandte.info)
+and stores all persons in a local SQLite database. Resumable: the crawl
+continues where it left off on the next run.
 
-    python crawl_webtrees.py profiles
+Getting started:
+  1. Open the profile page of a starting person in the browser → copy the URL.
+  2. Start crawl:
+       python crawl_webtrees.py crawl "https://stammbaum.anverwandte.info/tree/anverwandte/individual/I114571/..."
+  3. Import into the database:
+       python crawl_webtrees.py import-db
+  4. Export as GEDCOM (optional):
+       python crawl_webtrees.py export-gedcom
 
-Alle bekannten Instanzen (lokale DBs) auflisten:
+Fair-use rules: robots.txt is respected · rate limit 1.5 s + jitter ·
+max. 300 pages per run · public pages only.
+Please use only for personal research and within the site's terms of use.
 
-    python crawl_webtrees.py list-sites
+Further commands:
+    python crawl_webtrees.py matricula        # show Matricula source URLs
+    python crawl_webtrees.py profiles         # list stored profiles
+    python crawl_webtrees.py list-sites       # list all known instances
 """
 from __future__ import annotations
 

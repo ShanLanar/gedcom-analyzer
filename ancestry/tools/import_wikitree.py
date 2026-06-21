@@ -1,17 +1,36 @@
 #!/usr/bin/env python3
 """
-WikiTree-Vorfahren in gedcom_persons importieren (source='wikitree').
+import_wikitree.py — WikiTree-Ahnen → gedcom_persons (source='wikitree')
 
-Holt über die öffentliche WikiTree-API die Ahnenlinie einer Start-Person
-und importiert sie – genau wie der Anverwandte-Crawl – als eigene Quelle,
-mit Duplikat-Querbezügen zu deinem GEDCOM (nichts wird überschrieben).
+[DE] Importiert die Vorfahren einer WikiTree-Person in die Datenbank.
+So findest du die WikiTree-ID:
+  1. Auf wikitree.com die Person suchen (z. B. "Kovermann")
+  2. Auf der Profilseite die ID aus der URL ablesen:
+     wikitree.com/wiki/Kovermann-123  →  ID = Kovermann-123
+  3. Import starten:
+       python import_wikitree.py Kovermann-123
+  Optional:
+       python import_wikitree.py Kovermann-123 --depth 8   # bis 8 Generationen
+       python import_wikitree.py Kovermann-123 --no-link   # keine Querbezüge anlegen
 
-WikiTree-API ist nur mit Internet erreichbar (läuft lokal, nicht in der
-gekapselten Sandbox).
+Die WikiTree-API ist öffentlich und erfordert keine Anmeldung.
+Tiefe (--depth): Standard 6 = ca. 64 Vorfahren; 8 = bis 256 Vorfahren.
 
-Aufruf:
-  python import_wikitree.py Einstein-1 --depth 6
-  python import_wikitree.py Kovermann-123 --no-link
+----
+
+[EN] Imports the ancestors of a WikiTree person into the database.
+How to find the WikiTree ID:
+  1. Search for the person on wikitree.com (e.g. "Kovermann")
+  2. Read the ID from the profile URL:
+     wikitree.com/wiki/Kovermann-123  →  ID = Kovermann-123
+  3. Start import:
+       python import_wikitree.py Kovermann-123
+  Optional:
+       python import_wikitree.py Kovermann-123 --depth 8   # up to 8 generations
+       python import_wikitree.py Kovermann-123 --no-link   # skip cross-references
+
+The WikiTree API is public and requires no login.
+Depth (--depth): default 6 = ~64 ancestors; 8 = up to 256 ancestors.
 """
 import argparse
 import sys

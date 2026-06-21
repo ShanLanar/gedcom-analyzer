@@ -64,8 +64,10 @@ wenn neue Daten dazukommen.
 |---|---|---|
 | **Ancestry** | DNA-Matches + Ahnentafeln | Im **Login-Tab** mit Cookie-Datei anmelden, dann im **Herunterladen-Tab** laden. |
 | **GEDCOM** | Dein eigener Stammbaum | Aus deinem Genealogie-Programm exportieren, im **Start-Tab** wählen. |
+| **Family Tree Maker (FTM)** | Stammbaum-Import | FTM 2014–2017: .ftm-Datei direkt. FTM 2019/2024: *Datei → Exportieren → GEDCOM*, dann **Werkzeuge → FTM-Brücke**. |
 | **MyHeritage** | DNA-Matches | „Genealogy Assistant"-Browser-Export → CSV, dann **Werkzeuge → MyHeritage**. |
 | **GEDmatch** | Cross-Plattform-Matches | One-to-many als TSV speichern, dann **Werkzeuge → GEDmatch-TSV → DB**. |
+| **FTDNA** (FamilyTreeDNA) | DNA-Matches | *Family Finder → Matches → Herunterladen → CSV*, dann **Werkzeuge → FTDNA-CSV → DB**. |
 | **WikiTree** | Stammbaum-Personen | WikiTree-ID (z. B. `Kovermann-123`), dann **Werkzeuge → WikiTree → DB**. |
 | **Webtrees** (anverwandte.info) | Öffentlicher Stammbaum | **Werkzeuge → Webtrees** crawlen, dann „Crawl → Datenbank importieren". |
 | **Matricula** | Kirchenbuch-Scans | **Matricula-Tab** oder **Werkzeuge → Matricula**. |
@@ -114,6 +116,58 @@ und jederzeit per **■** stoppbar. Der Live-Log rechts zeigt den Fortschritt.
 > **Lexikon (verbessert die freie OCR):** `python -m ancestry.tools.build_matricula_lexicon`
 > erzeugt eine Wortliste (Nachnamen/Vornamen/Orte) aus deinen Daten — als
 > Tesseract `--user-words` / Kraken-Dictionary / zur Validierung.
+
+### 🌲 Family Tree Maker (FTM)
+
+**FTM 2019/2024 (MacKiev)** — .ftm-Dateien dieser Version sind verschlüsselt und
+können nicht direkt gelesen werden. Bitte zuerst in FTM exportieren:
+
+1. In FTM: **Datei → Exportieren → GEDCOM** → Speicherort wählen → `.ged`-Datei erzeugen.
+2. Im **Werkzeuge-Tab**: **FTM / GEDCOM-Brücke** öffnen → die `.ged`-Datei wählen.
+3. Quelle wählen (Standard: `ftm`) → **Importieren** → die Personen erscheinen im Personen-Tab.
+
+**FTM 2014–2017 (Older)** — Die `.ftm`-Datei ist ein direktes SQLite, kann direkt
+übergeben werden (kein Exportschritt nötig).
+
+> **CLI:** `python ancestry/tools/import_ftm_bridge.py mein_baum.ged`
+
+---
+> **[EN] Family Tree Maker (FTM)**
+>
+> **FTM 2019/2024 (MacKiev):** .ftm files are encrypted and cannot be read directly.
+> Export from FTM first: **File → Export → GEDCOM** → choose a location → creates a `.ged` file.
+> Then in the **Tools tab**: open **FTM / GEDCOM Bridge** → select the `.ged` file → Import.
+>
+> **FTM 2014–2017:** The `.ftm` file is plain SQLite and can be passed directly.
+>
+> **CLI:** `python ancestry/tools/import_ftm_bridge.py my_tree.ged`
+
+---
+
+### 🧬 FTDNA / FamilyTreeDNA
+
+1. Auf **ftdna.com** einloggen → **Family Finder → Matches**.
+2. Oben rechts: **„Herunterladen"** (oder „Download CSV") klicken → CSV speichern.
+3. Im **Werkzeuge-Tab**: **FTDNA-CSV → DB** → CSV-Datei wählen → Importieren.
+
+Die CSV enthält Name, geschätzte Beziehung, cM-Werte und ggf. die FTDNA-Kit-ID.
+Drei CSV-Formate werden automatisch erkannt (Classic / Modern / Compact).
+
+> **CLI:** `python ancestry/tools/import_ftdna_matches.py matches.csv --kit A123456`
+
+---
+> **[EN] FTDNA / FamilyTreeDNA**
+>
+> 1. Log in at **ftdna.com** → **Family Finder → Matches**.
+> 2. Top right: click **"Download"** (or "Download CSV") → save the CSV.
+> 3. In the **Tools tab**: **FTDNA CSV → DB** → choose the CSV file → Import.
+>
+> The CSV contains name, estimated relationship, cM values, and optionally the FTDNA kit ID.
+> Three CSV formats are auto-detected (Classic / Modern / Compact).
+>
+> **CLI:** `python ancestry/tools/import_ftdna_matches.py matches.csv --kit A123456`
+
+---
 
 ### 🧬 MyHeritage-DNA
 1. **„1 · Matchliste herunterladen"** *(Login im Browser nötig)*.

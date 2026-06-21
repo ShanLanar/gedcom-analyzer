@@ -1,4 +1,14 @@
-"""Importiert FTDNA Family Finder Match-Liste aus CSV-Export.
+"""
+import_ftdna_matches.py — FTDNA Family Finder → ancestry_dna.db
+
+[DE] Importiert eine FTDNA-Match-Liste (CSV-Export) in die gemeinsame Datenbank.
+So kommst du an die CSV-Datei:
+  1. Auf ftdna.com einloggen → Family Finder → Matches
+  2. Oben rechts: „Herunterladen" (oder „Download CSV") klicken
+  3. Die heruntergeladene CSV-Datei als Argument übergeben:
+       python import_ftdna_matches.py matches.csv
+  Optional: eigene Kit-ID setzen (Standard: FTDNA_DEFAULT):
+       python import_ftdna_matches.py matches.csv --kit A123456
 
 Unterstützte FTDNA-Exportformate (automatische Erkennung):
   • Classic:  Name | Relationship Range | Suggested Relationship |
@@ -8,8 +18,24 @@ Unterstützte FTDNA-Exportformate (automatische Erkennung):
               X Match | FTDNA ID
   • Compact:  Name | Relationship | cM Shared | Longest Block | Date
 
-Aufruf:
-  python import_ftdna_matches.py [pfad/zur/matches.csv] [--kit FTDNA_KIT_ID]
+----
+
+[EN] Imports an FTDNA match list (CSV export) into the shared database.
+How to get the CSV file:
+  1. Log in at ftdna.com → Family Finder → Matches
+  2. Top right: click "Download" (or "Download CSV")
+  3. Pass the downloaded CSV file as argument:
+       python import_ftdna_matches.py matches.csv
+  Optional: set your own kit ID (default: FTDNA_DEFAULT):
+       python import_ftdna_matches.py matches.csv --kit A123456
+
+Supported FTDNA export formats (auto-detected):
+  • Classic:  Name | Relationship Range | Suggested Relationship |
+              Longest Block | Total Shared cM
+  • Modern:   Full Name | Match Date | Relationship Range |
+              Suggested Relationship | Longest Segment | Total Shared cM |
+              X Match | FTDNA ID
+  • Compact:  Name | Relationship | cM Shared | Longest Block | Date
 """
 from __future__ import annotations
 
