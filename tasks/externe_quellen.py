@@ -71,13 +71,22 @@ try:
 except Exception:
     pass
 
+# Optionaler OFB-Katalog (Ort → Ortsfamilienbücher; von scrape_ofb.py erzeugt)
+_OFB_JSON = Path(__file__).resolve().parent.parent / "ancestry" / "tools" / "ofb_books.json"
+_OFB_LOOKUP: dict[str, list] = {}
+try:
+    if _OFB_JSON.exists():
+        _OFB_LOOKUP = json.loads(_OFB_JSON.read_text(encoding="utf-8"))
+except Exception:
+    pass
+
 EXTERNE_QUELLEN_HEADERS = [
     "Person-ID", "Name", "Geb.", "Geb.-Ort", "Gest.", "Gest.-Ort",
     "Zeitraum-Kategorie", "Besonderheit",
     # Kirchenbücher
     "Matricula", "Archion", "FamilySearch-Quellen",
     # Standesamt / Staatsarchiv
-    "ArcInSys NI", "Archivportal-D",
+    "Staatsarchiv (ArcInSys)", "Archivportal-D",
     # Auswanderer
     "Hamburg-Listen (Ancestry)", "Ellis Island", "Auswandererhaus Bremerhaven",
     # Militär
@@ -91,6 +100,9 @@ EXTERNE_QUELLEN_HEADERS = [
     # CompGen-Datenbanken / regionale Quellen
     "GEDBAS", "Verlustlisten WWI", "Poznań-Projekt",
     "ANNO (Österreich)", "Arcanum ADT", "Deutsche Digitale Bibliothek",
+    # Ortsfamilienbücher / Presse / Urkunden / Ortswiki
+    "Ortsfamilienbuch (OFB)", "Familienanzeigen", "Monasterium (Urkunden)",
+    "GenWiki-Ort",
     # Linked Data
     "Wikidata-Suche", "GND/lobid",
 ]
@@ -290,9 +302,25 @@ def _familysearch(given, surname, by, place):
     return "https://www.familysearch.org/search/record/results?" + urllib.parse.urlencode(params)
 
 
+# Bundesland-Schlüsselwörter → passende Staatsarchiv-Such-URL (ArcInSys/Portal).
+_ARCINSYS_INSTANCES: list[tuple[tuple[str, ...], str]] = [
+    (("hessen", "kassel", "wiesbaden", "darmstadt", "marburg", "frankfurt", "fulda"),
+     "https://arcinsys.hessen.de/arcinsys/start?t=1&query="),
+    (("westfalen", "nordrhein", "rheinland", "köln", "münster", "dortmund",
+      "düsseldorf", "detmold", "paderborn", "bielefeld", "aachen"),
+     "https://www.archive.nrw.de/archivsuche?amd_q="),
+]
+_ARCINSYS_DEFAULT = "https://www.arcinsys.niedersachsen.de/arcinsys/start?t=1&archivTyp=n&query="
+
+
 def _arcinsys(surname, place):
-    q = " ".join(filter(None, [surname, _first(place)]))
-    return f"https://www.arcinsys.niedersachsen.de/arcinsys/start?t=1&archivTyp=n&query={urllib.parse.quote(q)}"
+    """Routet zur richtigen Staatsarchiv-Suche je Bundesland (NRW/Hessen/NI)."""
+    q  = urllib.parse.quote(" ".join(filter(None, [surname, _first(place)])))
+    pl = (place or "").lower()
+    for keys, base in _ARCINSYS_INSTANCES:
+        if any(k in pl for k in keys):
+            return base + q
+    return _ARCINSYS_DEFAULT + q
 
 
 def _archivportal(surname, place):
@@ -461,6 +489,36 @@ def _ddb(surname, place):
             + urllib.parse.quote(q))
 
 
+def _ofb(place):
+    """Online-Ortsfamilienbuch (CompGen). Deep-Link, wenn der OFB-Katalog
+    (scrape_ofb.py → ofb_books.json) geladen ist, sonst die OFB-Übersicht."""
+    p = _first(place)
+    if p and _OFB_LOOKUP:
+        entry = _OFB_LOOKUP.get(p.lower().strip())
+        if isinstance(entry, list) and entry:
+            return entry[0].get("url", "") or "https://ofb.genealogy.net/"
+    return "https://ofb.genealogy.net/"
+
+
+def _familienanzeigen(surname):
+    """CompGen Familienanzeigen — Zeitungs-Geburts-/Heirats-/Todesanzeigen."""
+    return ("https://familienanzeigen.genealogy.net/suche.php?"
+            + urllib.parse.urlencode({"lastname": surname}))
+
+
+def _monasterium(surname):
+    """ICARUS Monasterium.net — mittelalterliche/frühneuzeitliche Urkunden."""
+    return "https://www.monasterium.net/mom/search?q=" + urllib.parse.quote(surname)
+
+
+def _genwiki_ort(place):
+    """GenWiki (genealogy.net) — Orts-/Familienartikel."""
+    p = _first(place)
+    if not p:
+        return ""
+    return "https://wiki.genealogy.net/" + urllib.parse.quote(p.replace(" ", "_"))
+
+
 # ── Haupt-Funktion ────────────────────────────────────────────────────────────
 
 def run_externe_quellen(individuals: dict, root_related_ids=None,
@@ -551,6 +609,11 @@ def run_externe_quellen(individuals: dict, root_related_ids=None,
             _anno(surname)                 if _is_austria(place) else "",
             _arcanum(surname)              if _is_austria(place) else "",
             _ddb(surname, place)           if is_dach else "",
+            # Ortsfamilienbücher / Presse / Urkunden / Ortswiki
+            _ofb(place)                    if is_dach and place else "",
+            _familienanzeigen(surname)     if is_dach and (not by or by > 1850) else "",
+            _monasterium(surname)          if is_dach and (not by or by < 1700) else "",
+            _genwiki_ort(place)            if is_dach and place else "",
             # Linked Data
             _wikidata_person(given, surname, by),
             _gnd(given, surname, by),
