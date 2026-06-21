@@ -9,7 +9,10 @@ import logging
 import tkinter as tk
 from tkinter import ttk
 
-from ancestry.core.triangulation import build_triangulation_groups
+from ancestry.core.triangulation import (
+    annotate_tg_candidate_mrca,
+    build_triangulation_groups,
+)
 
 log = logging.getLogger(__name__)
 
@@ -160,6 +163,10 @@ def show_triangulation(app) -> None:
             min_cm, min_ov = 7.0, 5.0
         tgs = build_triangulation_groups(app._db, test_guid,
                                          min_cm=min_cm, min_overlap_cm=min_ov)
+        try:
+            annotate_tg_candidate_mrca(app._db, test_guid, tgs)
+        except Exception as e:
+            log.debug("Triangulation candidate MRCA: %s", e)
         tv.delete(*tv.get_children())
         store.clear()
         for tg in tgs:
@@ -189,7 +196,18 @@ def show_triangulation(app) -> None:
             return
         s_mbp = tg["region_start"] / 1_000_000
         e_mbp = tg["region_end"]   / 1_000_000
-        detail.insert("end", f"Chr {tg['chromosome_label']}  {s_mbp:.2f} – {e_mbp:.2f} Mbp\n\n")
+        detail.insert("end", f"Chr {tg['chromosome_label']}  {s_mbp:.2f} – {e_mbp:.2f} Mbp\n")
+        try:
+            cand = tg.get("candidate_mrca") or []
+            if cand:
+                top = cand[0]
+                yr = f"{top['year']}" if top.get("year") else "?"
+                detail.insert("end",
+                    f"  → Wahrscheinlicher gem. Vorfahr: "
+                    f"{top['name']} ({yr}) — {top['member_count']} Mitglieder\n")
+        except Exception as e:
+            log.debug("Triangulation candidate MRCA line: %s", e)
+        detail.insert("end", "\n")
         name_map: dict = {}
         try:
             name_map = {m.match_guid: m.display_name

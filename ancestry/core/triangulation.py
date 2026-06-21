@@ -12,11 +12,14 @@ genealogical practice.
 
 from __future__ import annotations
 
+import logging
 from collections import defaultdict
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from ancestry.core.database import Database
+
+log = logging.getLogger(__name__)
 
 X_CHROMOSOME = 23
 
@@ -112,4 +115,98 @@ def build_triangulation_groups(
             })
 
     tgs.sort(key=lambda t: (t["chromosome"], t["region_start"]))
+    return tgs
+
+
+def annotate_tg_candidate_mrca(
+    db: "Database",
+    test_guid: str,
+    tgs: list[dict],
+) -> list[dict]:
+    """
+    Annotate each Triangulation Group with its likely Most-Recent Common
+    Ancestor(s) (MRCA), derived from the GEDCOM bridge (`gedcom_links`).
+
+    Genealogische Begründung
+    -------------------------
+    Alle Mitglieder einer TG erben *dasselbe* Ahnen-Segment auf derselben
+    chromosomalen Region. DNA-Genealogie folgert daraus: sie stammen mit hoher
+    Wahrscheinlichkeit von *einem* gemeinsamen Vorfahren ab (dem MRCA der
+    Gruppe). Wenn nun ≥2 verschiedene Mitglieder einer TG laut Bridge auf
+    *dieselbe* GEDCOM-Person (`ged_id`) zeigen, ist das ein sich gegenseitig
+    bestätigender Beleg (corroborating evidence): unabhängige Matches, die
+    dasselbe Segment teilen, deuten auf denselben Ahnen — genau die Person, die
+    das geteilte Segment plausibel erklärt. Je mehr Mitglieder auf dieselbe
+    ged_id zeigen (und je höher deren Match-Score), desto stärker der Beleg.
+
+    Für jede TG wird `candidate_mrca` gesetzt: eine nach `member_count` (desc),
+    dann `avg_score` (desc) sortierte Liste von Dicts
+    ``{ged_id, name, year, member_count, avg_score}``. ``name`` ist
+    ``"ged_given ged_surname"``. Es werden nur Kandidaten mit
+    ``member_count >= 2`` behalten, gedeckelt auf die Top 5. Gibt es keinen,
+    ist ``candidate_mrca == []``.
+
+    Reine SELECTs, fail-soft: bei einem DB-Fehler wird die jeweilige TG mit
+    ``candidate_mrca = []`` versehen und es geht weiter. Gibt dieselbe (in
+    place annotierte) ``tgs``-Liste zurück.
+    """
+    for tg in tgs:
+        tg["candidate_mrca"] = []
+        guids = list({m["match_guid"] for m in tg.get("members", []) if m.get("match_guid")})
+        if not guids:
+            continue
+        try:
+            # {ged_id: [name, year, set(member_guids), [scores]]}
+            agg: dict[str, dict] = {}
+            # IN-Liste sicherheitshalber chunken (SQLite-Variablen-Limit), auch
+            # wenn eine TG praktisch nie >900 Mitglieder hat.
+            for start in range(0, len(guids), 900):
+                chunk = guids[start:start + 900]
+                placeholders = ",".join("?" * len(chunk))
+                with db._cursor() as cur:
+                    rows = cur.execute(
+                        f"SELECT match_guid, ged_id, ged_given, ged_surname, "
+                        f"ged_year, total_score "
+                        f"FROM gedcom_links "
+                        f"WHERE test_guid = ? AND match_guid IN ({placeholders})",
+                        (test_guid, *chunk),
+                    ).fetchall()
+                for r in rows:
+                    ged_id = r["ged_id"]
+                    if not ged_id:
+                        continue
+                    slot = agg.setdefault(
+                        ged_id,
+                        {
+                            "name": (f"{r['ged_given'] or ''} "
+                                     f"{r['ged_surname'] or ''}").strip(),
+                            "year": r["ged_year"],
+                            "members": set(),
+                            "scores": [],
+                        },
+                    )
+                    slot["members"].add(r["match_guid"])
+                    slot["scores"].append(float(r["total_score"] or 0.0))
+
+            candidates = []
+            for ged_id, slot in agg.items():
+                member_count = len(slot["members"])
+                if member_count < 2:
+                    continue
+                scores = slot["scores"]
+                avg_score = sum(scores) / len(scores) if scores else 0.0
+                candidates.append({
+                    "ged_id":       ged_id,
+                    "name":         slot["name"],
+                    "year":         slot["year"],
+                    "member_count": member_count,
+                    "avg_score":    round(avg_score, 1),
+                })
+
+            candidates.sort(key=lambda c: (-c["member_count"], -c["avg_score"]))
+            tg["candidate_mrca"] = candidates[:5]
+        except Exception as e:
+            log.debug("annotate_tg_candidate_mrca: %s", e)
+            tg["candidate_mrca"] = []
+
     return tgs
