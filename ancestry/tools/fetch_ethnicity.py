@@ -165,7 +165,7 @@ def fetch_myheritage_ethnicity(kit_guid: str,
 
     Baut die Session aus der MH-Cookie-Datei auf (wie download_myheritage.py).
     """
-    from requests import Session as RSession
+    from curl_cffi.requests import Session as RSession
     if cookie_file is None:
         try:
             from ancestry.paths import ROOT

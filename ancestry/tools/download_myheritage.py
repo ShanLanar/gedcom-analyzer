@@ -34,14 +34,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-import requests
-from requests import Session
-
-try:
-    from bs4 import BeautifulSoup
-    HAS_BS4 = True
-except ImportError:
-    HAS_BS4 = False
+from curl_cffi import requests
+from curl_cffi.requests import Session
 
 # ── Pfade ─────────────────────────────────────────────────────────────────────
 _HERE       = Path(__file__).resolve().parent
@@ -264,15 +258,13 @@ def extract_json_from_html(html: str) -> dict | list | None:
                 continue
 
     # Fallback: alle <script>-Inhalte die JSON-artig aussehen
-    if HAS_BS4:
-        soup = BeautifulSoup(html, "html.parser")
-        for tag in soup.find_all("script"):
-            txt = (tag.string or "").strip()
-            if txt.startswith("{") or txt.startswith("["):
-                try:
-                    return json.loads(txt)
-                except Exception:
-                    pass
+    for txt in re.findall(r"<script[^>]*>(.*?)</script>", html, re.DOTALL | re.IGNORECASE):
+        txt = txt.strip()
+        if txt.startswith("{") or txt.startswith("["):
+            try:
+                return json.loads(txt)
+            except Exception:
+                pass
     return None
 
 
@@ -687,10 +679,6 @@ def main():
         level=logging.DEBUG if args.debug else logging.WARNING,
         format="%(levelname)s %(message)s",
     )
-
-    if not HAS_BS4:
-        print("⚠️  beautifulsoup4 nicht installiert (optional, verbessert HTML-Parsing)")
-        print("    pip install beautifulsoup4")
 
     print(f"📂  DB:      {args.db}")
     print(f"🍪  Cookies: {args.cookies}")

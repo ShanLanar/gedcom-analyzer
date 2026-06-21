@@ -9,12 +9,9 @@ import logging
 import re
 from typing import Optional
 
-try:
-    from curl_cffi import requests as cfr
-    CURL_AVAILABLE = True
-except ImportError:
-    import requests as cfr
-    CURL_AVAILABLE = False
+from curl_cffi import requests as cfr
+
+CURL_AVAILABLE = True
 
 import ancestry.endpoints as cfg
 

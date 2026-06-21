@@ -8,7 +8,7 @@ import sys
 import time
 from pathlib import Path
 
-import requests
+from curl_cffi import requests
 
 cookie_file = Path(__file__).parent.parent / "data" / "myheritage_cookies.json"
 raw = json.loads(cookie_file.read_text(encoding="utf-8"))

@@ -10,10 +10,7 @@ import time
 import uuid
 from typing import Optional
 
-try:
-    from curl_cffi import requests as cfr
-except ImportError:
-    import requests as cfr
+from curl_cffi import requests as cfr
 
 import ancestry.endpoints as cfg
 
