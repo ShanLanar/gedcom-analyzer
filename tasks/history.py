@@ -280,6 +280,15 @@ def analyze_historical_trends(individuals, families, location_data,
     })
     decades: dict = defaultdict(lambda: {"events": 0, "migration_rate": 0})
 
+    # Ortsstrings wiederholen sich massiv → einmal parsen, dann cachen.
+    _country_cache: dict = {}
+    def _country(place: str) -> str:
+        c = _country_cache.get(place)
+        if c is None:
+            c = extract_country_from_place(place, location_data)
+            _country_cache[place] = c
+        return c
+
     for pid, pdata in individuals.items():
         by = safe_extract_year((pdata.get("BIRT") or {}).get("DATE"))
         dy = safe_extract_year((pdata.get("DEAT") or {}).get("DATE"))
@@ -293,7 +302,7 @@ def analyze_historical_trends(individuals, families, location_data,
                 if sn: centuries[c]["unique_surnames"].add(sn)
             bp = (pdata.get("BIRT") or {}).get("PLAC", "")
             if bp:
-                bc = extract_country_from_place(bp, location_data)
+                bc = _country(bp)
                 if bc: centuries[c]["birth_countries"][bc] += 1
             if dy and 0 < dy - by <= 120: centuries[c]["lifespans"].append(dy - by)
             mig = safe_determine_migration_status(pdata, name, location_data)
@@ -306,7 +315,7 @@ def analyze_historical_trends(individuals, families, location_data,
             c = (dy // 100) * 100; centuries[c]["deaths"].append(dy)
             dp = (pdata.get("DEAT") or {}).get("PLAC", "")
             if dp:
-                dc = extract_country_from_place(dp, location_data)
+                dc = _country(dp)
                 if dc: centuries[c]["death_countries"][dc] += 1
 
     for fam in families.values():

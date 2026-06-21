@@ -237,15 +237,13 @@ class ToolsTab(ttk.Frame):
         self._mat_prog_bar = ttk.Progressbar(prog_row, mode="determinate", length=200)
         self._mat_prog_bar.pack(side="left", fill="x", expand=True, padx=(4, 0))
         self._tool_action(sec, "🌐 Matricula-Viewer öffnen (Port 5000)", "mat_viewer",
-                          lambda: [sys.executable, "-u", _tool("matricula_viewer.py")])
+                          lambda: [sys.executable, "-u", _tool("matricula_viewer.py")],
+                          on_start=lambda: self.after(2500, lambda: webbrowser.open("http://localhost:5000")))
 
         # ── Abschnitt E: Extras / Viewer ──────────────────────────────────
         sec = self._tool_section(inner, "🧰  Extras")
         self._tool_action(sec, "GEDCOM verkleinern (GED Slim)", "ged_slim",
                           None, gui=_tool("ged_slim.py"))
-        self._tool_action(sec, "Matricula-Web-Viewer (Port 5000)", "mat_viewer",
-                          lambda: [sys.executable, "-u", _tool("matricula_viewer.py")],
-                          on_start=lambda: self.after(2500, lambda: webbrowser.open("http://localhost:5000")))
         self._tool_action(sec, "Entity-Browser (Port 5001)", "entity",
                           lambda: [sys.executable, "-u", _tool("entity_browser.py")])
         self._tool_action(sec, "📦 Korpus für LLM bündeln (OCR+GEDCOM+Belege)", "llm_bundle",

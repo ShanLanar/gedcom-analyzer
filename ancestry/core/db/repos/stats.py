@@ -116,7 +116,7 @@ class StatsRepo:
             try:
                 cur.execute("""
                     SELECT k.name, k.guid, COUNT(m.match_guid) AS cnt
-                    FROM kits k
+                    FROM dna_kits k
                     LEFT JOIN match_kit_membership m ON m.test_guid = k.guid
                     GROUP BY k.guid ORDER BY cnt DESC
                 """)

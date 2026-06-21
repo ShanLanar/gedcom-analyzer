@@ -264,6 +264,7 @@ class ClusterTab(ttk.Frame):
         _threading.Thread(target=_worker, daemon=True, name="cluster-build").start()
 
     def _apply_cluster_result(self, shared_data, clusters, side_map):
+        self._desc_cid = None   # Cluster-IDs neu vergeben → kein Auto-Save auf alte ID
         self._clusters = clusters
         self._count_var.set(f"{len(self._clusters)} Cluster")
         self._text_var.set(suggest_grandparent_lines(self._clusters))
@@ -324,28 +325,68 @@ class ClusterTab(ttk.Frame):
 
     # ── Selektion ────────────────────────────────────────────────────────────
 
+    def _autosave_desc(self):
+        """Sichert eine geänderte Cluster-Beschreibung still, bevor die Auswahl
+        wechselt (verhindert Datenverlust wie beim Notiz-Feld im Matches-Tab)."""
+        prev = getattr(self, "_desc_cid", None)
+        if prev is None:
+            return
+        cur = self._desc_var.get().strip()
+        stored = self._load_settings().get("cluster_descs", {}).get(str(prev), "")
+        if cur != stored:
+            descs = self._load_settings().get("cluster_descs", {})
+            descs[str(prev)] = cur
+            self._save_settings(cluster_descs=descs)
+
     def _on_select(self, _=None):
         sel = self._cluster_list.selection()
         if not sel:
             return
         cid     = int(sel[0])
+        # Ausstehende Beschreibung des vorigen Clusters sichern, dann neue laden
+        self._autosave_desc()
         members = self._clusters.get(cid, [])
         descs   = self._load_settings().get("cluster_descs", {})
         self._desc_var.set(descs.get(str(cid), ""))
+        self._desc_cid = cid
         color = self._cluster_side_colors.get(
             cid, COLORS["cluster"][(cid - 1) % len(COLORS["cluster"])])
 
+        self._member_tree.delete(*self._member_tree.get_children())
+        self._pairwise_tree.delete(*self._pairwise_tree.get_children())
+
         test_guid = self._get_current_guid()
-        guid_match: dict = {}
-        if test_guid and members:
+        if not (test_guid and members):
+            return
+
+        import threading as _threading
+
+        def _worker(cid=cid, members=members, color=color, tg=test_guid):
+            guid_match: dict = {}
             try:
                 member_guids = [m["guid"] for m in members]
                 guid_match = {m.match_guid: m
                               for m in self._state.db.get_matches(
-                                  test_guid, guid_filter=member_guids)}
+                                  tg, guid_filter=member_guids)}
             except Exception as e:
                 log.debug("cluster guid_match: %s", e)
+            pairs = []
+            if len(members) >= 2:
+                try:
+                    pairs = self._state.db.get_pairwise_shared(
+                        tg, [m["guid"] for m in members])
+                except Exception as e:
+                    log.debug("cluster pairwise: %s", e)
+            self.after(0, lambda: self._fill_member_panels(
+                cid, members, guid_match, pairs, color))
 
+        _threading.Thread(target=_worker, daemon=True, name="cluster-select").start()
+
+    def _fill_member_panels(self, cid, members, guid_match, pairs, color):
+        # Stale-Guard: Auswahl könnte sich während des DB-Calls geändert haben
+        sel = self._cluster_list.selection()
+        if not sel or int(sel[0]) != cid:
+            return
         self._member_tree.delete(*self._member_tree.get_children())
         self._member_tree.tag_configure("row", background=color)
         for m in members:
@@ -361,17 +402,14 @@ class ClusterTab(ttk.Frame):
                                              m.get("rel", ""), baum_val))
 
         self._pairwise_tree.delete(*self._pairwise_tree.get_children())
-        if test_guid and len(members) >= 2:
-            guids     = [m["guid"] for m in members]
-            guid_name = {m["guid"]: m["name"] for m in members}
-            pairs     = self._state.db.get_pairwise_shared(test_guid, guids)
-            self._pairwise_tree.tag_configure("row", background=color)
-            for a, b, cm in pairs:
-                if cm > 0:
-                    self._pairwise_tree.insert("", "end", tags=("row",), values=(
-                        guid_name.get(a, a[:12]),
-                        guid_name.get(b, b[:12]),
-                        f"{cm:.0f}"))
+        guid_name = {m["guid"]: m["name"] for m in members}
+        self._pairwise_tree.tag_configure("row", background=color)
+        for a, b, cm in pairs:
+            if cm > 0:
+                self._pairwise_tree.insert("", "end", tags=("row",), values=(
+                    guid_name.get(a, a[:12]),
+                    guid_name.get(b, b[:12]),
+                    f"{cm:.0f}"))
 
     # ── Beschreibung speichern ────────────────────────────────────────────────
 

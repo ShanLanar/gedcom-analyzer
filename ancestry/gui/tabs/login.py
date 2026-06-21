@@ -259,7 +259,9 @@ class LoginTab(ttk.Frame):
         name = f"Manuell ({guid[:8]}…)"
         self._state.kit_map[name] = guid
         self._on_login_success(None, None, [])
+        self.set_status(f"✅ Kit-GUID gespeichert ({guid[:8]}…)", success=True)
         self._on_status("Kit-GUID gespeichert.")
+        self._on_switch_tab(1)
 
     def set_status(self, msg: str, success: bool = True):
         self._status_var.set(msg)

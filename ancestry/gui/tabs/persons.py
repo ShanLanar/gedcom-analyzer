@@ -150,7 +150,7 @@ class PersonsTab(ttk.Frame):
         bar = ttk.Frame(left); bar.pack(fill="x", pady=(0, 4))
         ttk.Label(bar, text="Suche:").pack(side="left")
         self._pers_search = tk.StringVar()
-        self._pers_search.trace_add("write", lambda *_: self._pers_reload_list())
+        self._pers_search.trace_add("write", self._on_pers_search_changed)
         _search_e = ttk.Entry(bar, textvariable=self._pers_search, width=18)
         _search_e.pack(side="left", padx=4)
         register_tooltip(_search_e, "tt.pe_search", self._state)
@@ -248,6 +248,14 @@ class PersonsTab(ttk.Frame):
                 return k
         return ""
 
+    def invalidate_tree_cache(self):
+        """Verwirft die gecachte Wurzel-/Vorfahren-Karte. Aufrufen, wenn sich die
+        GEDCOM-Daten ändern (z.B. nach einem Import), damit die Stammbaum-Logik
+        die neue Wurzelperson erkennt."""
+        self._pers_rels_cache = {}
+        self._root_anc_cache = None
+        self.__dict__.pop("_root_id_cache", None)
+
     def _pers_initial_load(self):
         # Einmalig Index für die DNA-Verknüpfung sicherstellen (sonst Scan)
         def _bg():
@@ -296,9 +304,10 @@ class PersonsTab(ttk.Frame):
             # Verwandtschaft in der Liste: alle DIREKTEN Vorfahren der Wurzel
             # (über die einmal berechnete Vorfahrenkarte; deckt auch Webtrees ab).
             # Cousins/Seitenlinien zeigt das Detailpanel (zu teuer pro Zeile).
-            self._pers_rels_cache = {}
-            self._root_anc_cache = None
-            self.__dict__.pop("_root_id_cache", None)   # ggf. geänderten Root erkennen
+            # Die Wurzel-Vorfahrenkarte (~176ms BFS) wird NICHT bei jeder Suche
+            # neu aufgebaut — sie ändert sich beim Tippen/Filtern nicht. Lazy-Cache
+            # in _pers_root_anc_map() baut sie einmalig; Invalidierung via
+            # invalidate_tree_cache() (z.B. nach GEDCOM-Import).
             ra = self._pers_root_anc_map()
             rid = self._pers_root_id()
             try:
@@ -365,6 +374,12 @@ class PersonsTab(ttk.Frame):
         except Exception:
             return {}
 
+    def _on_pers_search_changed(self, *_):
+        """Entprellt die Personensuche (300 ms) — wie im Matches-Tab."""
+        if hasattr(self, "_pers_search_after"):
+            self.after_cancel(self._pers_search_after)
+        self._pers_search_after = self.after(300, self._pers_reload_list)
+
     # ── Navigation ────────────────────────────────────────────────────────
     def _pers_on_list_select(self, _=None):
         sel = self._pers_list.selection()
@@ -384,8 +399,12 @@ class PersonsTab(ttk.Frame):
                 text=f"Stammbaum konnte nicht gezeichnet werden:\n{exc}")
         try:
             self._pers_render_detail(ged_id)
-        except Exception:
-            pass
+        except Exception as exc:
+            for w in self._pers_detail.winfo_children():
+                w.destroy()
+            ttk.Label(self._pers_detail, text=f"Detail-Fehler:\n{exc}",
+                      foreground="#b00020", wraplength=300,
+                      justify="left").pack(anchor="w", padx=10, pady=10)
 
     def _pers_redraw_tree(self, *_):
         """Zeichnet den Baum der aktuellen Person neu (z. B. nach Tiefenänderung)."""

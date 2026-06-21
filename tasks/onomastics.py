@@ -116,6 +116,15 @@ def analyze_onomastics(individuals, progress_cb=None, location_data=None) -> lis
 
     loc = location_data if location_data is not None else {}
 
+    # Ortsstrings wiederholen sich massiv → Land einmal parsen, dann cachen.
+    _country_cache: dict = {}
+    def _country(place: str) -> str:
+        c = _country_cache.get(place)
+        if c is None:
+            c = extract_country_from_place(place, loc) or ""
+            _country_cache[place] = c
+        return c
+
     # buckets[(epoch, region)] = {"katholisch": n, "protestantisch": n, ...}
     buckets = defaultdict(lambda: defaultdict(int))
 
@@ -137,7 +146,7 @@ def analyze_onomastics(individuals, progress_cb=None, location_data=None) -> lis
             continue
 
         place = birt.get("PLAC") or ""
-        country = extract_country_from_place(place, loc) if place else None
+        country = _country(place) if place else None
         region = country or "unbekannt"
 
         b = buckets[(epoch, region)]

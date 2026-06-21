@@ -40,9 +40,10 @@ def _open(path: str, writable: Optional[frozenset] = None) -> sqlite3.Connection
     conn.execute("PRAGMA journal_mode=WAL")           # Write-Ahead Logging
     conn.execute("PRAGMA foreign_keys=OFF")           # Keine FK-Constraints prüfen
     conn.execute("PRAGMA synchronous=NORMAL")         # Weniger fsync (sicherer als OFF)
-    conn.execute("PRAGMA cache_size=10000")           # 10MB Cache (statt default 2MB)
+    conn.execute("PRAGMA cache_size=-65536")          # 64 MB Cache (KB-denominiert)
     conn.execute("PRAGMA temp_store=MEMORY")          # Temp-Tabellen im RAM
-    conn.execute("PRAGMA mmap_size=30000000")         # Memory-Mapped I/O (30MB)
+    conn.execute("PRAGMA mmap_size=268435456")        # Memory-Mapped I/O (256MB)
+    conn.execute("PRAGMA busy_timeout=5000")          # 5s auf Lock warten statt SQLITE_BUSY
     if writable is not None:
         conn.set_authorizer(_make_authorizer(writable))
     return conn

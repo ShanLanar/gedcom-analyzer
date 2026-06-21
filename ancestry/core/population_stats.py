@@ -13,6 +13,7 @@ from __future__ import annotations
 import logging
 import math
 from collections import Counter, defaultdict
+from functools import lru_cache
 
 from ancestry.core.bridge._text import _extract_region
 
@@ -37,7 +38,10 @@ CM_BIN_REL: list[str] = [
 ]
 
 
+@lru_cache(maxsize=8192)
 def _region(place: str) -> str:
+    # Ortsangaben wiederholen sich massiv (wenige hundert distinkte Strings über
+    # 100k+ Personen) — Memoisierung spart den Großteil der _extract_region-Aufrufe.
     return _extract_region(place or "") or ""
 
 

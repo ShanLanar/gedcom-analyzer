@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 31
+    SCHEMA_VERSION = 32
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -50,9 +50,10 @@ class Database:
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=OFF")
             self._conn.execute("PRAGMA synchronous=NORMAL")   # sicherer als OFF, schneller als FULL
-            self._conn.execute("PRAGMA cache_size=10000")     # 10 MB statt default 2 MB
+            self._conn.execute("PRAGMA cache_size=-65536")    # 64 MB Cache (KB-denominiert)
             self._conn.execute("PRAGMA temp_store=MEMORY")    # Temp-Tabellen im RAM
-            self._conn.execute("PRAGMA mmap_size=30000000")   # 30 MB Memory-Mapped I/O
+            self._conn.execute("PRAGMA mmap_size=268435456")  # 256 MB Memory-Mapped I/O
+            self._conn.execute("PRAGMA busy_timeout=5000")    # 5s auf Lock warten statt SQLITE_BUSY
         return self._conn
 
     @contextmanager
@@ -80,6 +81,10 @@ class Database:
 
     def close(self):
         if self._conn:
+            try:
+                self._conn.execute("PRAGMA optimize")   # Planner-Statistiken aktuell halten
+            except Exception:
+                pass
             self._conn.close()
             self._conn = None
 

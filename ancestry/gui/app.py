@@ -1301,6 +1301,12 @@ class AncestryDnaApp(tk.Frame):
             self._ged_file_var.set(f"{name}  ({n} Personen)")
         # GEDCOM hat sich geändert → Statistik als veraltet markieren.
         self._invalidate_stats()
+        # Personen-Tab: gecachte Wurzel-/Vorfahren-Karte verwerfen (neue Wurzel).
+        if self._persons_tab is not None:
+            try:
+                self._persons_tab.invalidate_tree_cache()
+            except Exception as e:
+                log.debug("persons invalidate_tree_cache: %s", e)
 
     def _run_endogamy_transfer(self):
         """Überträgt GEDCOM-Endogamie-Scores via Geburtsort-Abgleich auf Matches."""

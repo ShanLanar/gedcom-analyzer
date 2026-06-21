@@ -7,7 +7,16 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
-TARGET_VERSION = 31
+TARGET_VERSION = 32
+
+
+def _strip_leading_comments(stmt: str) -> str:
+    """Entfernt führende ``--``-Kommentarzeilen, damit die Statement-Erkennung
+    (CREATE INDEX/VIEW) auch greift, wenn ein Kommentar vorangestellt ist."""
+    lines = stmt.splitlines()
+    while lines and lines[0].lstrip().startswith("--"):
+        lines.pop(0)
+    return "\n".join(lines).lstrip()
 
 
 def run(conn: sqlite3.Connection) -> int:
@@ -43,8 +52,9 @@ def run(conn: sqlite3.Connection) -> int:
                     log.debug("Migration: übersprungen (idempotent): %s", e)
                     continue
                 # Index/View auf noch nicht vorhandene Tabelle überspringen
-                # (z. B. gedcom_persons vor erstem GEDCOM-Import)
-                stmt_upper = stmt.lstrip().upper()
+                # (z. B. gedcom_persons vor erstem GEDCOM-Import). Führende
+                # SQL-Kommentare zuerst entfernen, sonst greift die Erkennung nicht.
+                stmt_upper = _strip_leading_comments(stmt).upper()
                 if "no such table" in msg and stmt_upper.startswith(("CREATE INDEX", "CREATE VIEW")):
                     log.debug("Migration: Index/View übersprungen (Tabelle fehlt): %s", e)
                     continue

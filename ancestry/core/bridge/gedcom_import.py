@@ -62,6 +62,12 @@ CREATE INDEX IF NOT EXISTS idx_gp_koelner_year
 CREATE INDEX IF NOT EXISTS idx_gp_surname_norm
     ON gedcom_persons(surname_norm);
 CREATE INDEX IF NOT EXISTS idx_gp_source ON gedcom_persons(source);
+-- Diese Indizes stammen aus Migrationen 0025/0031; werden hier idempotent
+-- mit-angelegt, weil die Migration sie überspringt, falls die Tabelle bei
+-- Schema-Aufbau noch nicht existiert (Tabelle wird erst beim GEDCOM-Import erzeugt).
+CREATE INDEX IF NOT EXISTS idx_gp_surname_year
+    ON gedcom_persons(surname, birth_year);
+CREATE INDEX IF NOT EXISTS idx_gp_sosa ON gedcom_persons(sosa_number);
 
 -- Verknüpft dieselbe reale Person über Quellen hinweg (Dedup/Überlagerung),
 -- ohne Daten zu überschreiben. ged_id_primary = bevorzugt 'gedcom'-Eintrag.

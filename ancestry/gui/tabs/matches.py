@@ -755,18 +755,11 @@ class MatchesTab(ttk.Frame):
     # ── Tabelle ──────────────────────────────────────────────────────────────
 
     def _refresh_match_table_inner(self, *_):
+        # ── UI-Status auf dem Main-Thread lesen (Tk-Vars sind nicht thread-safe) ──
         try:
             min_cm = float(self._min_cm_var.get() or 0)
         except (ValueError, AttributeError):
             min_cm = 0.0
-
-        try:
-            rels = self._state.db.get_distinct_relationships()
-        except Exception as e:
-            log.debug("get_distinct_relationships: %s", e)
-            rels = []
-        if hasattr(self, "_rel_combo"):
-            self._rel_combo["values"] = ["(alle)"] + rels
 
         col_map = {"name":"display_name","guid":"match_guid","note":"tag_surname",
                    "cm":"shared_cm","seg":"shared_segments",
@@ -784,8 +777,6 @@ class MatchesTab(ttk.Frame):
         if not all_sources_mode and not active_kit:
             active_kit = self._get_test_guid()
 
-        # Ein Eintrag mehr als das Limit holen, um zu erkennen, ob mehr
-        # Treffer existieren als angezeigt werden (→ Hinweis im Zähler).
         _cv = getattr(self, "_chip_vars", {})
         # Chip-Filter: pat/mat überschreiben den Dropdown wenn aktiv
         _pm = getattr(self, "_side_var", tk.StringVar()).get() or None
@@ -794,7 +785,9 @@ class MatchesTab(ttk.Frame):
         elif _cv.get("mat", tk.BooleanVar()).get():
             _pm = "maternal"
 
-        self._matches = self._state.db.get_matches(
+        # Ein Eintrag mehr als das Limit holen, um zu erkennen, ob mehr
+        # Treffer existieren als angezeigt werden (→ Hinweis im Zähler).
+        query = dict(
             test_guid          = active_kit,
             all_sources        = all_sources_mode,
             search             = self._search_var.get().strip() or None,
@@ -809,43 +802,101 @@ class MatchesTab(ttk.Frame):
             sort_asc           = self._sort_asc,
             limit              = self._MAX_DISPLAY_ROWS + 1,
         )
-        capped = len(self._matches) > self._MAX_DISPLAY_ROWS
-        if capped:
-            self._matches = self._matches[:self._MAX_DISPLAY_ROWS]
+        gedcom_loaded = bool(self._get_gedcom())
+        tg = self._get_test_guid()
 
-        # Overlap-Set: welche der aktuell angezeigten GUIDs kommen in anderen Kits vor?
-        # Nur die sichtbare Seite prüfen (max 2001), nicht alle 300k.
-        overlap_guids: set = set()
-        if active_kit and self._matches:
+        # Nur das jüngste Refresh anwenden (Tipp-/Filter-Stürme erzeugen mehrere)
+        gen = getattr(self, "_match_table_gen", 0) + 1
+        self._match_table_gen = gen
+
+        def _worker():
+            bundle: dict = {}
             try:
-                all_kits = [k.guid for k in self._state.db.get_kits() if k.guid != active_kit]
-                page_guids = [m.match_guid for m in self._matches]
-                if all_kits and page_guids:
-                    ph_kits  = ",".join("?" * len(all_kits))
-                    ph_guids = ",".join("?" * len(page_guids))
-                    with self._state.db._cursor() as _cur:
-                        rows = _cur.execute(
-                            f"SELECT DISTINCT match_guid FROM match_kit_membership "
-                            f"WHERE test_guid IN ({ph_kits}) AND match_guid IN ({ph_guids})",
-                            all_kits + page_guids,
-                        ).fetchall()
-                    overlap_guids = {r[0] for r in rows}
+                bundle["rels"] = self._state.db.get_distinct_relationships()
             except Exception as e:
-                log.debug("overlap_guids: %s", e)
+                log.debug("get_distinct_relationships: %s", e)
+                bundle["rels"] = []
+            try:
+                matches = self._state.db.get_matches(**query)
+            except Exception as e:
+                log.debug("get_matches: %s", e)
+                self.after(0, lambda e=e: self._match_count_var.set(f"⚠ Fehler: {e}"))
+                return
+            capped = len(matches) > self._MAX_DISPLAY_ROWS
+            if capped:
+                matches = matches[:self._MAX_DISPLAY_ROWS]
+            bundle["matches"] = matches
+            bundle["capped"]  = capped
+
+            # Overlap-Set: welche der angezeigten GUIDs kommen in anderen Kits vor?
+            # Nur die sichtbare Seite prüfen (max 2001), nicht alle 300k.
+            overlap_guids: set = set()
+            if active_kit and matches:
+                try:
+                    all_kits = [k.guid for k in self._state.db.get_kits() if k.guid != active_kit]
+                    page_guids = [m.match_guid for m in matches]
+                    if all_kits and page_guids:
+                        ph_kits  = ",".join("?" * len(all_kits))
+                        ph_guids = ",".join("?" * len(page_guids))
+                        with self._state.db._cursor() as _cur:
+                            rows = _cur.execute(
+                                f"SELECT DISTINCT match_guid FROM match_kit_membership "
+                                f"WHERE test_guid IN ({ph_kits}) AND match_guid IN ({ph_guids})",
+                                all_kits + page_guids,
+                            ).fetchall()
+                        overlap_guids = {r[0] for r in rows}
+                except Exception as e:
+                    log.debug("overlap_guids: %s", e)
+            bundle["overlap_guids"] = overlap_guids
+
+            # Diagnose-Zähler nur bei 0 Treffern
+            diag = None
+            if not matches:
+                try:
+                    with self._state.db._cursor() as _dc:
+                        db_total = _dc.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+                        mkm_total = _dc.execute("SELECT COUNT(*) FROM match_kit_membership").fetchone()[0]
+                    diag = (db_total, mkm_total)
+                except Exception as e:
+                    log.debug("diagnostic count: %s", e)
+            bundle["diag"] = diag
+
+            # Bridge-Treffer-Zähler (leer wenn kein GEDCOM / keine Tabelle)
+            bridge_hits: dict = {}
+            if gedcom_loaded and tg:
+                try:
+                    bridge_hits = self._state.db.get_bridge_hit_counts(tg)
+                except Exception as e:
+                    log.debug("bridge_hit_counts: %s", e)
+            bundle["bridge_hits"] = bridge_hits
+
+            self.after(0, lambda: self._fill_match_table(gen, bundle))
+
+        threading.Thread(target=_worker, daemon=True, name="match-table").start()
+
+    def _fill_match_table(self, gen, bundle):
+        # Stale-Guard: nur das jüngste Refresh-Ergebnis darstellen
+        if gen != getattr(self, "_match_table_gen", gen):
+            return
+        if hasattr(self, "_rel_combo"):
+            self._rel_combo["values"] = ["(alle)"] + bundle.get("rels", [])
+
+        self._matches  = bundle.get("matches", [])
+        capped         = bundle.get("capped", False)
+        overlap_guids  = bundle.get("overlap_guids", set())
+        bridge_hits    = bundle.get("bridge_hits", {})
+
         n = len(self._matches)
         if n == 0:
-            try:
-                with self._state.db._cursor() as _dc:
-                    db_total = _dc.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
-                    mkm_total = _dc.execute("SELECT COUNT(*) FROM match_kit_membership").fetchone()[0]
-                if db_total > 0:
-                    self._match_count_var.set(
-                        f"0 Match(es) — {db_total:,} in DB, {mkm_total:,} in kit-membership"
-                        f"  →  oben Kit auswählen oder 'Alle Plattformen' wählen")
-                else:
-                    self._match_count_var.set("0 Match(es) — DB leer, bitte Matches herunterladen")
-            except Exception as e:
-                log.debug("diagnostic count: %s", e)
+            diag = bundle.get("diag")
+            if diag and diag[0] > 0:
+                db_total, mkm_total = diag
+                self._match_count_var.set(
+                    f"0 Match(es) — {db_total:,} in DB, {mkm_total:,} in kit-membership"
+                    f"  →  oben Kit auswählen oder 'Alle Plattformen' wählen")
+            elif diag:
+                self._match_count_var.set("0 Match(es) — DB leer, bitte Matches herunterladen")
+            else:
                 self._match_count_var.set("0 Match(es)")
         elif capped:
             self._match_count_var.set(
@@ -854,15 +905,6 @@ class MatchesTab(ttk.Frame):
         else:
             self._match_count_var.set(f"{n:,} Match(es)")
         self._tree.delete(*self._tree.get_children())
-        # Bridge-Treffer-Zähler laden (leer wenn kein GEDCOM / keine Tabelle)
-        bridge_hits: dict = {}
-        if self._get_gedcom():
-            try:
-                tg = self._get_test_guid()
-                if tg:
-                    bridge_hits = self._state.db.get_bridge_hit_counts(tg)
-            except Exception as e:
-                log.debug("bridge_hit_counts: %s", e)
         for m in self._matches:
             endo = getattr(m, "endogamy_cluster", "") or ""
             tags = []
@@ -938,6 +980,14 @@ class MatchesTab(ttk.Frame):
                 "👪" if getattr(m, "has_common_ancestor", False) else "—",
                 "⭐" if m.starred else "",
             ))
+        # Auswahl + Scroll-Position wiederherstellen (nach Bearbeitung tief in
+        # der Liste); wird vom Worker-Refresh asynchron befüllt.
+        guid = getattr(self, "_pending_reselect", None)
+        if guid and self._tree.exists(guid):
+            self._tree.selection_set(guid)
+            self._tree.see(guid)
+        self._pending_reselect = None
+
         # Show/hide empty state
         if hasattr(self, "_empty_frame"):
             if self._matches:
@@ -1013,7 +1063,7 @@ class MatchesTab(ttk.Frame):
             if name and name not in known:
                 known.append(name)
                 self._save_ui_settings(endogamy_clusters=known)
-            self.refresh()
+            self._refresh_and_reselect(match.match_guid)
             dlg.destroy()
 
         bf = ttk.Frame(dlg); bf.pack(anchor="e", padx=14, pady=4)
@@ -1024,7 +1074,7 @@ class MatchesTab(ttk.Frame):
     def _clear_endogamy_cluster(self, match):
         self._state.db.set_endogamy_cluster(match.match_guid, "")
         match.endogamy_cluster = ""
-        self.refresh()
+        self._refresh_and_reselect(match.match_guid)
 
     def _auto_flag_endogamy(self):
         """Markiert Endogamie-verdächtige Matches (viele kurze Segmente)
@@ -1041,6 +1091,13 @@ class MatchesTab(ttk.Frame):
         messagebox.showinfo(self._state.t("mf.endo_auto"),
                             self._state.t("mf.endo_auto_done").format(n=n))
 
+    def _refresh_and_reselect(self, guid: str):
+        """Aktualisiert die Tabelle und stellt Auswahl + Scroll-Position wieder her,
+        damit man nach einer Bearbeitung tief in der Liste nicht den Platz verliert.
+        Die Tabelle wird asynchron befüllt — die Auswahl setzt _fill_match_table."""
+        self._pending_reselect = guid
+        self.refresh()
+
     def _set_custom_rel(self, match, rel: str):
         self._state.db.update_note(match.match_guid,
                                    match.note or "")
@@ -1048,7 +1105,7 @@ class MatchesTab(ttk.Frame):
             cur.execute("UPDATE matches SET custom_relationship=? WHERE match_guid=?",
                         (rel, match.match_guid))
         self._set_status(f"{match.display_name} → {rel}")
-        self.refresh()
+        self._refresh_and_reselect(match.match_guid)
 
     def _prompt_name(self, match):
         """Einfacher Dialog um einen Namen manuell einzutragen."""
@@ -1064,7 +1121,7 @@ class MatchesTab(ttk.Frame):
                 cur.execute("UPDATE matches SET display_name=? WHERE match_guid=?",
                             (name.strip(), match.match_guid))
             self._set_status(f"Name gespeichert: {name.strip()}")
-            self.refresh()
+            self._refresh_and_reselect(match.match_guid)
 
     def _sort_by(self, col):
         if self._sort_col == col:

@@ -486,6 +486,16 @@ def infer_match_origins(
         p("Keine GEDCOM-Personen mit Geburtsort und Nachnamen gefunden.")
         return []
 
+    # Invertierte Indizes: Nachname/Kölner-Code → Regionen, in denen er vorkommt.
+    # Macht das Scoring O(Ahnen × Treffer-Regionen) statt O(Ahnen × allen Regionen).
+    norm_to_regions:    dict[str, set] = defaultdict(set)
+    koelner_to_regions: dict[str, set] = defaultdict(set)
+    for region, idx in region_index.items():
+        for sn in idx["norms"]:
+            norm_to_regions[sn].add(region)
+        for ko in idx["koelner"]:
+            koelner_to_regions[ko].add(region)
+
     p(f"GEDCOM-Index: {len(region_index)} Regionen aus {len(ged_rows)} Personen …")
 
     # ── 2. Match-Ahnentafel-Daten laden ──────────────────────────────────────
@@ -541,18 +551,20 @@ def infer_match_origins(
             sn_norm   = _norm(sn_raw)
             sn_koelner = _koelner(sn_raw)
 
-            for region, idx in region_index.items():
-                score = 0.0
-                if sn_norm and sn_norm in idx["norms"]:
-                    score = 1.0
-                elif sn_koelner and sn_koelner in idx["koelner"]:
-                    score = 0.7
-
-                if score > 0:
-                    region_scores[region] += score * weight
-                    matched_surnames[region].append(sn_raw)
-                    if anc["birth_place"]:
-                        matched_places[region].append(anc["birth_place"])
+            # Exakter Nachnamen-Treffer (Score 1.0) hat Vorrang; nur Regionen,
+            # die ihn NICHT exakt führen, bekommen den phonetischen Treffer (0.7).
+            exact_regions = norm_to_regions.get(sn_norm, set()) if sn_norm else set()
+            koelner_regions = koelner_to_regions.get(sn_koelner, set()) if sn_koelner else set()
+            for region in exact_regions:
+                region_scores[region] += 1.0 * weight
+                matched_surnames[region].append(sn_raw)
+                if anc["birth_place"]:
+                    matched_places[region].append(anc["birth_place"])
+            for region in koelner_regions - exact_regions:
+                region_scores[region] += 0.7 * weight
+                matched_surnames[region].append(sn_raw)
+                if anc["birth_place"]:
+                    matched_places[region].append(anc["birth_place"])
 
         if not region_scores:
             continue
