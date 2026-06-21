@@ -774,6 +774,14 @@ class MatchesTab(ttk.Frame):
 
         # Ein Eintrag mehr als das Limit holen, um zu erkennen, ob mehr
         # Treffer existieren als angezeigt werden (→ Hinweis im Zähler).
+        _cv = getattr(self, "_chip_vars", {})
+        # Chip-Filter: pat/mat überschreiben den Dropdown wenn aktiv
+        _pm = getattr(self, "_side_var", tk.StringVar()).get() or None
+        if _cv.get("pat", tk.BooleanVar()).get():
+            _pm = "paternal"
+        elif _cv.get("mat", tk.BooleanVar()).get():
+            _pm = "maternal"
+
         self._matches = self._state.db.get_matches(
             test_guid          = active_kit,
             all_sources        = all_sources_mode,
@@ -783,7 +791,8 @@ class MatchesTab(ttk.Frame):
             has_tree_only      = self._tree_var.get() if hasattr(self,"_tree_var") else False,
             min_cm             = min_cm,
             hide_endogamy      = getattr(self, "_hide_endo_var", tk.BooleanVar()).get(),
-            paternal_maternal  = getattr(self, "_side_var", tk.StringVar()).get() or None,
+            paternal_maternal  = _pm,
+            new_only           = _cv.get("new", tk.BooleanVar()).get(),
             sort_col           = sort_col,
             sort_asc           = self._sort_asc,
             limit              = self._MAX_DISPLAY_ROWS + 1,
@@ -792,17 +801,21 @@ class MatchesTab(ttk.Frame):
         if capped:
             self._matches = self._matches[:self._MAX_DISPLAY_ROWS]
 
-        # Overlap-Set: welche GUIDs kommen noch in anderen Kits vor?
+        # Overlap-Set: welche der aktuell angezeigten GUIDs kommen in anderen Kits vor?
+        # Nur die sichtbare Seite prüfen (max 2001), nicht alle 300k.
         overlap_guids: set = set()
-        if active_kit:
+        if active_kit and self._matches:
             try:
                 all_kits = [k.guid for k in self._state.db.get_kits() if k.guid != active_kit]
-                if all_kits:
+                page_guids = [m.match_guid for m in self._matches]
+                if all_kits and page_guids:
+                    ph_kits  = ",".join("?" * len(all_kits))
+                    ph_guids = ",".join("?" * len(page_guids))
                     with self._state.db._cursor() as _cur:
                         rows = _cur.execute(
-                            "SELECT match_guid FROM match_kit_membership WHERE test_guid IN ({})".format(
-                                ",".join("?" * len(all_kits))),
-                            all_kits,
+                            f"SELECT DISTINCT match_guid FROM match_kit_membership "
+                            f"WHERE test_guid IN ({ph_kits}) AND match_guid IN ({ph_guids})",
+                            all_kits + page_guids,
                         ).fetchall()
                     overlap_guids = {r[0] for r in rows}
             except Exception as e:
@@ -829,19 +842,6 @@ class MatchesTab(ttk.Frame):
         else:
             self._match_count_var.set(f"{n:,} Match(es)")
         self._tree.delete(*self._tree.get_children())
-        # Apply pat/mat/new chip filters
-        if hasattr(self, "_chip_vars"):
-            if self._chip_vars.get("pat", tk.BooleanVar()).get():
-                self._matches = [m for m in self._matches
-                                 if getattr(m, "paternal_maternal", "") == "paternal"]
-            elif self._chip_vars.get("mat", tk.BooleanVar()).get():
-                self._matches = [m for m in self._matches
-                                 if getattr(m, "paternal_maternal", "") == "maternal"]
-            if self._chip_vars.get("new", tk.BooleanVar()).get():
-                from datetime import datetime, timezone, timedelta
-                _cutoff = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
-                self._matches = [m for m in self._matches
-                                 if getattr(m, "first_seen_at", "") >= _cutoff]
         # Bridge-Treffer-Zähler laden (leer wenn kein GEDCOM / keine Tabelle)
         bridge_hits: dict = {}
         if self._get_gedcom():

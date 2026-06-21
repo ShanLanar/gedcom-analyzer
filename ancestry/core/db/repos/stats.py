@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -8,12 +9,31 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+_STATS_TTL = 120  # Sekunden; Stats-Cache läuft ab nach 2 Min.
+
 
 class StatsRepo:
     def __init__(self, db: "Database"):
         self._db = db
+        self._stats_cache: dict[Optional[str], dict] = {}
+        self._stats_cache_ts: dict[Optional[str], float] = {}
+
+    def invalidate_stats_cache(self):
+        """Nach Imports aufrufen, damit Stats sofort neu berechnet werden."""
+        self._stats_cache.clear()
+        self._stats_cache_ts.clear()
 
     def get_statistics(self, test_guid: Optional[str] = None) -> dict:
+        now = time.monotonic()
+        cached_at = self._stats_cache_ts.get(test_guid, 0.0)
+        if test_guid in self._stats_cache and (now - cached_at) < _STATS_TTL:
+            return self._stats_cache[test_guid]
+        result = self._compute_statistics(test_guid)
+        self._stats_cache[test_guid] = result
+        self._stats_cache_ts[test_guid] = now
+        return result
+
+    def _compute_statistics(self, test_guid: Optional[str] = None) -> dict:  # noqa: C901
         where = "WHERE test_guid=?" if test_guid else ""
         params = (test_guid,) if test_guid else ()
         and_tg = "AND test_guid=?" if test_guid else ""

@@ -76,10 +76,9 @@ def build_clusters(
     def find(x):
         if x not in parent:
             parent[x] = x
-        while parent[x] != x:
-            parent[x] = parent.get(parent[x], parent[x])
-            x = parent[x]
-        return x
+        if parent[x] != x:
+            parent[x] = find(parent[x])  # vollständige Pfadkomprimierung
+        return parent[x]
 
     def union(x, y):
         rx, ry = find(x), find(y)

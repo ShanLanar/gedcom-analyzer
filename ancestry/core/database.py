@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 28
+    SCHEMA_VERSION = 29
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -198,6 +198,7 @@ class Database:
     # ── Statistiken ───────────────────────────────────────────────────────────
 
     def get_statistics(self, *a, **kw) -> dict:          return self._stats.get_statistics(*a, **kw)
+    def invalidate_stats_cache(self) -> None:            self._stats.invalidate_stats_cache()
 
     # ── Segmente ──────────────────────────────────────────────────────────────
 

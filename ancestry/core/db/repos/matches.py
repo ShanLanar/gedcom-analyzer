@@ -106,6 +106,10 @@ class MatchesRepo:
             self._db._get_conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
         except Exception as e:
             log.warning("Checkpoint fehlgeschlagen: %s", e)
+        try:
+            self._db.invalidate_stats_cache()
+        except Exception:
+            pass
         return saved
 
     def get_matches(
@@ -124,6 +128,7 @@ class MatchesRepo:
         source: Optional[str]               = None,
         all_sources: bool                   = False,
         paternal_maternal: Optional[str]    = None,
+        new_only: bool                      = False,
     ) -> list[DnaMatch]:
         valid_cols = {"display_name", "shared_cm", "shared_segments",
                       "predicted_relationship", "fetched_at", "starred",
@@ -151,6 +156,8 @@ class MatchesRepo:
             conditions.append("(m.endogamy_cluster IS NULL OR m.endogamy_cluster = '')")
         if paternal_maternal and paternal_maternal not in ("(alle)", ""):
             conditions.append("m.paternal_maternal = ?"); params.append(paternal_maternal)
+        if new_only:
+            conditions.append("m.first_seen_at >= datetime('now', '-7 days')")
 
         where        = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         limit_clause = f"LIMIT {limit} OFFSET {offset}" if limit else ""
