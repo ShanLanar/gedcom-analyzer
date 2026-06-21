@@ -307,7 +307,7 @@ def collect_report_sheets():
                         onomastics, endogamy_network, sosa, familysearch,
                         online_research, book_statistics,
                         gov_lookup, grabstein, externe_quellen, dfd_lookup,
-                        wikitree_lookup)
+                        compgen_metasearch, wikitree_lookup)
 
     indiv = _state["individuals"]
     ld    = _state["location_data"]
@@ -583,6 +583,9 @@ def collect_report_sheets():
         ("Externe Recherche-Links", externe_quellen.EXTERNE_QUELLEN_HEADERS,
          _state.get("externe_quellen_rows", [])[:10_000]),
 
+        ("CompGen-Metasuche", compgen_metasearch.COMPGEN_METASEARCH_HEADERS,
+         _state.get("compgen_metasearch_rows", [])[:5_000]),
+
         ("DFD-Familiennamen", dfd_lookup.DFD_LOOKUP_HEADERS,
          _state.get("dfd_lookup_rows", [])[:2_000]),
 
@@ -735,6 +738,7 @@ def collect_report_sheets():
         "GOV-Orte & Archiv-Links":          "FFC000",
         "Grabstein-Suche":                  "FFC000",
         "Externe Recherche-Links":          "FFC000",
+        "CompGen-Metasuche":                "FFC000",
         "DFD-Familiennamen":                "FFC000",
         "WikiTree-Profile":                 "FFC000",
         "Quellen-Inventar":                 "FFC000",
@@ -1205,6 +1209,15 @@ def run_externe_quellen(progress_cb=None, stop_event=None):
     _set_stop_event(stop_event)
     from tasks.externe_quellen import run_externe_quellen as _run
     _state["externe_quellen_rows"] = _run(
+        _state["individuals"],
+        root_related_ids=_state.get("root_related_ids"),
+        progress_cb=progress_cb)
+
+
+def run_compgen_metasearch(progress_cb=None, stop_event=None):
+    _set_stop_event(stop_event)
+    from tasks.compgen_metasearch import run_compgen_metasearch as _run
+    _state["compgen_metasearch_rows"] = _run(
         _state["individuals"],
         root_related_ids=_state.get("root_related_ids"),
         progress_cb=progress_cb)
