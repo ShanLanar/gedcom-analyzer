@@ -647,6 +647,9 @@ class MatchesTab(ttk.Frame):
         threading.Thread(target=_worker, daemon=True, name="bridge").start()
 
     def _fill_ged_link_tree(self, rows: list, match: "DnaMatch"):
+        # Stale-Guard: Auswahl könnte während des Worker-Laufs gewechselt haben
+        if not self._selected_match or self._selected_match.match_guid != match.match_guid:
+            return
         self._ged_link_tree.delete(*self._ged_link_tree.get_children())
         if not rows:
             self._ged_link_status.set(self._state.t("md.ged_no_ped"))
@@ -736,6 +739,9 @@ class MatchesTab(ttk.Frame):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _fill_ancestors_panel(self, match: "DnaMatch", rows):
+        # Stale-Guard: Auswahl könnte während des Worker-Laufs gewechselt haben
+        if not self._selected_match or self._selected_match.match_guid != match.match_guid:
+            return
         self._anc_tree.delete(*self._anc_tree.get_children())
         if not rows:
             self._anc_status_var.set(self._state.t("md.anc_none"))
@@ -1358,6 +1364,9 @@ class MatchesTab(ttk.Frame):
         threading.Thread(target=_worker, daemon=True).start()
 
     def _fill_shared_panel(self, match: DnaMatch, shared, test_guid: str):
+        # Stale-Guard: Auswahl könnte während des Worker-Laufs gewechselt haben
+        if not self._selected_match or self._selected_match.match_guid != match.match_guid:
+            return
         self._sm_tree.delete(*self._sm_tree.get_children())
         if not shared:
             fetched = self._state.db.is_shared_fetched(test_guid, match.match_guid)
@@ -1509,44 +1518,70 @@ class MatchesTab(ttk.Frame):
         sx.pack(side="bottom", fill="x")
 
     def _load_kirchenbuch_panel(self, match: "Optional[DnaMatch]"):
-        """Füllt den Kirchenbuch-Tab für den ausgewählten Match."""
+        """Füllt den Kirchenbuch-Tab für den ausgewählten Match (im Hintergrund).
+
+        Die NER-Suche macht zwei nicht-indizierbare LIKE-Scans über matrikula_ner;
+        deshalb läuft sie im Worker-Thread statt auf dem GUI-Thread."""
         self._kb_tree.delete(*self._kb_tree.get_children())
         self._kb_surnames_var.set("")
         if match is None:
             return
-        # Zeige Hinweis wenn NER noch nicht extrahiert wurde
-        try:
-            with self._state.db._cursor() as cur:
-                ner_count = cur.execute("SELECT COUNT(*) FROM matrikula_ner").fetchone()[0]
-                mat_count = cur.execute("SELECT COUNT(*) FROM source_matrikula_entries").fetchone()[0]
-            if mat_count > 0 and ner_count == 0:
-                self._kb_surnames_var.set(
-                    "⚠  Kirchenbücher vorhanden, aber NER noch nicht extrahiert "
-                    "→ Matricula-Tab → „NER extrahieren“")
-                return
-        except Exception:
-            pass
-        t = self._state.t
         try:
             min_gen = int(self._kb_gen_var.get() or 2)
         except ValueError:
             min_gen = 2
-        try:
-            from ancestry.core.matricula_bridge import _pedigree_surnames, find_matricula_for_match
-            surnames = _pedigree_surnames(
-                self._state.db, self._get_test_guid(), match.match_guid, min_gen)
-            if not surnames:
-                self._kb_surnames_var.set(t("md.kb_no_ped"))
-                return
-            self._kb_surnames_var.set(
-                f"{t('md.kb_surnames')} {', '.join(surnames[:8])}"
-                + (" …" if len(surnames) > 8 else ""))
-            hits = find_matricula_for_match(
-                self._state.db, self._get_test_guid(), match.match_guid,
-                min_generation=min_gen)
-        except Exception as e:
-            self._kb_surnames_var.set(f"Fehler: {e}")
+        test_guid = self._get_test_guid()
+        guid = match.match_guid
+        self._kb_surnames_var.set("…")
+
+        def _worker():
+            bundle: dict = {}
+            try:
+                with self._state.db._cursor() as cur:
+                    ner_count = cur.execute("SELECT COUNT(*) FROM matrikula_ner").fetchone()[0]
+                    mat_count = cur.execute(
+                        "SELECT COUNT(*) FROM source_matrikula_entries").fetchone()[0]
+                if mat_count > 0 and ner_count == 0:
+                    bundle["status"] = ("⚠  Kirchenbücher vorhanden, aber NER noch nicht "
+                                        "extrahiert → Matricula-Tab → „NER extrahieren“")
+                    self.after(0, lambda: self._fill_kirchenbuch_panel(guid, bundle))
+                    return
+            except Exception:
+                pass
+            try:
+                from ancestry.core.matricula_bridge import (
+                    _pedigree_surnames, find_matricula_for_match)
+                surnames = _pedigree_surnames(self._state.db, test_guid, guid, min_gen)
+                bundle["surnames"] = surnames
+                if surnames:
+                    bundle["hits"] = find_matricula_for_match(
+                        self._state.db, test_guid, guid, min_generation=min_gen)
+            except Exception as e:
+                bundle["error"] = str(e)
+            self.after(0, lambda: self._fill_kirchenbuch_panel(guid, bundle))
+
+        threading.Thread(target=_worker, daemon=True, name="kb-panel").start()
+
+    def _fill_kirchenbuch_panel(self, guid, bundle):
+        # Stale-Guard: Auswahl könnte während des Worker-Laufs gewechselt haben
+        if not self._selected_match or self._selected_match.match_guid != guid:
             return
+        t = self._state.t
+        self._kb_tree.delete(*self._kb_tree.get_children())
+        if "status" in bundle:
+            self._kb_surnames_var.set(bundle["status"])
+            return
+        if "error" in bundle:
+            self._kb_surnames_var.set(f"Fehler: {bundle['error']}")
+            return
+        surnames = bundle.get("surnames") or []
+        if not surnames:
+            self._kb_surnames_var.set(t("md.kb_no_ped"))
+            return
+        self._kb_surnames_var.set(
+            f"{t('md.kb_surnames')} {', '.join(surnames[:8])}"
+            + (" …" if len(surnames) > 8 else ""))
+        hits = bundle.get("hits") or []
         if not hits:
             self._kb_surnames_var.set(
                 f"{t('md.kb_no_hits')}  ({t('md.kb_surnames')} {', '.join(surnames[:4])})")
