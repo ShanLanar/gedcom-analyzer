@@ -91,6 +91,12 @@ class ClusterTab(ttk.Frame):
         lw.append((_sv, "cl.shared_min"))
         self._shared_cm_var = tk.StringVar(value="20")
         ttk.Entry(cf, textvariable=self._shared_cm_var, width=6).pack(side="left")
+        # Modularitäts-Clustering (Louvain) statt Leeds/Union-Find: robuster
+        # gegen über-geteilte Brücken-Matches, die sonst zwei Linien verschmelzen.
+        self._modularity_var = tk.BooleanVar(value=False)
+        _mb = ttk.Checkbutton(cf, text="Modularität", variable=self._modularity_var)
+        _mb.pack(side="left", padx=(14, 0))
+        register_tooltip(_mb, "tt.cl_modularity", self._state)
         _sv = tk.StringVar(value=t("cl.calc_btn"))
         self._calc_btn = ttk.Button(cf, textvariable=_sv, command=self.refresh)
         self._calc_btn.pack(side="left", padx=14)
@@ -223,6 +229,7 @@ class ClusterTab(ttk.Frame):
             min_shared = float(self._shared_cm_var.get() or 20)
         except ValueError:
             min_prim, max_prim, min_shared = 20.0, 400.0, 20.0
+        use_modularity = bool(self._modularity_var.get())   # Tk-Var auf Main-Thread lesen
 
         self._calc_btn.configure(state="disabled")
 
@@ -242,8 +249,13 @@ class ClusterTab(ttk.Frame):
                                         f"und {max_prim:.0f} cM — Bereich anpassen."),
                 ))
                 return
-            clusters = build_clusters(shared_data, min_prim, min_shared,
-                                      max_cm_primary=max_prim)
+            if use_modularity:
+                from ancestry.core.cluster import build_clusters_modularity
+                clusters = build_clusters_modularity(shared_data, min_prim, min_shared,
+                                                     max_cm_primary=max_prim)
+            else:
+                clusters = build_clusters(shared_data, min_prim, min_shared,
+                                          max_cm_primary=max_prim)
             # Seiten-Map im Worker-Thread holen
             all_guids = [m["guid"] for mlist in clusters.values() for m in mlist]
             side_map: dict[str, str] = {}

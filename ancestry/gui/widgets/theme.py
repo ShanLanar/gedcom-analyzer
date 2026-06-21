@@ -467,6 +467,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
                      "en": "Match all matches against the GEDCOM file"},
     "tt.cl_calc":   {"de": "Cluster aus den Shared Matches neu berechnen (Leeds-Methode)",
                      "en": "Recompute clusters from shared matches (Leeds method)"},
+    "tt.cl_modularity": {"de": "Modularitäts-Clustering (Louvain) statt Leeds/Union-Find — "
+                               "robuster gegen über-geteilte Brücken-Matches",
+                         "en": "Modularity clustering (Louvain) instead of Leeds/union-find — "
+                               "more robust against over-shared bridge matches"},
     "tt.cl_tree":   {"de": "Kombinierten Stammbaum des gewählten Clusters anzeigen",
                      "en": "Show the combined tree of the selected cluster"},
     "tt.cl_timeline": {"de": "Geburtsjahre der Cluster-Vorfahren als Zeitachse",
