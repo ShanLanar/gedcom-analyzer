@@ -467,6 +467,14 @@ class MatchesTab(ttk.Frame):
         self._match_ai_btn.configure(state="disabled")
         self._match_ai_btn_var = _ai_btn_var
 
+        _b = ttk.Button(btn_row, text="🧬", width=4,
+                        command=self._open_chromosome_browser)
+        _b.pack(side="left", padx=4)
+        register_tooltip(_b, "tt.md_chrom", self._state)
+        _b = ttk.Button(btn_row, text="🗂", width=4, command=self._open_match_tasks)
+        _b.pack(side="left", padx=4)
+        register_tooltip(_b, "tt.md_tasks", self._state)
+
         # Sub-Tab 2: Shared Matches
         sm_frame = ttk.Frame(self._detail_nb)
         self._detail_nb.add(sm_frame, text=t("md.tab_shared"))
@@ -1384,6 +1392,33 @@ class MatchesTab(ttk.Frame):
                 f"{sm.shared_cm_ab:.0f}" if sm.shared_cm_ab else "—",
                 sm.relationship_b or "—",
             ))
+
+    def _open_chromosome_browser(self):
+        """Öffnet den Chromosomen-Browser (B4) für den ausgewählten Match."""
+        if not self._selected_match:
+            return
+        test_guid = self._get_test_guid()
+        if not test_guid:
+            return
+        try:
+            from ancestry.gui.analysis.chromosome_browser import show_chromosome_browser
+            show_chromosome_browser(self, self._state, test_guid,
+                                    self._selected_match.match_guid,
+                                    self._selected_match.display_name or "")
+        except Exception as e:
+            log.debug("chromosome browser: %s", e)
+
+    def _open_match_tasks(self):
+        """Öffnet den Aufgaben-Dialog (B1), eingeschränkt auf den Match."""
+        if not self._selected_match:
+            return
+        try:
+            from ancestry.gui.analysis.research_tasks_view import show_research_tasks
+            show_research_tasks(self, self._state, entity_type="match",
+                                entity_key=self._selected_match.match_guid,
+                                entity_label=self._selected_match.display_name or "")
+        except Exception as e:
+            log.debug("match tasks: %s", e)
 
     def _open_in_ancestry(self):
         """Öffnet den aktuellen Match in Ancestry im Browser."""

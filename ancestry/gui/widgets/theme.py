@@ -451,6 +451,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
                      "en": "Open this match on ancestry.com in the browser"},
     "tt.md_fs":     {"de": "Namen dieses Matches auf FamilySearch suchen",
                      "en": "Search this match's names on FamilySearch"},
+    "tt.md_chrom":  {"de": "Chromosomen-Browser: geteilte Segmente dieses Matches, "
+                           "eingefärbt nach Seite",
+                     "en": "Chromosome browser: this match's shared segments, "
+                           "coloured by side"},
+    "tt.md_tasks":  {"de": "Forschungsaufgaben (To-Dos) für dieses Match",
+                     "en": "Research tasks (to-dos) for this match"},
     "tt.md_choose": {"de": "GEDCOM-Datei wählen (für den Stammbaum-Abgleich)",
                      "en": "Choose a GEDCOM file (for tree matching)"},
     "tt.md_origin": {"de": "Wahrscheinliche Herkunft der Matches aus den Ahnen-Orten ableiten",
