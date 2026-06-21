@@ -510,6 +510,10 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
                      "en": "Open this tool"},
     "tt.tl_start":  {"de": "Dieses Werkzeug im Hintergrund starten",
                      "en": "Start this tool in the background"},
+    "tt.tl_stop":   {"de": "Laufenden Prozess abbrechen",
+                     "en": "Cancel the running process"},
+    "tt.tl_tutorial": {"de": "Schritt-für-Schritt-Tutorial durch alle Tabs starten",
+                       "en": "Start the step-by-step tutorial through all tabs"},
     # ── Personen-Tab ────────────────────────────────────────────────────────
     "tt.pe_search": {"de": "Vor- oder Nachname suchen (Teilsuche möglich)",
                      "en": "Search by first or last name (partial match supported)"},

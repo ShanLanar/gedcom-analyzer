@@ -19,8 +19,10 @@ import webbrowser
 from tkinter import filedialog, scrolledtext, ttk
 
 from ancestry.gui.state import AppState
+from ancestry.gui.widgets.pipeline_view import DataSourcePipeline
 from ancestry.gui.widgets.theme import register_lang
 from ancestry.gui.widgets.tooltip import register_tooltip
+from ancestry.gui.widgets.tutorial_guide import TutorialGuide
 from ancestry.paths import ROOT
 
 _WIKI_PATH = os.path.join(str(ROOT), "WIKI.md")
@@ -70,6 +72,10 @@ class ToolsTab(ttk.Frame):
         _b = register_lang(self._state, ttk.Button(head, text=self._state.t("tl.b_guide"), command=self._open_wiki), "tl.b_guide")
         _b.pack(side="right")
         register_tooltip(_b, "tt.tl_guide", self._state)
+        self._tutorial = TutorialGuide(self, self._state)
+        _bt = ttk.Button(head, text="❓ Tutorial", command=self._open_tutorial)
+        _bt.pack(side="right", padx=(0, 6))
+        register_tooltip(_bt, "tt.tl_tutorial", self._state)
 
         # ── Anleitung / empfohlener Ablauf ────────────────────────────────
         guide = register_lang(self._state, ttk.LabelFrame(f, text=self._state.t("tl.guide_frame"), padding=8), "tl.guide_frame")
@@ -145,56 +151,19 @@ class ToolsTab(ttk.Frame):
         self._tl_ftm_no_link = tk.BooleanVar(value=False)
         self._tl_diff_out = tk.StringVar(value="")
         self._tl_diff_include_new = tk.BooleanVar(value=True)
+        self._tl_ftdna_csv = tk.StringVar(value="")
 
-        # ── Abschnitt A0: FTM-Direktbrücke ────────────────────────────────
-        sec = self._tool_section(inner, "🔀  Family Tree Maker — Direktbrücke")
-        ttk.Label(sec,
-                  text="FTM synchronisiert mit Ancestry → direkte Brücke ohne GED-Export.",
+        # ── Pipeline: Datenquellen-Übersicht ──────────────────────────────
+        pipe_lf = self._tool_section(inner, "🔌  Datenquellen-Pipeline")
+        ttk.Label(pipe_lf,
+                  text="Klicke auf eine Quellen-Box → Anleitung (DE+EN) und Aktionen aufklappen.",
                   foreground=self._state.colors().get("text_dim", "#888888"),
-                  wraplength=380).pack(anchor="w", pady=(0, 4))
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="FTM-Datei:").pack(side="left")
-        ttk.Entry(row, textvariable=self._tl_ftm_file, width=22).pack(
-            side="left", padx=(4, 2))
-        _pb = ttk.Button(row, text="…", width=3,
-                         command=lambda: self._tl_pick(
-                             self._tl_ftm_file, "FTM", "*.ftm *.ftmb *.FTM *.FTMB"))
-        _pb.pack(side="left")
-        register_tooltip(_pb, "tt.pick_file", self._state)
-        row2 = ttk.Frame(sec); row2.pack(fill="x", pady=2)
-        ttk.Label(row2, text="Quelle:").pack(side="left")
-        ttk.Entry(row2, textvariable=self._tl_ftm_source, width=14).pack(
-            side="left", padx=(4, 10))
-        ttk.Checkbutton(row2, text="nur importieren (kein Querbezug)",
-                        variable=self._tl_ftm_no_link).pack(side="left")
-        self._tool_action(sec, "🔀 FTM → Bridge importieren", "ftm_bridge",
-                          self._tl_cmd_ftm_bridge)
-
-        # ── Abschnitt A0b: Anverwandte → FTM Diff-Export ─────────────────
-        sec = self._tool_section(inner, "📤  Anverwandte → FTM (Diff-GEDCOM)")
-        ttk.Label(sec,
-                  text="Exportiert nur die Felder, die Anverwandte hat und FTM nicht → "
-                       "in FTM importieren (Datei → Import → Merge).",
-                  foreground=self._state.colors().get("text_dim", "#888888"),
-                  wraplength=380).pack(anchor="w", pady=(0, 4))
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Ausgabe .ged:").pack(side="left")
-        ttk.Entry(row, textvariable=self._tl_diff_out, width=20).pack(
-            side="left", padx=(4, 2))
-        _pb2 = ttk.Button(row, text="…", width=3,
-                          command=self._tl_diff_pick_out)
-        _pb2.pack(side="left")
-        register_tooltip(_pb2, "tt.pick_file", self._state)
-        ttk.Label(row, text="(leer = neben DB)",
-                  foreground=self._state.colors().get("text_dim", "#888888")
-                  ).pack(side="left", padx=(6, 0))
-        row2 = ttk.Frame(sec); row2.pack(fill="x", pady=2)
-        ttk.Checkbutton(row2, text="Fehlende Verwandte einschließen (BFS von Cousins)",
-                        variable=self._tl_diff_include_new).pack(side="left")
-        self._tool_action(sec, "📤 Diff-GEDCOM erzeugen", "diff_anv_ftm",
-                          self._tl_cmd_diff_anv_ftm)
-        self._tool_action(sec, "🧪 1 Cousin testen (FTM-Merge prüfen)", "diff_anv_ftm_test",
-                          self._tl_cmd_diff_anv_ftm_test)
+                  ).pack(anchor="w", pady=(0, 4))
+        DataSourcePipeline(
+            pipe_lf,
+            self._pipeline_sources(),
+            colors=self._state.colors(),
+        ).pack(fill="x", pady=(0, 2))
 
         # ── Abschnitt A0c: Matricula-Priorität ───────────────────────────
         sec = self._tool_section(inner, "📊  Matricula-Priorität (Pfarrei-Statistik)")
@@ -227,34 +196,6 @@ class ToolsTab(ttk.Frame):
                        self._tl_mat_prio_csv, "CSV", "*.csv")).pack(side="left")
         self._tool_action(sec, "📊 Pfarrei-Priorität auswerten", "mat_prio",
                           self._tl_cmd_mat_prio)
-
-        # ── Abschnitt A: Webtrees ─────────────────────────────────────────
-        sec = self._tool_section(inner, "⬇  Webtrees-Stammbaum")
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Profil:").pack(side="left")
-        ttk.Entry(row, textvariable=self._tl_wt_profile, width=16).pack(side="left", padx=(4, 8))
-        ttk.Checkbutton(row, text="--discover (ganzer Baum)",
-                        variable=self._tl_wt_discover).pack(side="left")
-        self._tool_action(sec, "Öffentlichen Baum crawlen", "wt_crawl",
-                          self._tl_cmd_wt_crawl)
-        _b = register_lang(self._state, ttk.Button(sec, text=self._state.t("tl.b_dbdel"), command=self._wt_delete_db), "tl.b_dbdel")
-        _b.pack(anchor="w", pady=(0, 2))
-        register_tooltip(_b, "tt.tl_dbdel", self._state)
-        self._tool_action(sec, "Crawl → Datenbank importieren", "wt_import",
-                          lambda: [sys.executable, "-u", _tool("import_webtrees.py")])
-        self._tool_action(sec, "💾 Als GEDCOM-Datei exportieren", "wt_export",
-                          self._tl_cmd_wt_export)
-        # Testlauf: echte Seiten als HTML+JSON sichern (Roh-Daten zum Eichen
-        # des Parsers — Ordner zippen und zurückgeben). Schreibt nicht in die DB.
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Seiten:").pack(side="left")
-        ttk.Spinbox(row, from_=10, to=1000, increment=10, width=6,
-                    textvariable=self._tl_wt_trainn).pack(side="left", padx=(4, 8))
-        ttk.Label(row, text="HTML+JSON lokal in tools/webtrees_training/",
-                  foreground=self._state.colors().get("text_dim", "#888888")
-                  ).pack(side="left")
-        self._tool_action(sec, "🧪 Testlauf: Seiten lokal sichern", "wt_training",
-                          self._tl_cmd_wt_training)
 
         # ── Abschnitt B: Matricula ────────────────────────────────────────
         sec = self._tool_section(inner, "⛪  Matricula-Kirchenbücher")
@@ -299,70 +240,6 @@ class ToolsTab(ttk.Frame):
         self._tool_action(sec, "🌐 Matricula-Viewer öffnen (Port 5000)", "mat_viewer",
                           lambda: [sys.executable, "-u", _tool("matricula_viewer.py")])
 
-        # ── Abschnitt C: MyHeritage ───────────────────────────────────────
-        sec = self._tool_section(inner, "🧬  MyHeritage-DNA")
-        self._tool_action(sec, "1 · Matchliste herunterladen", "mh_dl",
-                          lambda: [sys.executable, "-u", _tool("download_myheritage.py")])
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Match-CSV:").pack(side="left")
-        ttk.Entry(row, textvariable=self._tl_mh_csv, width=26).pack(side="left", padx=4)
-        _pb = ttk.Button(row, text="…", width=3,
-                   command=lambda: self._tl_pick(self._tl_mh_csv, "CSV", "*.csv")
-                   )
-        _pb.pack(side="left")
-        register_tooltip(_pb, "tt.pick_file", self._state)
-        # cM-Schwelle + unvollständige nachholen
-        opt = ttk.Frame(sec); opt.pack(fill="x", pady=2)
-        ttk.Label(opt, text="ab cM:").pack(side="left")
-        ttk.Spinbox(opt, from_=6, to=200, increment=5, width=5,
-                    textvariable=self._tl_mh_mincm).pack(side="left", padx=(2, 10))
-        register_lang(self._state, ttk.Checkbutton(opt, text=self._state.t("tl.c_incomplete"),
-                        variable=self._tl_mh_repair), "tl.c_incomplete").pack(side="left")
-        self._tool_action(sec, "2 · Gemeinsame Matches laden", "mh_shared",
-                          self._tl_cmd_mh_shared)
-
-        # ── Abschnitt D: Importe ──────────────────────────────────────────
-        sec = self._tool_section(inner, "📥  Weitere Importe")
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="MH-CSV:").pack(side="left")
-        ttk.Entry(row, textvariable=self._tl_imp_mh, width=24).pack(side="left", padx=4)
-        _pb = ttk.Button(row, text="…", width=3,
-                   command=lambda: self._tl_pick(self._tl_imp_mh, "CSV", "*.csv")
-                   )
-        _pb.pack(side="left")
-        register_tooltip(_pb, "tt.pick_file", self._state)
-        self._tool_action(sec, "MyHeritage-CSV → DB", "imp_mh",
-                          lambda: [sys.executable, "-u", _tool("import_mh_csv.py")]
-                          + self._arg(self._tl_imp_mh))
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="GEDmatch:").pack(side="left")
-        ttk.Entry(row, textvariable=self._tl_imp_gm, width=24).pack(side="left", padx=4)
-        _pb = ttk.Button(row, text="…", width=3,
-                   command=lambda: self._tl_pick(self._tl_imp_gm, "TSV/CSV", "*.*")
-                   )
-        _pb.pack(side="left")
-        register_tooltip(_pb, "tt.pick_file", self._state)
-        self._tool_action(sec, "GEDmatch-TSV → DB", "imp_gm",
-                          lambda: [sys.executable, "-u", _tool("import_gedmatch.py")]
-                          + self._arg(self._tl_imp_gm))
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="WikiTree-ID:").pack(side="left")
-        ttk.Entry(row, textvariable=self._tl_wk_id, width=18).pack(side="left", padx=4)
-        self._tool_action(sec, "WikiTree → DB", "imp_wk",
-                          self._tl_cmd_wikitree)
-        row = ttk.Frame(sec); row.pack(fill="x", pady=2)
-        ttk.Label(row, text="Match-CSV:").pack(side="left")
-        ttk.Entry(row, textvariable=self._tl_match_csv, width=24).pack(side="left", padx=4)
-        _pb = ttk.Button(row, text="…", width=3,
-                   command=lambda: self._tl_pick(self._tl_match_csv, "CSV", "*.csv")
-                   )
-        _pb.pack(side="left")
-        register_tooltip(_pb, "tt.pick_file", self._state)
-        _b = register_lang(self._state, ttk.Button(sec, text=self._state.t("tl.b_impmatch"),
-                        command=self._import_match_csv), "tl.b_impmatch")
-        _b.pack(anchor="w", pady=(2, 0))
-        register_tooltip(_b, "tt.tl_impmatch", self._state)
-
         # ── Abschnitt E: Extras / Viewer ──────────────────────────────────
         sec = self._tool_section(inner, "🧰  Extras")
         self._tool_action(sec, "GEDCOM verkleinern (GED Slim)", "ged_slim",
@@ -398,6 +275,306 @@ class ToolsTab(ttk.Frame):
         register_tooltip(_pb, "tt.pick_file", self._state)
         self._tool_action(sec, "📥 Ortskonkordanz importieren", "conc_imp",
                           self._tl_cmd_conc_import)
+
+    # ── Tutorial ──────────────────────────────────────────────────────────
+    def _open_tutorial(self):
+        self._tutorial.start()
+
+    # ── Pipeline: Quellen-Definitionen ────────────────────────────────────
+    def _pipeline_sources(self) -> list[dict]:
+        return [
+            {
+                "id": "gedcom",
+                "icon": "🗂",
+                "label": "GEDCOM/FTM",
+                "sub": ".ged / .ftm",
+                "color": "#1F4E79",
+                "desc": (
+                    "[DE] Eigenen Stammbaum als GEDCOM laden oder FTM-Direktbrücke verwenden.\n"
+                    "FTM 2014–2017: .ftm direkt; FTM 2024 (MacKiev): in FTM → Datei → Exportieren → GEDCOM.\n"
+                    "[EN] Load your own tree as GEDCOM or use the FTM direct bridge.\n"
+                    "FTM 2014–2017: .ftm directly; FTM 2024 (MacKiev): in FTM → File → Export → GEDCOM."
+                ),
+                "builder": self._src_gedcom,
+            },
+            {
+                "id": "ancestry",
+                "icon": "🧬",
+                "label": "Ancestry",
+                "sub": "Cookie / Login",
+                "color": "#155724",
+                "desc": (
+                    "[DE] Ancestry-DNA-Matches werden über den Login-Tab (Cookie-Export) heruntergeladen.\n"
+                    "Vollständige Anleitung im Login-Tab und im Herunterladen-Tab.\n"
+                    "[EN] Ancestry DNA matches are downloaded via the Login tab (cookie export).\n"
+                    "Full guide in the Login tab and the Download tab."
+                ),
+                "builder": self._src_ancestry,
+            },
+            {
+                "id": "webtrees",
+                "icon": "🌳",
+                "label": "Webtrees",
+                "sub": "Stammbaum",
+                "color": "#4A148C",
+                "desc": (
+                    "[DE] Öffentlichen Webtrees-Stammbaum crawlen und in die Datenbank importieren.\n"
+                    "Voraussetzung: Netzwerkzugang zur Webtrees-Instanz und gültiges Profil.\n"
+                    "[EN] Crawl a public Webtrees family tree and import it into the database.\n"
+                    "Prerequisite: network access to the Webtrees instance and a valid profile."
+                ),
+                "builder": self._src_webtrees,
+            },
+            {
+                "id": "myheritage",
+                "icon": "💙",
+                "label": "MyHeritage",
+                "sub": "DNA-Matches",
+                "color": "#B45309",
+                "desc": (
+                    "[DE] MyHeritage DNA-Matches herunterladen (Browser-Login nötig) oder\n"
+                    "eine vorhandene Match-CSV direkt importieren.\n"
+                    "[EN] Download MyHeritage DNA matches (browser login required) or\n"
+                    "import an existing match CSV directly."
+                ),
+                "builder": self._src_myheritage,
+            },
+            {
+                "id": "gedmatch",
+                "icon": "🔗",
+                "label": "GEDmatch",
+                "sub": "TSV-Import",
+                "color": "#880E4F",
+                "desc": (
+                    "[DE] GEDmatch One-to-Many-Ergebnisse als TSV importieren.\n"
+                    "gedmatch.com → One-to-Many → Download → TSV-Datei hier wählen.\n"
+                    "[EN] Import GEDmatch One-to-Many results as TSV.\n"
+                    "gedmatch.com → One-to-Many → Download → choose TSV file here."
+                ),
+                "builder": self._src_gedmatch,
+            },
+            {
+                "id": "ftdna",
+                "icon": "🔬",
+                "label": "FTDNA",
+                "sub": "Family Finder",
+                "color": "#006064",
+                "desc": (
+                    "[DE] FTDNA Family-Finder-Matches als CSV importieren.\n"
+                    "ftdna.com → Family Finder → Matches → Herunterladen (oben rechts) → CSV.\n"
+                    "[EN] Import FTDNA Family Finder matches as CSV.\n"
+                    "ftdna.com → Family Finder → Matches → Download (top right) → CSV."
+                ),
+                "builder": self._src_ftdna,
+            },
+            {
+                "id": "wikitree",
+                "icon": "🌐",
+                "label": "WikiTree",
+                "sub": "Vorfahren-API",
+                "color": "#1A237E",
+                "desc": (
+                    "[DE] WikiTree-Vorfahren via öffentliche API importieren.\n"
+                    "WikiTree-ID aus der URL ablesen: wikitree.com/wiki/Kovermann-123 → ID = Kovermann-123.\n"
+                    "[EN] Import WikiTree ancestors via the public API.\n"
+                    "Read the WikiTree ID from the URL: wikitree.com/wiki/Kovermann-123 → ID = Kovermann-123."
+                ),
+                "builder": self._src_wikitree,
+            },
+        ]
+
+    # ── Pipeline: Builder-Callbacks ───────────────────────────────────────
+
+    def _src_gedcom(self, frame: ttk.Frame):
+        # FTM-Direktbrücke
+        ttk.Label(frame, text="FTM- oder GEDCOM-Datei:",
+                  font=("Segoe UI", 9, "bold")).pack(anchor="w", pady=(4, 0))
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Entry(row, textvariable=self._tl_ftm_file, width=28).pack(side="left", padx=(0, 2))
+        _pb = ttk.Button(row, text="…", width=3,
+                         command=lambda: self._tl_pick(
+                             self._tl_ftm_file, "FTM/GEDCOM",
+                             "*.ftm *.ftmb *.FTM *.FTMB *.ged *.gedcom"))
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
+        row2 = ttk.Frame(frame); row2.pack(fill="x", pady=2)
+        ttk.Label(row2, text="Quelle:").pack(side="left")
+        ttk.Entry(row2, textvariable=self._tl_ftm_source, width=14).pack(
+            side="left", padx=(4, 10))
+        ttk.Checkbutton(row2, text="nur importieren (kein Querbezug)",
+                        variable=self._tl_ftm_no_link).pack(side="left")
+        self._tool_action(frame, "🔀 FTM/GEDCOM → Bridge importieren", "ftm_bridge",
+                          self._tl_cmd_ftm_bridge)
+
+        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=6)
+
+        # Diff-Export
+        ttk.Label(frame, text="Anverwandte → FTM Diff-Export:",
+                  font=("Segoe UI", 9, "bold")).pack(anchor="w")
+        ttk.Label(frame,
+                  text="Exportiert nur die Felder, die Anverwandte hat und FTM nicht "
+                       "→ in FTM importieren (Datei → Import → Merge).",
+                  foreground=self._state.colors().get("text_dim", "#888888"),
+                  wraplength=480).pack(anchor="w", pady=(0, 2))
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Ausgabe .ged:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_diff_out, width=22).pack(
+            side="left", padx=(4, 2))
+        _pb2 = ttk.Button(row, text="…", width=3, command=self._tl_diff_pick_out)
+        _pb2.pack(side="left")
+        register_tooltip(_pb2, "tt.pick_file", self._state)
+        ttk.Label(row, text="(leer = neben DB)",
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(side="left", padx=(6, 0))
+        row2 = ttk.Frame(frame); row2.pack(fill="x", pady=2)
+        ttk.Checkbutton(row2, text="Fehlende Verwandte einschließen (BFS von Cousins)",
+                        variable=self._tl_diff_include_new).pack(side="left")
+        self._tool_action(frame, "📤 Diff-GEDCOM erzeugen", "diff_anv_ftm",
+                          self._tl_cmd_diff_anv_ftm)
+        self._tool_action(frame, "🧪 1 Cousin testen (FTM-Merge prüfen)", "diff_anv_ftm_test",
+                          self._tl_cmd_diff_anv_ftm_test)
+
+    def _src_ancestry(self, frame: ttk.Frame):
+        dim = self._state.colors().get("text_dim", "#888888")
+        ttk.Label(frame,
+                  text=(
+                      "Ancestry-Login erfolgt im Login-Tab (Cookie-Export aus dem Browser).\n"
+                      "Matches werden im Herunterladen-Tab abgerufen.\n\n"
+                      "Ancestry login happens in the Login tab (browser cookie export).\n"
+                      "Matches are downloaded in the Download tab."
+                  ),
+                  foreground=dim,
+                  wraplength=520,
+                  justify="left",
+                  ).pack(anchor="w", padx=4, pady=8)
+
+    def _src_webtrees(self, frame: ttk.Frame):
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Profil:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_wt_profile, width=16).pack(
+            side="left", padx=(4, 8))
+        ttk.Checkbutton(row, text="--discover (ganzer Baum)",
+                        variable=self._tl_wt_discover).pack(side="left")
+        self._tool_action(frame, "Öffentlichen Baum crawlen", "wt_crawl",
+                          self._tl_cmd_wt_crawl)
+        _b = register_lang(self._state,
+                           ttk.Button(frame, text=self._state.t("tl.b_dbdel"),
+                                      command=self._wt_delete_db),
+                           "tl.b_dbdel")
+        _b.pack(anchor="w", pady=(0, 2))
+        register_tooltip(_b, "tt.tl_dbdel", self._state)
+        self._tool_action(frame, "Crawl → Datenbank importieren", "wt_import",
+                          lambda: [sys.executable, "-u", _tool("import_webtrees.py")])
+        self._tool_action(frame, "💾 Als GEDCOM-Datei exportieren", "wt_export",
+                          self._tl_cmd_wt_export)
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Seiten:").pack(side="left")
+        ttk.Spinbox(row, from_=10, to=1000, increment=10, width=6,
+                    textvariable=self._tl_wt_trainn).pack(side="left", padx=(4, 8))
+        ttk.Label(row, text="HTML+JSON lokal in tools/webtrees_training/",
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(side="left")
+        self._tool_action(frame, "🧪 Testlauf: Seiten lokal sichern", "wt_training",
+                          self._tl_cmd_wt_training)
+
+    def _src_myheritage(self, frame: ttk.Frame):
+        self._tool_action(frame, "1 · Matchliste herunterladen", "mh_dl",
+                          lambda: [sys.executable, "-u", _tool("download_myheritage.py")])
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Match-CSV:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_mh_csv, width=26).pack(side="left", padx=4)
+        _pb = ttk.Button(row, text="…", width=3,
+                         command=lambda: self._tl_pick(self._tl_mh_csv, "CSV", "*.csv"))
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
+        opt = ttk.Frame(frame); opt.pack(fill="x", pady=2)
+        ttk.Label(opt, text="ab cM:").pack(side="left")
+        ttk.Spinbox(opt, from_=6, to=200, increment=5, width=5,
+                    textvariable=self._tl_mh_mincm).pack(side="left", padx=(2, 10))
+        register_lang(self._state,
+                      ttk.Checkbutton(opt, text=self._state.t("tl.c_incomplete"),
+                                      variable=self._tl_mh_repair),
+                      "tl.c_incomplete").pack(side="left")
+        self._tool_action(frame, "2 · Gemeinsame Matches laden", "mh_shared",
+                          self._tl_cmd_mh_shared)
+
+        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=4)
+
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="MH-CSV importieren:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_imp_mh, width=22).pack(side="left", padx=4)
+        _pb2 = ttk.Button(row, text="…", width=3,
+                          command=lambda: self._tl_pick(self._tl_imp_mh, "CSV", "*.csv"))
+        _pb2.pack(side="left")
+        register_tooltip(_pb2, "tt.pick_file", self._state)
+        self._tool_action(frame, "MyHeritage-CSV → DB", "imp_mh",
+                          lambda: [sys.executable, "-u", _tool("import_mh_csv.py")]
+                          + self._arg(self._tl_imp_mh))
+
+    def _src_gedmatch(self, frame: ttk.Frame):
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="GEDmatch TSV/CSV:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_imp_gm, width=24).pack(side="left", padx=4)
+        _pb = ttk.Button(row, text="…", width=3,
+                         command=lambda: self._tl_pick(self._tl_imp_gm, "TSV/CSV", "*.*"))
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
+        self._tool_action(frame, "GEDmatch-TSV → DB", "imp_gm",
+                          lambda: [sys.executable, "-u", _tool("import_gedmatch.py")]
+                          + self._arg(self._tl_imp_gm))
+
+    def _src_ftdna(self, frame: ttk.Frame):
+        ttk.Label(frame,
+                  text="ftdna.com → Family Finder → Matches → Herunterladen (oben rechts) → CSV",
+                  foreground=self._state.colors().get("text_dim", "#888888"),
+                  ).pack(anchor="w", pady=(0, 2))
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="FTDNA matches.csv:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_ftdna_csv, width=24).pack(side="left", padx=4)
+        _pb = ttk.Button(row, text="…", width=3,
+                         command=lambda: self._tl_pick(self._tl_ftdna_csv, "CSV", "*.csv"))
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
+        self._tool_action(frame, "🔬 FTDNA Matches → DB importieren", "imp_ftdna",
+                          self._tl_cmd_ftdna_import)
+
+    def _src_wikitree(self, frame: ttk.Frame):
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="WikiTree-ID:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_wk_id, width=20).pack(side="left", padx=4)
+        ttk.Label(row, text="z. B. Kovermann-123",
+                  foreground=self._state.colors().get("text_dim", "#888888")
+                  ).pack(side="left")
+        self._tool_action(frame, "WikiTree → DB", "imp_wk",
+                          self._tl_cmd_wikitree)
+
+        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=4)
+
+        row2 = ttk.Frame(frame); row2.pack(fill="x", pady=2)
+        ttk.Label(row2, text="Match-CSV:").pack(side="left")
+        ttk.Entry(row2, textvariable=self._tl_match_csv, width=24).pack(side="left", padx=4)
+        _pb = ttk.Button(row2, text="…", width=3,
+                         command=lambda: self._tl_pick(self._tl_match_csv, "CSV", "*.csv"))
+        _pb.pack(side="left")
+        register_tooltip(_pb, "tt.pick_file", self._state)
+        _b = register_lang(self._state,
+                           ttk.Button(frame, text=self._state.t("tl.b_impmatch"),
+                                      command=self._import_match_csv),
+                           "tl.b_impmatch")
+        _b.pack(anchor="w", pady=(2, 0))
+        register_tooltip(_b, "tt.tl_impmatch", self._state)
+
+    # ── FTDNA-Import ──────────────────────────────────────────────────────
+    def _tl_cmd_ftdna_import(self) -> list[str]:
+        csv = self._tl_ftdna_csv.get().strip()
+        if not csv:
+            from tkinter import messagebox
+            messagebox.showwarning(
+                "FTDNA CSV fehlt",
+                self._state.t("dl.m_choose_csv"),
+                parent=self)
+            return []
+        return [sys.executable, "-u", _tool("import_ftdna_matches.py"), csv]
 
     # ── Match-CSV importieren ─────────────────────────────────────────────
     def _import_match_csv(self):
