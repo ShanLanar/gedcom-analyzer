@@ -10,6 +10,7 @@ from typing import Callable, Optional
 
 from ancestry.core.api import AncestryApiClient
 from ancestry.core.auth import AncestryAuth
+from ancestry.core.cookie_capture import capture_from_chrome, capture_from_firefox
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import register_lang
 from ancestry.gui.widgets.tooltip import register_tooltip
@@ -69,6 +70,45 @@ class LoginTab(ttk.Frame):
         lw = self._state.lang_widgets
         p  = {"padx": 16, "pady": 8}
 
+        # ── Browser-Import (empfohlen) ─────────────────────────────────────
+        ttk.Label(f, text="🌐  Browser-Login (empfohlen) / Browser Login (recommended)",
+                  style="Bold.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", **p)
+        ttk.Label(
+            f,
+            text=(
+                "DE: Ancestry oder MyHeritage im Browser öffnen → automatisch Cookies speichern.\n"
+                "EN: Opens site in Chrome, you log in normally, cookies are saved automatically."
+            ),
+            foreground="#555555",
+        ).grid(row=1, column=0, columnspan=3, sticky="w", padx=16)
+
+        # Site-Auswahl
+        self._browser_site_var = tk.StringVar(value="ancestry")
+        site_frame = ttk.Frame(f)
+        site_frame.grid(row=2, column=0, columnspan=3, sticky="w", padx=16, pady=4)
+        ttk.Label(site_frame, text="Site:").pack(side="left", padx=(0, 6))
+        for val, lbl in (("ancestry", "Ancestry"), ("myheritage", "MyHeritage")):
+            ttk.Radiobutton(
+                site_frame, text=lbl,
+                variable=self._browser_site_var, value=val,
+            ).pack(side="left", padx=4)
+
+        # Buttons Chrome + Firefox
+        btn_frame = ttk.Frame(f)
+        btn_frame.grid(row=3, column=0, columnspan=3, sticky="w", padx=16, pady=(0, 4))
+        ttk.Button(
+            btn_frame, text="🌐  Chrome-Login",
+            command=self._capture_chrome,
+        ).pack(side="left", padx=(0, 8))
+        ttk.Button(
+            btn_frame, text="🦊  Firefox-Import",
+            command=self._capture_firefox,
+        ).pack(side="left")
+
+        ttk.Separator(f, orient="horizontal").grid(
+            row=4, column=0, columnspan=3, sticky="ew", padx=16, pady=8)
+
+        # ── Cookie-Datei-Login ─────────────────────────────────────────────
         _sv = tk.StringVar(value=t("lg.meth2"))
         ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
             row=5, column=0, columnspan=3, sticky="w", **p)
@@ -135,6 +175,38 @@ class LoginTab(ttk.Frame):
                                      style="Warning.TLabel")
         self._status_lbl.grid(row=13, column=0, columnspan=3, **p)
         f.columnconfigure(1, weight=1)
+
+    # ── Browser-Capture ───────────────────────────────────────────────────────
+
+    def _capture_chrome(self):
+        site = self._browser_site_var.get()
+        self.set_status("🌐 Chrome wird gestartet …", success=True)
+        threading.Thread(target=self._run_capture, args=(site, "chrome"), daemon=True).start()
+
+    def _capture_firefox(self):
+        site = self._browser_site_var.get()
+        self.set_status("🦊 Firefox-Cookies werden gelesen …", success=True)
+        threading.Thread(target=self._run_capture, args=(site, "firefox"), daemon=True).start()
+
+    def _run_capture(self, site: str, backend: str):
+        from ancestry.core.cookie_capture import _default_save_path
+        save_path = str(_default_save_path(site))
+
+        def _status(msg: str):
+            self.after(0, lambda m=msg: self.set_status(m, success=not m.startswith("❌")))
+
+        if backend == "chrome":
+            ok = capture_from_chrome(site, save_path, _status)
+        else:
+            ok = capture_from_firefox(site, save_path, _status)
+
+        if ok:
+            self.after(0, lambda p=save_path: self._on_capture_done(p))
+
+    def _on_capture_done(self, save_path: str):
+        self._cookie_file_var.set(save_path)
+        self.set_status("✅ Cookies importiert — Login wird gestartet …", success=True)
+        self._do_login_cookies()
 
     # ── Drag-and-Drop ─────────────────────────────────────────────────────────
 
