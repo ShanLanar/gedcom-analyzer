@@ -70,44 +70,6 @@ class LoginTab(ttk.Frame):
         lw = self._state.lang_widgets
         p  = {"padx": 16, "pady": 8}
 
-        # ── Browser-Import (empfohlen) ─────────────────────────────────────
-        ttk.Label(f, text="🌐  Browser-Login (empfohlen) / Browser Login (recommended)",
-                  style="Bold.TLabel").grid(row=0, column=0, columnspan=3, sticky="w", **p)
-        ttk.Label(
-            f,
-            text=(
-                "DE: Ancestry oder MyHeritage im Browser öffnen → automatisch Cookies speichern.\n"
-                "EN: Opens site in Chrome, you log in normally, cookies are saved automatically."
-            ),
-            foreground="#555555",
-        ).grid(row=1, column=0, columnspan=3, sticky="w", padx=16)
-
-        # Site-Auswahl
-        self._browser_site_var = tk.StringVar(value="ancestry")
-        site_frame = ttk.Frame(f)
-        site_frame.grid(row=2, column=0, columnspan=3, sticky="w", padx=16, pady=4)
-        ttk.Label(site_frame, text="Site:").pack(side="left", padx=(0, 6))
-        for val, lbl in (("ancestry", "Ancestry"), ("myheritage", "MyHeritage")):
-            ttk.Radiobutton(
-                site_frame, text=lbl,
-                variable=self._browser_site_var, value=val,
-            ).pack(side="left", padx=4)
-
-        # Buttons Chrome + Firefox
-        btn_frame = ttk.Frame(f)
-        btn_frame.grid(row=3, column=0, columnspan=3, sticky="w", padx=16, pady=(0, 4))
-        ttk.Button(
-            btn_frame, text="🌐  Chrome-Login",
-            command=self._capture_chrome,
-        ).pack(side="left", padx=(0, 8))
-        ttk.Button(
-            btn_frame, text="🦊  Firefox-Import",
-            command=self._capture_firefox,
-        ).pack(side="left")
-
-        ttk.Separator(f, orient="horizontal").grid(
-            row=4, column=0, columnspan=3, sticky="ew", padx=16, pady=8)
-
         # ── Cookie-Datei-Login ─────────────────────────────────────────────
         _sv = tk.StringVar(value=t("lg.meth2"))
         ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
@@ -148,11 +110,21 @@ class LoginTab(ttk.Frame):
         _b.grid(row=7, column=0, sticky="e", **p)
         register_tooltip(_b, "tt.lg_choose", self._state)
         lw.append((_sv, "lg.choose"))
+        login_row = ttk.Frame(f)
+        login_row.grid(row=8, column=1, sticky="w", **p)
         _sv = tk.StringVar(value=t("lg.login_ck"))
-        _b = ttk.Button(f, textvariable=_sv, command=self._do_login_cookies)
-        _b.grid(row=8, column=1, sticky="w", **p)
+        _b = ttk.Button(login_row, textvariable=_sv, command=self._do_login_cookies)
+        _b.pack(side="left", padx=(0, 8))
         register_tooltip(_b, "tt.lg_login", self._state)
         lw.append((_sv, "lg.login_ck"))
+        ttk.Button(
+            login_row, text="🌐 Chrome",
+            command=self._capture_chrome,
+        ).pack(side="left", padx=(0, 4))
+        ttk.Button(
+            login_row, text="🦊 Firefox",
+            command=self._capture_firefox,
+        ).pack(side="left")
 
         ttk.Separator(f, orient="horizontal").grid(
             row=9, column=0, columnspan=3, sticky="ew", padx=16, pady=12)
@@ -179,26 +151,27 @@ class LoginTab(ttk.Frame):
     # ── Browser-Capture ───────────────────────────────────────────────────────
 
     def _capture_chrome(self):
-        site = self._browser_site_var.get()
         self.set_status("🌐 Chrome wird gestartet …", success=True)
-        threading.Thread(target=self._run_capture, args=(site, "chrome"), daemon=True).start()
+        threading.Thread(target=self._run_capture, args=("chrome",), daemon=True).start()
 
     def _capture_firefox(self):
-        site = self._browser_site_var.get()
         self.set_status("🦊 Firefox-Cookies werden gelesen …", success=True)
-        threading.Thread(target=self._run_capture, args=(site, "firefox"), daemon=True).start()
+        threading.Thread(target=self._run_capture, args=("firefox",), daemon=True).start()
 
-    def _run_capture(self, site: str, backend: str):
+    def _run_capture(self, backend: str):
         from ancestry.core.cookie_capture import _default_save_path
-        save_path = str(_default_save_path(site))
+        # Reuse the already-configured path so refreshed cookies land in the same file
+        existing = self._cookie_file_var.get().strip()
+        save_path = existing if (existing and os.path.isdir(os.path.dirname(existing))) \
+            else str(_default_save_path("ancestry"))
 
         def _status(msg: str):
             self.after(0, lambda m=msg: self.set_status(m, success=not m.startswith("❌")))
 
         if backend == "chrome":
-            ok = capture_from_chrome(site, save_path, _status)
+            ok = capture_from_chrome("ancestry", save_path, _status)
         else:
-            ok = capture_from_firefox(site, save_path, _status)
+            ok = capture_from_firefox("ancestry", save_path, _status)
 
         if ok:
             self.after(0, lambda p=save_path: self._on_capture_done(p))
