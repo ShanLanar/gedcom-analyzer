@@ -30,7 +30,8 @@ def _parse_ancestor_name(full_name: str) -> tuple[str, str]:
     return "", full_name
 
 
-def run_match_for_match(db, test_guid: str, match_guid: str) -> list[dict]:
+def run_match_for_match(db, test_guid: str, match_guid: str,
+                        _ged_by_sn=None, _ged_by_koelner=None) -> list[dict]:
     """Findet GEDCOM-Kandidaten für alle Ahnen-Einträge eines DNA-Matches.
     Schreibt Treffer nach gedcom_links.
     Gibt eine sortierte Liste von Zeilen zurück (je ein Pedigree-Eintrag).
@@ -70,21 +71,26 @@ def run_match_for_match(db, test_guid: str, match_guid: str) -> list[dict]:
         if not ped_rows:
             return []
 
-    # GEDCOM-Personen aus DB laden + in-memory-Index aufbauen
-    with db._cursor() as cur:
-        ged_all = [dict(r) for r in cur.execute(
-            "SELECT * FROM gedcom_persons"
-        ).fetchall()]
+    # GEDCOM-Personen: Index aus Übergabe-Parameter oder einmalig aus DB laden
+    if _ged_by_sn is not None and _ged_by_koelner is not None:
+        ged_by_sn      = _ged_by_sn
+        ged_by_koelner = _ged_by_koelner
+    else:
+        with db._cursor() as cur:
+            ged_all = [dict(r) for r in cur.execute(
+                "SELECT * FROM gedcom_persons"
+            ).fetchall()]
+        if not ged_all:
+            return []
+        ged_by_sn:     dict[str, list] = defaultdict(list)
+        ged_by_koelner: dict[str, list] = defaultdict(list)
+        for g in ged_all:
+            ged_by_sn[g["surname_norm"]].append(g)
+            if g["koelner_code"]:
+                ged_by_koelner[g["koelner_code"]].append(g)
 
-    if not ged_all:
+    if not ged_by_sn:
         return []
-
-    ged_by_sn:     dict[str, list] = defaultdict(list)
-    ged_by_koelner: dict[str, list] = defaultdict(list)
-    for g in ged_all:
-        ged_by_sn[g["surname_norm"]].append(g)
-        if g["koelner_code"]:
-            ged_by_koelner[g["koelner_code"]].append(g)
 
     # Alte Links für diesen Match löschen
     with db._cursor() as cur:
@@ -144,20 +150,23 @@ def run_match_for_match(db, test_guid: str, match_guid: str) -> list[dict]:
                 "match_method": f"api+{best_method}" if use_ancestors_api else best_method,
                 "total_score": best_score,
             }
-            with db._cursor() as cur:
-                cur.execute(
-                    """INSERT OR REPLACE INTO gedcom_links
-                       (test_guid, match_guid, ahnen_path,
-                        ped_given, ped_surname, ped_year,
-                        ged_id, ged_given, ged_surname, ged_year,
-                        match_method, total_score)
-                       VALUES (:test_guid, :match_guid, :ahnen_path,
-                               :ped_given, :ped_surname, :ped_year,
-                               :ged_id, :ged_given, :ged_surname, :ged_year,
-                               :match_method, :total_score)""",
-                    link_row,
-                )
             new_links[ped.get("ahnen_path", "")] = link_row
+
+    # Alle neuen Links in einem Batch schreiben (statt N einzelner INSERTs)
+    if new_links:
+        with db._cursor() as cur:
+            cur.executemany(
+                """INSERT OR REPLACE INTO gedcom_links
+                   (test_guid, match_guid, ahnen_path,
+                    ped_given, ped_surname, ped_year,
+                    ged_id, ged_given, ged_surname, ged_year,
+                    match_method, total_score)
+                   VALUES (:test_guid, :match_guid, :ahnen_path,
+                           :ped_given, :ped_surname, :ped_year,
+                           :ged_id, :ged_given, :ged_surname, :ged_year,
+                           :match_method, :total_score)""",
+                new_links.values(),
+            )
 
     # Ergebnisliste: jede Pedigree-Zeile, mit oder ohne Treffer
     result = []
@@ -202,9 +211,21 @@ def run_match_all(db, test_guid: str, progress_cb=None) -> int:
             (test_guid,),
         ).fetchall()]
 
+    # GEDCOM-Index einmal vorladen — spart N × SELECT * FROM gedcom_persons
+    with db._cursor() as cur:
+        ged_all = [dict(r) for r in cur.execute("SELECT * FROM gedcom_persons").fetchall()]
+    ged_by_sn:      dict[str, list] = defaultdict(list)
+    ged_by_koelner: dict[str, list] = defaultdict(list)
+    for g in ged_all:
+        ged_by_sn[g["surname_norm"]].append(g)
+        if g["koelner_code"]:
+            ged_by_koelner[g["koelner_code"]].append(g)
+
     total_links = 0
     for i, mguid in enumerate(match_guids):
-        rows = run_match_for_match(db, test_guid, mguid)
+        rows = run_match_for_match(db, test_guid, mguid,
+                                   _ged_by_sn=ged_by_sn,
+                                   _ged_by_koelner=ged_by_koelner)
         total_links += sum(1 for r in rows if r["icon"])
         if progress_cb:
             progress_cb(i + 1, len(match_guids))

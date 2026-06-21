@@ -235,27 +235,35 @@ class StatsTab(ttk.Frame):
         self._stats_dirty = True
 
     def refresh(self):
+        import threading as _threading
         self._stats_dirty = False
-        stats = self._state.db.get_statistics()
-        for key, var in self._stat_vars.items():
-            v = stats.get(key)
-            if key == "gen_length":
-                var.set(f"{v:.1f} J." if isinstance(v, float) else "—")
-            elif isinstance(v, float):
-                var.set(f"{v:.1f}")
-            else:
-                var.set(str(v) if v is not None else "—")
-        self._rel_tree.delete(*self._rel_tree.get_children())
-        for rel, cnt in stats.get("relationship_breakdown", []):
-            self._rel_tree.insert("", "end", values=(rel, cnt))
-        self._kit_stat_tree.delete(*self._kit_stat_tree.get_children())
-        for kit_name, cnt in stats.get("kit_breakdown", []):
-            self._kit_stat_tree.insert("", "end", values=(kit_name, cnt))
-        self._draw_rings(stats)
-        self.after(50, self._draw_ethnicity)
-        self.after(60, self._draw_traits)
-        self.after(70, self._refresh_population)
-        self.after(80, self._refresh_timeseries)
+
+        def _worker():
+            stats = self._state.db.get_statistics()
+            self.after(0, lambda s=stats: _apply(s))
+
+        def _apply(stats):
+            for key, var in self._stat_vars.items():
+                v = stats.get(key)
+                if key == "gen_length":
+                    var.set(f"{v:.1f} J." if isinstance(v, float) else "—")
+                elif isinstance(v, float):
+                    var.set(f"{v:.1f}")
+                else:
+                    var.set(str(v) if v is not None else "—")
+            self._rel_tree.delete(*self._rel_tree.get_children())
+            for rel, cnt in stats.get("relationship_breakdown", []):
+                self._rel_tree.insert("", "end", values=(rel, cnt))
+            self._kit_stat_tree.delete(*self._kit_stat_tree.get_children())
+            for kit_name, cnt in stats.get("kit_breakdown", []):
+                self._kit_stat_tree.insert("", "end", values=(kit_name, cnt))
+            self._draw_rings(stats)
+            self.after(50, self._draw_ethnicity)
+            self.after(60, self._draw_traits)
+            self.after(70, self._refresh_population)
+            self.after(80, self._refresh_timeseries)
+
+        _threading.Thread(target=_worker, daemon=True, name="stats-load").start()
 
     def _refresh_population(self):
         from ancestry.core import population_stats as ps

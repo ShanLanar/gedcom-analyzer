@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 30
+    SCHEMA_VERSION = 31
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os

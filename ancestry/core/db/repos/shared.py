@@ -281,14 +281,19 @@ class SharedRepo:
                             (test_guid,))
             return cur.fetchone()[0]
 
-    def get_shared_pairs_set(self, test_guid: str) -> set:
-        """Return all shared-match pairs as frozensets for O(1) lookup."""
+    def get_shared_pairs_set(self, test_guid: str, min_cm: float = 7.0) -> set:
+        """Return shared-match pairs as frozensets for O(1) lookup.
+
+        min_cm filters out noise matches below 7 cM (default) to keep the
+        materialized set small.
+        """
         with self._db._cursor() as cur:
             cur.execute("""
                 SELECT match_guid_a, match_guid_b
                 FROM shared_matches
                 WHERE test_guid = ?
-            """, (test_guid,))
+                  AND shared_cm_b >= ?
+            """, (test_guid, min_cm))
             return {frozenset((r[0], r[1])) for r in cur.fetchall()}
 
     def get_all_shared_for_cluster(self, test_guid: str,

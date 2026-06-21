@@ -1102,6 +1102,8 @@ class MatchesTab(ttk.Frame):
         if not sel: return
         match = next((m for m in self._matches if m.match_guid == sel[0]), None)
         if not match: return
+        if self._selected_match and self._note_text.edit_modified():
+            self._save_note()
         self._selected_match = match
         if hasattr(self, "_match_ai_btn"):
             from ancestry.core.ai_copilot import is_available
@@ -1206,6 +1208,7 @@ class MatchesTab(ttk.Frame):
 
         self._note_text.delete("1.0","end")
         self._note_text.insert("1.0", match.note or "")
+        self._note_text.edit_modified(False)
 
         # MRCA-Schätzung im Status (einzeilig, nicht invasiv)
         cm = match.shared_cm or 0

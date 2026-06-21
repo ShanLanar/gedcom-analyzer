@@ -218,20 +218,24 @@ class LoginTab(ttk.Frame):
                          daemon=True).start()
 
     def _login_thread(self, arg1, arg2, method):
-        auth = AncestryAuth()
-        ok = auth.login_password(arg1, arg2) if method == "password" else auth.login_cookies(arg1)
-        if ok:
-            client = AncestryApiClient(auth.get_session())
-            kits: list[DnaKit] = []
-            if auth.uid:
-                kits = client.get_dna_kits(auth.uid)
-                if not kits:
-                    guid = client.detect_kit_from_uid(auth.uid)
-                    if guid:
-                        kits = [DnaKit(guid=guid, name="Mein DNA-Test")]
-            self.after(0, lambda a=auth, c=client, k=kits: self._login_done(a, c, k))
-        else:
-            self.after(0, lambda: self.set_status("❌ Login fehlgeschlagen.", success=False))
+        try:
+            auth = AncestryAuth()
+            ok = auth.login_password(arg1, arg2) if method == "password" else auth.login_cookies(arg1)
+            if ok:
+                client = AncestryApiClient(auth.get_session())
+                kits: list[DnaKit] = []
+                if auth.uid:
+                    kits = client.get_dna_kits(auth.uid)
+                    if not kits:
+                        guid = client.detect_kit_from_uid(auth.uid)
+                        if guid:
+                            kits = [DnaKit(guid=guid, name="Mein DNA-Test")]
+                self.after(0, lambda a=auth, c=client, k=kits: self._login_done(a, c, k))
+            else:
+                self.after(0, lambda: self.set_status("❌ Login fehlgeschlagen.", success=False))
+        except Exception as e:
+            self.after(0, lambda err=str(e): self.set_status(
+                f"❌ Login fehlgeschlagen: {err}", success=False))
 
     def _login_done(self, auth: AncestryAuth, client: AncestryApiClient, kits: list):
         uid = auth.uid or "?"

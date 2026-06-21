@@ -92,9 +92,9 @@ class ClusterTab(ttk.Frame):
         self._shared_cm_var = tk.StringVar(value="20")
         ttk.Entry(cf, textvariable=self._shared_cm_var, width=6).pack(side="left")
         _sv = tk.StringVar(value=t("cl.calc_btn"))
-        _b = ttk.Button(cf, textvariable=_sv, command=self.refresh)
-        _b.pack(side="left", padx=14)
-        register_tooltip(_b, "tt.cl_calc", self._state)
+        self._calc_btn = ttk.Button(cf, textvariable=_sv, command=self.refresh)
+        self._calc_btn.pack(side="left", padx=14)
+        register_tooltip(self._calc_btn, "tt.cl_calc", self._state)
         lw.append((_sv, "cl.calc_btn"))
         self._count_var = tk.StringVar(value="")
         ttk.Label(cf, textvariable=self._count_var,
@@ -212,6 +212,7 @@ class ClusterTab(ttk.Frame):
     # ── Daten laden ──────────────────────────────────────────────────────────
 
     def refresh(self):
+        import threading as _threading
         test_guid = self._get_test_guid()
         if not test_guid:
             messagebox.showwarning(self._state.t("dlg.no_kit"), self._state.t("dlg.m_choose_kit"))
@@ -223,38 +224,49 @@ class ClusterTab(ttk.Frame):
         except ValueError:
             min_prim, max_prim, min_shared = 20.0, 400.0, 20.0
 
-        shared_data = self._state.db.get_all_shared_for_cluster(
-            test_guid, min_prim, min_shared,
-            max_cm_primary=max_prim, max_cm_shared=max_prim)
-        if not shared_data:
-            messagebox.showinfo(self._state.t("dlg.no_data"),
-                                "Keine Shared Matches im gewählten cM-Bereich.\n\n"
-                                "Mögliche Ursachen:\n"
-                                "• Noch keine Shared Matches heruntergeladen "
-                                "(Tab Herunterladen → B)\n"
-                                f"• Keine primären Matches zwischen {min_prim:.0f} "
-                                f"und {max_prim:.0f} cM — Bereich anpassen.")
-            return
+        self._calc_btn.configure(state="disabled")
 
-        self._clusters = build_clusters(shared_data, min_prim, min_shared,
-                                        max_cm_primary=max_prim)
+        def _worker():
+            shared_data = self._state.db.get_all_shared_for_cluster(
+                test_guid, min_prim, min_shared,
+                max_cm_primary=max_prim, max_cm_shared=max_prim)
+            if not shared_data:
+                self.after(0, lambda: (
+                    self._calc_btn.configure(state="normal"),
+                    messagebox.showinfo(self._state.t("dlg.no_data"),
+                                        "Keine Shared Matches im gewählten cM-Bereich.\n\n"
+                                        "Mögliche Ursachen:\n"
+                                        "• Noch keine Shared Matches heruntergeladen "
+                                        "(Tab Herunterladen → B)\n"
+                                        f"• Keine primären Matches zwischen {min_prim:.0f} "
+                                        f"und {max_prim:.0f} cM — Bereich anpassen."),
+                ))
+                return
+            clusters = build_clusters(shared_data, min_prim, min_shared,
+                                      max_cm_primary=max_prim)
+            # Seiten-Map im Worker-Thread holen
+            all_guids = [m["guid"] for mlist in clusters.values() for m in mlist]
+            side_map: dict[str, str] = {}
+            if all_guids:
+                try:
+                    with self._state.db._cursor() as cur:
+                        rows = cur.execute(
+                            "SELECT match_guid, paternal_maternal FROM matches "
+                            "WHERE match_guid IN ({})".format(",".join("?" * len(all_guids))),
+                            all_guids,
+                        ).fetchall()
+                    side_map = {r["match_guid"]: (r["paternal_maternal"] or "") for r in rows}
+                except Exception as e:
+                    log.debug("cluster side_map: %s", e)
+            self.after(0, lambda sd=shared_data, cl=clusters, sm=side_map:
+                       self._apply_cluster_result(sd, cl, sm))
+
+        _threading.Thread(target=_worker, daemon=True, name="cluster-build").start()
+
+    def _apply_cluster_result(self, shared_data, clusters, side_map):
+        self._clusters = clusters
         self._count_var.set(f"{len(self._clusters)} Cluster")
         self._text_var.set(suggest_grandparent_lines(self._clusters))
-
-        # Seiten-Map
-        all_guids = [m["guid"] for mlist in self._clusters.values() for m in mlist]
-        side_map: dict[str, str] = {}
-        if all_guids:
-            try:
-                with self._state.db._cursor() as cur:
-                    rows = cur.execute(
-                        "SELECT match_guid, paternal_maternal FROM matches "
-                        "WHERE match_guid IN ({})".format(",".join("?" * len(all_guids))),
-                        all_guids,
-                    ).fetchall()
-                side_map = {r["match_guid"]: (r["paternal_maternal"] or "") for r in rows}
-            except Exception as e:
-                log.debug("cluster side_map: %s", e)
         self._cluster_side_colors = {}
 
         # Dichte berechnen
@@ -308,6 +320,7 @@ class ClusterTab(ttk.Frame):
                                                f"{max(cms):.0f}", top_name, quality_icon))
             self._cluster_list.tag_configure(f"c{cid}", background=color)
         self._member_tree.delete(*self._member_tree.get_children())
+        self._calc_btn.configure(state="normal")
 
     # ── Selektion ────────────────────────────────────────────────────────────
 
