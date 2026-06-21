@@ -155,15 +155,14 @@ class ToolsTab(ttk.Frame):
 
         # ── Pipeline: Datenquellen-Übersicht ──────────────────────────────
         pipe_lf = self._tool_section(inner, "🔌  Datenquellen-Pipeline")
-        ttk.Label(pipe_lf,
-                  text="Klicke auf eine Quellen-Box → Anleitung (DE+EN) und Aktionen aufklappen.",
-                  foreground=self._state.colors().get("text_dim", "#888888"),
-                  ).pack(anchor="w", pady=(0, 4))
-        DataSourcePipeline(
+        self._pipeline = DataSourcePipeline(
             pipe_lf,
             self._pipeline_sources(),
             colors=self._state.colors(),
-        ).pack(fill="x", pady=(0, 2))
+        )
+        self._pipeline.pack(fill="x", pady=(0, 2))
+        # Status 800 ms nach Aufbau im Hintergrund laden
+        self.after(800, self._load_pipeline_status)
 
         # ── Abschnitt A0c: Matricula-Priorität ───────────────────────────
         sec = self._tool_section(inner, "📊  Matricula-Priorität (Pfarrei-Statistik)")
@@ -279,6 +278,86 @@ class ToolsTab(ttk.Frame):
     # ── Tutorial ──────────────────────────────────────────────────────────
     def _open_tutorial(self):
         self._tutorial.start()
+
+    # ── Pipeline-Status (Live-Abfrage aus DB) ─────────────────────────────
+    def _load_pipeline_status(self):
+        """Fragt Datensatz-Zählungen im Hintergrund ab und aktualisiert die Kacheln."""
+        import threading
+
+        def _query():
+            statuses: dict[str, tuple[str, str]] = {}
+            try:
+                db = getattr(self._state, "db", None)
+                if db is None:
+                    self.after(3000, self._load_pipeline_status)
+                    return
+
+                src_counts:   dict[str, int] = {}
+                match_counts: dict[str, int] = {}
+
+                try:
+                    with db._cursor() as cur:
+                        for src, cnt in cur.execute(
+                            "SELECT COALESCE(source,''), COUNT(*) "
+                            "FROM gedcom_persons GROUP BY source"
+                        ):
+                            src_counts[src] = cnt
+                except Exception:
+                    pass
+
+                try:
+                    with db._cursor() as cur:
+                        for src, cnt in cur.execute(
+                            "SELECT COALESCE(source,''), COUNT(*) "
+                            "FROM dna_matches GROUP BY source"
+                        ):
+                            match_counts[src] = cnt
+                except Exception:
+                    pass
+
+                def _ok(n: int, unit: str) -> tuple[str, str]:
+                    return (f"{n:,} {unit}", "ok") if n else (unit.rstrip("e") + " – leer", "empty")
+
+                # GEDCOM/FTM
+                n = src_counts.get("gedcom", 0) + src_counts.get("ftm", 0)
+                statuses["gedcom"] = (f"{n:,} Personen", "ok") if n else ("nicht geladen", "empty")
+
+                # Ancestry — Summe aller Matches, die nicht einer anderen Plattform gehören
+                known = {"ftdna", "myheritage", "gedmatch"}
+                ancestry_n = sum(v for k, v in match_counts.items() if k not in known)
+                statuses["ancestry"] = (f"{ancestry_n:,} Matches", "ok") if ancestry_n else ("nicht geladen", "empty")
+
+                # Webtrees
+                n = src_counts.get("webtrees", 0) + src_counts.get("anverwandte", 0)
+                statuses["webtrees"] = (f"{n:,} Personen", "ok") if n else ("nicht geladen", "empty")
+
+                # MyHeritage
+                n = match_counts.get("myheritage", 0)
+                statuses["myheritage"] = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
+
+                # GEDmatch
+                n = match_counts.get("gedmatch", 0)
+                statuses["gedmatch"] = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
+
+                # FTDNA
+                n = match_counts.get("ftdna", 0)
+                statuses["ftdna"] = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
+
+                # WikiTree
+                n = src_counts.get("wikitree", 0)
+                statuses["wikitree"] = (f"{n:,} Profile", "ok") if n else ("nicht geladen", "empty")
+
+            except Exception:
+                pass
+
+            if statuses and hasattr(self, "_pipeline") and self._pipeline.winfo_exists():
+                self.after(0, lambda s=statuses: self._pipeline.update_status(s))
+
+        threading.Thread(target=_query, daemon=True, name="pipeline_status").start()
+
+    def refresh_pipeline_status(self):
+        """Kann von außen aufgerufen werden, um den Status neu zu laden."""
+        self._load_pipeline_status()
 
     # ── Pipeline: Quellen-Definitionen ────────────────────────────────────
     def _pipeline_sources(self) -> list[dict]:
