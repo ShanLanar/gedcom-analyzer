@@ -246,6 +246,9 @@ class ToolsTab(ttk.Frame):
         _bw = ttk.Button(row, text="🧱 Brick-Wall-Finder",
                          command=self._open_brickwall_finder)
         _bw.pack(side="left", padx=(0, 8))
+        _tk = ttk.Button(row, text="🗂 Aufgaben (To-Dos)",
+                         command=self._open_research_tasks)
+        _tk.pack(side="left", padx=(0, 8))
         ttk.Label(row, text="Gut dokumentierte Ahnen ohne bekannte Eltern "
                             "(hochpriore Forschungsziele).",
                   foreground=self._state.colors().get("text_dim", "#888888")
@@ -783,6 +786,13 @@ class ToolsTab(ttk.Frame):
     def _open_brickwall_finder(self):
         from ancestry.gui.analysis.brickwall_finder import show_brickwall_finder
         show_brickwall_finder(
+            self, self._state,
+            set_status=lambda msg: self._tool_append(msg + "\n"))
+
+    # ── Research-To-Do-Manager (B1) ───────────────────────────────────────
+    def _open_research_tasks(self):
+        from ancestry.gui.analysis.research_tasks_view import show_research_tasks
+        show_research_tasks(
             self, self._state,
             set_status=lambda msg: self._tool_append(msg + "\n"))
 

@@ -12,6 +12,7 @@ from typing import Generator, Optional
 from ancestry.core.db.repos.kits import KitsRepo
 from ancestry.core.db.repos.matches import MatchesRepo
 from ancestry.core.db.repos.pedigree import PedigreeRepo
+from ancestry.core.db.repos.research_tasks import ResearchTasksRepo
 from ancestry.core.db.repos.segments import SegmentsRepo
 from ancestry.core.db.repos.shared import SharedRepo
 from ancestry.core.db.repos.stats import StatsRepo
@@ -23,7 +24,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 32
+    SCHEMA_VERSION = 33
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -40,6 +41,7 @@ class Database:
         self._shared  = SharedRepo(self)
         self._stats   = StatsRepo(self)
         self._segs    = SegmentsRepo(self)
+        self._tasks   = ResearchTasksRepo(self)
 
     # ── Verbindung ────────────────────────────────────────────────────────────
 
@@ -167,6 +169,15 @@ class Database:
     def link_gedmatch_bridges(self, *a, **kw) -> int:    return self._matches.link_gedmatch_bridges(*a, **kw)
     def get_bridge_hit_counts(self, *a, **kw) -> dict:   return self._matches.get_bridge_hit_counts(*a, **kw)
     def get_unfetched_match_guids(self, *a, **kw) -> list: return self._matches.get_unfetched_match_guids(*a, **kw)
+
+    # ── Research-Tasks (B1) ─────────────────────────────────────────────────────
+
+    def add_task(self, *a, **kw) -> int:                 return self._tasks.add_task(*a, **kw)
+    def update_task(self, *a, **kw) -> None:             return self._tasks.update_task(*a, **kw)
+    def set_task_status(self, *a, **kw) -> None:         return self._tasks.set_status(*a, **kw)
+    def delete_task(self, *a, **kw) -> None:             return self._tasks.delete_task(*a, **kw)
+    def get_tasks(self, *a, **kw) -> list:               return self._tasks.get_tasks(*a, **kw)
+    def count_open_tasks(self, *a, **kw) -> int:         return self._tasks.count_open(*a, **kw)
 
     # ── Pedigree ──────────────────────────────────────────────────────────────
 
