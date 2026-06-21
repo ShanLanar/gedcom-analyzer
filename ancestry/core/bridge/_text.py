@@ -138,18 +138,94 @@ def _lev(a: str, b: str, cap: int = 4) -> int:
     return prev[lb]
 
 
+def _damerau_levenshtein(a: str, b: str) -> int:
+    """Optimal-String-Alignment-Distanz: wie Levenshtein, aber eine Vertauschung
+    benachbarter Zeichen (Maier↔Maeir) kostet 1 statt 2 — genau das häufigste
+    Schreibvariantenmuster bei Nachnamen."""
+    if a == b:
+        return 0
+    la, lb = len(a), len(b)
+    if la == 0:
+        return lb
+    if lb == 0:
+        return la
+    d = [[0] * (lb + 1) for _ in range(la + 1)]
+    for i in range(la + 1):
+        d[i][0] = i
+    for j in range(lb + 1):
+        d[0][j] = j
+    for i in range(1, la + 1):
+        for j in range(1, lb + 1):
+            cost = 0 if a[i - 1] == b[j - 1] else 1
+            d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1, d[i - 1][j - 1] + cost)
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+    return d[la][lb]
+
+
+def _jaro(a: str, b: str) -> float:
+    if a == b:
+        return 1.0
+    la, lb = len(a), len(b)
+    if la == 0 or lb == 0:
+        return 0.0
+    match_dist = max(0, max(la, lb) // 2 - 1)
+    a_match = [False] * la
+    b_match = [False] * lb
+    matches = 0
+    for i in range(la):
+        start = max(0, i - match_dist)
+        end   = min(i + match_dist + 1, lb)
+        for j in range(start, end):
+            if b_match[j] or a[i] != b[j]:
+                continue
+            a_match[i] = b_match[j] = True
+            matches += 1
+            break
+    if matches == 0:
+        return 0.0
+    t = k = 0
+    for i in range(la):
+        if not a_match[i]:
+            continue
+        while not b_match[k]:
+            k += 1
+        if a[i] != b[k]:
+            t += 1
+        k += 1
+    t //= 2
+    return (matches / la + matches / lb + (matches - t) / matches) / 3.0
+
+
+def _jaro_winkler(a: str, b: str, p: float = 0.1, max_prefix: int = 4) -> float:
+    """Jaro-Winkler-Ähnlichkeit (0..1): belohnt gemeinsame Präfixe — der in
+    Record-Linkage bewährte Nachnamen-Vergleicher (Schmidt/Schmitt punkten hoch)."""
+    a, b = (a or "").lower(), (b or "").lower()
+    if not a or not b:
+        return 0.0
+    j = _jaro(a, b)
+    prefix = 0
+    for i in range(min(max_prefix, len(a), len(b))):
+        if a[i] == b[i]:
+            prefix += 1
+        else:
+            break
+    return j + prefix * p * (1 - j)
+
+
 def _name_sim(a: str, b: str) -> float:
-    """0..1 Ähnlichkeit zweier Namen: kombiniert SequenceMatcher-Ratio und
-    längen-normierte Levenshtein-Distanz."""
+    """0..1 Ähnlichkeit zweier Namen: kombiniert SequenceMatcher-Ratio,
+    längen-normierte Damerau-Levenshtein-Distanz und Jaro-Winkler (präfix-
+    gewichtet, transpositions-robust)."""
     a, b = (a or "").lower(), (b or "").lower()
     if not a or not b:
         return 0.0
     if a == b:
         return 1.0
     seq = SequenceMatcher(None, a, b).ratio()
-    lev = _lev(a, b, cap=max(len(a), len(b)))
-    lev_sim = 1.0 - lev / max(len(a), len(b))
-    return max(seq, lev_sim)
+    maxlen = max(len(a), len(b))
+    lev_sim = 1.0 - _damerau_levenshtein(a, b) / maxlen
+    return max(seq, lev_sim, _jaro_winkler(a, b))
 
 
 # ── Ort-Nachnamen-Korrelation: wahrscheinliche Herkunftsregion ────────────────
@@ -168,8 +244,10 @@ def _extract_region(birth_place: str) -> str:
 
 
 def _place_sim(a: str, b: str) -> float:
-    """0..1 Ortsähnlichkeit: spezifischster Teil (vor erstem Komma) plus Region.
-    Robust gegen unterschiedliche Tiefe ('Schwagstorf' vs 'Schwagstorf, …')."""
+    """0..1 Ortsähnlichkeit: spezifischster Teil (vor erstem Komma) plus
+    Überlappung der gesamten Orts-Hierarchie (Kreis/Region/Land).
+    Robust gegen unterschiedliche Tiefe ('Schwagstorf' vs 'Schwagstorf, …')
+    und gegen verschieden geschriebene Dörfer im selben Kreis."""
     a, b = (a or "").lower().strip(), (b or "").lower().strip()
     if not a or not b:
         return 0.0
@@ -178,5 +256,14 @@ def _place_sim(a: str, b: str) -> float:
     a0 = a.split(",")[0].strip()
     b0 = b.split(",")[0].strip()
     spec = _name_sim(a0, b0)                 # Ort-Kern (z.B. Schwagstorf)
-    reg  = 1.0 if _extract_region(a) and _extract_region(a) == _extract_region(b) else 0.0
-    return max(spec, 0.6 * spec + 0.4 * reg)
+    # Komponenten-Überlappung über die gesamte Hierarchie: teilen sich zwei
+    # Orte Kreis/Region/Land, ist geografische Nähe wahrscheinlich, auch wenn
+    # die Dorfnamen abweichen.
+    a_comp = {_norm(p) for p in a.split(",") if _norm(p)}
+    b_comp = {_norm(p) for p in b.split(",") if _norm(p)}
+    if a_comp and b_comp:
+        overlap = len(a_comp & b_comp) / min(len(a_comp), len(b_comp))
+    else:
+        overlap = 0.0
+    reg = 1.0 if _extract_region(a) and _extract_region(a) == _extract_region(b) else 0.0
+    return max(spec, 0.6 * spec + 0.4 * reg, 0.5 * spec + 0.5 * overlap)

@@ -5,7 +5,8 @@ scoring.py — Link-Scoring zwischen Ahnentafel-Einträgen und GEDCOM-Personen.
 import os
 from difflib import SequenceMatcher
 
-from ._text import _koelner, _levenshtein, _norm, _place_sim
+from ._text import (
+    _damerau_levenshtein, _jaro_winkler, _koelner, _norm, _place_sim)
 
 # Per Umgebungsvariable übersteuerbar (z. B. 0.55 bei stark endogamen Daten,
 # 0.35 für explorative Läufe mit anschließender manueller Prüfung).
@@ -33,22 +34,31 @@ def compute_link_score(ped_given: str, ped_surname: str, ped_year,
         return 0.0, "none"
 
     # ── Nachname ──
+    # Damerau-Levenshtein (transpositions-robust) statt reiner Levenshtein.
     if ped_sn == ged_sn:
         name_score, method = 1.0, "exact"
     else:
         ped_koe = _koelner(ped_sn)
         if ped_koe and ged_koe and ped_koe == ged_koe and ped_koe not in ("", "0"):
-            lev = _levenshtein(ped_sn, ged_sn)
+            lev = _damerau_levenshtein(ped_sn, ged_sn)
             if   lev == 0: name_score, method = 1.0,  "exact"
             elif lev <= 2: name_score, method = 0.85 - lev * 0.10, "phonetic"
             elif lev <= 4: name_score, method = 0.55, "phonetic"
             else:          return 0.0, "none"
         elif len(ped_sn) >= 4:
-            lev = _levenshtein(ped_sn, ged_sn)
+            lev = _damerau_levenshtein(ped_sn, ged_sn)
             if lev <= 2:
-                name_score, method = 0.60 - lev * 0.10, "levenshtein"
+                name_score, method = 0.60 - lev * 0.10, "damerau"
             else:
-                return 0.0, "none"
+                # Jaro-Winkler-Sicherheitsnetz: fängt präfix-gleiche Varianten
+                # (Schmidt/Schmitt), die Kölner-Code/DL knapp verfehlen.
+                # Score < 0.85 → die Jahres-Plausibilitätsprüfung greift weiter.
+                jw = _jaro_winkler(ped_sn, ged_sn)
+                if jw >= 0.90:
+                    name_score = round(0.40 + (jw - 0.90) * 2.0, 3)  # 0.40 … 0.60
+                    method = "jaro"
+                else:
+                    return 0.0, "none"
         else:
             return 0.0, "none"
 
