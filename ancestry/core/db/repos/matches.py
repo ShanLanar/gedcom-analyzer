@@ -323,7 +323,9 @@ class MatchesRepo:
 
     def link_gedmatch_bridges(self, our_kit: str = "CM8449775",
                               cm_tolerance: float = 0.12) -> int:
+        from collections import defaultdict
         from difflib import SequenceMatcher
+
         with self._db._cursor() as cur:
             gm_rows = [tuple(r) for r in cur.execute(
                 "SELECT kit_id, name, shared_cm, source_platform "
@@ -341,19 +343,29 @@ class MatchesRepo:
                 return 0.0
             return SequenceMatcher(None, a, b).ratio()
 
+        # Bucket matches by cM (integer) for O(1) range lookup instead of O(n) scan
+        cm_index: dict[int, list] = defaultdict(list)
+        for mg in match_rows:
+            if mg[2]:
+                cm_index[int(mg[2])].append(mg)
+
         linked = 0
         rows_to_insert = []
         for gm in gm_rows:
             gm_kit, gm_name, gm_cm, gm_plat = gm
             if not gm_cm:
                 continue
+            plat_lower = (gm_plat or "").lower()
             lo, hi = gm_cm * (1 - cm_tolerance), gm_cm * (1 + cm_tolerance)
+            # Only check matches within the cM tolerance band
+            candidates = [
+                mg for bucket in range(int(lo), int(hi) + 2)
+                for mg in cm_index.get(bucket, [])
+                if lo <= (mg[2] or 0) <= hi
+            ]
             best_guid, best_score = None, 0.54
-            for mg in match_rows:
+            for mg in candidates:
                 m_guid, m_name, m_cm, m_src = mg
-                if not m_cm or not (lo <= m_cm <= hi):
-                    continue
-                plat_lower = (gm_plat or "").lower()
                 if "ancestry" in plat_lower and m_src != "ancestry":
                     continue
                 if "myheritage" in plat_lower and m_src not in ("myheritage", "ancestry"):

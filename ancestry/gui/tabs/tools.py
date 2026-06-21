@@ -309,7 +309,7 @@ class ToolsTab(ttk.Frame):
                     with db._cursor() as cur:
                         for src, cnt in cur.execute(
                             "SELECT COALESCE(source,''), COUNT(*) "
-                            "FROM dna_matches GROUP BY source"
+                            "FROM matches GROUP BY source"
                         ):
                             match_counts[src] = cnt
                 except Exception:

@@ -23,7 +23,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 26
+    SCHEMA_VERSION = 28
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -49,6 +49,10 @@ class Database:
             self._conn.row_factory = sqlite3.Row
             self._conn.execute("PRAGMA journal_mode=WAL")
             self._conn.execute("PRAGMA foreign_keys=OFF")
+            self._conn.execute("PRAGMA synchronous=NORMAL")   # sicherer als OFF, schneller als FULL
+            self._conn.execute("PRAGMA cache_size=10000")     # 10 MB statt default 2 MB
+            self._conn.execute("PRAGMA temp_store=MEMORY")    # Temp-Tabellen im RAM
+            self._conn.execute("PRAGMA mmap_size=30000000")   # 30 MB Memory-Mapped I/O
         return self._conn
 
     @contextmanager
@@ -99,18 +103,31 @@ class Database:
                 log.info("match_kit_membership repariert: %d Einträge ergänzt", m_cnt - mkm_cnt)
         except Exception as e:
             log.debug("mkm-Reparatur: %s", e)
-        # Waisenzeilen bereinigen (FK=OFF → manuelle Integrität)
-        try:
-            conn.execute(
-                "DELETE FROM shared_matches "
-                "WHERE match_guid NOT IN (SELECT match_guid FROM matches)")
-            conn.execute(
-                "DELETE FROM match_pedigree "
-                "WHERE match_guid NOT IN (SELECT match_guid FROM matches)")
-            conn.commit()
-            log.debug("FK-Cleanup: Waisenzeilen bereinigt")
-        except Exception as e:
-            log.debug("FK-Cleanup übersprungen: %s", e)
+        # Waisenzeilen bereinigen (FK=OFF → manuelle Integrität).
+        # Im Hintergrund ausführen — NOT EXISTS nutzt den PK-Index statt Tabellen-Scan.
+        def _fk_cleanup():
+            try:
+                import sqlite3 as _sq3
+                from ancestry.core.db.connection import _open
+                bg = _open(self.db_file)
+                bg.execute(
+                    "DELETE FROM shared_matches "
+                    "WHERE NOT EXISTS ("
+                    "  SELECT 1 FROM matches WHERE matches.match_guid=shared_matches.match_guid"
+                    ")"
+                )
+                bg.execute(
+                    "DELETE FROM match_pedigree "
+                    "WHERE NOT EXISTS ("
+                    "  SELECT 1 FROM matches WHERE matches.match_guid=match_pedigree.match_guid"
+                    ")"
+                )
+                bg.commit()
+                bg.close()
+                log.debug("FK-Cleanup: Waisenzeilen bereinigt (Hintergrund)")
+            except Exception as e:
+                log.debug("FK-Cleanup übersprungen: %s", e)
+        threading.Thread(target=_fk_cleanup, daemon=True, name="fk_cleanup").start()
         log.debug("DB initialisiert: %s (Schema v%d)", self.db_file, self.SCHEMA_VERSION)
 
     # ── Kits ──────────────────────────────────────────────────────────────────
