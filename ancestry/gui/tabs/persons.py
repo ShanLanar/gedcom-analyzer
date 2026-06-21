@@ -763,10 +763,71 @@ class PersonsTab(ttk.Frame):
         # Zusammengeführte Detail-Abschnitte (früher: separater Datenviewer)
         self._pers_render_insights(p)      # Herkunft / Nachnamen-Häufigkeit / Datenqualität
         self._pers_render_parish(p)        # Kirchspiel / Konfession (Matricula)
+        self._pers_render_hints(p, ged_id) # Recherche-Tipps (externe Quellen) + Aufgabe
         self._pers_render_relations(p)     # Eltern/Partner/Kinder/Geschwister (Links)
         self._pers_render_xref(ged_id)     # GEDCOM-Verknüpfung (Quellen-Dedup)
         self._pers_render_ner(p)           # Kirchenbuch-NER (Paten, Zeugen, …)
         self._pers_render_dna(ged_id)      # DNA-Matches (Anker)
+
+    # ── Detail-Abschnitt: Recherche-Tipps (externe Quellen, anklickbar) ────────
+    def _pers_render_hints(self, p: dict, ged_id: str):
+        """Zeigt auf Person+Ort+Zeit zugeschnittene Recherche-Links — nutzt die
+        vorhandenen URL-Builder aus tasks.externe_quellen. Jeder Link öffnet im
+        Browser; ein Button legt für die Person eine Forschungsaufgabe an."""
+        given   = (p.get("given_name") or "").strip()
+        surname = (p.get("surname") or "").strip()
+        if not surname:
+            return
+        by    = p.get("birth_year")
+        place = (p.get("birth_place") or p.get("death_place") or "").strip()
+        try:
+            from tasks import externe_quellen as eq
+        except Exception:
+            return
+        dach = eq._is_dach(place)
+        kb   = (not by or by < 1875)
+        war  = bool(by and 1870 <= by <= 1928)
+        hints: list[tuple[str, str]] = []
+        try:
+            if kb and dach:
+                hints.append(("Matricula (kath. Kirchenbücher)", eq._matricula(given, surname, place, by)))
+                hints.append(("Archion (ev. Kirchenbücher)",     eq._archion(given, surname, place)))
+            hints.append(("FamilySearch", eq._familysearch(given, surname, by, place)))
+            if dach:
+                hints.append(("GEDBAS (verwandte Bäume)", eq._gedbas(surname, place)))
+                if by and by >= 1874:
+                    hints.append(("ArcInSys (Staatsarchiv NI)", eq._arcinsys(surname, place)))
+                hints.append(("Archivportal-D", eq._archivportal(surname, place)))
+            if war:
+                hints.append(("Volksbund (Kriegsgräber)", eq._volksbund(given, surname, by)))
+            hints.append(("Geneanet", eq._geneanet(given, surname, place)))
+        except Exception as e:
+            log.debug("record hints build: %s", e)
+        hints = [(lbl, url) for lbl, url in hints if url]
+        if not hints:
+            return
+
+        self._pers_hdr("🔎 Recherche-Tipps")
+        import webbrowser
+        for lbl, url in hints:
+            row = ttk.Frame(self._pers_detail); row.pack(fill="x", padx=10, pady=1)
+            lk = ttk.Label(row, text="• " + lbl, foreground=_LINK,
+                           cursor="hand2", wraplength=260)
+            lk.pack(side="left")
+            lk.bind("<Button-1>", lambda _e, u=url: webbrowser.open(u))
+        # Forschungsaufgabe für diese Person anlegen (Feature B1)
+        btnrow = ttk.Frame(self._pers_detail); btnrow.pack(fill="x", padx=10, pady=(3, 1))
+        label = f"{given} {surname}".strip()
+        ttk.Button(btnrow, text="🗂 Aufgabe für diese Person",
+                   command=lambda: self._pers_open_tasks(ged_id, label)).pack(side="left")
+
+    def _pers_open_tasks(self, ged_id: str, label: str):
+        try:
+            from ancestry.gui.analysis.research_tasks_view import show_research_tasks
+            show_research_tasks(self, self._state, entity_type="ged_person",
+                                entity_key=ged_id, entity_label=label)
+        except Exception as e:
+            log.debug("open tasks: %s", e)
 
     # ── Detail-Abschnitt: Beziehungen (anklickbar) ────────────────────────────
     def _pers_render_relations(self, p: dict):
