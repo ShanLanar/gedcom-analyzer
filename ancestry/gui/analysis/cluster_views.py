@@ -172,6 +172,18 @@ def show_cluster_relationships(app, test_guid, cluster):
     """Interne Beziehungs-Struktur: paarweise cM zwischen Cluster-Mitgliedern."""
     from ancestry.core.treematch import pair_relationship
 
+    def _rel_label(cm: float) -> str:
+        # Wahrscheinlichkeitsverteilung (Shared cM Project) statt fixer Bins;
+        # Fallback auf pair_relationship, falls Modul fehlt.
+        try:
+            from ancestry.core.shared_cm import summary_line
+            s = summary_line(cm, top=2)
+            if s and s != "—":
+                return s
+        except Exception:
+            pass
+        return pair_relationship(cm)
+
     guids = [g for g, _n, _cm in cluster["members"]]
     name = {g: n for g, n, _cm in cluster["members"]}
     pairs = app._db.get_pairwise_shared(test_guid, guids)
@@ -206,7 +218,7 @@ def show_cluster_relationships(app, test_guid, cluster):
         tag = ("close",) if cm >= 200 else ()
         tv.insert("", "end", tags=tag, values=(
             name.get(a, a[:8]), name.get(b, b[:8]),
-            f"{cm:.0f}", pair_relationship(cm)))
+            f"{cm:.0f}", _rel_label(cm)))
 
 
 def show_cluster_dock(app, cluster, hits, n_with_ped):

@@ -235,8 +235,14 @@ def export_xlsx(matches: list[DnaMatch], filepath: str,
             "Anzahl Verknüpfungen", "Treffer-Score",
             "Gemeinsamer Ahne (GEDCOM)", "Geburtsjahr Ahne",
             "Tiefe im eigenen Baum", "Tiefe beim Match",
+            "DNA-Plausibilität",
         ]
-        widths3 = [30, 14, 22, 22, 12, 20, 14, 35, 14, 20, 20]
+        widths3 = [30, 14, 22, 22, 12, 20, 14, 35, 14, 20, 20, 30]
+        _CM_VERDICT = {
+            "ok":   "✓ plausibel",
+            "high": "⚠ DNA zu hoch → Link evtl. zu entfernt",
+            "low":  "⚠ DNA zu niedrig → Link evtl. zu nah",
+        }
         rows3 = [
             [
                 r.get("display_name", ""),
@@ -250,6 +256,7 @@ def export_xlsx(matches: list[DnaMatch], filepath: str,
                 r.get("ged_ancestor_year", ""),
                 r.get("root_gen_depth", ""),
                 r.get("match_gen_depth", ""),
+                _CM_VERDICT.get(r.get("cm_consistency", ""), ""),
             ]
             for r in gedcom_summary
         ]

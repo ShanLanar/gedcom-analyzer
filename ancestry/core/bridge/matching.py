@@ -277,6 +277,45 @@ def infer_side_from_links(db, test_guid: str, match_guid: str, amap: dict) -> st
 
 # ── GEDCOM-Verwandtschafts-Vergleich ─────────────────────────────────────────
 
+# Erwartete cM-Spanne (geteiltes Ahnenpaar) nach Gesamt-Meiosen zur MRCA,
+# abgeleitet aus dem Shared cM Project 4.0 (beobachtete low/high-Bereiche).
+# Schlüssel = root_gen_depth + match_gen_depth (Meiosen über beide Linien).
+_DEPTH_CM_BAND: dict[int, tuple[float, float]] = {
+    4:  (396, 1397),   # 1. Cousins        (2+2)
+    5:  (102,  980),   # 1C1R              (2+3)
+    6:  ( 41,  592),   # 2. Cousins        (3+3)
+    7:  ( 14,  353),   # 2C1R              (3+4)
+    8:  (  1,  217),   # 3. Cousins        (4+4)
+    9:  (  1,  192),   # 3C1R              (4+5)
+    10: (  1,  139),   # 4. Cousins        (5+5)
+    11: (  1,  126),   # 4C1R
+    12: (  1,  117),   # 5. Cousins
+}
+
+
+def _cm_consistency(shared_cm: float, total_depth: int) -> tuple[str, str]:
+    """Vergleicht geteilte cM mit der vom GEDCOM-Link implizierten MRCA-Distanz.
+
+    total_depth = root_gen_depth + match_gen_depth (Meiosen über beide Linien).
+    Rückgabe (verdict, band_text):
+      'high' — DNA deutlich höher als erwartet ⇒ Link vermutlich ZU ENTFERNT
+               (der verknüpfte Ahn liegt zu weit zurück für so viel geteilte DNA).
+      'low'  — DNA deutlich niedriger ⇒ Link vermutlich ZU NAH.
+      'ok'   — plausibel · ''  — unbekannt/zu wenig Daten.
+    """
+    cm = shared_cm or 0
+    if cm <= 0 or total_depth < 4:
+        return "", ""
+    d = min(max(total_depth, 4), 12)
+    low, high = _DEPTH_CM_BAND[d]
+    band = f"{low:.0f}–{high:.0f} cM erwartet"
+    if cm > high * 1.4:
+        return "high", band
+    if low > 0 and cm < low * 0.6:
+        return "low", band
+    return "ok", band
+
+
 def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
     """Berechnet GEDCOM-basierte Verwandtschafts-Labels für alle verknüpften
     DNA-Matches und vergleicht sie mit der Ancestry/MyHeritage-Vorhersage.
@@ -351,6 +390,10 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
         link_count = len(links)
         multiplier = MULT_MAP.get(link_count, "")
 
+        # cM-Konsistenz: passt die geteilte DNA zur Baum-Distanz des Links?
+        cm_verdict, cm_band = _cm_consistency(
+            best["shared_cm"], (root_depth or 0) + (match_depth or 0))
+
         result.append({
             "match_guid":           match_guid,
             "display_name":         best["display_name"],
@@ -364,6 +407,8 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
             "ged_ancestor_year":    best["ged_year"] or "",
             "root_gen_depth":       root_depth,
             "match_gen_depth":      match_depth,
+            "cm_consistency":       cm_verdict,    # ''|'ok'|'high'|'low'
+            "cm_expected_band":     cm_band,
         })
 
     return result

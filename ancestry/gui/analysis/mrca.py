@@ -104,6 +104,15 @@ def show_mrca_analysis(app, match=None):
     ttk.Label(inf_frame,
               text=f"Geschätzte Beziehung: {lbl_mrca}",
               style="Bold.TLabel").pack(anchor="w")
+    # Wahrscheinlichkeitsverteilung (Shared cM Project 4.0) statt nur Einzel-Bin
+    try:
+        from ancestry.core.shared_cm import summary_line
+        _probs = summary_line(cm, top=3)
+        if _probs and _probs != "—":
+            ttk.Label(inf_frame, text=f"Verteilung: {_probs}",
+                      foreground="#555").pack(anchor="w")
+    except Exception:
+        pass
     ttk.Label(inf_frame,
               text=f"Gemeinsamer Vorfahr ca. Generation {gen_mrca} zurück",
               foreground="#333").pack(anchor="w")
