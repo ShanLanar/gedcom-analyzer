@@ -824,6 +824,52 @@ class PersonsTab(ttk.Frame):
         label = f"{given} {surname}".strip()
         ttk.Button(btnrow, text="🗂 Aufgabe für diese Person",
                    command=lambda: self._pers_open_tasks(ged_id, label)).pack(side="left")
+        ttk.Button(btnrow, text="🔍 Ahnen-Lücken",
+                   command=lambda: self._pers_show_gaps(ged_id, label)).pack(side="left", padx=4)
+
+    def _pers_show_gaps(self, ged_id: str, label: str):
+        """F3: Per-Person-Ahnenlückenanalyse (DB-gestützt) on-demand öffnen."""
+        try:
+            from ancestry.core.analysis.gaps import (
+                analyze_pedigree_gaps, get_pedigree_completeness)
+            gaps = analyze_pedigree_gaps(self._state.db, ged_id)
+            comp = get_pedigree_completeness(self._state.db, ged_id)
+        except Exception as e:
+            log.debug("gaps analysis: %s", e)
+            from tkinter import messagebox
+            messagebox.showinfo("Ahnen-Lücken",
+                                f"Analyse nicht möglich: {e}")
+            return
+        _GAP_LABEL = {"maternal_parent": "Mutter fehlt",
+                      "paternal_parent": "Vater fehlt",
+                      "both_parents": "beide Eltern fehlen"}
+        by_gen = comp.get("by_generation", {})
+        known_total = sum(g.get("known", 0) for g in by_gen.values())
+        first_gap = comp.get("first_gap_gen")
+        complete_through = (first_gap - 1) if first_gap else (max(by_gen) if by_gen else 0)
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Ahnen-Lücken — {label}")
+        dlg.geometry("540x460")
+        head = (f"Lückenlos bis Generation {complete_through} · "
+                f"{known_total} Ahnen erfasst · "
+                f"{len(gaps)} offene Lücke(n)")
+        ttk.Label(dlg, text=head, font=("Segoe UI", 9, "bold"),
+                  wraplength=520).pack(fill="x", padx=10, pady=8)
+        cols = ("gen", "type", "via")
+        tv = ttk.Treeview(dlg, columns=cols, show="headings", height=16)
+        for c, t, w in (("gen", "Gen.", 50), ("type", "Lücke", 200),
+                        ("via", "letzter bekannter Ahn", 260)):
+            tv.heading(c, text=t); tv.column(c, width=w, anchor="w")
+        tv.pack(fill="both", expand=True, padx=10, pady=(0, 8))
+        for g in gaps:
+            tv.insert("", "end", values=(
+                g.get("generation", ""),
+                _GAP_LABEL.get(g.get("gap_type", ""), g.get("gap_type", "")),
+                g.get("last_known", "")))
+        if not gaps:
+            ttk.Label(dlg, text="Keine offenen Lücken in den erfassten Generationen.",
+                      foreground="#2e7d32").pack(pady=4)
+        ttk.Button(dlg, text="Schließen", command=dlg.destroy).pack(pady=(0, 8))
 
     def _pers_open_tasks(self, ged_id: str, label: str):
         try:
