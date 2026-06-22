@@ -1,8 +1,5 @@
--- V36: Endogamie-Score für DNA-Matches (F1)
--- Additive Migration: neue Spalte endogamy_score für Endogamie-Flagging
+-- 0036.sql — F1: Endogamy Score Calculation
+-- Pure additive migration: adds endogamy_score column to matches table
+-- No breaking changes, backwards compatible
 
 ALTER TABLE matches ADD COLUMN endogamy_score REAL DEFAULT 0.0;
-
--- Index für Endogamie-Abfragen
-CREATE INDEX IF NOT EXISTS idx_matches_endogamy_score
-    ON matches(endogamy_score DESC, shared_cm DESC);

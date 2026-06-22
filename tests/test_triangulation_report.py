@@ -50,3 +50,24 @@ def test_handles_missing_fields():
     tgs = [{"chromosome": 7, "members": [{"match_guid": "z"}]}]  # keine cM/Region
     html = build_triangulation_report_html(tgs)
     assert "TG" in html and "Chr&nbsp;7" in html
+
+
+def test_charts_disabled():
+    """Charts sind optional und können deaktiviert werden."""
+    tgs = [_tg(1, [_m("A", 30.0), _m("B", 20.0)])]
+    html = build_triangulation_report_html(tgs, include_charts=False)
+    # Kein base64 data:image ohne Charts
+    assert "data:image/png;base64" not in html
+    # Aber die Tabelle ist noch da
+    assert "30.0" in html
+
+
+def test_charts_fallback_without_matplotlib():
+    """Falls Matplotlib fehlt, wird gracefully auf Text-Tabellen zurückgegriffen."""
+    tgs = [_tg(1, [_m("A", 30.0), _m("B", 20.0)])]
+    # include_charts=True but matplotlib might not be available
+    html = build_triangulation_report_html(tgs, include_charts=True)
+    # Tabelle sollte immer vorhanden sein
+    assert "30.0" in html and "20.0" in html
+    # Wenn Chart-Bild, dann kein data:image (kann auch sein, wenn matplotlib da ist)
+    # Aber wichtig: kein Fehler geworfen

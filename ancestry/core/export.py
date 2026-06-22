@@ -70,6 +70,53 @@ def _fmt(val) -> str:
 
 # ── CSV ───────────────────────────────────────────────────────────────────────
 
+def export_matches_tsv(matches: list[DnaMatch], filepath: str) -> int:
+    """
+    Exportiert Matches als TSV (Tab-separated Values) für GEDmatch round-trip.
+
+    Columns: match_guid, display_name, shared_cm, shared_segments,
+             predicted_relationship, test_guid, fetched_at
+
+    Format: Tab-delimited, UTF-8, with header row (no quoting).
+
+    Parameters
+    ----------
+    matches : list[DnaMatch]
+        Matches to export
+    filepath : str
+        Output file path
+
+    Returns
+    -------
+    int
+        Number of rows written (excluding header)
+    """
+    tsv_columns = [
+        "match_guid", "display_name", "shared_cm", "shared_segments",
+        "predicted_relationship", "test_guid", "fetched_at"
+    ]
+    tsv_labels = {
+        "match_guid"             : "Match-GUID",
+        "display_name"           : "Name",
+        "shared_cm"              : "Gemeinsame cM",
+        "shared_segments"        : "Segmente",
+        "predicted_relationship" : "Beziehung",
+        "test_guid"              : "Test-GUID",
+        "fetched_at"             : "Abgerufen am",
+    }
+    headers = [tsv_labels.get(c, c) for c in tsv_columns]
+    with open(filepath, "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=headers, delimiter="\t", quoting=csv.QUOTE_NONE,
+                          escapechar="\\", lineterminator="\n")
+        w.writeheader()
+        for m in matches:
+            d = m.to_dict()
+            w.writerow({tsv_labels.get(c, c): _fmt(d.get(c, ""))
+                       for c in tsv_columns})
+    log.info("TSV-Export Matches: %d → %s", len(matches), filepath)
+    return len(matches)
+
+
 def export_csv(matches: list[DnaMatch], filepath: str) -> int:
     headers = [MATCH_LABELS.get(c, c) for c in MATCH_COLUMNS]
     with open(filepath, "w", newline="", encoding="utf-8-sig") as f:

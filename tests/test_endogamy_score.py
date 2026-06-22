@@ -20,29 +20,29 @@ class TestCalculateEndogamyScore:
         assert calculate_endogamy_score(80, -10) == 0.0
 
     def test_low_endogamy(self):
-        """Low endogamy: 5 segments / 100 cM = 0.5 score."""
+        """Low endogamy: 5 segments / 100 cM = 0.05 score."""
         score = calculate_endogamy_score(5, 100)
-        assert score == 0.5
+        assert score == 0.05
 
     def test_threshold_endogamy(self):
-        """Threshold endogamy: 80 segments / 100 cM = 8.0 score."""
+        """Threshold endogamy: 80 segments / 100 cM = 0.8 score."""
         score = calculate_endogamy_score(80, 100)
-        assert score == 8.0
+        assert score == 0.8
 
     def test_high_endogamy(self):
-        """High endogamy: 100 segments / 100 cM = 10.0 score."""
+        """High endogamy: 100 segments / 100 cM = 1.0 score."""
         score = calculate_endogamy_score(100, 100)
-        assert score == 10.0
+        assert score == 1.0
 
     def test_small_values(self):
         """Score should handle small values correctly."""
         score = calculate_endogamy_score(1, 10)
-        assert score == 0.1
+        assert score == 0.1  # 1 / 10 = 0.1
 
     def test_large_values(self):
         """Score should handle large values correctly."""
         score = calculate_endogamy_score(1000, 1000)
-        assert score == 1.0
+        assert score == 1.0  # 1000 / 1000 = 1.0
 
 
 class TestFlagEndogamyMatches:
@@ -59,9 +59,9 @@ class TestFlagEndogamyMatches:
             test_guid="test1",
             display_name="Test Match",
             shared_cm=100,
-            shared_segments=5,  # 0.5 score < 8.0 threshold
+            shared_segments=5,  # 0.05 score < 0.08 threshold
         )
-        flagged = flag_endogamy_matches([match], threshold=8.0)
+        flagged = flag_endogamy_matches([match], threshold=0.08)
         assert len(flagged) == 0
 
     def test_single_match_flagged(self):
@@ -71,11 +71,11 @@ class TestFlagEndogamyMatches:
             test_guid="test1",
             display_name="Test Match",
             shared_cm=100,
-            shared_segments=80,  # 8.0 score >= 8.0 threshold
+            shared_segments=80,  # 0.8 score >= 0.8 threshold
         )
-        flagged = flag_endogamy_matches([match], threshold=8.0)
+        flagged = flag_endogamy_matches([match], threshold=0.8)
         assert len(flagged) == 1
-        assert flagged[0] == ("guid1", 8.0)
+        assert flagged[0] == ("guid1", 0.8)
 
     def test_multiple_matches_mixed(self):
         """Should flag only matches above threshold."""
@@ -93,10 +93,10 @@ class TestFlagEndogamyMatches:
                 shared_cm=100, shared_segments=100
             ),
         ]
-        flagged = flag_endogamy_matches(matches, threshold=8.0)
+        flagged = flag_endogamy_matches(matches, threshold=0.8)
         assert len(flagged) == 2
-        assert ("guid2", 8.0) in flagged
-        assert ("guid3", 10.0) in flagged
+        assert ("guid2", 0.8) in flagged
+        assert ("guid3", 1.0) in flagged
 
     def test_min_cm_filter(self):
         """Matches below min_cm should be excluded."""
@@ -104,10 +104,10 @@ class TestFlagEndogamyMatches:
             match_guid="guid1",
             test_guid="test1",
             display_name="Too Small",
-            shared_cm=0.5,  # Below min_cm of 1.0
+            shared_cm=0.5,  # Below internal min_cm of 1.0
             shared_segments=80,  # High score but too small
         )
-        flagged = flag_endogamy_matches([match], threshold=8.0, min_cm=1.0)
+        flagged = flag_endogamy_matches([match], threshold=8.0)
         assert len(flagged) == 0
 
     def test_custom_threshold(self):
@@ -117,13 +117,13 @@ class TestFlagEndogamyMatches:
             test_guid="test1",
             display_name="Test",
             shared_cm=100,
-            shared_segments=50,  # 5.0 score
+            shared_segments=50,  # 0.5 score
         )
-        # With threshold 8.0, should not flag
-        flagged = flag_endogamy_matches([match], threshold=8.0)
+        # With threshold 0.8, should not flag
+        flagged = flag_endogamy_matches([match], threshold=0.8)
         assert len(flagged) == 0
 
-        # With threshold 4.0, should flag
-        flagged = flag_endogamy_matches([match], threshold=4.0)
+        # With threshold 0.4, should flag
+        flagged = flag_endogamy_matches([match], threshold=0.4)
         assert len(flagged) == 1
-        assert flagged[0] == ("guid1", 5.0)
+        assert flagged[0] == ("guid1", 0.5)

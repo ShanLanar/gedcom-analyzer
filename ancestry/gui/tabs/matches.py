@@ -103,6 +103,7 @@ class MatchesTab(ttk.Frame):
         self._matches: list = []
         self._matches_kit_guid_map: dict = state.matches_kit_guid_map
         self._selected_match: Optional[DnaMatch] = None
+        self._current_offset: int = 0
         self._build()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -361,11 +362,14 @@ class MatchesTab(ttk.Frame):
         parent.rowconfigure(0, weight=1); parent.columnconfigure(0, weight=1)
         self._tree.bind("<<TreeviewSelect>>", self._on_match_select)
         self._tree.bind("<Button-3>", self._on_match_rightclick)
+        self._tree.bind("<Configure>", self._on_tree_configure)
         self._sort_col = "cm"; self._sort_asc = False
 
-        # Keyboard navigation
+        # Keyboard navigation (U1: Keyboard-Navigation)
         self._tree.bind("<Return>", lambda _: self._on_match_select(None))
-        self._tree.bind("<Escape>", lambda _: self._search_var.set("") or self.refresh())
+        self._tree.bind("<Escape>", lambda _: self._on_escape_pressed())
+        self._tree.bind("<Left>", lambda _: self._on_prev_match())
+        self._tree.bind("<Right>", lambda _: self._on_next_match())
         self.bind_all("<F5>", lambda _: self.refresh())
 
         # Empty state overlay

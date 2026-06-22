@@ -123,6 +123,9 @@ class DnaMatch:
     # GEDmatch-Brücke: verknüpftes GEDmatch-Kit (leer = unbekannt)
     gedmatch_kit_id: str = ""
 
+    # Endogamy score (F1): segments per cM (0.0 if unreliable)
+    endogamy_score: float = 0.0
+
     ethnicity_regions: list = field(default_factory=list)
     last_login: str = ""
     fetched_at: str = ""

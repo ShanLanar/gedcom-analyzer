@@ -37,7 +37,7 @@ class MatchesRepo:
                     ethnicity_regions, last_login, fetched_at, first_seen_at, raw_json,
                     match_cluster_code, created_date,
                     tag_surname, tag_gender, tag_path, tags_json, meiosis, ignored,
-                    paternal_maternal, source
+                    paternal_maternal, source, endogamy_score
                 ) VALUES (
                     :match_guid, :test_guid, :display_name,
                     :shared_cm, :shared_segments, :longest_segment,
@@ -47,7 +47,7 @@ class MatchesRepo:
                     :ethnicity_regions, :last_login, :fetched_at, :first_seen_at, :raw_json,
                     :match_cluster_code, :created_date,
                     :tag_surname, :tag_gender, :tag_path, :tags_json, :meiosis, :ignored,
-                    :paternal_maternal, :source
+                    :paternal_maternal, :source, :endogamy_score
                 )
                 ON CONFLICT(match_guid) DO UPDATE SET
                     display_name = CASE
@@ -90,7 +90,8 @@ class MatchesRepo:
                         WHEN source IS NULL OR source = '' OR source = 'ancestry'
                         THEN excluded.source
                         ELSE source
-                    END
+                    END,
+                    endogamy_score=excluded.endogamy_score
             """, d)
             cur.execute(
                 "INSERT OR IGNORE INTO match_kit_membership (match_guid, test_guid) VALUES (?,?)",
