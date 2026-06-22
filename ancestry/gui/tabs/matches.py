@@ -319,6 +319,11 @@ class MatchesTab(ttk.Frame):
         lw = self._state.lang_widgets
         cols = ("name","guid","note","cm","seg","rel","tree","ged","ca","starred")
         self._tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
+
+        # Load persisted column widths (U3: Spaltenbreite-Persistenz)
+        ui_settings = self._load_ui_settings()
+        saved_widths = ui_settings.get("column_widths", {})
+
         for col, (key, width, anchor) in {
             "name"   : ("m.name",    190, "w"),
             "guid"   : ("m.src",      68, "center"),  # Quell-Badge (🧬/🔵/⚪)
@@ -332,7 +337,11 @@ class MatchesTab(ttk.Frame):
             "starred": ("m.starred",  40, "center"),
         }.items():
             self._tree.heading(col, text=t(key), command=lambda c=col: self._sort_by(c))
-            self._tree.column(col, width=width, anchor=anchor, stretch=(col == "name"))
+            # Use saved width if available and >= 50px, else use default
+            col_width = saved_widths.get(col, width)
+            if col_width < 50:
+                col_width = width
+            self._tree.column(col, width=col_width, anchor=anchor, stretch=(col == "name"))
             self._state.lang_headings.append((self._tree, col, key))
 
         self._tree.tag_configure("paternal",  background="#DDF0FF")

@@ -8,11 +8,16 @@ def calculate_endogamy_score(shared_segments: int, shared_cm: float) -> float:
     """Calculate endogamy score from shared segments and centimorgans.
 
     The score represents segments per 10cM average segment length.
-    Score = (shared_segments / 10) / (shared_cm / 10) if shared_cm > 0 else 0.0
-    Which simplifies to: shared_segments / shared_cm
+    Score = (shared_segments / 10) / (shared_cm / 10) * 10
+          = shared_segments * 10 / shared_cm
 
     Higher scores indicate more segments relative to total cM, characteristic
     of endogamous populations with many short segments.
+
+    For example:
+    - 5 segments, 100 cM  = (5 * 10) / 100 = 0.5 (low)
+    - 80 segments, 100 cM = (80 * 10) / 100 = 8.0 (threshold)
+    - 100 segments, 100 cM = (100 * 10) / 100 = 10.0 (high)
 
     Parameters
     ----------
@@ -33,7 +38,7 @@ def calculate_endogamy_score(shared_segments: int, shared_cm: float) -> float:
     if cm <= 0:
         return 0.0
 
-    return segs / cm
+    return round((segs * 10.0) / cm, 2)
 
 
 def flag_endogamy_matches(
