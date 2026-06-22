@@ -145,6 +145,11 @@ class MatchesTab(ttk.Frame):
         self._search_after_id = self.after(300, self.refresh)
 
     def refresh(self, *_):
+        # Filter-/Such-/Kit-Wechsel: zurück auf Seite 1 (Offset 0).
+        self._current_offset = 0
+        self._do_refresh()
+
+    def _do_refresh(self):
         try:
             self._refresh_match_table_inner()
         except Exception as exc:
@@ -155,6 +160,18 @@ class MatchesTab(ttk.Frame):
                     self._match_count_var.set(f"⚠ Fehler: {exc}")
             except Exception as e:
                 log.debug("match_count_var update: %s", e)
+
+    # ── P3: Seiten-Navigation (Pagination) ────────────────────────────────────
+    def _page_next(self):
+        """Nächste Seite — nur wenn aktuelle Seite voll war (mehr Treffer da)."""
+        if getattr(self, "_has_next_page", False):
+            self._current_offset += self._MAX_DISPLAY_ROWS
+            self._do_refresh()
+
+    def _page_prev(self):
+        if self._current_offset > 0:
+            self._current_offset = max(0, self._current_offset - self._MAX_DISPLAY_ROWS)
+            self._do_refresh()
 
     # ── Aufbau ───────────────────────────────────────────────────────────────
 
@@ -235,9 +252,18 @@ class MatchesTab(ttk.Frame):
         lw.append((_sv_autoendo, "mf.endo_auto"))
 
         self._match_count_var = tk.StringVar(value="")
+        ttk.Button(fl, text="↻", command=self.refresh).pack(side="right", padx=4)
+        # P3: Seiten-Navigation (Pagination)
+        self._page_next_btn = ttk.Button(fl, text="►", width=3,
+                                         command=self._page_next, state="disabled")
+        self._page_next_btn.pack(side="right", padx=1)
+        register_tooltip(self._page_next_btn, "tt.mf_page_next", self._state)
+        self._page_prev_btn = ttk.Button(fl, text="◄", width=3,
+                                         command=self._page_prev, state="disabled")
+        self._page_prev_btn.pack(side="right", padx=1)
+        register_tooltip(self._page_prev_btn, "tt.mf_page_prev", self._state)
         ttk.Label(fl, textvariable=self._match_count_var,
                   foreground=COLORS["primary"]).pack(side="right", padx=8)
-        ttk.Button(fl, text="↻", command=self.refresh).pack(side="right", padx=4)
 
         # Schnellfilter-Chips
         cf = ttk.Frame(f); cf.pack(fill="x", padx=10, pady=(0, 4))
@@ -828,6 +854,7 @@ class MatchesTab(ttk.Frame):
             sort_col           = sort_col,
             sort_asc           = self._sort_asc,
             limit              = self._MAX_DISPLAY_ROWS + 1,
+            offset             = self._current_offset,
         )
         gedcom_loaded = bool(self._get_gedcom())
         tg = self._get_test_guid()
@@ -914,6 +941,8 @@ class MatchesTab(ttk.Frame):
         bridge_hits    = bundle.get("bridge_hits", {})
 
         n = len(self._matches)
+        self._has_next_page = capped
+        page = self._current_offset // self._MAX_DISPLAY_ROWS + 1
         if n == 0:
             diag = bundle.get("diag")
             if diag and diag[0] > 0:
@@ -925,12 +954,19 @@ class MatchesTab(ttk.Frame):
                 self._match_count_var.set("0 Match(es) — DB leer, bitte Matches herunterladen")
             else:
                 self._match_count_var.set("0 Match(es)")
-        elif capped:
+        elif capped or self._current_offset > 0:
+            # Paginierter Modus: zeige Bereich + Seite
+            start = self._current_offset + 1
+            end   = self._current_offset + n
+            more  = " — ► für nächste Seite" if capped else ""
             self._match_count_var.set(
-                f"Top {self._MAX_DISPLAY_ROWS:,} (nach cM) angezeigt "
-                f"— Suche/Filter zum Eingrenzen nutzen")
+                f"Treffer {start:,}–{end:,} (Seite {page}, nach cM){more}")
         else:
             self._match_count_var.set(f"{n:,} Match(es)")
+        # Blätter-Buttons aktivieren/deaktivieren
+        if hasattr(self, "_page_prev_btn"):
+            self._page_prev_btn["state"] = "normal" if self._current_offset > 0 else "disabled"
+            self._page_next_btn["state"] = "normal" if self._has_next_page else "disabled"
         self._tree.delete(*self._tree.get_children())
         for m in self._matches:
             endo = getattr(m, "endogamy_cluster", "") or ""
@@ -1135,7 +1171,9 @@ class MatchesTab(ttk.Frame):
         damit man nach einer Bearbeitung tief in der Liste nicht den Platz verliert.
         Die Tabelle wird asynchron befüllt — die Auswahl setzt _fill_match_table."""
         self._pending_reselect = guid
-        self.refresh()
+        # Seite NICHT zurücksetzen — der bearbeitete Match liegt auf der
+        # aktuellen Seite und soll sichtbar bleiben.
+        self._do_refresh()
 
     def _set_custom_rel(self, match, rel: str):
         self._state.db.update_note(match.match_guid,
