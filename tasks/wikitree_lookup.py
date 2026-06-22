@@ -182,10 +182,14 @@ def run_wikitree_lookup(individuals: dict, root_related_ids=None,
     p = progress_cb or (lambda m, **kw: None)
     p("WikiTree-Suche: Ahnen auswählen …")
 
-    scope = root_related_ids or set(individuals.keys())
-    # Filter: mit Name, Geburtsjahr vorhanden, nicht zu jung, DACH bevorzugt
+    scope = root_related_ids if root_related_ids is not None else set(individuals.keys())
+    # Filter: mit Name, Geburtsjahr vorhanden, nicht zu jung, DACH bevorzugt.
+    # Iteration über individuals (Einfügereihenfolge) statt über das Set —
+    # macht die Auswahl bei max_persons-Begrenzung deterministisch.
     candidates = []
-    for pid in scope:
+    for pid in individuals:
+        if pid not in scope:
+            continue
         pdata = individuals.get(pid)
         if not pdata:
             continue

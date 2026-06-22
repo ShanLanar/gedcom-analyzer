@@ -13,6 +13,7 @@ der Baum auf die jeweils ausgewählte Person beschränkt.
 from __future__ import annotations
 
 import json
+import logging
 import os
 import re
 import threading
@@ -24,6 +25,8 @@ from ancestry.core.place_concordance import map_place
 from ancestry.gui.state import AppState
 from ancestry.gui.widgets.theme import register_lang
 from ancestry.gui.widgets.tooltip import register_tooltip
+
+log = logging.getLogger(__name__)
 from ancestry.paths import ROOT
 
 # ── Pfarrei-/Konfessions-Lookup (Matricula) ───────────────────────────────────

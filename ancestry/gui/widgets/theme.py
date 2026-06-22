@@ -627,8 +627,6 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "dlg.t_export_gedcom": {"de": "GEDCOM exportieren", "en": "Export GEDCOM"},
     "dlg.t_export_gramps": {"de": "Gramps XML exportieren", "en": "Export Gramps XML"},
     "dlg.t_import_mta": {"de": "MyTrueAncestry CSV importieren", "en": "Import MyTrueAncestry CSV"},
-    "tt.tl_stop":   {"de": "Das laufende Werkzeug stoppen",
-                     "en": "Stop the running tool"},
     "dlg.l_no_common_anc": {
         "de": "(Kein gemeinsamer Vorfahr geladen – ggf. "
               "'▶ Vorfahren & Orte laden' ausführen.)",
