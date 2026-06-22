@@ -173,7 +173,7 @@ def get_pedigree_completeness(db: Database, ged_id: str) -> dict:
                         unknown += 1
                         continue
 
-                    parents_json = row.get("parents_json", "[]")
+                    parents_json = row["parents_json"] if row else "[]"
                     try:
                         parents = json.loads(parents_json)
                     except (json.JSONDecodeError, TypeError):

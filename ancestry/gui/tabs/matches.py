@@ -1057,6 +1057,12 @@ class MatchesTab(ttk.Frame):
         menu.add_command(label=starred_label,
                          command=lambda: self._toggle_starred_match(match))
         menu.add_separator()
+        # Toggle starred flag
+        starred_label = ("☆ Aus Favoriten entfernen" if match.starred
+                         else "⭐ Zu Favoriten hinzufügen")
+        menu.add_command(label=starred_label,
+                         command=lambda: self._toggle_starred_match(match))
+        menu.add_separator()
         endo = getattr(match, "endogamy_cluster", "") or ""
         endo_label = (f"🔇 Endogamie-Cluster: {endo}" if endo
                       else "🔇 Als Hintergrundrauschen markieren …")
@@ -1155,6 +1161,16 @@ class MatchesTab(ttk.Frame):
                             (name.strip(), match.match_guid))
             self._set_status(f"Name gespeichert: {name.strip()}")
             self._refresh_and_reselect(match.match_guid)
+    def _toggle_starred_match(self, match):
+        """Toggles the starred flag for a match and updates the table display."""
+        try:
+            new_state = self._state.db.toggle_starred(match.match_guid)
+            match.starred = new_state
+            status_label = "Zu Favoriten hinzugefügt" if new_state else "Aus Favoriten entfernt"
+            self._set_status(f"{match.display_name}: {status_label}")
+            self._refresh_and_reselect(match.match_guid)
+        except Exception as e:
+            log.warning("toggle_starred failed: %s", e)
 
     def _sort_by(self, col):
         if self._sort_col == col:

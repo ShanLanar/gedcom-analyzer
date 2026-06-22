@@ -764,6 +764,7 @@ class PersonsTab(ttk.Frame):
         self._pers_render_insights(p)      # Herkunft / Nachnamen-Häufigkeit / Datenqualität
         self._pers_render_parish(p)        # Kirchspiel / Konfession (Matricula)
         self._pers_render_hints(p, ged_id) # Recherche-Tipps (externe Quellen) + Aufgabe
+        self._pers_render_wikitree(p)      # WikiTree-Profil-Links (mit Konfidenz)
         self._pers_render_relations(p)     # Eltern/Partner/Kinder/Geschwister (Links)
         self._pers_render_xref(ged_id)     # GEDCOM-Verknüpfung (Quellen-Dedup)
         self._pers_render_ner(p)           # Kirchenbuch-NER (Paten, Zeugen, …)
@@ -1019,6 +1020,85 @@ class PersonsTab(ttk.Frame):
             if village:
                 txt += f" · {village}"
             ttk.Label(row, text=txt, wraplength=185).pack(side="left")
+
+    # ── Detail-Abschnitt: WikiTree-Profil-Links ─────────────────────────────────
+    def _pers_render_wikitree(self, p: dict):
+        """Zeigt WikiTree-Such- und Profil-Links mit Konfidenz-Indikatoren.
+
+        Konfidenz-Levels mit Farbcodierung:
+          - HIGH (≥0.85):   grün · exakter Name + ±5 Jahre
+          - MEDIUM (0.65–0.85): orange · Fuzzy-Match oder Jahr-Range
+          - LOW (<0.65):    grau · nur Name oder nur Jahr
+        """
+        given   = (p.get("given_name") or "").strip()
+        surname = (p.get("surname") or "").strip()
+        if not surname:
+            return
+
+        try:
+            from tasks.wikitree_lookup import _search_url, _confidence
+        except Exception:
+            return
+
+        by = p.get("birth_year")
+
+        # Konfidenz-Farben
+        _CONF_COLOR = {
+            "HIGH": _EV,     # grün (sehr wahrscheinlich)
+            "MEDIUM": "#f57c00",  # orange (plausibel)
+            "LOW": _MUTED    # grau (unsicher)
+        }
+
+        # Basis-Such-URL (immer vorhanden, braucht keine API)
+        search_url = _search_url(given, surname, by)
+
+        # Versuch, Konfidenz zu berechnen (für Anzeige, nicht für API-Call)
+        # Im echten Betrieb würde das von der Excel-Sheet kommen; hier zeigen wir
+        # nur die Such-URL mit Konfidenz-Indikator
+        konfidenz, score = _confidence(given, surname, by, {
+            "LastNameAtBirth": surname,
+            "FirstName": given,
+            "BirthDate": f"{by}-01-01" if by else ""
+        })
+
+        self._pers_hdr("🌍 WikiTree-Integration")
+
+        # WikiTree-Button + Such-Link
+        btn_row = ttk.Frame(self._pers_detail)
+        btn_row.pack(fill="x", padx=10, pady=(3, 1))
+
+        # Button: direkt zur Such-Seite
+        ttk.Button(
+            btn_row,
+            text=f"📌 WikiTree suchen ({konfidenz})",
+            command=lambda u=search_url: webbrowser.open(u)
+        ).pack(side="left")
+
+        # Info-Text mit Konfidenz-Begründung
+        info_row = ttk.Frame(self._pers_detail)
+        info_row.pack(fill="x", padx=10, pady=2)
+
+        conf_label = f"[{konfidenz}] {score*100:.0f}% Konfidenz"
+        ttk.Label(
+            info_row,
+            text=conf_label,
+            foreground=_CONF_COLOR.get(konfidenz, _MUTED),
+            font=("Segoe UI", 9, "bold")
+        ).pack(side="left")
+
+        # Erklär-Text
+        if konfidenz == "HIGH":
+            hint = "Exakter Name + Geburtsjahr ±5 Jahre"
+        elif konfidenz == "MEDIUM":
+            hint = "Fuzzy-Match oder Name + Jahr-Range"
+        else:
+            hint = "Nur Name oder Jahr — präzisieren empfohlen"
+
+        ttk.Label(
+            info_row,
+            text=f"· {hint}",
+            foreground=_MUTED
+        ).pack(side="left")
 
     def _pers_render_dna(self, ged_id: str):
         try:

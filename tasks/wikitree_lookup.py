@@ -112,21 +112,61 @@ def _api_search(given: str, surname: str, by: int | None) -> dict | None:
 
 
 def _confidence(ged_given: str, ged_surname: str, ged_by: int | None,
-                wt: dict) -> str:
-    """HOCH wenn Name + Geburtsjahr übereinstimmt, MITTEL wenn nur Nachname."""
+                wt: dict) -> tuple[str, float]:
+    """Konfidenz-Berechnung mit numerischem Score (0.0–1.0).
+
+    Strategie:
+      - Name-Match: Nachname exakt (oder Fuzzy) → 0.5–0.8 Punkte
+      - Geburtsjahr-Match: ±5 Jahre → +0.15 Punkte; ±2 Jahre → +0.35 Punkte
+      - Vornamen-Match (erste Zeichen): +0.15 Punkte
+
+    Konfidenz-Level:
+      - HIGH (≥0.85): Exakter Name + ±5 Jahre
+      - MEDIUM (0.65–0.85): Fuzzy-Match oder Jahr-Range
+      - LOW (<0.65): Nur Name oder nur Jahr
+    """
     wt_sn  = (wt.get("LastNameAtBirth") or "").lower()
     ged_sn = ged_surname.lower()
     if not wt_sn or not ged_sn:
-        return "NIEDRIG"
-    sn_match = ged_sn == wt_sn or ged_sn in wt_sn or wt_sn in ged_sn
-    if not sn_match:
-        return "NIEDRIG"
-    # Geburtsjahr-Check (± 2 Jahre Toleranz für Schätzjahre)
+        return "LOW", 0.0
+
+    score = 0.0
+
+    # Nachname-Match
+    if ged_sn == wt_sn:
+        score += 0.8  # Exakter Nachname-Match
+    elif ged_sn in wt_sn or wt_sn in ged_sn:
+        score += 0.5  # Teilmatch (Fuzzy)
+    else:
+        return "LOW", 0.0  # Nachname stimmt nicht überein
+
+    # Geburtsjahr-Match
     wt_birth = (wt.get("BirthDate") or "")[:4]
     if ged_by and wt_birth and wt_birth.isdigit():
-        if abs(int(wt_birth) - ged_by) <= 2:
-            return "HOCH"
-    return "MITTEL"
+        yr_diff = abs(int(wt_birth) - ged_by)
+        if yr_diff <= 2:
+            score += 0.35  # ±2 Jahre (sehr hohe Wahrscheinlichkeit)
+        elif yr_diff <= 5:
+            score += 0.15  # ±5 Jahre (moderates Alter-Fuzzing)
+
+    # Vornamen-Match (erste 2 Zeichen)
+    wt_given = (wt.get("FirstName") or "").lower()
+    if ged_given and wt_given:
+        ged_given_first = ged_given.split()[0].lower()
+        if ged_given_first == wt_given or \
+           ged_given_first[:2] == wt_given[:2] or \
+           ged_given_first.startswith(wt_given[:1]):
+            score += 0.15
+
+    # Level bestimmen
+    if score >= 0.85:
+        level = "HIGH"
+    elif score >= 0.65:
+        level = "MEDIUM"
+    else:
+        level = "LOW"
+
+    return level, score
 
 
 # ── Haupt-Funktion ────────────────────────────────────────────────────────────
@@ -191,7 +231,7 @@ def run_wikitree_lookup(individuals: dict, root_related_ids=None,
                            wt.get("LastNameAtBirth", "")).strip()
                 wt_by   = (wt.get("BirthDate") or "")[:4]
                 wt_dp   = _first(wt.get("DeathLocation") or "")
-                konfidenz = _confidence(given, surname, by, wt)
+                konfidenz, score = _confidence(given, surname, by, wt)
                 p_url   = _PROFILE + wt_id if wt_id else ""
 
         rows.append([
