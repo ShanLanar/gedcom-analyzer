@@ -58,7 +58,7 @@ def analyze_pedigree_gaps(db: Database, ged_id: str) -> list[dict]:
                 next_gen = []
 
                 for person_ged_id, person_row, _ in current_gen:
-                    parents_json = person_row.get("parents_json", "[]")
+                    parents_json = person_row["parents_json"] if person_row else "[]"
                     try:
                         parents = json.loads(parents_json)
                     except (json.JSONDecodeError, TypeError):
@@ -112,9 +112,9 @@ def analyze_pedigree_gaps(db: Database, ged_id: str) -> list[dict]:
 
 def _format_person_name(row) -> str:
     """Formatiert Person zu "Given Surname (Year)" String."""
-    given = (row.get("given_name") or "").strip()
-    surname = (row.get("surname") or "").strip()
-    year = row.get("birth_year")
+    given = (row["given_name"] or "").strip() if row else ""
+    surname = (row["surname"] or "").strip() if row else ""
+    year = row["birth_year"] if row else None
 
     name = f"{given} {surname}".strip() or "?"
     if year:

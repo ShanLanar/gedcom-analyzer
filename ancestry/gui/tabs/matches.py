@@ -1051,6 +1051,12 @@ class MatchesTab(ttk.Frame):
             label="✏️  Name eintragen …",
             command=lambda: self._prompt_name(match))
         menu.add_separator()
+        # Toggle starred flag
+        starred_label = ("☆ Aus Favoriten entfernen" if match.starred
+                         else "⭐ Zu Favoriten hinzufügen")
+        menu.add_command(label=starred_label,
+                         command=lambda: self._toggle_starred_match(match))
+        menu.add_separator()
         endo = getattr(match, "endogamy_cluster", "") or ""
         endo_label = (f"🔇 Endogamie-Cluster: {endo}" if endo
                       else "🔇 Als Hintergrundrauschen markieren …")
@@ -1168,7 +1174,51 @@ class MatchesTab(ttk.Frame):
                 self._tree.heading(c, text=base)
         self.refresh()
 
-    # ── Detail-Panel ─────────────────────────────────────────────────────────
+    # ── Keyboard Navigation & Column Persistence (U1, U3) ─────────────────────
+
+    def _on_tree_configure(self, _event):
+        """U3: Speichert Spaltenbreiten bei Resize-Events."""
+        widths = {}
+        for col in ("name","guid","note","cm","seg","rel","tree","ged","ca","starred"):
+            widths[col] = self._tree.column(col, "width")
+        self._save_ui_settings(column_widths=widths)
+
+    def _on_escape_pressed(self):
+        """U1: Escape-Taste leert Suche-Feld und resetiert Filter."""
+        self._search_var.set("")
+        self.refresh()
+
+    def _on_prev_match(self):
+        """U1: Linke Pfeiltaste: Vorheriger Match."""
+        sel = self._tree.selection()
+        if not sel:
+            return
+        children = self._tree.get_children()
+        try:
+            idx = children.index(sel[0])
+            if idx > 0:
+                prev_item = children[idx - 1]
+                self._tree.selection_set(prev_item)
+                self._tree.see(prev_item)
+        except (ValueError, IndexError):
+            pass
+
+    def _on_next_match(self):
+        """U1: Rechte Pfeiltaste: Nächster Match."""
+        sel = self._tree.selection()
+        if not sel:
+            return
+        children = self._tree.get_children()
+        try:
+            idx = children.index(sel[0])
+            if idx < len(children) - 1:
+                next_item = children[idx + 1]
+                self._tree.selection_set(next_item)
+                self._tree.see(next_item)
+        except (ValueError, IndexError):
+            pass
+
+        # ── Detail-Panel ─────────────────────────────────────────────────────────
 
     @staticmethod
     def _tree_detail_text(match) -> str:
