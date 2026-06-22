@@ -37,7 +37,7 @@ class MatchesRepo:
                     ethnicity_regions, last_login, fetched_at, first_seen_at, raw_json,
                     match_cluster_code, created_date,
                     tag_surname, tag_gender, tag_path, tags_json, meiosis, ignored,
-                    paternal_maternal, source, endogamy_score
+                    paternal_maternal, source
                 ) VALUES (
                     :match_guid, :test_guid, :display_name,
                     :shared_cm, :shared_segments, :longest_segment,
@@ -47,7 +47,7 @@ class MatchesRepo:
                     :ethnicity_regions, :last_login, :fetched_at, :first_seen_at, :raw_json,
                     :match_cluster_code, :created_date,
                     :tag_surname, :tag_gender, :tag_path, :tags_json, :meiosis, :ignored,
-                    :paternal_maternal, :source, :endogamy_score
+                    :paternal_maternal, :source
                 )
                 ON CONFLICT(match_guid) DO UPDATE SET
                     display_name = CASE
@@ -90,8 +90,7 @@ class MatchesRepo:
                         WHEN source IS NULL OR source = '' OR source = 'ancestry'
                         THEN excluded.source
                         ELSE source
-                    END,
-                    endogamy_score=excluded.endogamy_score
+                    END
             """, d)
             cur.execute(
                 "INSERT OR IGNORE INTO match_kit_membership (match_guid, test_guid) VALUES (?,?)",
@@ -247,6 +246,22 @@ class MatchesRepo:
         with self._db._cursor() as cur:
             cur.execute("UPDATE matches SET endogamy_cluster=? WHERE match_guid=?",
                         (cluster.strip(), match_guid))
+
+    def toggle_starred(self, match_guid: str) -> bool:
+        """Toggles the starred flag for a match. Returns the new starred state."""
+        with self._db._cursor() as cur:
+            # Get current starred state
+            row = cur.execute(
+                "SELECT starred FROM matches WHERE match_guid=?",
+                (match_guid,)).fetchone()
+            if not row:
+                return False
+            current = bool(row[0])
+            new_state = not current
+            # Update to new state
+            cur.execute("UPDATE matches SET starred=? WHERE match_guid=?",
+                        (new_state, match_guid))
+            return new_state
 
     def set_probable_origin(self, match_guid: str, origin_json: str):
         with self._db._cursor() as cur:

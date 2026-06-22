@@ -25,7 +25,7 @@ class TestExportMatchesTsv:
             with open(filepath, "r", encoding="utf-8") as f:
                 lines = f.readlines()
             assert len(lines) == 1  # Header only
-            assert "match_guid" in lines[0]
+            assert "Match-GUID" in lines[0]  # German header
         finally:
             Path(filepath).unlink(missing_ok=True)
 
@@ -55,12 +55,12 @@ class TestExportMatchesTsv:
 
             assert len(rows) == 1
             row = rows[0]
-            assert row["match_guid"] == "abc123"
-            assert row["display_name"] == "John Doe"
-            assert row["shared_cm"] == "100.5"
-            assert row["shared_segments"] == "15"
-            assert row["predicted_relationship"] == "1. Cousin"
-            assert row["test_guid"] == "test456"
+            assert row["Match-GUID"] == "abc123"
+            assert row["Name"] == "John Doe"
+            assert row["Gemeinsame cM"] == "100.5"
+            assert row["Segmente"] == "15"
+            assert row["Beziehung"] == "1. Cousin"
+            assert row["Test-GUID"] == "test456"
         finally:
             Path(filepath).unlink(missing_ok=True)
 
@@ -108,9 +108,9 @@ class TestExportMatchesTsv:
                 rows = list(reader)
 
             assert len(rows) == 3
-            assert rows[0]["match_guid"] == "guid1"
-            assert rows[1]["match_guid"] == "guid2"
-            assert rows[2]["match_guid"] == "guid3"
+            assert rows[0]["Match-GUID"] == "guid1"
+            assert rows[1]["Match-GUID"] == "guid2"
+            assert rows[2]["Match-GUID"] == "guid3"
         finally:
             Path(filepath).unlink(missing_ok=True)
 
@@ -197,13 +197,13 @@ class TestExportMatchesTsv:
                 fieldnames = reader.fieldnames
 
             required_cols = [
-                "match_guid",
-                "display_name",
-                "shared_cm",
-                "shared_segments",
-                "predicted_relationship",
-                "test_guid",
-                "fetched_at",
+                "Match-GUID",
+                "Name",
+                "Gemeinsame cM",
+                "Segmente",
+                "Beziehung",
+                "Test-GUID",
+                "Abgerufen am",
             ]
             for col in required_cols:
                 assert col in fieldnames
