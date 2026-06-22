@@ -29,7 +29,7 @@ class TestConfidenceCalculation(unittest.TestCase):
             "DeathLocation": "Berlin"
         }
         level, score = _confidence("Johann", "Mueller", 1850, wt)
-        self.assertEqual(level, "HIGH")
+        self.assertEqual(level, "HOCH")
         self.assertGreaterEqual(score, 0.85)
 
     def test_high_confidence_exact_name_5_years(self):
@@ -41,7 +41,7 @@ class TestConfidenceCalculation(unittest.TestCase):
             "DeathLocation": "Hamburg"
         }
         level, score = _confidence("Anna", "Schmidt", 1852, wt)
-        self.assertEqual(level, "HIGH")
+        self.assertEqual(level, "HOCH")
         self.assertGreaterEqual(score, 0.85)
 
     def test_medium_confidence_fuzzy_name_year_match(self):
@@ -54,7 +54,7 @@ class TestConfidenceCalculation(unittest.TestCase):
         }
         # "Muell" ist in "Mueller" enthalten (0.5) + Jahr ±2 (0.35) = 0.85 → HIGH
         level, score = _confidence("Heinrich", "Muell", 1880, wt)
-        self.assertEqual(level, "HIGH")
+        self.assertEqual(level, "HOCH")
         self.assertGreaterEqual(score, 0.85)
 
     def test_medium_confidence_exact_name_no_year(self):
@@ -68,7 +68,7 @@ class TestConfidenceCalculation(unittest.TestCase):
         # Mit Vornamen-Match: 0.8 (name) + 0.15 (given) = 0.95 → HIGH
         # Das ist korrekt (mit Namen-Übereinstimmung)
         level, score = _confidence("Wilhelm", "Hoffmann", None, wt)
-        self.assertEqual(level, "HIGH")
+        self.assertEqual(level, "HOCH")
         self.assertGreaterEqual(score, 0.85)
 
     def test_low_confidence_no_name_match(self):
@@ -80,7 +80,7 @@ class TestConfidenceCalculation(unittest.TestCase):
             "DeathLocation": "Cologne"
         }
         level, score = _confidence("Karl", "Schulz", 1900, wt)
-        self.assertEqual(level, "LOW")
+        self.assertEqual(level, "NIEDRIG")
         self.assertEqual(score, 0.0)
 
     def test_low_confidence_name_only(self):
@@ -92,7 +92,7 @@ class TestConfidenceCalculation(unittest.TestCase):
             "DeathLocation": "Leipzig"
         }
         level, score = _confidence("Friedrich", "Braun", None, wt)
-        self.assertEqual(level, "MEDIUM")  # Name stimmt, aber kein Jahr und kein Vorname
+        self.assertEqual(level, "MITTEL")  # Name stimmt, aber kein Jahr und kein Vorname
         self.assertGreaterEqual(score, 0.65)
 
     def test_confidence_given_name_match_boost(self):
@@ -111,7 +111,7 @@ class TestConfidenceCalculation(unittest.TestCase):
         """Leere Namen → LOW."""
         wt = {"FirstName": "", "LastNameAtBirth": "", "BirthDate": ""}
         level, score = _confidence("", "Meier", 1800, wt)
-        self.assertEqual(level, "LOW")
+        self.assertEqual(level, "NIEDRIG")
         self.assertEqual(score, 0.0)
 
 

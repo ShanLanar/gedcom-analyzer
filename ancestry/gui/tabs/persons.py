@@ -1047,9 +1047,9 @@ class PersonsTab(ttk.Frame):
 
         # Konfidenz-Farben
         _CONF_COLOR = {
-            "HIGH": _EV,     # grün (sehr wahrscheinlich)
-            "MEDIUM": "#f57c00",  # orange (plausibel)
-            "LOW": _MUTED    # grau (unsicher)
+            "HOCH": _EV,     # grün (sehr wahrscheinlich)
+            "MITTEL": "#f57c00",  # orange (plausibel)
+            "NIEDRIG": _MUTED    # grau (unsicher)
         }
 
         # Basis-Such-URL (immer vorhanden, braucht keine API)
@@ -1090,9 +1090,9 @@ class PersonsTab(ttk.Frame):
         ).pack(side="left")
 
         # Erklär-Text
-        if konfidenz == "HIGH":
+        if konfidenz == "HOCH":
             hint = "Exakter Name + Geburtsjahr ±5 Jahre"
-        elif konfidenz == "MEDIUM":
+        elif konfidenz == "MITTEL":
             hint = "Fuzzy-Match oder Name + Jahr-Range"
         else:
             hint = "Nur Name oder Jahr — präzisieren empfohlen"

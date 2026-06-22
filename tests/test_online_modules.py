@@ -604,17 +604,18 @@ class TestWikiTreeConfidence:
     _WT_MITTEL = {"LastNameAtBirth": "Schulze", "BirthDate": "1900-01-01"}
     _WT_NIEDRIG = {"LastNameAtBirth": "Müller", "BirthDate": "1850-01-01"}
 
+    # _confidence gibt jetzt (level, score) zurück — Level-Element prüfen.
     def test_hoch(self):
-        assert _wt_confidence("Johann", "Schulze", 1850, self._WT_HOCH) == "HOCH"
+        assert _wt_confidence("Johann", "Schulze", 1850, self._WT_HOCH)[0] == "HOCH"
 
     def test_mittel_name_match_wrong_year(self):
-        assert _wt_confidence("Johann", "Schulze", 1850, self._WT_MITTEL) == "MITTEL"
+        assert _wt_confidence("Johann", "Schulze", 1850, self._WT_MITTEL)[0] == "MITTEL"
 
     def test_niedrig_wrong_name(self):
-        assert _wt_confidence("Johann", "Schulze", 1850, self._WT_NIEDRIG) == "NIEDRIG"
+        assert _wt_confidence("Johann", "Schulze", 1850, self._WT_NIEDRIG)[0] == "NIEDRIG"
 
     def test_no_surname(self):
-        assert _wt_confidence("Johann", "Schulze", 1850, {}) == "NIEDRIG"
+        assert _wt_confidence("Johann", "Schulze", 1850, {})[0] == "NIEDRIG"
 
 
 class TestWikiTreeRunLookupNoScrape:

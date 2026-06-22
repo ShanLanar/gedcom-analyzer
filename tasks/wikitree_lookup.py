@@ -121,14 +121,14 @@ def _confidence(ged_given: str, ged_surname: str, ged_by: int | None,
       - Vornamen-Match (erste Zeichen): +0.15 Punkte
 
     Konfidenz-Level:
-      - HIGH (≥0.85): Exakter Name + ±5 Jahre
-      - MEDIUM (0.65–0.85): Fuzzy-Match oder Jahr-Range
-      - LOW (<0.65): Nur Name oder nur Jahr
+      - HOCH (≥0.85): Exakter Name + ±5 Jahre
+      - MITTEL (0.65–0.85): Fuzzy-Match oder Jahr-Range
+      - NIEDRIG (<0.65): Nur Name oder nur Jahr
     """
     wt_sn  = (wt.get("LastNameAtBirth") or "").lower()
     ged_sn = ged_surname.lower()
     if not wt_sn or not ged_sn:
-        return "LOW", 0.0
+        return "NIEDRIG", 0.0
 
     score = 0.0
 
@@ -138,7 +138,7 @@ def _confidence(ged_given: str, ged_surname: str, ged_by: int | None,
     elif ged_sn in wt_sn or wt_sn in ged_sn:
         score += 0.5  # Teilmatch (Fuzzy)
     else:
-        return "LOW", 0.0  # Nachname stimmt nicht überein
+        return "NIEDRIG", 0.0  # Nachname stimmt nicht überein
 
     # Geburtsjahr-Match
     wt_birth = (wt.get("BirthDate") or "")[:4]
@@ -160,11 +160,11 @@ def _confidence(ged_given: str, ged_surname: str, ged_by: int | None,
 
     # Level bestimmen
     if score >= 0.85:
-        level = "HIGH"
+        level = "HOCH"
     elif score >= 0.65:
-        level = "MEDIUM"
+        level = "MITTEL"
     else:
-        level = "LOW"
+        level = "NIEDRIG"
 
     return level, score
 
