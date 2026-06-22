@@ -1,5 +1,5 @@
 """
-Export-Funktionen: CSV und XLSX (Matches + Shared Matches).
+Export-Funktionen: CSV, TSV und XLSX (Matches + Shared Matches).
 """
 
 import csv
