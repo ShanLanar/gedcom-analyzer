@@ -5,6 +5,7 @@ Strukturierte, an einen GEDCOM-Ahn (ged_id) gebundene Hypothese je Cluster:
 """
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
@@ -14,10 +15,13 @@ if TYPE_CHECKING:
 class ClusterHypothesesRepo:
     def __init__(self, db: "Database"):
         self._db = db
+        self._cache = {}  # {kit_guid: (timestamp, result)}
+        self._cache_ttl = 300  # 5 Minuten TTL
 
     def set_hypothesis(self, kit_guid: str, cluster_id: int,
                        mrca_ged_id: str = "", mrca_label: str = "",
                        confidence: str = "", evidence: str = "") -> None:
+        self._cache.pop(kit_guid or "", None)  # Cache invalidieren
         with self._db._cursor() as cur:
             cur.execute(
                 """INSERT INTO cluster_hypotheses
@@ -44,16 +48,28 @@ class ClusterHypothesesRepo:
             return None
 
     def get_all_for_kit(self, kit_guid: str) -> list[dict]:
+        kit_guid = kit_guid or ""
+        now = time.time()
+        # Cache hit?
+        if kit_guid in self._cache:
+            cached_time, cached_result = self._cache[kit_guid]
+            if now - cached_time < self._cache_ttl:
+                return cached_result
+        # Cache miss: fetch from DB
         try:
             with self._db._cursor() as cur:
                 rows = cur.execute(
                     "SELECT * FROM cluster_hypotheses WHERE kit_guid=? ORDER BY cluster_id",
-                    (kit_guid or "",)).fetchall()
-            return [dict(r) for r in rows]
+                    (kit_guid,)).fetchall()
+            result = [dict(r) for r in rows]
         except Exception:
-            return []
+            result = []
+        # Store in cache
+        self._cache[kit_guid] = (now, result)
+        return result
 
     def delete_hypothesis(self, kit_guid: str, cluster_id: int) -> None:
+        self._cache.pop(kit_guid or "", None)  # Cache invalidieren
         with self._db._cursor() as cur:
             cur.execute(
                 "DELETE FROM cluster_hypotheses WHERE kit_guid=? AND cluster_id=?",

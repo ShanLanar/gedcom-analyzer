@@ -671,22 +671,38 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
               "  Esc            Suche leeren / Tabelle zurücksetzen\n"
               "  Rechtsklick    Kontextmenü (in Ancestry öffnen, GUID kopieren,\n"
               "                 Namenskarte, Seite zuweisen …)\n\n"
+              "Cluster-Tab:\n"
+              "  Doppelklick    Hypothese bearbeiten (MRCA, Konfidenz, Evidenz)\n"
+              "  Modularity ☑   Alternative zu Leeds: Louvain-Modularität\n\n"
               "Dialoge / Eingabefelder:\n"
               "  Enter          Eingabe bestätigen (z. B. Notiz speichern,\n"
               "                 Suche starten, Ort-Override anwenden)\n\n"
+              "Hinweise & Aufgaben:\n"
+              "  🧬 Button       Chromosomen-Browser für Match öffnen\n"
+              "  🗂 Button       Forschungsaufgaben für Match/Person\n"
+              "  🧱 Button       Brick-Wall-Finder für Lücken-Analyse\n\n"
               "Allgemein:\n"
-              "  Mausrad        Scrollen in Listen, Tabellen und im Download-Tab",
+              "  Mausrad        Scrollen in Listen, Tabellen und Download-Tab\n"
+              "  Status-Bar     ◐ Spinner zeigt laufende Prozesse an",
         "en": "Keyboard shortcuts & usage\n\n"
               "Matches tab:\n"
               "  Enter          Open the selected match's detail\n"
               "  Esc            Clear search / reset the table\n"
               "  Right-click    Context menu (open in Ancestry, copy GUID,\n"
               "                 name map, assign side …)\n\n"
+              "Cluster tab:\n"
+              "  Double-click   Edit hypothesis (MRCA, confidence, evidence)\n"
+              "  Modularity ☑   Alternative to Leeds: Louvain modularity\n\n"
               "Dialogs / input fields:\n"
               "  Enter          Confirm input (e.g. save note,\n"
               "                 start search, apply place override)\n\n"
+              "Hints & Tasks:\n"
+              "  🧬 Button      Open chromosome browser for match\n"
+              "  🗂 Button      Research tasks for match/person\n"
+              "  🧱 Button      Brick-Wall Finder for gap analysis\n\n"
               "General:\n"
-              "  Mouse wheel    Scroll lists, tables and the Download tab"},
+              "  Mouse wheel    Scroll lists, tables and Download tab\n"
+              "  Status bar     ◐ Spinner indicates running processes"},
     # Statistics tab
     "st.with_tree_pct": {"de": "Mit Baum %:", "en": "With tree %:"},
     "st.side_pct":      {"de": "Seite bekannt %:", "en": "Side known %:"},

@@ -1808,6 +1808,20 @@ class AncestryDnaApp(tk.Frame):
 
     def _set_status(self, msg: str):
         self._status_var.set(msg)
+        if msg.endswith("…"):
+            self._animate_status_spinner()
+        else:
+            self._spinner_idx = 0
+
+    def _animate_status_spinner(self):
+        """Zeigt einen rotierenden Spinner für Status-Nachrichten mit "…"."""
+        if self._status_var.get().endswith("…"):
+            spinners = ["◐ ", "◓ ", "◑ ", "◒ "]
+            idx = getattr(self, "_spinner_idx", 0)
+            base_msg = self._status_var.get()[2:-3]  # Entferne Spinner + "…"
+            self._status_var.set(f"{spinners[idx]}{base_msg}…")
+            self._spinner_idx = (idx + 1) % 4
+            self.after(150, self._animate_status_spinner)
 
     def _on_progress(self, fetched, total, label):
         """Delegation stub — updates DownloadTab progress display."""

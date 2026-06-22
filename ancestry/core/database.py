@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 34
+    SCHEMA_VERSION = 35
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -58,7 +58,24 @@ class Database:
             self._conn.execute("PRAGMA temp_store=MEMORY")    # Temp-Tabellen im RAM
             self._conn.execute("PRAGMA mmap_size=268435456")  # 256 MB Memory-Mapped I/O
             self._conn.execute("PRAGMA busy_timeout=5000")    # 5s auf Lock warten statt SQLITE_BUSY
+            self._setup_webtrees_protection(self._conn)
         return self._conn
+
+    @staticmethod
+    def _setup_webtrees_protection(conn: sqlite3.Connection) -> None:
+        """Blockiert versehentliche INSERT/UPDATE/DELETE auf webtrees-Tabellen (read-only)."""
+        webtrees_prefixes = ("webtrees_", "source_webtrees")
+        write_actions = (9, 18, 23)  # DELETE, INSERT, UPDATE
+
+        def authorizer(action, arg1, arg2, arg3, arg4):
+            if action in write_actions and arg1:
+                if any(arg1.lower().startswith(p) for p in webtrees_prefixes):
+                    action_name = {9: "DELETE", 18: "INSERT", 23: "UPDATE"}.get(action, "?")
+                    log.warning("Webtrees-Schutz: %s auf %s blockiert", action_name, arg1)
+                    return 1  # SQLITE_DENY
+            return 0  # SQLITE_OK
+
+        conn.set_authorizer(authorizer)
 
     @contextmanager
     def _cursor(self) -> Generator[sqlite3.Cursor, None, None]:
