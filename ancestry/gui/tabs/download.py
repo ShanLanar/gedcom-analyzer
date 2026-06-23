@@ -111,12 +111,22 @@ class DownloadTab(ttk.Frame):
                             value=val).pack(side="left", padx=5)
             lw.append((_sv, key))
 
-        bf = ttk.Frame(f); bf.grid(row=5, column=0, columnspan=4, sticky="w", **p)
-        _sv_start_m = tk.StringVar(value=t("dl.start_m"))
-        self._start_btn = ttk.Button(bf, textvariable=_sv_start_m,
+        # ── Resume-Info-Panel (oberhalb Start-Buttons) ────────────────────────
+        ri_row = ttk.Frame(f)
+        ri_row.grid(row=5, column=0, columnspan=4, sticky="w", padx=14, pady=(2, 0))
+        self._resume_info_var = tk.StringVar(value="")
+        self._resume_info_lbl = ttk.Label(ri_row, textvariable=self._resume_info_var,
+                                          font=("Segoe UI", 8))
+        self._resume_info_lbl.pack(side="left", padx=(0, 8))
+        self._clear_resume_btn = ttk.Button(ri_row, text="✕ Checkpoint löschen",
+                                            command=self._on_clear_resume)
+        self._clear_resume_btn.pack(side="left")
+
+        bf = ttk.Frame(f); bf.grid(row=6, column=0, columnspan=4, sticky="w", **p)
+        self._start_btn_sv = tk.StringVar(value="▶ Download starten")
+        self._start_btn = ttk.Button(bf, textvariable=self._start_btn_sv,
                                      command=self._start_matches)
         self._start_btn.pack(side="left", padx=4)
-        lw.append((_sv_start_m, "dl.start_m"))
         _sv_stop1 = tk.StringVar(value=t("dl.stop"))
         self._stop_btn = ttk.Button(bf, textvariable=_sv_stop1,
                                     command=self.stop_download, state="disabled")
@@ -135,7 +145,7 @@ class DownloadTab(ttk.Frame):
 
         # ── Zeitstempel-Zeile ─────────────────────────────────────────────────
         ts_row = ttk.Frame(f)
-        ts_row.grid(row=6, column=0, columnspan=4, sticky="w", padx=14, pady=(0, 2))
+        ts_row.grid(row=7, column=0, columnspan=4, sticky="w", padx=14, pady=(0, 2))
         self._ts_ancestry_var = tk.StringVar(value="")
         ttk.Label(ts_row, textvariable=self._ts_ancestry_var,
                   foreground="#777777", font=("Segoe UI", 8)).pack(side="left", padx=(0, 18))
@@ -151,17 +161,17 @@ class DownloadTab(ttk.Frame):
 
         # ── Bereich A2: Namen nachladen ───────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
-            row=7, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
+            row=8, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
         _sv = tk.StringVar(value=t("dl.sec_a2"))
         ttk.Label(f, textvariable=_sv,
-                  style="Bold.TLabel").grid(row=8, column=0, columnspan=4, sticky="w", **p)
+                  style="Bold.TLabel").grid(row=9, column=0, columnspan=4, sticky="w", **p)
         lw.append((_sv, "dl.sec_a2"))
         register_lang(self._state, ttk.Label(f, text=(
             self._state.t("dl.help_names")
-        ), foreground="#555555"), "dl.help_names").grid(row=9, column=0, columnspan=4, sticky="w", padx=14)
+        ), foreground="#555555"), "dl.help_names").grid(row=10, column=0, columnspan=4, sticky="w", padx=14)
 
         sf_names = ttk.Frame(f)
-        sf_names.grid(row=10, column=0, columnspan=4, sticky="w", **p)
+        sf_names.grid(row=11, column=0, columnspan=4, sticky="w", **p)
         _sv = tk.StringVar(value=t("dl.min_cm"))
         ttk.Label(sf_names, textvariable=_sv).pack(side="left")
         lw.append((_sv, "dl.min_cm"))
@@ -191,7 +201,7 @@ class DownloadTab(ttk.Frame):
                   foreground="#888888").pack(side="left")
 
         bf_names = ttk.Frame(f)
-        bf_names.grid(row=11, column=0, columnspan=4, sticky="w", **p)
+        bf_names.grid(row=12, column=0, columnspan=4, sticky="w", **p)
         _sv_nm = tk.StringVar(value=t("dl.start_nm"))
         self._names_start_btn = ttk.Button(bf_names, textvariable=_sv_nm,
                                            command=self._start_fetch_names)
@@ -215,16 +225,16 @@ class DownloadTab(ttk.Frame):
 
         # ── Bereich B: Shared Matches ─────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
-            row=12, column=0, columnspan=4, sticky="ew", padx=14, pady=6)
+            row=13, column=0, columnspan=4, sticky="ew", padx=14, pady=6)
         _sv = tk.StringVar(value=t("dl.sec_b"))
         ttk.Label(f, textvariable=_sv,
-                  style="Bold.TLabel").grid(row=13, column=0, columnspan=4, sticky="w", **p)
+                  style="Bold.TLabel").grid(row=14, column=0, columnspan=4, sticky="w", **p)
         lw.append((_sv, "dl.sec_b"))
         register_lang(self._state, ttk.Label(f, text=(
             self._state.t("dl.help_shared")
-        ), foreground="#555555"), "dl.help_shared").grid(row=14, column=0, columnspan=4, sticky="w", padx=14)
+        ), foreground="#555555"), "dl.help_shared").grid(row=15, column=0, columnspan=4, sticky="w", padx=14)
 
-        sf2 = ttk.Frame(f); sf2.grid(row=15, column=0, columnspan=4, sticky="w", **p)
+        sf2 = ttk.Frame(f); sf2.grid(row=16, column=0, columnspan=4, sticky="w", **p)
         _sv = tk.StringVar(value=t("dl.prim_min"))
         ttk.Label(sf2, textvariable=_sv).pack(side="left")
         lw.append((_sv, "dl.prim_min"))
@@ -237,7 +247,7 @@ class DownloadTab(ttk.Frame):
                         variable=self._skip_existing_var).pack(side="left", padx=12)
         lw.append((_sv, "dl.skip_ex"))
 
-        bf2 = ttk.Frame(f); bf2.grid(row=16, column=0, columnspan=4, sticky="w", **p)
+        bf2 = ttk.Frame(f); bf2.grid(row=17, column=0, columnspan=4, sticky="w", **p)
         _sv_sh = tk.StringVar(value=t("dl.start_sh"))
         self._shared_start_btn = ttk.Button(bf2, textvariable=_sv_sh,
                                             command=self._start_shared)
@@ -251,16 +261,16 @@ class DownloadTab(ttk.Frame):
 
         # ── Alle Phasen (kombinierter Lauf) ───────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
-            row=17, column=0, columnspan=4, sticky="ew", padx=14, pady=6)
+            row=18, column=0, columnspan=4, sticky="ew", padx=14, pady=6)
         ttk.Label(f, text="▶ Alle Phasen (kombinierter Lauf)",
-                  style="Bold.TLabel").grid(row=18, column=0, columnspan=4, sticky="w", **p)
+                  style="Bold.TLabel").grid(row=19, column=0, columnspan=4, sticky="w", **p)
         register_lang(self._state, ttk.Label(f, text=(
             self._state.t("dl.help_all")
-        ), foreground="#555555"), "dl.help_all").grid(row=19, column=0, columnspan=4, sticky="w", padx=14)
+        ), foreground="#555555"), "dl.help_all").grid(row=20, column=0, columnspan=4, sticky="w", padx=14)
 
         self._phase_frames: list[dict] = []
         phase_dash = ttk.Frame(f)
-        phase_dash.grid(row=20, column=0, columnspan=4, sticky="w", padx=18, pady=(4, 2))
+        phase_dash.grid(row=21, column=0, columnspan=4, sticky="w", padx=18, pady=(4, 2))
         PHASE_LABELS = [
             "1 · Matches herunterladen",
             "2 · Namen & Stammbaum laden",
@@ -280,7 +290,7 @@ class DownloadTab(ttk.Frame):
             self._phase_frames.append({"badge": badge_sv, "badge_lbl": badge_lbl,
                                        "count": count_sv})
 
-        bf_all = ttk.Frame(f); bf_all.grid(row=21, column=0, columnspan=4, sticky="w", **p)
+        bf_all = ttk.Frame(f); bf_all.grid(row=22, column=0, columnspan=4, sticky="w", **p)
         self._all_phases_btn = ttk.Button(bf_all, text="▶ Alle Phasen starten",
                                           command=self._start_all_phases)
         self._all_phases_btn.pack(side="left", padx=4)
@@ -290,11 +300,11 @@ class DownloadTab(ttk.Frame):
 
         # ── Bereich C: DNA-Segmente importieren ──────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
-            row=22, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
+            row=23, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
         register_lang(self._state, ttk.Label(f, text=self._state.t("dl.sec_c"),
                   font=("Segoe UI", 9, "bold"), foreground=COLORS["primary"]), "dl.sec_c").grid(
-            row=23, column=0, columnspan=2, sticky="w", padx=14, pady=(4, 2))
-        seg_row = ttk.Frame(f); seg_row.grid(row=23, column=0, columnspan=4,
+            row=24, column=0, columnspan=2, sticky="w", padx=14, pady=(4, 2))
+        seg_row = ttk.Frame(f); seg_row.grid(row=24, column=0, columnspan=4,
                                               sticky="w", padx=14, pady=(24, 4))
         ttk.Label(seg_row, text="Segment-CSV:").pack(side="left")
         self._seg_file_var = tk.StringVar()
@@ -312,7 +322,7 @@ class DownloadTab(ttk.Frame):
 
         # FTDNA match import on the same row (second line)
         ftdna_row = ttk.Frame(f)
-        ftdna_row.grid(row=23, column=0, columnspan=4, sticky="w", padx=14, pady=(50, 2))
+        ftdna_row.grid(row=24, column=0, columnspan=4, sticky="w", padx=14, pady=(50, 2))
         ttk.Label(ftdna_row, text="FTDNA Matches:").pack(side="left")
         self._ftdna_file_var = tk.StringVar()
         ttk.Entry(ftdna_row, textvariable=self._ftdna_file_var, width=38).pack(
@@ -328,7 +338,7 @@ class DownloadTab(ttk.Frame):
 
         # GEDmatch-Export der eigenen Matches (One-to-Many-TSV)
         gmx_row = ttk.Frame(f)
-        gmx_row.grid(row=23, column=0, columnspan=4, sticky="w", padx=14, pady=(90, 2))
+        gmx_row.grid(row=24, column=0, columnspan=4, sticky="w", padx=14, pady=(90, 2))
         ttk.Label(gmx_row, text="GEDmatch-Export:").pack(side="left")
         _gmx = register_lang(self._state, ttk.Button(gmx_row, text=self._state.t("dl.b_gmx_export"),
                           command=self._export_gedmatch), "dl.b_gmx_export")
@@ -339,16 +349,16 @@ class DownloadTab(ttk.Frame):
 
         # ── Bereich D: Herkunft / Ethnizität + Traits ────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
-            row=24, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
+            row=25, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
         register_lang(self._state, ttk.Label(f, text=self._state.t("dl.sec_d"),
                   font=("Segoe UI", 9, "bold"),
                   foreground=COLORS["primary"]), "dl.sec_d").grid(
-            row=25, column=0, columnspan=4, sticky="w", padx=14, pady=(4, 2))
+            row=26, column=0, columnspan=4, sticky="w", padx=14, pady=(4, 2))
         register_lang(self._state, ttk.Label(f, text=(
             self._state.t("dl.help_ethnicity")
-        ), foreground="#555555"), "dl.help_ethnicity").grid(row=26, column=0, columnspan=4, sticky="w", padx=14)
+        ), foreground="#555555"), "dl.help_ethnicity").grid(row=27, column=0, columnspan=4, sticky="w", padx=14)
         eth_row = ttk.Frame(f)
-        eth_row.grid(row=26, column=0, columnspan=4, sticky="w", padx=14, pady=(24, 4))
+        eth_row.grid(row=27, column=0, columnspan=4, sticky="w", padx=14, pady=(24, 4))
         self._eth_btn = register_lang(self._state, ttk.Button(eth_row, text=self._state.t("dl.b_ethnicity"),
                                    command=self._fetch_ethnicity_traits), "dl.b_ethnicity")
         self._eth_btn.pack(side="left")
@@ -358,27 +368,27 @@ class DownloadTab(ttk.Frame):
 
         # ── Fortschritt ───────────────────────────────────────────────────────
         ttk.Separator(f, orient="horizontal").grid(
-            row=27, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
+            row=28, column=0, columnspan=4, sticky="ew", padx=14, pady=4)
         _sv = tk.StringVar(value=t("dl.progress"))
-        ttk.Label(f, textvariable=_sv).grid(row=28, column=0, sticky="e", **p)
+        ttk.Label(f, textvariable=_sv).grid(row=29, column=0, sticky="e", **p)
         lw.append((_sv, "dl.progress"))
         self._progress_var = tk.DoubleVar()
         ttk.Progressbar(f, variable=self._progress_var, maximum=100,
-                        length=380).grid(row=28, column=1, sticky="w", **p)
+                        length=380).grid(row=29, column=1, sticky="w", **p)
         self._progress_lbl = tk.StringVar(value="—")
-        ttk.Label(f, textvariable=self._progress_lbl).grid(row=28, column=2, sticky="w", **p)
+        ttk.Label(f, textvariable=self._progress_lbl).grid(row=29, column=2, sticky="w", **p)
 
         self._pause_sv = tk.StringVar(value=t("dl.pause"))
         self._pause_btn = ttk.Button(f, textvariable=self._pause_sv,
                                      command=self._toggle_pause, state="disabled")
-        self._pause_btn.grid(row=28, column=3, sticky="w", **p)
+        self._pause_btn.grid(row=29, column=3, sticky="w", **p)
         lw.append((self._pause_sv, "dl.pause"))
 
         self._eta_var = tk.StringVar(value="")
         ttk.Label(f, textvariable=self._eta_var, foreground="#777777").grid(
-            row=28, column=4, sticky="w", **p)
+            row=29, column=4, sticky="w", **p)
 
-        dash = ttk.Frame(f); dash.grid(row=28, column=5, sticky="w", padx=8)
+        dash = ttk.Frame(f); dash.grid(row=29, column=5, sticky="w", padx=8)
         self._dash_vars: dict[str, tk.StringVar] = {}
         for i, (key, _icon) in enumerate([("dl.dash_mat", "🧬"), ("dl.dash_tree", "🌳"),
                                            ("dl.dash_sh", "👥"), ("dl.dash_err", "❌")]):
@@ -396,10 +406,10 @@ class DownloadTab(ttk.Frame):
         # ── Log ───────────────────────────────────────────────────────────────
         _sv = tk.StringVar(value=t("dl.log"))
         ttk.Label(f, textvariable=_sv, style="Bold.TLabel").grid(
-            row=29, column=0, sticky="ne", padx=14, pady=(10, 4))
+            row=30, column=0, sticky="ne", padx=14, pady=(10, 4))
         lw.append((_sv, "dl.log"))
         lf = ttk.Frame(f)
-        lf.grid(row=29, column=1, columnspan=3, sticky="nsew", padx=14, pady=4)
+        lf.grid(row=30, column=1, columnspan=3, sticky="nsew", padx=14, pady=4)
         self._log_text = tk.Text(lf, height=12, width=72, font=("Consolas", 9),
                                  bg="#1E1E2E", fg="#A0D0FF", state="disabled", relief="flat")
         sc = ttk.Scrollbar(lf, command=self._log_text.yview)
@@ -408,7 +418,7 @@ class DownloadTab(ttk.Frame):
         sc.pack(side="right", fill="y")
 
         f.columnconfigure(1, weight=1)
-        f.rowconfigure(29, weight=1)
+        f.rowconfigure(30, weight=1)
         install_gui_log_handler(self._log_text)
         self._log_text.bind("<Button-3>", self._log_context_menu)
 
@@ -474,6 +484,47 @@ class DownloadTab(ttk.Frame):
         else:
             self._resume_var.set("")
 
+        self._refresh_resume_info(st)
+
+    def _refresh_resume_info(self, st: Optional[dict] = None) -> None:
+        """Aktualisiert Resume-Info-Panel und Start-Button-Label."""
+        if st is None:
+            st = self._load_dl_status()
+        resume = st.get("resume_count")
+        saved_at = st.get("saved_at", "")
+        source = st.get("source", "")
+        total = st.get("total", 0)
+        if resume:
+            ts_str = self._fmt_ts(saved_at) if saved_at else ""
+            parts = ["⏸ Letzter Download"]
+            if source:
+                parts.append(f"{source}")
+            parts.append(f"Seite ~{resume:,}".replace(",", "."))
+            if total:
+                parts.append(f"/ ~{total:,}".replace(",", "."))
+            if ts_str:
+                parts.append(f"| {ts_str}")
+            self._resume_info_var.set("  |  ".join(parts))
+            try:
+                self._resume_info_lbl.configure(foreground="#e0a040")
+            except Exception:
+                pass
+            self._start_btn_sv.set(f"⏩ Fortsetzen (ab ~{resume:,})".replace(",", "."))
+            self._clear_resume_btn.configure(state="normal")
+        else:
+            self._resume_info_var.set("▶ Kein Checkpoint — startet von vorne")
+            try:
+                self._resume_info_lbl.configure(foreground="#888888")
+            except Exception:
+                pass
+            self._start_btn_sv.set("▶ Download starten")
+            self._clear_resume_btn.configure(state="disabled")
+
+    def _on_clear_resume(self) -> None:
+        """Löscht den Checkpoint und aktualisiert Panel + Button-Label."""
+        self._clear_resume()
+        self._refresh_resume_info()
+
     # ── dl_status.json ────────────────────────────────────────────────────────
 
     @staticmethod
@@ -486,9 +537,12 @@ class DownloadTab(ttk.Frame):
     @staticmethod
     def _save_dl_status(**kw) -> None:
         try:
+            from datetime import datetime, timezone
             _DL_STATUS_FILE.parent.mkdir(parents=True, exist_ok=True)
             st = DownloadTab._load_dl_status()
             st.update(kw)
+            # Timestamp bei jedem Speichern aktualisieren
+            st["saved_at"] = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
             _DL_STATUS_FILE.write_text(
                 json.dumps(st, ensure_ascii=False, indent=2), encoding="utf-8"
             )
@@ -500,6 +554,8 @@ class DownloadTab(ttk.Frame):
         try:
             st = DownloadTab._load_dl_status()
             st.pop("resume_count", None)
+            st.pop("resume_ts", None)
+            st.pop("saved_at", None)
             _DL_STATUS_FILE.write_text(
                 json.dumps(st, ensure_ascii=False, indent=2), encoding="utf-8"
             )
