@@ -266,6 +266,9 @@ class MatchesTab(ttk.Frame):
         _b = register_lang(self._state, ttk.Button(kl, text=self._state.t("mf.b_bridge"), command=self._on_gedmatch_bridge), "mf.b_bridge")
         _b.pack(side="left", padx=(8, 0))
         register_tooltip(_b, "tt.mf_bridge", self._state)
+        # C2: Export-Button
+        _b = ttk.Button(kl, text="📥 Export", command=self._export_matches)
+        _b.pack(side="left", padx=(8, 0))
 
         # Filter-Leiste
         fl = ttk.Frame(f); fl.pack(fill="x", padx=10, pady=6)
@@ -498,6 +501,15 @@ class MatchesTab(ttk.Frame):
             col_width = saved_widths.get(col, width)
             if col_width < 50:
                 col_width = width
+            # A1: user_prefs override (takes priority over ui_settings)
+            try:
+                pref_w = self._pref_get(f"matches_col_{col}")
+                if pref_w:
+                    pref_w = int(pref_w)
+                    if pref_w >= 50:
+                        col_width = pref_w
+            except Exception:
+                pass
             self._tree.column(col, width=col_width, anchor=anchor, stretch=(col == "name"))
             self._state.lang_headings.append((self._tree, col, key))
 
@@ -516,6 +528,18 @@ class MatchesTab(ttk.Frame):
         sy.grid(row=0, column=1, sticky="ns")
         sx.grid(row=1, column=0, sticky="ew")
         parent.rowconfigure(0, weight=1); parent.columnconfigure(0, weight=1)
+
+        # B1: Untere Seiten-Navigation
+        nav = ttk.Frame(parent)
+        nav.grid(row=2, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        self._page_prev2_btn = ttk.Button(nav, text="◀ Zurück", command=self._page_prev)
+        self._page_prev2_btn.pack(side="left", padx=4)
+        self._page_label_var = tk.StringVar(value="")
+        ttk.Label(nav, textvariable=self._page_label_var,
+                  foreground=COLORS["primary"]).pack(side="left", padx=8)
+        self._page_next2_btn = ttk.Button(nav, text="Weiter ▶", command=self._page_next)
+        self._page_next2_btn.pack(side="left", padx=4)
+
         self._tree.bind("<<TreeviewSelect>>", self._on_match_select)
         self._tree.bind("<Button-3>", self._on_match_rightclick)
         self._tree.bind("<Configure>", self._on_tree_configure)
@@ -1700,6 +1724,9 @@ class MatchesTab(ttk.Frame):
         for col in ("name","guid","note","cm","seg","rel","tree","ged","ca","starred","side"):
             widths[col] = self._tree.column(col, "width")
         self._save_ui_settings(column_widths=widths)
+        # A1: auch in user_prefs persistieren
+        for col, w in widths.items():
+            self._pref_set(f"matches_col_{col}", str(w))
 
     def _on_escape_pressed(self):
         """U1: Escape-Taste leert Suche-Feld und resetiert Filter."""
