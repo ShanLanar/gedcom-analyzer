@@ -612,6 +612,36 @@ class DownloadTab(ttk.Frame):
                     self._dash_vars[k].set(sv)
         self.after(0, _u)
 
+    # ── DB-Sicherung ──────────────────────────────────────────────────────────
+
+    def _backup_db_before_download(self):
+        """Erstellt eine DB-Sicherung (max. 3 behalten)."""
+        import glob
+        import os
+        import shutil
+        try:
+            from ancestry.paths import ROOT
+            db_path = self._state.db.db_file
+            if not db_path or not os.path.exists(db_path):
+                return
+            backup_dir = os.path.join(str(ROOT), "data", "backups")
+            os.makedirs(backup_dir, exist_ok=True)
+            from datetime import datetime
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            backup_path = os.path.join(backup_dir, f"ancestry_backup_{ts}.db")
+            shutil.copy2(db_path, backup_path)
+            # Keep only last 3 backups
+            backups = sorted(glob.glob(os.path.join(backup_dir, "ancestry_backup_*.db")))
+            for old in backups[:-3]:
+                try:
+                    os.remove(old)
+                except Exception:
+                    pass
+            self._set_status(f"✓ DB gesichert: {os.path.basename(backup_path)}")
+        except Exception as e:
+            import logging
+            logging.getLogger(__name__).debug("DB-Backup fehlgeschlagen: %s", e)
+
     # ── Download-Methoden ─────────────────────────────────────────────────────
 
     def _start_matches(self):
@@ -630,6 +660,7 @@ class DownloadTab(ttk.Frame):
         self._last_fetched = 0
         self._state.pause_event.set()
         self._progress_var.set(0)
+        self._backup_db_before_download()
         self._scraper = Scraper(
             self._state.client, self._state.db,
             on_progress=self.on_progress,
@@ -842,6 +873,7 @@ class DownloadTab(ttk.Frame):
             ped_gens      = int(self._ped_gens_var.get() or 5)
         except ValueError:
             min_cm_names, min_cm_shared, ped_gens = 0.0, 20.0, 5
+        self._backup_db_before_download()
         self._scraper = Scraper(
             self._state.client, self._state.db,
             on_progress=self.on_progress,

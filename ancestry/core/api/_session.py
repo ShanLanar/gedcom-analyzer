@@ -83,6 +83,12 @@ def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
                 retry_after = int(r.headers.get("Retry-After", 0))
                 delay = max(retry_after, RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
                 log.warning("429 Rate-Limit → warte %ds …", delay)
+                _cb = getattr(session, "_rate_limit_cb", None)
+                if callable(_cb):
+                    try:
+                        _cb(429, delay)
+                    except Exception:
+                        pass
                 time.sleep(delay)
                 continue
 
@@ -90,6 +96,12 @@ def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
                 delay = _jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
                 log.warning("HTTP %s Versuch %d/%d → warte %.1fs …",
                             r.status_code, attempt+1, MAX_RETRIES, delay)
+                _cb = getattr(session, "_rate_limit_cb", None)
+                if callable(_cb):
+                    try:
+                        _cb(r.status_code, delay)
+                    except Exception:
+                        pass
                 time.sleep(delay)
                 continue
 
@@ -189,10 +201,23 @@ class _ApiSessionMixin:
             if r.status_code == 429:
                 delay = int(r.headers.get("Retry-After", RETRY_DELAYS[attempt]))
                 log.warning("429 → warte %ds", delay)
+                _cb = getattr(self, "_rate_limit_cb", None)
+                if callable(_cb):
+                    try:
+                        _cb(429, delay)
+                    except Exception:
+                        pass
                 time.sleep(delay)
                 continue
             if r.status_code in RETRY_STATUSES:
-                time.sleep(_jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)]))
+                _delay = _jitter(RETRY_DELAYS[min(attempt, len(RETRY_DELAYS)-1)])
+                _cb = getattr(self, "_rate_limit_cb", None)
+                if callable(_cb):
+                    try:
+                        _cb(r.status_code, _delay)
+                    except Exception:
+                        pass
+                time.sleep(_delay)
                 continue
             return r
         return None

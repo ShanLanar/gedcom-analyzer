@@ -59,6 +59,14 @@ class Scraper:
         self._on_done     = on_done     or (lambda r: None)
         self._stop        = threading.Event()
         self._thread      : Optional[threading.Thread] = None
+        # Rate-Limit-Signalisierung: Client-Session benachrichtigt die UI
+        self._client._rate_limit_cb = self._on_rate_limit
+
+    def _on_rate_limit(self, status_code: int, delay: float) -> None:
+        """Wird von der HTTP-Schicht aufgerufen, wenn 429/5xx mit Backoff auftritt."""
+        msg = (f"⏳ Rate-Limit ({status_code}) — warte {int(delay)} s …")
+        log.warning(msg)
+        self._on_status(msg)
 
     # ── Öffentlich ──────────────────────────────────────────────────────────────
 

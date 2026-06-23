@@ -149,6 +149,13 @@ class MatchesTab(ttk.Frame):
     def _on_search_changed(self, *_):
         if hasattr(self, "_search_after_id"):
             self.after_cancel(self._search_after_id)
+        q = self._search_var.get().strip()
+        if q and len(q) >= 2:
+            if q not in self._search_history:
+                self._search_history.insert(0, q)
+                self._search_history = self._search_history[:5]
+                if hasattr(self, "_search_combo"):
+                    self._search_combo["values"] = self._search_history
         self._search_after_id = self.after(300, self.refresh)
 
     def refresh(self, *_):
@@ -243,7 +250,10 @@ class MatchesTab(ttk.Frame):
         lw.append((_sv_s, "mf.search"))
         self._search_var = tk.StringVar()
         self._search_var.trace_add("write", self._on_search_changed)
-        ttk.Entry(fl, textvariable=self._search_var, width=20).pack(side="left")
+        self._search_history: list[str] = []
+        self._search_combo = ttk.Combobox(fl, textvariable=self._search_var,
+                                           width=20, values=[])
+        self._search_combo.pack(side="left")
 
         _sv_r = tk.StringVar(value=t("mf.rel"))
         ttk.Label(fl, textvariable=_sv_r).pack(side="left", padx=(10,4))
@@ -533,6 +543,7 @@ class MatchesTab(ttk.Frame):
         for de_lbl, key in [("cM","md.cm"),("Segmente","md.seg"),
                              ("Längstes Seg.","md.longseg"),("Beziehung","md.rel"),
                              ("Beziehung (cM)","md.rel_cm"),
+                             ("MH-Beziehung","md.mh_rel"),
                              ("Konfidenz","md.conf"),("Stammbaum","md.tree_lbl"),
                              ("Gem. Vorfahre","md.anc"),("Geschlecht","md.sex"),
                              ("Letzter Login","md.last"),
@@ -657,7 +668,12 @@ class MatchesTab(ttk.Frame):
         self._state.lang_inner_nb_tabs.append((self._detail_nb, wt_frame, "md.tab_wikitree"))
         self._build_wikitree_panel(wt_frame)
 
-        # Sub-Tab 7: Manuelle GEDCOM-Verknüpfung
+        # Sub-Tab 7: GEDmatch-Segment-Browser
+        seg_frame = ttk.Frame(self._detail_nb)
+        self._detail_nb.add(seg_frame, text="🧬 Segmente")
+        self._build_segments_panel(seg_frame)
+
+        # Sub-Tab 8: Manuelle GEDCOM-Verknüpfung
         ged_link_frame = ttk.Frame(self._detail_nb)
         self._detail_nb.add(ged_link_frame, text="🔗 GEDCOM")
 
@@ -682,6 +698,98 @@ class MatchesTab(ttk.Frame):
                    command=self._ged_link_apply).pack(side="left")
 
         self._selected_match: Optional[DnaMatch] = None
+
+    def _build_segments_panel(self, parent):
+        """Sub-Tab 7: GEDmatch-Segment-Browser."""
+        seg_cols = ("chr", "start", "end", "cm", "snps")
+        self._seg_tree = ttk.Treeview(parent, columns=seg_cols,
+                                      show="headings", height=6)
+        for col, label, width in [("chr", "Chr", 35), ("start", "Start", 80),
+                                   ("end", "Ende", 80), ("cm", "cM", 50),
+                                   ("snps", "SNPs", 55)]:
+            self._seg_tree.heading(col, text=label)
+            self._seg_tree.column(col, width=width,
+                                  anchor="center" if col == "chr" else "e")
+        seg_sb = ttk.Scrollbar(parent, orient="vertical",
+                               command=self._seg_tree.yview)
+        self._seg_tree.configure(yscrollcommand=seg_sb.set)
+        self._seg_tree.pack(side="left", fill="both", expand=True)
+        seg_sb.pack(side="left", fill="y")
+
+        seg_btn_row = ttk.Frame(parent)
+        seg_btn_row.pack(fill="x", pady=(2, 0))
+        ttk.Button(seg_btn_row, text="🔗 In GEDmatch öffnen",
+                   command=self._open_gedmatch_segments).pack(side="left", padx=4)
+
+    def _load_segments(self, match: "DnaMatch"):
+        """Lädt Chromosomen-Segmente für einen Match aus dna_segments."""
+        if not hasattr(self, "_seg_tree"):
+            return
+        for item in self._seg_tree.get_children():
+            self._seg_tree.delete(item)
+        try:
+            with self._state.db._cursor() as cur:
+                try:
+                    rows = cur.execute(
+                        "SELECT chromosome, start_location, end_location, "
+                        "length_cm, snp_count "
+                        "FROM dna_segments WHERE match_guid=? "
+                        "ORDER BY chromosome, start_location",
+                        (match.match_guid,)
+                    ).fetchall()
+                except Exception:
+                    rows = []
+                for r in rows:
+                    vals = (r[0], r[1], r[2],
+                            f"{r[3]:.1f}" if r[3] else "",
+                            r[4] or "")
+                    self._seg_tree.insert("", "end", values=vals)
+        except Exception:
+            pass
+
+    def _open_gedmatch_segments(self):
+        """Öffnet GEDmatch-Segment-Browser für den ausgewählten Match."""
+        m = self._selected_match
+        if not m:
+            return
+        try:
+            with self._state.db._cursor() as cur:
+                r = cur.execute(
+                    "SELECT gedmatch_kit_id FROM gedmatch_bridge "
+                    "WHERE match_guid=? LIMIT 1",
+                    (m.match_guid,)
+                ).fetchone()
+            if r:
+                kit = r[0] if r else None
+                if kit:
+                    webbrowser.open(
+                        f"https://www.gedmatch.com/one-to-one-api.php?kit1={kit}")
+                    return
+        except Exception:
+            pass
+        webbrowser.open("https://www.gedmatch.com")
+
+    def _load_mh_relationship(self, match: "DnaMatch") -> Optional[str]:
+        """Lädt MyHeritage-Beziehungsprognose für diesen Match."""
+        try:
+            with self._state.db._cursor() as cur:
+                r = cur.execute(
+                    "SELECT relationship_class, relationship_degree, probability "
+                    "FROM mh_match_relationships "
+                    "WHERE match_guid=? ORDER BY probability DESC LIMIT 1",
+                    (match.match_guid,)
+                ).fetchone()
+            if r:
+                rel_class  = r[0] or ""
+                rel_degree = r[1] or ""
+                prob       = r[2]
+                label = " ".join(filter(None, [rel_class, rel_degree])) or "?"
+                if prob:
+                    return f"{label}  ({prob:.0%})"
+                return label
+        except Exception:
+            pass
+        return None
 
     def _build_shared_panel(self, parent):
         """Panel für Shared Matches des ausgewählten primären Matches."""
@@ -1536,6 +1644,17 @@ class MatchesTab(ttk.Frame):
         ]:
             self._detail_fields[lbl].set(val)
 
+        # MH-Beziehungsprognose asynchron nachladen
+        self._detail_fields["MH-Beziehung"].set("…")
+        def _load_mh_rel(guid=match.match_guid):
+            result = self._load_mh_relationship(
+                next((m for m in self._matches if m.match_guid == guid), match))
+            def _set_mh(lb=result, g=guid):
+                if self._selected_match and self._selected_match.match_guid == g:
+                    self._detail_fields["MH-Beziehung"].set(lb if lb else "—")
+            self.after(0, _set_mh)
+        threading.Thread(target=_load_mh_rel, daemon=True, name="mh-rel-load").start()
+
         # Ahnentafel-Vollständigkeit asynchron nachladen
         test_guid_af = self._get_test_guid()
         self._detail_fields["Ahnentafel"].set("…")
@@ -1642,6 +1761,7 @@ class MatchesTab(ttk.Frame):
         self._load_ancestors_panel(match)
         self._load_kirchenbuch_panel(match)
         self._load_wikitree_panel(match)
+        self._load_segments(match)
 
         # P15: Cross-Quellen-Duplikat-Hinweis laden
         self._load_cross_source_hint(match)

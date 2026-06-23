@@ -178,6 +178,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "md.pedigree":  {"de": "Ahnentafel:",                          "en": "Pedigree:"},
     "md.origin":    {"de": "Herkunft:",                            "en": "Origin:"},
     "md.rel_cm":    {"de": "Beziehung (cM):",                      "en": "Relationship (cM):"},
+    "md.mh_rel":    {"de": "MH-Beziehung:",                        "en": "MH Relationship:"},
     "md.ml_origin": {"de": "Herkunft (ML):",                       "en": "Origin (ML):"},
     "md.note":      {"de": "Notiz:",                               "en": "Note:"},
     "md.save_note": {"de": "💾 Notiz speichern",                   "en": "💾 Save note"},

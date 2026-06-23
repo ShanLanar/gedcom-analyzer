@@ -55,3 +55,4 @@ class AncestryApiClient(
         self._csrf_mode = None         # gecachte CSRF-Form sobald eine 200 lieferte
         self._http_lock = __import__("threading").Lock()  # serialisiert HTTP bei Parallelität
         self._last_jwt_refresh: float = time.time()
+        self._rate_limit_cb = None     # optionaler Callback: fn(status_code, delay_s)

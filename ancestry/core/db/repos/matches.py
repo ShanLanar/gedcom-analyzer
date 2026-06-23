@@ -145,7 +145,11 @@ class MatchesRepo:
         if source:
             conditions.append("m.source = ?"); params.append(source)
         if search:
-            conditions.append("m.display_name LIKE ?"); params.append(f"%{search}%")
+            conditions.append(
+                "(m.display_name LIKE ? OR m.note LIKE ? "
+                "OR m.predicted_relationship LIKE ? OR m.tag_surname LIKE ?)"
+            )
+            params.extend([f"%{search}%"] * 4)
         if relationship and relationship != "(alle)":
             conditions.append("m.predicted_relationship = ?"); params.append(relationship)
         if starred_only:
