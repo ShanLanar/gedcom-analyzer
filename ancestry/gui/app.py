@@ -1087,6 +1087,14 @@ class AncestryDnaApp(tk.Frame):
                 json.dump(s, f, ensure_ascii=False, indent=2)
         except Exception as e:
             log.debug("Settings speichern fehlgeschlagen: %s", e)
+        # P20: GEDCOM-Pfad in config_user.json spiegeln, damit tasks/_runner.py
+        # dieselbe Datei sieht wie die GUI.
+        if "gedcom_path" in kw and kw["gedcom_path"]:
+            try:
+                import config as _cfg
+                _cfg.save_overrides({"gedfile": kw["gedcom_path"]})
+            except Exception as e:
+                log.debug("config_user.json sync fehlgeschlagen: %s", e)
 
     # ── Sprache / Localisation ────────────────────────────────────────────────
 
