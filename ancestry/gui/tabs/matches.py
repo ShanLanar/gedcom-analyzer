@@ -648,6 +648,14 @@ class MatchesTab(ttk.Frame):
             cb.pack(anchor="w")
             lw.append((_sv_c, key))
 
+        # C1: cM-Beziehungs-Predictor
+        ttk.Separator(info_frame, orient="horizontal").pack(fill="x", padx=8, pady=4)
+        _rel_lf = ttk.LabelFrame(info_frame, text="🧬 Verwandtschaft")
+        _rel_lf.pack(fill="x", padx=8, pady=(0, 4))
+        self._cm_predictor_var = tk.StringVar(value="—")
+        ttk.Label(_rel_lf, textvariable=self._cm_predictor_var,
+                  font=("Segoe UI", 9), wraplength=240).pack(anchor="w", padx=6, pady=4)
+
         ttk.Separator(info_frame, orient="horizontal").pack(fill="x", padx=8, pady=4)
         _sv = tk.StringVar(value=t("md.note"))
         ttk.Label(info_frame, textvariable=_sv, style="Bold.TLabel").pack(anchor="w", padx=8)
@@ -2477,3 +2485,168 @@ class MatchesTab(ttk.Frame):
             wt_id = self._wt_tree.set(sel[0], "wt_id")
             if wt_id:
                 webbrowser.open(f"https://www.wikitree.com/wiki/{quote(wt_id)}")
+
+    # ── A4: Filter-Profile speichern / laden ─────────────────────────────────
+
+    def _save_filter_profile(self) -> None:
+        """A4: Aktuelle Filter-Einstellungen in user_prefs persistieren."""
+        self._pref_set("filter_matches_min_cm", self._min_cm_var.get())
+        self._pref_set("filter_matches_search", self._search_var.get())
+        self._pref_set("filter_matches_rel", getattr(self, "_rel_var", tk.StringVar()).get())
+        self._pref_set("filter_matches_side", getattr(self, "_side_var", tk.StringVar()).get())
+
+    def _load_filter_profile(self) -> None:
+        """A4: Gespeicherte Filter-Einstellungen aus user_prefs wiederherstellen."""
+        mc = self._pref_get("filter_matches_min_cm")
+        if mc:
+            self._min_cm_var.set(mc)
+        st = self._pref_get("filter_matches_search")
+        if st:
+            self._search_var.set(st)
+        rel = self._pref_get("filter_matches_rel")
+        if rel and hasattr(self, "_rel_var"):
+            self._rel_var.set(rel)
+        side = self._pref_get("filter_matches_side")
+        if side and hasattr(self, "_side_var"):
+            self._side_var.set(side)
+        self._current_offset = 0
+        self._do_refresh()
+
+    # ── C1: cM-Beziehungs-Predictor ─────────────────────────────────────────
+
+    _CM_TABLE = [
+        (3475, 3900, "Identisch/Zwilling"),
+        (2300, 3474, "Elternteil/Kind"),
+        (1450, 2299, "Vollgeschwister"),
+        (575,  1449, "Halbgeschwister / Großelternteil / Enkel / Tante-Onkel-Nichte-Neffe"),
+        (215,   574, "Cousin 1. Grades / Urgroßelternteil"),
+        (90,    214, "Cousin 2. Grades / Halbcousin 1. Grades"),
+        (35,     89, "Cousin 3. Grades"),
+        (7,      34, "Cousin 4. Grades oder entferntere Verwandtschaft"),
+    ]
+
+    def _predict_relationship(self, cm: float) -> str:
+        """C1: Ermittelt möglichen Verwandtschaftsgrad aus cM-Wert."""
+        for lo, hi, label in self._CM_TABLE:
+            if lo <= cm <= hi:
+                return label
+        return "Sehr entfernte Verwandtschaft oder kein Verwandter"
+
+    def _update_cm_predictor(self, cm: float) -> None:
+        """C1: Aktualisiert das Verwandtschafts-Predictor-Label im Detail-Panel."""
+        if not hasattr(self, "_cm_predictor_var"):
+            return
+        if cm and cm > 0:
+            label = self._predict_relationship(cm)
+            self._cm_predictor_var.set(f"~{cm:.0f} cM  →  {label}")
+        else:
+            self._cm_predictor_var.set("—")
+
+    # ── C2: Export CSV / XLSX ────────────────────────────────────────────────
+
+    def _export_matches(self) -> None:
+        """C2: Exportiert alle gefilterten Matches als CSV oder XLSX."""
+        import os
+
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=[("CSV", "*.csv"), ("Excel", "*.xlsx")],
+            title="Matches exportieren",
+        )
+        if not path:
+            return
+
+        # Alle gefilterten Matches ohne LIMIT laden
+        try:
+            min_cm = float(self._min_cm_var.get() or 0)
+        except (ValueError, AttributeError):
+            min_cm = 0.0
+
+        col_map = {"name": "display_name", "guid": "match_guid", "note": "tag_surname",
+                   "cm": "shared_cm", "seg": "shared_segments",
+                   "rel": "predicted_relationship", "tree": "tree_size",
+                   "ged": "match_guid", "ca": "has_common_ancestor", "starred": "starred"}
+        sort_col = col_map.get(self._sort_col, "shared_cm")
+
+        active_kit: Optional[str] = None
+        selected_kit_name = ""
+        if hasattr(self, "_matches_kit_var") and self._matches_kit_var.get():
+            selected_kit_name = self._matches_kit_var.get()
+            active_kit = self._matches_kit_guid_map.get(selected_kit_name)
+        all_sources_mode = (selected_kit_name == self._ALL_SOURCES_LABEL)
+        if not all_sources_mode and not active_kit:
+            active_kit = self._get_test_guid()
+
+        _cv = getattr(self, "_chip_vars", {})
+        _pm = getattr(self, "_side_var", tk.StringVar()).get() or None
+        if _cv.get("pat", tk.BooleanVar()).get():
+            _pm = "paternal"
+        elif _cv.get("mat", tk.BooleanVar()).get():
+            _pm = "maternal"
+        _source = getattr(self, "_active_source", None)
+        _clustered = _cv.get("clustered", tk.BooleanVar()).get()
+
+        try:
+            rows = self._state.db.get_matches(
+                test_guid=active_kit,
+                all_sources=all_sources_mode,
+                search=self._search_var.get().strip() or None,
+                relationship=self._rel_var.get() if hasattr(self, "_rel_var") else None,
+                starred_only=self._starred_var.get() if hasattr(self, "_starred_var") else False,
+                has_tree_only=self._tree_var.get() if hasattr(self, "_tree_var") else False,
+                min_cm=min_cm,
+                hide_endogamy=getattr(self, "_hide_endo_var", tk.BooleanVar()).get(),
+                paternal_maternal=_pm,
+                new_only=_cv.get("new", tk.BooleanVar()).get(),
+                source=_source,
+                clustered_only=_clustered,
+                sort_col=sort_col,
+                sort_asc=self._sort_asc,
+                limit=None,
+                offset=0,
+            )
+        except Exception as exc:
+            messagebox.showerror("Fehler", f"Datenbankfehler beim Export:\n{exc}")
+            return
+
+        headers = ["Name", "cM", "Segmente", "Beziehung", "Stammbaum",
+                   "Seite", "Quelle", "GEDCOM-Treffer", "Notiz", "Favorit"]
+
+        def _row_vals(m) -> list:
+            return [
+                m.display_name or "",
+                f"{m.shared_cm:.1f}" if m.shared_cm else "",
+                m.shared_segments or "",
+                m.predicted_relationship or "",
+                f"{'Ja' if m.has_tree else 'Nein'} ({m.tree_size})" if m.tree_size else ("Ja" if m.has_tree else "Nein"),
+                getattr(m, "paternal_maternal", "") or "",
+                getattr(m, "source", "ancestry") or "ancestry",
+                m.tag_surname or "",
+                m.note or "",
+                "Ja" if m.starred else "",
+            ]
+
+        try:
+            if path.endswith(".xlsx"):
+                try:
+                    import openpyxl
+                    wb = openpyxl.Workbook()
+                    ws = wb.active
+                    ws.append(headers)
+                    for m in rows:
+                        ws.append(_row_vals(m))
+                    wb.save(path)
+                except ImportError:
+                    messagebox.showerror(
+                        "Fehler",
+                        "openpyxl nicht installiert — bitte als CSV speichern.")
+                    return
+            else:
+                with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                    w = csv.writer(f)
+                    w.writerow(headers)
+                    for m in rows:
+                        w.writerow(_row_vals(m))
+            messagebox.showinfo("Export", f"{len(rows)} Matches exportiert:\n{os.path.basename(path)}")
+        except Exception as exc:
+            messagebox.showerror("Fehler", f"Fehler beim Speichern:\n{exc}")
