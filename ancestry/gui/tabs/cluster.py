@@ -1313,6 +1313,145 @@ class ClusterTab(ttk.Frame):
                       foreground=COLORS["primary"]).grid(
                 row=0, column=i, padx=10, pady=2, sticky="w")
 
+    # ── B3: Cluster-Merge-UI ─────────────────────────────────────────────────
+
+    def _on_cluster_right_click(self, event):
+        """Selektiert die angeklickte Row und öffnet das Kontextmenü."""
+        iid = self._cluster_list.identify_row(event.y)
+        if iid:
+            self._cluster_list.selection_set(iid)
+            self._cluster_list.focus(iid)
+        try:
+            self._cluster_ctx_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            self._cluster_ctx_menu.grab_release()
+
+    def _merge_cluster_dialog(self):
+        """Öffnet Dialog zum Zusammenführen des gewählten Clusters mit einem anderen."""
+        sel = self._cluster_list.selection()
+        if not sel:
+            messagebox.showinfo("Merge", "Bitte zuerst einen Cluster auswählen.")
+            return
+        src_cid = int(sel[0])
+        other_cids = [cid for cid in self._clusters if cid != src_cid]
+        if not other_cids:
+            messagebox.showinfo("Merge", "Keine weiteren Cluster vorhanden.")
+            return
+
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Cluster #{src_cid} zusammenführen mit …")
+        dlg.geometry("320x300")
+        dlg.resizable(False, False)
+
+        ttk.Label(
+            dlg,
+            text=f"Cluster #{src_cid} ({len(self._clusters[src_cid])} Matches)\n"
+                 "→ alle Matches werden in den Ziel-Cluster verschoben.",
+            font=("Segoe UI", 9),
+        ).pack(anchor="w", padx=12, pady=(10, 4))
+
+        ttk.Label(dlg, text="Ziel-Cluster wählen:").pack(anchor="w", padx=12)
+
+        lb_frame = ttk.Frame(dlg)
+        lb_frame.pack(fill="both", expand=True, padx=12, pady=4)
+        lb = tk.Listbox(lb_frame, selectmode="browse", font=("Segoe UI", 9))
+        lb_sb = ttk.Scrollbar(lb_frame, orient="vertical", command=lb.yview)
+        lb.configure(yscrollcommand=lb_sb.set)
+        lb.pack(side="left", fill="both", expand=True)
+        lb_sb.pack(side="right", fill="y")
+
+        for cid in sorted(other_cids):
+            members = self._clusters.get(cid, [])
+            top = members[0]["name"] if members else "—"
+            lb.insert("end", f"#{cid}  ({len(members)} Matches)  Top: {top}")
+
+        def _do_merge():
+            idx = lb.curselection()
+            if not idx:
+                messagebox.showwarning("Merge", "Kein Ziel-Cluster ausgewählt.")
+                return
+            dst_cid = sorted(other_cids)[idx[0]]
+            dlg.destroy()
+            self._execute_merge(src_cid, dst_cid)
+
+        bf = ttk.Frame(dlg)
+        bf.pack(fill="x", padx=12, pady=(0, 10))
+        ttk.Button(bf, text="Abbrechen", command=dlg.destroy).pack(side="right")
+        ttk.Button(bf, text="✅ OK – Zusammenführen",
+                   command=_do_merge).pack(side="right", padx=4)
+
+    def _execute_merge(self, src_cid: int, dst_cid: int):
+        """Verschiebt alle Matches von src_cid → dst_cid, aktualisiert Treeview."""
+        test_guid = self._get_current_guid()
+        src_members = self._clusters.get(src_cid, [])
+        dst_members = self._clusters.get(dst_cid, [])
+
+        if not src_members:
+            messagebox.showinfo("Merge", f"Cluster #{src_cid} ist leer.")
+            return
+
+        src_guids = [m["guid"] for m in src_members]
+
+        # DB-Update: cluster_id gibt es nicht als Spalte in matches — wir
+        # ändern stattdessen paternal_maternal um Konsistenz zu wahren und
+        # schreiben in cluster_colors die neue Zuordnung.
+        # Die In-Memory-Datenstruktur wird sofort aktualisiert.
+        try:
+            # Übernehme Seite des Ziel-Clusters
+            dst_color = self._cluster_side_colors.get(
+                dst_cid, COLORS["cluster"][(dst_cid - 1) % len(COLORS["cluster"])]
+            )
+            if dst_color == "#DDF0FF":
+                dst_side = "paternal"
+            elif dst_color == "#FFE0E0":
+                dst_side = "maternal"
+            else:
+                dst_side = ""
+
+            if dst_side and src_guids:
+                with self._state.db._cursor() as cur:
+                    cur.execute(
+                        "UPDATE matches SET paternal_maternal = ? "
+                        "WHERE match_guid IN ({})".format(
+                            ",".join("?" * len(src_guids))
+                        ),
+                        [dst_side, *src_guids],
+                    )
+        except Exception as exc:
+            log.warning("merge DB update: %s", exc)
+
+        # In-Memory: src-Matches in dst verschieben
+        combined = dst_members + src_members
+        self._clusters[dst_cid] = combined
+        del self._clusters[src_cid]
+
+        # Src-Farbe aufräumen
+        self._cluster_side_colors.pop(src_cid, None)
+
+        # Treeview aktualisieren
+        # Src-Row entfernen
+        if self._cluster_list.exists(str(src_cid)):
+            self._cluster_list.delete(str(src_cid))
+
+        # Dst-Row aktualisieren
+        if self._cluster_list.exists(str(dst_cid)):
+            new_n = len(combined)
+            cms = [m["cm"] for m in combined]
+            dst_vals = list(self._cluster_list.item(str(dst_cid), "values"))
+            if dst_vals:
+                dst_vals[1] = new_n
+                if cms:
+                    dst_vals[2] = f"{max(cms):.0f}"
+                self._cluster_list.item(str(dst_cid), values=dst_vals)
+
+        # B1: Persistierung
+        self._save_cluster_colors()
+
+        self._set_status(
+            f"Cluster #{src_cid} → #{dst_cid} zusammengeführt "
+            f"({len(combined)} Matches)."
+        )
+
     # ── Tab-Lebenszyklus ──────────────────────────────────────────────────────
 
     def on_show(self):
