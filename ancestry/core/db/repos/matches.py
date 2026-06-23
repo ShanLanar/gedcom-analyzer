@@ -271,6 +271,12 @@ class MatchesRepo:
                         (new_state, match_guid))
             return new_state
 
+    def set_match_starred(self, match_guid: str, value: bool) -> None:
+        """Setzt den Stern-Status direkt (für Undo/Redo)."""
+        with self._db._cursor() as cur:
+            cur.execute("UPDATE matches SET starred=? WHERE match_guid=?",
+                        (bool(value), match_guid))
+
     def set_probable_origin(self, match_guid: str, origin_json: str):
         with self._db._cursor() as cur:
             cur.execute("UPDATE matches SET probable_origin=? WHERE match_guid=?",

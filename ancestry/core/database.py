@@ -171,6 +171,8 @@ class Database:
     def link_gedmatch_bridges(self, *a, **kw) -> int:    return self._matches.link_gedmatch_bridges(*a, **kw)
     def get_bridge_hit_counts(self, *a, **kw) -> dict:   return self._matches.get_bridge_hit_counts(*a, **kw)
     def get_unfetched_match_guids(self, *a, **kw) -> list: return self._matches.get_unfetched_match_guids(*a, **kw)
+    def toggle_starred(self, *a, **kw) -> bool:          return self._matches.toggle_starred(*a, **kw)
+    def set_match_starred(self, *a, **kw) -> None:       return self._matches.set_match_starred(*a, **kw)
 
     # ── Research-Tasks (B1) ─────────────────────────────────────────────────────
 

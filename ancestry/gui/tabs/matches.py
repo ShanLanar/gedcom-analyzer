@@ -15,6 +15,12 @@ from ancestry.gui.widgets.theme import register_lang, COLORS
 from ancestry.gui.widgets.tooltip import register_tooltip
 from ancestry.models import DnaMatch
 
+try:
+    from ancestry.gui.undo import UndoStack as _UndoStack
+    _UNDO = _UndoStack.get()
+except Exception:
+    _UNDO = None
+
 log = logging.getLogger(__name__)
 
 
@@ -650,6 +656,30 @@ class MatchesTab(ttk.Frame):
         self._detail_nb.add(wt_frame, text=t("md.tab_wikitree"))
         self._state.lang_inner_nb_tabs.append((self._detail_nb, wt_frame, "md.tab_wikitree"))
         self._build_wikitree_panel(wt_frame)
+
+        # Sub-Tab 7: Manuelle GEDCOM-Verknüpfung
+        ged_link_frame = ttk.Frame(self._detail_nb)
+        self._detail_nb.add(ged_link_frame, text="🔗 GEDCOM")
+
+        ttk.Label(ged_link_frame, text="GEDCOM-Person manuell verknüpfen:",
+                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=8, pady=(8, 2))
+        ttk.Label(ged_link_frame, text="GED-ID oder Name eingeben:",
+                  foreground="#666666").pack(anchor="w", padx=8)
+
+        self._ged_link_var = tk.StringVar()
+        ged_entry = ttk.Entry(ged_link_frame, textvariable=self._ged_link_var, width=28)
+        ged_entry.pack(anchor="w", padx=8, pady=(2, 4))
+
+        self._ged_link_result = tk.StringVar(value="")
+        ttk.Label(ged_link_frame, textvariable=self._ged_link_result,
+                  foreground="#888888", wraplength=240).pack(anchor="w", padx=8)
+
+        btn_row = ttk.Frame(ged_link_frame)
+        btn_row.pack(anchor="w", padx=8, pady=4)
+        ttk.Button(btn_row, text="🔍 Suchen",
+                   command=self._ged_link_search).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_row, text="✓ Verknüpfen",
+                   command=self._ged_link_apply).pack(side="left")
 
         self._selected_match: Optional[DnaMatch] = None
 
@@ -1314,13 +1344,92 @@ class MatchesTab(ttk.Frame):
     def _toggle_starred_match(self, match):
         """Toggles the starred flag for a match and updates the table display."""
         try:
+            old_starred = bool(match.starred)
             new_state = self._state.db.toggle_starred(match.match_guid)
             match.starred = new_state
             status_label = "Zu Favoriten hinzugefügt" if new_state else "Aus Favoriten entfernt"
             self._set_status(f"{match.display_name}: {status_label}")
             self._refresh_and_reselect(match.match_guid)
+            if _UNDO is not None:
+                _name = getattr(match, "display_name", str(match.match_guid))
+                _was = old_starred
+                _now = new_state
+                _m = match
+                _UNDO.push(
+                    f"Stern {'setzen' if _now else 'entfernen'}: {_name}",
+                    lambda: self._set_starred(_m, _was),
+                    lambda: self._set_starred(_m, _now),
+                )
         except Exception as e:
             log.warning("toggle_starred failed: %s", e)
+
+    def _set_starred(self, match, value: bool):
+        """Setzt den Stern-Status ohne Undo-Eintrag (für Undo/Redo)."""
+        try:
+            self._state.db.set_match_starred(match.match_guid, value)
+            match.starred = value
+            self._do_refresh()
+        except Exception as e:
+            log.debug("_set_starred: %s", e)
+
+    def _ged_link_search(self):
+        """Sucht GEDCOM-Personen nach GED-ID oder Name."""
+        q = self._ged_link_var.get().strip()
+        if not q:
+            return
+        try:
+            with self._state.db._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT ged_id, given_name, surname, birth_year FROM gedcom_persons "
+                    "WHERE ged_id=? OR (given_name LIKE ? OR surname LIKE ?) LIMIT 5",
+                    (q, f"%{q}%", f"%{q}%"),
+                ).fetchall()
+            if rows:
+                lines = [
+                    f"{r['ged_id']}: {r['given_name'] or ''} {r['surname'] or ''} "
+                    f"({'*' + str(r['birth_year']) if r['birth_year'] else ''})"
+                    for r in rows
+                ]
+                self._ged_link_result.set("\n".join(lines))
+            else:
+                self._ged_link_result.set("Keine Ergebnisse.")
+        except Exception as e:
+            self._ged_link_result.set(f"Fehler: {e}")
+
+    def _ged_link_apply(self):
+        """Speichert die manuelle GEDCOM-Verknüpfung für den ausgewählten Match."""
+        m = self._selected_match
+        if not m:
+            return
+        q = self._ged_link_var.get().strip()
+        if not q:
+            return
+        try:
+            test_guid = self._get_test_guid()
+            with self._state.db._cursor() as cur:
+                r = cur.execute(
+                    "SELECT ged_id FROM gedcom_persons WHERE ged_id=? LIMIT 1", (q,)
+                ).fetchone()
+                if not r:
+                    r = cur.execute(
+                        "SELECT ged_id FROM gedcom_persons "
+                        "WHERE given_name LIKE ? OR surname LIKE ? LIMIT 1",
+                        (f"%{q}%", f"%{q}%"),
+                    ).fetchone()
+                if r:
+                    ged_id = r["ged_id"]
+                    cur.execute(
+                        """INSERT OR REPLACE INTO gedcom_links
+                           (test_guid, match_guid, ged_id, match_method, total_score)
+                           VALUES (?, ?, ?, 'manual', 0.0)""",
+                        (test_guid or "", m.match_guid, ged_id),
+                    )
+                    self._ged_link_result.set(f"✓ Verknüpft: {ged_id}")
+                    self._on_match_select(None)
+                else:
+                    self._ged_link_result.set("GED-ID nicht gefunden.")
+        except Exception as e:
+            self._ged_link_result.set(f"Fehler: {e}")
 
     def _sort_by(self, col):
         if self._sort_col == col:

@@ -2,12 +2,16 @@
 
 Zeigt eine Reihe von farbigen, anklickbaren Quellen-Kacheln.
 Live-Status (✓ N Datensätze / ○ nicht geladen) wird per update_status()
-von außen gesetzt — das Widget selbst macht keine DB-Abfragen.
+von außen gesetzt.  Datenfrische-Ampel (🟢/🟡/🔴) wird per
+update_freshness() oder _load_pipeline_runs() befüllt.
 """
 from __future__ import annotations
 
+import datetime
 import tkinter as tk
 from tkinter import ttk
+
+from ancestry.gui.widgets.tooltip import tooltip as _tooltip
 
 # Farben für Status-Zustände in der Zusammenfassungszeile
 _OK_FG   = "#217A3C"   # grün
@@ -38,6 +42,7 @@ class DataSourcePipeline(tk.Frame):
         parent: tk.Widget,
         sources: list[dict],
         colors: dict | None = None,
+        state=None,
     ):
         c = colors or {}
         self._bg  = c.get("bg",       "#F0F4F8")
@@ -46,11 +51,14 @@ class DataSourcePipeline(tk.Frame):
         self._dim = c.get("text_dim", "#888888")
 
         super().__init__(parent, bg=self._bg)
+        self._state        = state
         self._sources      = sources
         self._active:       str | None            = None
         self._box_btns:     dict[str, tk.Button]  = {}
         self._orig_colors:  dict[str, str]        = {}
         self._status_cache: dict[str, tuple[str, str]] = {}
+        self._freshness_cache: dict[str, str]     = {}   # {source_id: last_run ISO}
+        self._tile_tooltips:   dict[str, object]  = {}   # {source_id: Tooltip}
 
         # ── Zusammenfassungszeile (wird nach update_status gefüllt) ────────
         self._summary_var = tk.StringVar(value="")
@@ -91,10 +99,11 @@ class DataSourcePipeline(tk.Frame):
 
             color = src.get("color", "#4a6fa5")
             self._orig_colors[src["id"]] = color
+            fresh = self._freshness_icon(self._freshness_cache.get(src["id"]))
 
             btn = tk.Button(
                 self._bar_frame,
-                text=f"{src.get('icon', '')}\n{src['label']}\n○",
+                text=f"{fresh} {src.get('icon', '')}\n{src['label']}\n○",
                 bg=color,
                 fg="#ffffff",
                 activebackground=self._lighten(color),
@@ -111,6 +120,9 @@ class DataSourcePipeline(tk.Frame):
             )
             btn.pack(side="left", padx=1)
             self._box_btns[src["id"]] = btn
+            self._tile_tooltips[src["id"]] = _tooltip(
+                btn, self._freshness_tooltip(self._freshness_cache.get(src["id"]))
+            )
 
     # ── Live-Status ───────────────────────────────────────────────────────────
 
@@ -140,6 +152,7 @@ class DataSourcePipeline(tk.Frame):
             icon  = src.get("icon", "")
             label = src["label"]
             orig  = self._orig_colors.get(sid, "#4a6fa5")
+            fresh = self._freshness_icon(self._freshness_cache.get(sid))
 
             if state == "ok":
                 badge  = "✓"
@@ -155,7 +168,7 @@ class DataSourcePipeline(tk.Frame):
                 fg_btn = "#ffffff"
 
             btn.configure(
-                text=f"{badge}  {icon}\n{label}\n{text}",
+                text=f"{fresh} {badge}  {icon}\n{label}\n{text}",
                 bg=bg,
                 activebackground=self._lighten(bg),
             )
