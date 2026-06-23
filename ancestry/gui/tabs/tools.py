@@ -164,6 +164,7 @@ class ToolsTab(ttk.Frame):
             colors=self._state.colors(),
         )
         self._pipeline.pack(fill="x", pady=(0, 2))
+        self._build_next_step_panel(pipe_lf)
         # Status 800 ms nach Aufbau im Hintergrund laden
         self.after(800, self._load_pipeline_status)
 
@@ -274,6 +275,34 @@ class ToolsTab(ttk.Frame):
         self._tool_action(sec_vis, "🌐 HTML-Dashboard (Chart.js)", "dashboard_html",
                           lambda: [sys.executable, "-u", "-m", "ancestry.tools.gen_dashboard"])
 
+        # ── Abschnitt RT: Forschungsaufgaben-Dashboard ────────────────────────
+        sec_rt = self._tool_section(inner, "📋 Forschungsaufgaben")
+        self._rt_tree = ttk.Treeview(
+            sec_rt,
+            columns=("type", "status", "match", "note"),
+            show="headings",
+            height=6,
+            selectmode="browse",
+        )
+        self._rt_tree.heading("type",   text="Typ")
+        self._rt_tree.heading("status", text="Status")
+        self._rt_tree.heading("match",  text="Match/Person")
+        self._rt_tree.heading("note",   text="Notiz")
+        self._rt_tree.column("type",   width=100)
+        self._rt_tree.column("status", width=70)
+        self._rt_tree.column("match",  width=180)
+        self._rt_tree.column("note",   width=260)
+        self._rt_tree.pack(fill="x", pady=(0, 4))
+        btn_row_rt = ttk.Frame(sec_rt)
+        btn_row_rt.pack(fill="x")
+        ttk.Button(btn_row_rt, text="🔄 Aktualisieren",
+                   command=self._refresh_research_tasks).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_row_rt, text="✓ Erledigt",
+                   command=self._mark_rt_done).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_row_rt, text="🗑 Löschen",
+                   command=self._delete_rt).pack(side="left")
+        self.after(2000, self._refresh_research_tasks)
+
         # ── Abschnitt F: Ortskonkordanz (Anverwandte → Standardorte) ──────────
         sec = self._tool_section(inner, "🗺  Ortskonkordanz")
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
@@ -302,6 +331,23 @@ class ToolsTab(ttk.Frame):
         self._tutorial.start()
 
     # ── Pipeline-Status (Live-Abfrage aus DB) ─────────────────────────────
+    @staticmethod
+    def _fmt_age(ts_str: str) -> str:
+        """'2026-06-20T14:32:00' → 'vor 3 Tagen' / 'heute' / 'vor 2 Std.'"""
+        import datetime
+        try:
+            ts = datetime.datetime.fromisoformat(ts_str)
+            delta = datetime.datetime.now() - ts
+            if delta.days == 0:
+                h = int(delta.seconds / 3600)
+                return "heute" if h < 1 else f"vor {h} Std."
+            elif delta.days == 1:
+                return "gestern"
+            else:
+                return f"vor {delta.days} Tagen"
+        except Exception:
+            return ""
+
     def _load_pipeline_status(self):
         """Fragt Datensatz-Zählungen im Hintergrund ab und aktualisiert die Kacheln."""
         import threading
@@ -337,21 +383,41 @@ class ToolsTab(ttk.Frame):
                 except Exception:
                     pass
 
+                # pipeline_runs timestamps
+                try:
+                    with db._cursor() as cur:
+                        pr_rows = cur.execute(
+                            "SELECT source, last_run, n_items FROM pipeline_runs"
+                        ).fetchall()
+                        pipeline_ts = {r[0]: (r[1], r[2]) for r in pr_rows}
+                except Exception:
+                    pipeline_ts = {}
+
+                def _with_age(text: str, src: str, status: str) -> tuple[str, str]:
+                    if status == "ok" and src in pipeline_ts:
+                        age = self._fmt_age(pipeline_ts[src][0])
+                        if age:
+                            return (f"{text} · {age}", status)
+                    return (text, status)
+
                 def _ok(n: int, unit: str) -> tuple[str, str]:
                     return (f"{n:,} {unit}", "ok") if n else (unit.rstrip("e") + " – leer", "empty")
 
                 # GEDCOM/FTM
                 n = src_counts.get("gedcom", 0) + src_counts.get("ftm", 0)
-                statuses["gedcom"] = (f"{n:,} Personen", "ok") if n else ("nicht geladen", "empty")
+                _base = (f"{n:,} Personen", "ok") if n else ("nicht geladen", "empty")
+                statuses["gedcom"] = _with_age(_base[0], "gedcom", _base[1])
 
                 # Ancestry — Summe aller Matches, die nicht einer anderen Plattform gehören
                 known = {"ftdna", "myheritage", "gedmatch"}
                 ancestry_n = sum(v for k, v in match_counts.items() if k not in known)
-                statuses["ancestry"] = (f"{ancestry_n:,} Matches", "ok") if ancestry_n else ("nicht geladen", "empty")
+                _base = (f"{ancestry_n:,} Matches", "ok") if ancestry_n else ("nicht geladen", "empty")
+                statuses["ancestry"] = _with_age(_base[0], "ancestry", _base[1])
 
                 # Webtrees
                 n = src_counts.get("webtrees", 0) + src_counts.get("anverwandte", 0)
-                statuses["webtrees"] = (f"{n:,} Personen", "ok") if n else ("nicht geladen", "empty")
+                _base = (f"{n:,} Personen", "ok") if n else ("nicht geladen", "empty")
+                statuses["webtrees"] = _with_age(_base[0], "webtrees", _base[1])
 
                 # Matricula
                 try:
@@ -359,40 +425,100 @@ class ToolsTab(ttk.Frame):
                     _mat_p = _mstat.get_parish_status()
                     _mat_done = sum(1 for _p in _mat_p if _p["status"] == _mstat.STATUS_DONE)
                     if _mat_p:
-                        statuses["matricula"] = (
-                            f"{len(_mat_p)} Pfarreien ({_mat_done} fertig)", "ok")
+                        _base = (f"{len(_mat_p)} Pfarreien ({_mat_done} fertig)", "ok")
                     else:
-                        statuses["matricula"] = ("nicht geladen", "empty")
+                        _base = ("nicht geladen", "empty")
                 except Exception:
-                    statuses["matricula"] = ("nicht verfügbar", "empty")
+                    _base = ("nicht verfügbar", "empty")
+                statuses["matricula"] = _with_age(_base[0], "matricula", _base[1])
 
                 # MyHeritage
                 n = match_counts.get("myheritage", 0)
-                statuses["myheritage"] = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
+                _base = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
+                statuses["myheritage"] = _with_age(_base[0], "myheritage", _base[1])
 
                 # GEDmatch
                 n = match_counts.get("gedmatch", 0)
-                statuses["gedmatch"] = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
+                _base = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
+                statuses["gedmatch"] = _with_age(_base[0], "gedmatch", _base[1])
 
                 # FTDNA
                 n = match_counts.get("ftdna", 0)
-                statuses["ftdna"] = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
+                _base = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
+                statuses["ftdna"] = _with_age(_base[0], "ftdna", _base[1])
 
                 # WikiTree
                 n = src_counts.get("wikitree", 0)
-                statuses["wikitree"] = (f"{n:,} Profile", "ok") if n else ("nicht geladen", "empty")
+                _base = (f"{n:,} Profile", "ok") if n else ("nicht geladen", "empty")
+                statuses["wikitree"] = _with_age(_base[0], "wikitree", _base[1])
 
             except Exception:
                 pass
 
             if statuses and hasattr(self, "_pipeline") and self._pipeline.winfo_exists():
-                self.after(0, lambda s=statuses: self._pipeline.update_status(s))
+                def _apply(s=statuses):
+                    self._pipeline.update_status(s)
+                    if hasattr(self, "_next_step_var"):
+                        self._update_next_step(s)
+                self.after(0, _apply)
 
         threading.Thread(target=_query, daemon=True, name="pipeline_status").start()
 
     def refresh_pipeline_status(self):
         """Kann von außen aufgerufen werden, um den Status neu zu laden."""
         self._load_pipeline_status()
+
+    # ── Pipeline: Nächster-Schritt-Panel ─────────────────────────────────
+    def _build_next_step_panel(self, parent):
+        """Zeigt den empfohlenen nächsten Schritt basierend auf Pipeline-Status."""
+        self._next_step_frame = ttk.LabelFrame(
+            parent, text="🎯 Empfohlener nächster Schritt", padding=8)
+        self._next_step_frame.pack(fill="x", padx=8, pady=(0, 6))
+        self._next_step_var = tk.StringVar(value="Lade Status …")
+        ttk.Label(self._next_step_frame, textvariable=self._next_step_var,
+                  font=("Segoe UI", 9), wraplength=500).pack(anchor="w")
+        self._next_step_btn = ttk.Button(
+            self._next_step_frame, text="▶ Starten",
+            command=self._run_next_step)
+        self._next_step_btn.pack(anchor="w", pady=(4, 0))
+        self._next_step_action = None
+
+    def _update_next_step(self, statuses: dict):
+        """Berechnet den nächsten empfohlenen Schritt aus Pipeline-Statuses."""
+        if not hasattr(self, "_next_step_var"):
+            return
+        steps = [
+            ("ancestry",   "Ancestry DNA-Matches herunterladen",      "download"),
+            ("gedcom",     "GEDCOM/FTM-Stammbaum importieren",         "gedcom"),
+            ("webtrees",   "Webtrees-Baum crawlen und importieren",    "webtrees"),
+            ("myheritage", "MyHeritage-Matches herunterladen",         "myheritage"),
+        ]
+        for src, label, action in steps:
+            if statuses.get(src, ("", "empty"))[1] != "ok":
+                self._next_step_var.set(f"○  {label}")
+                self._next_step_action = action
+                self._next_step_btn.configure(state="normal")
+                return
+        self._next_step_var.set(
+            "✓  Alle Hauptquellen eingerichtet — DNA-Analyse starten?")
+        self._next_step_action = "analyse"
+        self._next_step_btn.configure(text="▶ Kern-Analysen starten", state="normal")
+
+    def _run_next_step(self):
+        action = getattr(self, "_next_step_action", None)
+        if action == "download":
+            # Switch to Download tab
+            try:
+                nb = self.winfo_parent()
+                parent = self.nametowidget(nb)
+                if hasattr(parent, "select"):
+                    parent.select(1)  # Download tab is index 1 typically
+            except Exception:
+                pass
+        elif action == "analyse":
+            self._tool_run("gedcom_analyse",
+                           [sys.executable, "-u", "-m", "ancestry.tools.run_analysis"],
+                           ttk.Button(self), ttk.Button(self))
 
     # ── Pipeline: Quellen-Definitionen ────────────────────────────────────
     def _pipeline_sources(self) -> list[dict]:
@@ -949,6 +1075,59 @@ class ToolsTab(ttk.Frame):
             self, self._state,
             set_status=lambda msg: self._tool_append(msg + "\n"))
 
+    def _refresh_research_tasks(self):
+        if not hasattr(self, "_rt_tree"):
+            return
+        try:
+            with self._state.db._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT task_id, entity_type, status, entity_label, title "
+                    "FROM research_tasks WHERE status != 'done' "
+                    "ORDER BY created_at DESC LIMIT 200"
+                ).fetchall()
+        except Exception:
+            return
+        for item in self._rt_tree.get_children():
+            self._rt_tree.delete(item)
+        for r in rows:
+            self._rt_tree.insert("", "end", iid=str(r[0]),
+                                 values=(r[1] or "", r[2] or "", r[3] or "", r[4] or ""))
+
+    def _mark_rt_done(self):
+        if not hasattr(self, "_rt_tree"):
+            return
+        sel = self._rt_tree.selection()
+        if not sel:
+            return
+        rid = int(sel[0])
+        try:
+            with self._state.db._cursor() as cur:
+                cur.execute(
+                    "UPDATE research_tasks SET status='done' WHERE task_id=?", (rid,))
+                self._state.db._conn.commit()
+        except Exception:
+            return
+        self._refresh_research_tasks()
+
+    def _delete_rt(self):
+        if not hasattr(self, "_rt_tree"):
+            return
+        sel = self._rt_tree.selection()
+        if not sel:
+            return
+        from tkinter import messagebox
+        if not messagebox.askyesno(
+                "Löschen", "Forschungsaufgabe wirklich löschen?", parent=self):
+            return
+        rid = int(sel[0])
+        try:
+            with self._state.db._cursor() as cur:
+                cur.execute("DELETE FROM research_tasks WHERE task_id=?", (rid,))
+                self._state.db._conn.commit()
+        except Exception:
+            return
+        self._refresh_research_tasks()
+
     # ── Ortskonkordanz-Editor ─────────────────────────────────────────────
     def _open_place_editor(self):
         from pathlib import Path
@@ -1274,6 +1453,26 @@ class ToolsTab(ttk.Frame):
                     self._tool_procs[key] = None
                     btn_start.configure(state="normal")
                     btn_stop.configure(state="disabled")
+                    # Update pipeline_runs timestamp
+                    import datetime as _dt
+                    _src_map = {
+                        "wt_import": "webtrees", "ftm_bridge": "gedcom",
+                        "mh_dl": "myheritage", "mat_cat": "matricula",
+                    }
+                    if key in _src_map:
+                        try:
+                            _db = getattr(self._state, "db", None)
+                            if _db is not None:
+                                with _db._cursor() as _cur:
+                                    _cur.execute(
+                                        "INSERT OR REPLACE INTO pipeline_runs "
+                                        "(source, last_run) VALUES (?,?)",
+                                        (_src_map[key],
+                                         _dt.datetime.now().isoformat())
+                                    )
+                                    _db._conn.commit()
+                        except Exception:
+                            pass
                     return
                 if on_line is not None:
                     line = on_line(line)
