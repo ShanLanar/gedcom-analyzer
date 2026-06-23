@@ -292,6 +292,55 @@ def run_osnabrueck(progress_cb=None, stop_event=None):
     _state["osnabrueck_summaries"] = create_municipality_summary(res)
 
 
+# ── Kern-Analysen mit Fortschrittsanzeige ─────────────────────────────────────
+
+#: Minimaler Standardsatz für run_all_with_progress()
+_CORE_TASKS: list[tuple[str, str]] = [
+    ("cousins",              "Cousins / Verwandtschaft"),
+    ("demographics",         "Demografie"),
+    ("surnames_and_countries", "Namen & Herkunftsländer"),
+    ("data_quality",         "Datenvollständigkeit"),
+]
+
+
+def run_all_with_progress(
+    task_list: list[tuple[str, str]] | None = None,
+    progress_cb=None,
+    stop_event=None,
+):
+    """Führt eine Liste von run_*-Tasks sequenziell aus und meldet Fortschritt.
+
+    Parameters
+    ----------
+    task_list:
+        Liste von (fn_name, label)-Tupeln.  Wird ``None`` übergeben, wird
+        ``_CORE_TASKS`` verwendet (Cousins, Demografie, Namen, Datenvollständigkeit).
+    progress_cb:
+        Callback ``(msg, **kwargs)`` – wird vor jedem Schritt und für
+        Zwischen-Ausgaben der Tasks selbst aufgerufen.
+    stop_event:
+        ``threading.Event``; wenn gesetzt, wird nach jedem Schritt geprüft.
+    """
+    if task_list is None:
+        task_list = _CORE_TASKS
+    n = len(task_list)
+    _set_stop_event(stop_event)
+    for i, (fn_name, label) in enumerate(task_list, 1):
+        if is_aborted():
+            _p(progress_cb, "Abgebrochen.", tag="warn")
+            return
+        _p(progress_cb, f"[{i}/{n}] {label} …")
+        fn = globals().get(f"run_{fn_name}")
+        if fn is None:
+            _p(progress_cb, f"  ⚠ Unbekannte Task: run_{fn_name}", tag="warn")
+            continue
+        fn(
+            progress_cb=lambda m, **kw: _p(progress_cb, f"    {m}", **kw),
+            stop_event=stop_event,
+        )
+    _p(progress_cb, f"✓ Alle {n} Analysen abgeschlossen.", tag="ok")
+
+
 # ── Schritt 14: Excel-Export ──────────────────────────────────────────────────
 
 def collect_report_sheets():

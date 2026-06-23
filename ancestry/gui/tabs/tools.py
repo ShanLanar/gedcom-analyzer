@@ -258,6 +258,9 @@ class ToolsTab(ttk.Frame):
                   ).pack(side="left")
         self._tool_action(sec, "GEDCOM verkleinern (GED Slim)", "ged_slim",
                           None, gui=_tool("ged_slim.py"))
+        self._tool_action(sec, "📊 Kern-GEDCOM-Analysen (Cousins+Demografie+…)", "gedcom_analyse",
+                          lambda: [sys.executable, "-u", "-m",
+                                   "ancestry.tools.run_analysis"])
         self._tool_action(sec, "Entity-Browser (Port 5001)", "entity",
                           lambda: [sys.executable, "-u", _tool("entity_browser.py")])
         self._tool_action(sec, "📦 Korpus für LLM bündeln (OCR+GEDCOM+Belege)", "llm_bundle",
