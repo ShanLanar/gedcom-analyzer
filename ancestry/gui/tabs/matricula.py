@@ -57,6 +57,10 @@ class MatriculaTab(ttk.Frame):
         t  = self._state.t
         lw = self._state.lang_widgets
 
+        # ── Bistums-Übersicht ─────────────────────────────────────────────────
+        self._overview_frame: tk.Frame | None = None
+        self._build_diocese_overview(self)
+
         # ── Bistums-Zeile ─────────────────────────────────────────────────────
         dioc_row = ttk.Frame(self); dioc_row.pack(fill="x", padx=14, pady=(10, 2))
         ttk.Label(dioc_row, text="Bistum/Archiv:", style="Bold.TLabel").pack(side="left")
@@ -169,6 +173,168 @@ class MatriculaTab(ttk.Frame):
         except Exception:
             log.exception("refresh_parishes beim Tab-Aufbau fehlgeschlagen")
 
+    # ── Bistums-Übersicht ─────────────────────────────────────────────────────
+
+    def _build_diocese_overview(self, parent_frame: tk.Widget):
+        """Kompakte visuelle Bistums-Übersicht am oberen Rand des Tabs."""
+        lf = ttk.LabelFrame(parent_frame, text="📋 Bistums-Übersicht", padding=6)
+        lf.pack(fill="x", padx=14, pady=(8, 2))
+        self._overview_frame = lf
+        self._render_diocese_tiles(lf)
+
+    def _render_diocese_tiles(self, container: tk.Widget):
+        """Tiles in *container* aufbauen (beim Refresh wird der Inhalt ersetzt)."""
+        for child in container.winfo_children():
+            child.destroy()
+
+        bg = self._state.colors().get("bg", "#F0F4F8")
+        dioceses = mstat.get_dioceses()
+
+        if not dioceses:
+            tk.Label(
+                container,
+                text=(
+                    "Noch keine Bistümer geladen. "
+                    "Bistums-Katalog im Werkzeuge-Tab starten."
+                ),
+                foreground="#AAAAAA",
+                background=bg,
+            ).pack(anchor="w", pady=2)
+            return
+
+        # --- Pfarrei-Status einmal laden und nach Diözesen-Pfad aggregieren ---
+        all_parishes = mstat.get_parish_status()
+        counts: dict[str, dict[str, int]] = {}
+        for p in all_parishes:
+            key = p["diocese"]
+            if key not in counts:
+                counts[key] = {"total": 0, "done": 0, "partial": 0, "open_": 0}
+            counts[key]["total"] += 1
+            if p["status"] == mstat.STATUS_DONE:
+                counts[key]["done"] += 1
+            elif p["status"] == mstat.STATUS_PARTIAL:
+                counts[key]["partial"] += 1
+            else:
+                counts[key]["open_"] += 1
+
+        # --- Scrollbarer Bereich (horizontal per Canvas) ----------------------
+        outer = tk.Frame(container, background=bg)
+        outer.pack(fill="x", expand=False)
+
+        canvas = tk.Canvas(outer, height=120, highlightthickness=0, background=bg)
+        canvas.pack(side="left", fill="x", expand=True)
+
+        vsb = ttk.Scrollbar(outer, orient="horizontal", command=canvas.xview)
+        vsb.pack(side="bottom", fill="x")
+        canvas.configure(xscrollcommand=vsb.set)
+
+        inner = tk.Frame(canvas, background=bg)
+        canvas_window = canvas.create_window((0, 0), window=inner, anchor="nw")
+
+        def _on_configure(_evt=None):
+            canvas.configure(scrollregion=canvas.bbox("all"))
+            # Canvas-Breite dem inneren Frame anpassen (wenn wenig Tiles)
+            req = inner.winfo_reqwidth()
+            canvas_w = canvas.winfo_width()
+            canvas.itemconfigure(canvas_window, width=max(req, canvas_w))
+
+        inner.bind("<Configure>", _on_configure)
+        canvas.bind("<Configure>", _on_configure)
+
+        # Mousewheel horizontal scrollen (Windows/Linux)
+        def _on_wheel(evt):
+            canvas.xview_scroll(int(-1 * (evt.delta / 120)), "units")
+
+        canvas.bind("<MouseWheel>", _on_wheel)
+
+        # --- Je Diözese ein Tile bauen ----------------------------------------
+        COL_GREEN  = "#217A3C"
+        COL_ORANGE = "#C85000"
+        COL_GRAY   = "#AAAAAA"
+
+        for col_idx, d in enumerate(dioceses):
+            diocese_path = d["path"]
+            name = d.get("name") or d["path"]
+            if len(name) > 20:
+                name = name[:19] + "…"
+
+            c = counts.get(diocese_path, {"total": 0, "done": 0, "partial": 0, "open_": 0})
+            total    = c["total"]
+            done_n   = c["done"]
+            partial_n = c["partial"]
+            open_n   = c["open_"]
+
+            tile = tk.Frame(inner, relief="groove", bd=1, padx=6, pady=4, background=bg)
+            tile.grid(row=0, column=col_idx, padx=4, pady=4, sticky="n")
+
+            # Zeile 1: Name fett
+            tk.Label(tile, text=name, font=("Segoe UI", 9, "bold"),
+                     background=bg).pack(anchor="w")
+
+            # Zeile 2: Zähler
+            summary = (
+                f"{total} Pfarreien · {done_n} fertig / "
+                f"{partial_n} teilw. / {open_n} offen"
+            )
+            tk.Label(tile, text=summary, font=("Segoe UI", 8),
+                     background=bg, foreground="#555555").pack(anchor="w")
+
+            # Mini-Fortschrittsbalken (rot | orange | grün)
+            bar_w = 120
+            bar_h = 8
+            bar_canvas = tk.Canvas(tile, width=bar_w, height=bar_h,
+                                   highlightthickness=0, background=COL_GRAY)
+            bar_canvas.pack(anchor="w", pady=(2, 4))
+            if total > 0:
+                pct_done    = done_n    / total
+                pct_partial = partial_n / total
+                x_open      = 0
+                x_partial   = int(bar_w * (open_n / total))
+                x_done      = x_partial + int(bar_w * pct_partial)
+                x_end       = x_done   + int(bar_w * pct_done)
+                # Grau (offen) ist der Canvas-Hintergrund selbst
+                if x_partial > x_open:
+                    bar_canvas.create_rectangle(
+                        x_open, 0, x_partial, bar_h, fill=COL_GRAY, outline="")
+                if x_done > x_partial:
+                    bar_canvas.create_rectangle(
+                        x_partial, 0, x_done, bar_h, fill=COL_ORANGE, outline="")
+                if x_end > x_done:
+                    bar_canvas.create_rectangle(
+                        x_done, 0, x_end, bar_h, fill=COL_GREEN, outline="")
+
+            # "Katalog laden"-Button
+            slug = d.get("slug") or d["path"]
+
+            def _load_catalog(s=slug, d_path=diocese_path, d_name=d.get("name", "")):
+                # Bistum im Dropdown setzen
+                label = (
+                    f"{s}  —  {d_name}"
+                    if d_name and d_name != d_path
+                    else d_path
+                )
+                values = list(self._diocese_combo.cget("values"))
+                if label in values:
+                    self._diocese_var.set(label)
+                else:
+                    # Fallback: nach slug suchen
+                    match = next((v for v in values if v.startswith(s + "  —  ")
+                                  or v == d_path), None)
+                    if match:
+                        self._diocese_var.set(match)
+                    else:
+                        self._diocese_var.set(d_path)
+                self.refresh_parishes()
+                self._start_catalog_scraper()
+
+            ttk.Button(tile, text="Katalog laden",
+                       command=_load_catalog).pack(anchor="w")
+
+    def _refresh_diocese_overview(self):
+        """Overview-Tiles neu aufbauen (nach parish-Refresh aufrufen)."""
+        if self._overview_frame is not None and self._overview_frame.winfo_exists():
+            self._render_diocese_tiles(self._overview_frame)
+
     # ── Pfarrei-Status ────────────────────────────────────────────────────────
 
     def refresh_parishes(self):
@@ -206,6 +372,7 @@ class MatriculaTab(ttk.Frame):
                 self._log_line(self._state.t("mat.no_db"))
             else:
                 self._log_line("Für dieses Bistum wurden noch keine Pfarreien gescrapt.")
+            self._refresh_diocese_overview()
             return
         self._start_btn.configure(state="normal" if self._proc is None else "disabled")
 
@@ -228,6 +395,7 @@ class MatriculaTab(ttk.Frame):
         if combo_values and not self._parish_var.get():
             partial = [v for v in combo_values if v.startswith("◐")]
             self._parish_var.set(partial[0] if partial else combo_values[0])
+        self._refresh_diocese_overview()
 
     def _start_catalog_scraper(self):
         """Startet scrape_matricula.py für das gewählte Bistum."""
