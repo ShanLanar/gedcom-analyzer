@@ -137,6 +137,7 @@ class PersonsTab(ttk.Frame):
         self._on_goto_matches = on_goto_matches
         self._pers_history: list[str] = []
         self._pers_current: str | None = None
+        self._search_after_id: str | None = None  # B3: Debounce-Handle
         self._build()
 
     def set_on_goto_matches(self, cb):
@@ -203,6 +204,8 @@ class PersonsTab(ttk.Frame):
         self._pers_list.pack(side="left", fill="both", expand=True)
         psb.pack(side="right", fill="y")
         self._pers_list.bind("<<TreeviewSelect>>", self._pers_on_list_select)
+        # A1: Spaltenbreiten speichern wenn der Nutzer eine Spalte zieht
+        self._pers_list.bind("<ButtonRelease-1>", self._pers_save_col_widths)
         self._pers_count = tk.StringVar(value="")
         ttk.Label(left, textvariable=self._pers_count,
                   foreground=_MUTED).pack(side="bottom", anchor="w")
@@ -340,6 +343,7 @@ class PersonsTab(ttk.Frame):
             except Exception:
                 pass
             self.after(0, self._pers_reload_list)
+            self.after(0, self._pers_load_col_widths)  # A1: gespeicherte Breiten laden
         threading.Thread(target=_bg, daemon=True, name="pers-init").start()
 
     def _pers_conf_key(self) -> str:
@@ -448,11 +452,57 @@ class PersonsTab(ttk.Frame):
         except Exception:
             return {}
 
+    # ── A1: Persistente Spaltenbreiten ────────────────────────────────────────────
+    def _pref_get(self, key: str, default: str = "") -> str:
+        """Liest einen Wert aus user_prefs (key/value-Tabelle)."""
+        try:
+            with self._db._cursor() as cur:
+                r = cur.execute(
+                    "SELECT value FROM user_prefs WHERE key=?", (key,)
+                ).fetchone()
+            return str(r[0]) if r else default
+        except Exception:
+            return default
+
+    def _pref_set(self, key: str, value: str) -> None:
+        """Schreibt einen Wert in user_prefs (INSERT OR REPLACE)."""
+        try:
+            with self._db._cursor() as cur:
+                cur.execute(
+                    "INSERT OR REPLACE INTO user_prefs (key, value) VALUES (?, ?)",
+                    (key, value),
+                )
+                self._db._conn.commit()
+        except Exception:
+            pass
+
+    def _pers_save_col_widths(self, _event=None) -> None:
+        """Speichert die aktuellen Spaltenbreiten des Personen-Treeviews."""
+        for col in ("name", "years", "rel"):
+            try:
+                w = self._pers_list.column(col, "width")
+                self._pref_set(f"persons_col_{col}", str(w))
+            except Exception:
+                pass
+
+    def _pers_load_col_widths(self) -> None:
+        """Lädt gespeicherte Spaltenbreiten und wendet sie auf den Treeview an."""
+        defaults = {"name": 170, "years": 82, "rel": 120}
+        for col, default_w in defaults.items():
+            try:
+                val = self._pref_get(f"persons_col_{col}", str(default_w))
+                w = int(val)
+                if w > 0:
+                    self._pers_list.column(col, width=w)
+            except Exception:
+                pass
+
+    # ── B3: Debounced Suche ───────────────────────────────────────────────────────
     def _on_pers_search_changed(self, *_):
-        """Entprellt die Personensuche (300 ms) — wie im Matches-Tab."""
-        if hasattr(self, "_pers_search_after"):
-            self.after_cancel(self._pers_search_after)
-        self._pers_search_after = self.after(300, self._pers_reload_list)
+        """Entprellt die Personensuche (350 ms) — B3."""
+        if self._search_after_id is not None:
+            self.after_cancel(self._search_after_id)
+        self._search_after_id = self.after(350, self._pers_reload_list)
 
     # ── Navigation ────────────────────────────────────────────────────────
     def _pers_on_list_select(self, _=None):
@@ -844,6 +894,14 @@ class PersonsTab(ttk.Frame):
         fact("Sterbeort", map_place(p.get("death_place")))
         if p.get("sosa_number"):
             fact("SOSA", p.get("sosa_number"))
+
+        # C4: Zeitleiste-Button (neben anderen Aktions-Buttons)
+        _btn_row = ttk.Frame(self._pers_detail)
+        _btn_row.pack(anchor="w", padx=10, pady=(4, 2))
+        self._timeline_btn = ttk.Button(
+            _btn_row, text="📅 Zeitleiste",
+            command=lambda: self._pers_show_timeline(ged_id, name or ged_id))
+        self._timeline_btn.pack(side="left")
 
         # Zusammengeführte Detail-Abschnitte (früher: separater Datenviewer)
         self._pers_render_insights(p)      # Herkunft / Nachnamen-Häufigkeit / Datenqualität

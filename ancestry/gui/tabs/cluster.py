@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import datetime
 import logging
 import tkinter as tk
-from tkinter import messagebox, ttk
+import webbrowser
+from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Optional
 
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
@@ -132,6 +134,7 @@ class ClusterTab(ttk.Frame):
         register_tooltip(_b, "tt.cl_mrca", self._state)
         lw.append((_sv, "cl.mrca_map"))
         ttk.Button(cf, text="📥 CSV", command=self._export_clusters).pack(side="left", padx=4)
+        ttk.Button(cf, text="📄 Report", command=self._export_cluster_report).pack(side="left", padx=4)
 
         # Cluster-Beschreibung
         df = ttk.Frame(self)
@@ -1026,6 +1029,52 @@ class ClusterTab(ttk.Frame):
             msg += f"\nFehler: {'; '.join(errors[:3])}"
         self._set_status(msg)
         messagebox.showinfo("Phasing", msg)
+
+    # ── A1: user_prefs Hilfsmethoden ─────────────────────────────────────────
+
+    def _pref_get(self, key: str, default: str = "") -> str:
+        """Liest einen Wert aus user_prefs. Gibt default zurück bei Fehler."""
+        try:
+            with self._state.db._cursor() as cur:
+                row = cur.execute(
+                    "SELECT value FROM user_prefs WHERE key = ?", (key,)
+                ).fetchone()
+            return row[0] if row else default
+        except Exception as exc:
+            log.debug("_pref_get(%s): %s", key, exc)
+            return default
+
+    def _pref_set(self, key: str, value: str) -> None:
+        """Schreibt einen Wert in user_prefs (INSERT OR REPLACE)."""
+        try:
+            with self._state.db._cursor() as cur:
+                cur.execute(
+                    "INSERT OR REPLACE INTO user_prefs (key, value) VALUES (?, ?)",
+                    (key, value),
+                )
+        except Exception as exc:
+            log.debug("_pref_set(%s): %s", key, exc)
+
+    def _save_col_widths(self, tree: ttk.Treeview, cols: tuple, prefix: str) -> None:
+        """Speichert Spaltenbreiten des gegebenen Treeview in user_prefs."""
+        for col in cols:
+            try:
+                w = tree.column(col, "width")
+                self._pref_set(f"{prefix}_{col}", str(w))
+            except Exception:
+                pass
+
+    def _load_col_widths(self, tree: ttk.Treeview, cols: tuple, prefix: str) -> None:
+        """Lädt und wendet gespeicherte Spaltenbreiten aus user_prefs an."""
+        for col in cols:
+            raw = self._pref_get(f"{prefix}_{col}", "")
+            if raw:
+                try:
+                    w = int(raw)
+                    if w >= 20:
+                        tree.column(col, width=w)
+                except (ValueError, tk.TclError) as exc:
+                    log.debug("_load_col_widths(%s/%s): %s", prefix, col, exc)
 
     # ── B1: Cluster-Farb-Persistierung ───────────────────────────────────────
 
