@@ -7,7 +7,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
-TARGET_VERSION = 36
+TARGET_VERSION = 37
 
 
 def _strip_leading_comments(stmt: str) -> str:
@@ -43,6 +43,7 @@ def run(conn: sqlite3.Connection) -> int:
         log.debug("Migrations-Schritt %04d: %s", n, sql_path.name)
         sql = sql_path.read_text(encoding="utf-8")
         statements = [s.strip() for s in re.split(r';', sql) if s.strip()]
+        migration_ok = True
         for stmt in statements:
             try:
                 conn.execute(stmt)
@@ -58,7 +59,11 @@ def run(conn: sqlite3.Connection) -> int:
                 if "no such table" in msg and stmt_upper.startswith(("CREATE INDEX", "CREATE VIEW")):
                     log.debug("Migration: Index/View übersprungen (Tabelle fehlt): %s", e)
                     continue
+                log.warning("Migration %s: %s", sql_path.name, e)
+                migration_ok = False
                 raise
+        if migration_ok:
+            log.info("Migration %s angewendet", sql_path.name)
 
     if row:
         conn.execute("UPDATE schema_version SET version=?", (TARGET_VERSION,))

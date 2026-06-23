@@ -215,6 +215,15 @@ class ClusterTab(ttk.Frame):
         self._cluster_list.pack(side="left", fill="both", expand=True)
         sy1.pack(side="right", fill="y")
         self._cluster_list.bind("<<TreeviewSelect>>", self._on_select)
+        # B3: Kontextmenü für Merge-Aktion
+        self._cluster_ctx_menu = tk.Menu(self, tearoff=0)
+        self._cluster_ctx_menu.add_command(
+            label="🔗 Zusammenführen mit …",
+            command=self._merge_cluster_dialog,
+        )
+        self._cluster_list.bind("<Button-3>", self._on_cluster_right_click)
+        # macOS: Button-2
+        self._cluster_list.bind("<Button-2>", self._on_cluster_right_click)
 
         mid = ttk.LabelFrame(pane, text=t("cl.frm_mid"), padding=6)
         lw.append((mid, "cl.frm_mid"))
@@ -880,9 +889,143 @@ class ClusterTab(ttk.Frame):
                           font=("Segoe UI", 8), fill="#444444")
 
     def _run_phasing(self):
-        """Placeholder: berechnet Phasing und zeichnet Matches als Punkte."""
+        """Auto-Phasing via Mutter-Kit: ordnet Cluster maternal/paternal zu."""
         self._draw_phasing_quadrants()
-        # TODO: Actual phasing logic using mother_kit assignment
+
+        # --- Mutter-Kit ermitteln ---
+        mother_name = self._phase_mother_var.get().strip()
+        if not mother_name:
+            messagebox.showwarning(
+                "Phasing",
+                "Bitte zuerst ein Mutter-Kit in der Combobox auswählen.",
+            )
+            return
+
+        test_guid = self._get_current_guid()
+        if not test_guid:
+            messagebox.showwarning(
+                self._state.t("dlg.no_kit"),
+                self._state.t("dlg.m_choose_kit"),
+            )
+            return
+
+        if not self._clusters:
+            messagebox.showinfo("Phasing", "Zuerst Cluster berechnen.")
+            return
+
+        # --- Mutter-Kit-GUID aus dna_kits holen ---
+        try:
+            with self._state.db._cursor() as cur:
+                row = cur.execute(
+                    "SELECT guid FROM dna_kits WHERE name = ? OR guid = ? LIMIT 1",
+                    (mother_name, mother_name),
+                ).fetchone()
+        except Exception as exc:
+            messagebox.showerror("Phasing – DB-Fehler", str(exc))
+            return
+
+        if not row:
+            messagebox.showerror(
+                "Phasing",
+                f"Mutter-Kit '{mother_name}' nicht in dna_kits gefunden.",
+            )
+            return
+        mother_guid = row[0]
+
+        # --- Shared-Match-GUIDs des Mutter-Kits laden ---
+        try:
+            with self._state.db._cursor() as cur:
+                sm_rows = cur.execute(
+                    """SELECT match_guid_b FROM shared_matches
+                       WHERE test_guid = ?
+                       UNION
+                       SELECT match_guid_a FROM shared_matches
+                       WHERE test_guid = ? AND match_guid_b = ?""",
+                    (mother_guid, test_guid, mother_guid),
+                ).fetchall()
+        except Exception as exc:
+            messagebox.showerror("Phasing – DB-Fehler", str(exc))
+            return
+
+        mother_match_set: set[str] = {r[0] for r in sm_rows if r[0]}
+
+        if not mother_match_set:
+            messagebox.showwarning(
+                "Phasing",
+                f"Keine Shared Matches für Mutter-Kit '{mother_name}' gefunden.\n"
+                "Bitte zunächst Shared Matches herunterladen.",
+            )
+            return
+
+        # --- Je Cluster: Anteil mütterlicher Matches zählen ---
+        cluster_result: list[tuple[int, str, int, int]] = []
+        # (cid, side, n_maternal, n_total)
+        for cid, members in self._clusters.items():
+            guids = [m["guid"] for m in members]
+            n_maternal = sum(1 for g in guids if g in mother_match_set)
+            n_total = len(guids)
+            ratio = n_maternal / n_total if n_total else 0.0
+            side = "maternal" if ratio >= 0.5 else "paternal"
+            cluster_result.append((cid, side, n_maternal, n_total))
+
+        # --- matches.phase_status updaten + paternal_maternal setzen ---
+        updated = 0
+        errors: list[str] = []
+        for cid, side, _, _ in cluster_result:
+            guids = [m["guid"] for m in self._clusters.get(cid, [])]
+            if not guids:
+                continue
+            try:
+                with self._state.db._cursor() as cur:
+                    cur.execute(
+                        "UPDATE matches SET paternal_maternal = ? "
+                        "WHERE match_guid IN ({})".format(",".join("?" * len(guids))),
+                        [side, *guids],
+                    )
+                updated += len(guids)
+            except Exception as exc:
+                errors.append(f"Cluster #{cid}: {exc}")
+
+        # --- Cluster-Farben aktualisieren (maternal=rot, paternal=blau) ---
+        for cid, side, _, _ in cluster_result:
+            if side == "maternal":
+                color = "#FFE0E0"
+                side_icon = "🔴 "
+            else:
+                color = "#DDF0FF"
+                side_icon = "🔵 "
+            self._cluster_side_colors[cid] = color
+            self._cluster_list.tag_configure(f"c{cid}", background=color)
+            # Top-Match-Text im Treeview aktualisieren
+            if self._cluster_list.exists(str(cid)):
+                vals = list(self._cluster_list.item(str(cid), "values"))
+                if vals and len(vals) >= 4:
+                    # Seiten-Icon in Spalte "top" (Index 3) setzen
+                    raw_name = vals[3].lstrip("🔵🔴 ")
+                    vals[3] = side_icon + raw_name
+                    self._cluster_list.item(str(cid), values=vals)
+        # B1: Neue Farben persistieren
+        self._save_cluster_colors()
+
+        # --- Phasing-Canvas neu zeichnen ---
+        self._draw_phasing_quadrants()
+
+        # --- Statusmeldung ---
+        n_mat = sum(1 for _, s, _, _ in cluster_result if s == "maternal")
+        n_pat = sum(1 for _, s, _, _ in cluster_result if s == "paternal")
+        mat_matches = sum(n for _, s, n, _ in cluster_result if s == "maternal")
+        pat_matches = sum(n - n_m for _, s, n, n_m in
+                         [(c, si, nt, nm) for c, si, nm, nt in cluster_result]
+                         if s == "paternal")
+        msg = (
+            f"Phasing abgeschlossen: {n_mat} Cluster maternal "
+            f"({mat_matches} Matches), {n_pat} Cluster paternal. "
+            f"{updated} Match-Datensätze aktualisiert."
+        )
+        if errors:
+            msg += f"\nFehler: {'; '.join(errors[:3])}"
+        self._set_status(msg)
+        messagebox.showinfo("Phasing", msg)
 
     # ── B1: Cluster-Farb-Persistierung ───────────────────────────────────────
 

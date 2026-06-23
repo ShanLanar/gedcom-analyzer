@@ -262,11 +262,12 @@ class ToolsTab(ttk.Frame):
         self._tool_action(sec, "📊 Kern-GEDCOM-Analysen (Cousins+Demografie+…)", "gedcom_analyse",
                           lambda: [sys.executable, "-u", "-m",
                                    "ancestry.tools.run_analysis"])
-        self._tool_action(sec, "Entity-Browser (Port 5001)", "entity",
-                          lambda: [sys.executable, "-u", _tool("entity_browser.py")])
         self._tool_action(sec, "📦 Korpus für LLM bündeln (OCR+GEDCOM+Belege)", "llm_bundle",
                           lambda: [sys.executable, "-u", "-m",
                                    "ancestry.tools.bundle_for_llm"])
+
+        # ── Abschnitt ER: Entity-Resolution ───────────────────────────────────
+        self._build_entity_resolution_section(inner)
 
         # ── Abschnitt G: Visualisierungen ─────────────────────────────────────
         sec_vis = self._tool_section(inner, "📊 Visualisierungen")
@@ -325,6 +326,239 @@ class ToolsTab(ttk.Frame):
         register_tooltip(_pb, "tt.pick_file", self._state)
         self._tool_action(sec, "📥 Ortskonkordanz importieren", "conc_imp",
                           self._tl_cmd_conc_import)
+
+    # ── Entity-Resolution ─────────────────────────────────────────────────
+
+    def _build_entity_resolution_section(self, parent: ttk.Frame):
+        """Baut den LabelFrame für Entity-Resolution im Tools-Tab."""
+        sec = self._tool_section(parent, "🔗  Entity-Resolution")
+        self._er_proc: subprocess.Popen | None = None
+
+        dim = self._state.colors().get("text_dim", "#888888")
+        ttk.Label(
+            sec,
+            text=(
+                "Verbindet Kirchenbuch-Einträge, DNA-Matches und GEDCOM-Personen "
+                "zu Entitäten. Erzeugt entity_candidates (Vorschläge) und "
+                "entity_assignments (Zuordnungen)."
+            ),
+            foreground=dim,
+            wraplength=400,
+            justify="left",
+        ).pack(anchor="w", pady=(0, 6))
+
+        # Modus-Auswahl
+        mode_row = ttk.Frame(sec)
+        mode_row.pack(fill="x", pady=(0, 4))
+        ttk.Label(mode_row, text="Modus:").pack(side="left")
+        self._er_mode = tk.StringVar(value="candidates")
+        for val, lbl in [
+            ("dry-run",   "dry-run"),
+            ("candidates", "candidates"),
+            ("auto",       "auto"),
+            ("full",       "full"),
+        ]:
+            ttk.Radiobutton(
+                mode_row, text=lbl, variable=self._er_mode, value=val,
+            ).pack(side="left", padx=(6, 0))
+
+        # Jahr-Diff + Mindest-Konfidenz
+        opts_row = ttk.Frame(sec)
+        opts_row.pack(fill="x", pady=(0, 6))
+        ttk.Label(opts_row, text="Max. Jahresdiff.:").pack(side="left")
+        self._er_year_diff = tk.StringVar(value="5")
+        ttk.Spinbox(
+            opts_row, from_=1, to=20, increment=1, width=4,
+            textvariable=self._er_year_diff,
+        ).pack(side="left", padx=(4, 12))
+        ttk.Label(opts_row, text="Min. Konfidenz:").pack(side="left")
+        self._er_min_conf = tk.StringVar(value="0.60")
+        ttk.Entry(opts_row, textvariable=self._er_min_conf, width=6).pack(
+            side="left", padx=(4, 0))
+
+        # Start- / Stop-Buttons
+        btn_row = ttk.Frame(sec)
+        btn_row.pack(fill="x", pady=(0, 4))
+        self._er_btn_start = ttk.Button(
+            btn_row, text="▶ Entitäten generieren",
+            command=self._er_start)
+        self._er_btn_start.pack(side="left", padx=(0, 6))
+        self._er_btn_stop = ttk.Button(
+            btn_row, text="■ Stop", state="disabled",
+            command=self._er_stop)
+        self._er_btn_stop.pack(side="left", padx=(0, 12))
+
+        # Entity-Browser öffnen
+        self._er_btn_browser = ttk.Button(
+            btn_row, text="🔍 Entity-Browser öffnen",
+            command=self._er_open_browser)
+        self._er_btn_browser.pack(side="left")
+
+        # Status-Label (Kandidaten / Zuordnungen)
+        self._er_status_var = tk.StringVar(value="Kandidaten: – | Zuordnungen: –")
+        ttk.Label(sec, textvariable=self._er_status_var,
+                  foreground=dim).pack(anchor="w", pady=(2, 0))
+        # Nach kurzem Delay initiale Zählung laden
+        self.after(1200, self._er_refresh_counts)
+
+    def _er_cmd(self) -> list[str]:
+        """Baut den Subprocess-Befehl für entity_resolution zusammen."""
+        cmd = [sys.executable, "-u", "-m", "ancestry.core.entity_resolution",
+               "--mode", self._er_mode.get()]
+        year_diff = self._er_year_diff.get().strip()
+        if year_diff:
+            cmd += ["--year-diff", year_diff]
+        min_conf = self._er_min_conf.get().strip()
+        if min_conf:
+            cmd += ["--min-confidence", min_conf]
+        return cmd
+
+    def _er_start(self):
+        """Startet entity_resolution als Subprocess in einem Background-Thread."""
+        if self._er_proc is not None:
+            self._tool_append("… Entity-Resolution läuft bereits.\n")
+            return
+        cmd = self._er_cmd()
+        self._tool_append("▶ " + " ".join(cmd) + "\n")
+        self._er_btn_start.configure(state="disabled")
+        self._er_btn_stop.configure(state="normal")
+
+        try:
+            self._er_proc = subprocess.Popen(
+                cmd,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+                encoding="utf-8",
+                errors="replace",
+                cwd=str(ROOT),
+                env=_utf8_env(),
+            )
+        except Exception as exc:
+            self._tool_append(f"⚠ Fehler beim Starten: {exc}\n")
+            self._er_proc = None
+            self._er_btn_start.configure(state="normal")
+            self._er_btn_stop.configure(state="disabled")
+            return
+
+        q: queue.Queue[str | None] = queue.Queue()
+
+        def _reader(p: subprocess.Popen):
+            assert p.stdout
+            for line in p.stdout:
+                q.put(line)
+            p.wait()
+            q.put(None)
+
+        threading.Thread(
+            target=_reader, args=(self._er_proc,), daemon=True,
+            name="er_reader").start()
+
+        def _poll():
+            while True:
+                try:
+                    line = q.get_nowait()
+                except queue.Empty:
+                    break
+                if line is None:
+                    rc = self._er_proc.returncode if self._er_proc else -1
+                    self._tool_append(
+                        f"✓ Entity-Resolution abgeschlossen (RC {rc})\n\n")
+                    self._er_proc = None
+                    self._er_btn_start.configure(state="normal")
+                    self._er_btn_stop.configure(state="disabled")
+                    self.after(300, self._er_refresh_counts)
+                    return
+                self._tool_append(line)
+            self.after(400, _poll)
+
+        self.after(400, _poll)
+
+    def _er_stop(self):
+        """Terminiert den laufenden entity_resolution-Prozess."""
+        if not self._er_proc:
+            return
+        try:
+            self._er_proc.terminate()
+            self._tool_append("■ Stop-Signal an Entity-Resolution gesendet.\n")
+        except Exception as exc:
+            self._tool_append(f"⚠ Stop fehlgeschlagen: {exc}\n")
+
+    def _er_refresh_counts(self):
+        """Liest Kandidaten- und Zuordnungszählungen aus der DB (Hintergrund-Thread)."""
+        def _query():
+            candidates = "–"
+            assignments = "–"
+            try:
+                db = getattr(self._state, "db", None)
+                if db is not None:
+                    try:
+                        with db._cursor() as cur:
+                            row = cur.execute(
+                                "SELECT COUNT(*) FROM entity_candidates"
+                            ).fetchone()
+                            if row:
+                                candidates = str(row[0])
+                    except Exception:
+                        candidates = "–"
+                    try:
+                        with db._cursor() as cur:
+                            row = cur.execute(
+                                "SELECT COUNT(*) FROM entity_assignments"
+                            ).fetchone()
+                            if row:
+                                assignments = str(row[0])
+                    except Exception:
+                        assignments = "–"
+            except Exception:
+                pass
+            label = f"Kandidaten: {candidates} | Zuordnungen: {assignments}"
+            if hasattr(self, "_er_status_var"):
+                self.after(0, lambda lbl=label: self._er_status_var.set(lbl))
+
+        threading.Thread(target=_query, daemon=True, name="er_counts").start()
+
+    def _er_open_browser(self):
+        """Öffnet den Entity-Browser (Port 5001).
+
+        Prüft zuerst ob Port 5001 bereits belegt ist — wenn ja, nur Browser
+        öffnen; sonst Flask-Server als Subprocess starten und dann Browser öffnen.
+        """
+        import socket
+
+        port_busy = False
+        try:
+            with socket.create_connection(("127.0.0.1", 5001), timeout=1):
+                port_busy = True
+        except OSError:
+            pass
+
+        if port_busy:
+            self._tool_append("🔍 Port 5001 belegt — öffne Browser direkt.\n")
+            webbrowser.open("http://localhost:5001")
+            return
+
+        # Server noch nicht gestartet → starten
+        browser_script = _tool("entity_browser.py")
+        if not os.path.exists(browser_script):
+            self._tool_append(f"⚠ entity_browser.py nicht gefunden: {browser_script}\n")
+            return
+
+        self._tool_append("▶ Entity-Browser-Server starten (Port 5001) …\n")
+        try:
+            subprocess.Popen(
+                [sys.executable, "-u", browser_script],
+                cwd=str(ROOT),
+                env=_utf8_env(),
+                start_new_session=True,
+            )
+        except Exception as exc:
+            self._tool_append(f"⚠ Fehler beim Starten: {exc}\n")
+            return
+
+        # Kurz warten, dann Browser öffnen
+        self.after(2500, lambda: webbrowser.open("http://localhost:5001"))
+        self._tool_append("🌐 Browser öffnet in ~2,5 s …\n")
 
     # ── Tutorial ──────────────────────────────────────────────────────────
     def _open_tutorial(self):

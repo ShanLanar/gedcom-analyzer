@@ -64,6 +64,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "m.ca":      {"de": "Vorfahre",    "en": "Ancestor"},
     "m.ged":     {"de": "🌳",           "en": "🌳"},
     "m.starred": {"de": "⭐",           "en": "⭐"},
+    "m.side":    {"de": "Seite",       "en": "Side"},  # B4: Phasing-Badge
     # Cluster list
     "cl.cid":   {"de": "Cluster",   "en": "Cluster"},
     "cl.count": {"de": "Matches",   "en": "Matches"},
