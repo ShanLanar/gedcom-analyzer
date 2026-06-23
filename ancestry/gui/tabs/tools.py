@@ -533,6 +533,8 @@ class ToolsTab(ttk.Frame):
                         variable=self._tl_ftm_no_link).pack(side="left")
         self._tool_action(frame, "🔀 FTM/GEDCOM → Bridge importieren", "ftm_bridge",
                           self._tl_cmd_ftm_bridge)
+        self._tool_action(frame, "🔍 Vorschau/Diff (Dry-Run, kein Import)", "ftm_dryrun",
+                          lambda: self._tl_cmd_ftm_bridge() + ["--dry-run"])
 
         ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=6)
 
