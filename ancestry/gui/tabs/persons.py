@@ -194,6 +194,7 @@ class PersonsTab(ttk.Frame):
         self._pers_count = tk.StringVar(value="")
         ttk.Label(left, textvariable=self._pers_count,
                   foreground=_MUTED).pack(side="bottom", anchor="w")
+        self._build_entity_resolution_panel(left)
 
         # ── Mitte: Stammbaum-Canvas ───────────────────────────────────────
         mid = ttk.Frame(outer)
@@ -767,7 +768,8 @@ class PersonsTab(ttk.Frame):
         self._pers_render_insights(p)      # Herkunft / Nachnamen-Häufigkeit / Datenqualität
         self._pers_render_parish(p)        # Kirchspiel / Konfession (Matricula)
         self._pers_render_hints(p, ged_id) # Recherche-Tipps (externe Quellen) + Aufgabe
-        self._pers_render_wikitree(p)      # WikiTree-Profil-Links (mit Konfidenz)
+        self._pers_render_wikitree(p)           # WikiTree-Profil-Links (mit Konfidenz)
+        self._pers_render_online_research(p)   # Schnell-Buttons für Online-Quellen
         self._pers_render_duplicates(p)    # Entity-Resolution: mögliche Duplikate
         self._pers_render_relations(p)     # Eltern/Partner/Kinder/Geschwister (Links)
         self._pers_render_xref(ged_id)     # GEDCOM-Verknüpfung (Quellen-Dedup)
@@ -1150,6 +1152,57 @@ class PersonsTab(ttk.Frame):
             foreground=_MUTED
         ).pack(side="left")
 
+    # ── Detail-Abschnitt: Online-Recherche-Schnell-Buttons ──────────────────────
+    def _pers_render_online_research(self, p: dict):
+        """Schnell-Buttons für externe Online-Quellen pro Person."""
+        given   = (p.get("given_name") or p.get("first_name") or "").strip()
+        surname = (p.get("surname") or p.get("last_name") or "").strip()
+        birth_y = str(p.get("birth_year") or "").strip()
+        birth_p = (p.get("birth_place") or "").strip()
+
+        if not given and not surname:
+            return
+
+        self._pers_hdr("🔍 Online-Quellen")
+        frame = ttk.Frame(self._pers_detail)
+        frame.pack(anchor="w", padx=12, pady=(0, 6))
+
+        name_q = f"{given} {surname}".strip()
+
+        links = [
+            ("🌍 FamilySearch",
+             f"https://www.familysearch.org/search/record/results?q.givenName={given}&q.surname={surname}&q.birthLikeDate.from={birth_y}"),
+            ("📖 Archion",
+             f"https://www.archion.de/de/browse/?no_cache=1&q={name_q}"),
+            ("🗿 BillionGraves",
+             f"https://billiongraves.com/search/results/#search={name_q}"),
+            ("✝ FindAGrave",
+             f"https://www.findagrave.com/memorial/search?firstname={given}&lastname={surname}&birthyear={birth_y}"),
+            ("📊 GOV-Orte",
+             f"http://gov.genealogy.net/search/index?id={birth_p}" if birth_p else ""),
+            ("🔤 DFD-Name",
+             f"https://www.namenforschung.net/dfd/woerterbuch/liste/?tx_dfd_main%5Baction%5D=search&tx_dfd_main%5Bcontroller%5D=Entry&tx_dfd_main%5Bsearch%5D%5Bq%5D={surname}"
+             if surname else ""),
+            ("📰 Zeitungsarchiv",
+             f"https://www.deutsche-digitale-bibliothek.de/newspaper/search?fulltext={name_q}"),
+        ]
+
+        col = 0
+        row_frame = None
+        for label, url in links:
+            if not url:
+                continue
+            if col % 3 == 0:
+                row_frame = ttk.Frame(frame)
+                row_frame.pack(anchor="w", pady=1)
+            ttk.Button(
+                row_frame,
+                text=label,
+                command=lambda u=url: webbrowser.open(u),
+                width=18,
+            ).pack(side="left", padx=(0, 4))
+            col += 1
+
     # ── Detail-Abschnitt: Entity-Resolution – mögliche Duplikate ────────────────
     def _pers_render_duplicates(self, p: dict):
         """Zeigt bis zu 5 Personen aus der DB, die möglicherweise dieselbe
@@ -1239,6 +1292,147 @@ class PersonsTab(ttk.Frame):
                 text="→ Anzeigen",
                 command=lambda i=cid: self._select_person_by_id(i),
             ).pack(side="right")
+
+    # ── Entity-Resolution: Duplikat-Prüf-Panel ───────────────────────────────────
+    def _build_entity_resolution_panel(self, parent: tk.Widget):
+        """Panel zum Prüfen und Bestätigen von Personen-Duplikaten."""
+        frame = ttk.LabelFrame(
+            parent, text="🔗 Mögliche Duplikate (Entity-Resolution)", padding=8)
+        frame.pack(fill="both", expand=False, padx=6, pady=4)
+
+        ctrl = ttk.Frame(frame)
+        ctrl.pack(fill="x")
+        ttk.Button(ctrl, text="🔍 Kandidaten laden",
+                   command=self._load_er_candidates).pack(side="left")
+        ttk.Label(ctrl, text="  Kandidaten mit hoher Namensähnlichkeit",
+                  foreground="#888888").pack(side="left")
+
+        cols = ("p1", "p2", "score", "reason")
+        self._er_tree = ttk.Treeview(frame, columns=cols, show="headings",
+                                     height=8, selectmode="browse")
+        self._er_tree.heading("p1",     text="Person 1")
+        self._er_tree.heading("p2",     text="Person 2")
+        self._er_tree.heading("score",  text="Score")
+        self._er_tree.heading("reason", text="Grund")
+        self._er_tree.column("p1",     width=180)
+        self._er_tree.column("p2",     width=180)
+        self._er_tree.column("score",  width=55, anchor="e")
+        self._er_tree.column("reason", width=200)
+        sb = ttk.Scrollbar(frame, orient="vertical", command=self._er_tree.yview)
+        self._er_tree.configure(yscrollcommand=sb.set)
+        self._er_tree.pack(fill="both", expand=True, side="left")
+        sb.pack(side="left", fill="y")
+
+        btn_row = ttk.Frame(frame)
+        btn_row.pack(fill="x", pady=(4, 0))
+        ttk.Button(btn_row, text="✓ Gleiche Person (zusammenführen)",
+                   command=lambda: self._er_decision("merge")).pack(side="left", padx=(0, 4))
+        ttk.Button(btn_row, text="✗ Verschiedene Personen",
+                   command=lambda: self._er_decision("different")).pack(side="left")
+
+    def _load_er_candidates(self):
+        """Lädt Kandidaten-Paare aus entity_resolution oder direkte SQL-Abfrage."""
+        candidates: list[dict] = []
+        try:
+            from ancestry.core.entity_resolution import find_duplicate_candidates
+            candidates = find_duplicate_candidates(self._state.db, limit=100)
+        except (ImportError, Exception):
+            try:
+                with self._state.db._cursor() as cur:
+                    rows = cur.execute("""
+                        SELECT a.xref_id, a.name, b.xref_id, b.name,
+                               a.birth_year, b.birth_year, a.source, b.source
+                        FROM gedcom_persons a
+                        JOIN gedcom_persons b ON (
+                            a.name = b.name
+                            AND a.xref_id < b.xref_id
+                            AND (a.birth_year IS NULL OR b.birth_year IS NULL
+                                 OR ABS(CAST(a.birth_year AS INT) - CAST(b.birth_year AS INT)) <= 3)
+                        )
+                        LIMIT 100
+                    """).fetchall()
+                    for r in rows:
+                        candidates.append({
+                            "id1": r[0], "name1": r[1],
+                            "id2": r[2], "name2": r[3],
+                            "score": (0.9 if r[4] and r[5]
+                                      and abs((r[4] or 0) - (r[5] or 0)) <= 1
+                                      else 0.7),
+                            "reason": (f"Gleicher Name"
+                                       f"{', ähnl. Geburtsjahr' if r[4] and r[5] else ''}"),
+                        })
+            except Exception:
+                # Fallback: query on gedcom_persons without xref_id column
+                try:
+                    with self._state.db._cursor() as cur:
+                        rows = cur.execute("""
+                            SELECT a.ged_id, a.given_name || ' ' || COALESCE(a.surname,'') as aname,
+                                   b.ged_id, b.given_name || ' ' || COALESCE(b.surname,'') as bname,
+                                   a.birth_year, b.birth_year
+                            FROM gedcom_persons a
+                            JOIN gedcom_persons b ON (
+                                a.surname = b.surname
+                                AND COALESCE(a.given_name,'') = COALESCE(b.given_name,'')
+                                AND a.ged_id < b.ged_id
+                                AND (a.birth_year IS NULL OR b.birth_year IS NULL
+                                     OR ABS(CAST(a.birth_year AS INT) - CAST(b.birth_year AS INT)) <= 3)
+                            )
+                            LIMIT 100
+                        """).fetchall()
+                        for r in rows:
+                            candidates.append({
+                                "id1": r[0], "name1": r[1],
+                                "id2": r[2], "name2": r[3],
+                                "score": (0.9 if r[4] and r[5]
+                                          and abs((r[4] or 0) - (r[5] or 0)) <= 1
+                                          else 0.7),
+                                "reason": (f"Gleicher Name"
+                                           f"{', ähnl. Geburtsjahr' if r[4] and r[5] else ''}"),
+                            })
+                except Exception:
+                    candidates = []
+
+        if not hasattr(self, "_er_tree"):
+            return
+        for item in self._er_tree.get_children():
+            self._er_tree.delete(item)
+        for c in candidates:
+            n1 = c.get("name1") or c.get("name") or c.get("id1", "?")
+            n2 = c.get("name2") or c.get("id2", "?")
+            score = c.get("score", 0)
+            reason = c.get("reason", "")
+            iid = f"{c.get('id1', '?')}||{c.get('id2', '?')}"
+            self._er_tree.insert("", "end", iid=iid,
+                                 values=(n1, n2, f"{score:.0%}", reason))
+
+    def _er_decision(self, decision: str):
+        if not hasattr(self, "_er_tree"):
+            return
+        sel = self._er_tree.selection()
+        if not sel:
+            return
+        iid = sel[0]
+        id1, id2 = iid.split("||") if "||" in iid else (iid, "")
+        try:
+            import datetime
+            with self._state.db._cursor() as cur:
+                cur.execute("""
+                    CREATE TABLE IF NOT EXISTS entity_decisions (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        person_id_1 TEXT, person_id_2 TEXT,
+                        decision TEXT, decided_at TEXT
+                    )
+                """)
+                cur.execute(
+                    "INSERT INTO entity_decisions "
+                    "(person_id_1, person_id_2, decision, decided_at) VALUES (?,?,?,?)",
+                    (id1, id2, decision,
+                     datetime.datetime.now().isoformat())
+                )
+                self._state.db._conn.commit()
+        except Exception:
+            pass
+        self._er_tree.delete(iid)
 
     def _select_person_by_id(self, person_id: str):
         """Wählt eine Person im Listenfeld aus und löst die Detail-Anzeige aus."""
