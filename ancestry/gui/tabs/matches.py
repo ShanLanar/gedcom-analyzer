@@ -621,6 +621,16 @@ class MatchesTab(ttk.Frame):
                                           highlightthickness=0)
         self._rel_prob_canvas.pack(fill="x", padx=8, pady=(2, 4))
 
+        # C1: cM Verwandtschafts-Predictor
+        lf_cm = ttk.LabelFrame(info_frame, text="🧬 Mögliche Verwandtschaft")
+        lf_cm.pack(fill="x", padx=8, pady=(2, 4))
+        self._cm_predict_frame = lf_cm
+        self._cm_predict_labels: list[ttk.Label] = []
+        for _ in range(5):
+            lbl = ttk.Label(lf_cm, text="", font=("Segoe UI", 8), anchor="w")
+            lbl.pack(fill="x", padx=4)
+            self._cm_predict_labels.append(lbl)
+
         # Research checklist
         ttk.Separator(info_frame, orient="horizontal").pack(fill="x", padx=8, pady=2)
         _sv_cl = tk.StringVar(value=t("md.checklist"))
@@ -1366,6 +1376,19 @@ class MatchesTab(ttk.Frame):
         if hasattr(self, "_page_prev_btn"):
             self._page_prev_btn["state"] = "normal" if self._current_offset > 0 else "disabled"
             self._page_next_btn["state"] = "normal" if self._has_next_page else "disabled"
+        # B1: Untere Seiten-Navigation aktualisieren
+        if hasattr(self, "_page_label_var"):
+            page = self._current_offset // self._MAX_DISPLAY_ROWS + 1
+            n_shown = len(self._matches)
+            total_hint = (
+                f"{self._current_offset + 1}–{self._current_offset + n_shown}"
+                if n_shown else "0"
+            )
+            self._page_label_var.set(f"Seite {page} ({total_hint} Treffer)")
+        if hasattr(self, "_page_prev2_btn"):
+            self._page_prev2_btn["state"] = "normal" if self._current_offset > 0 else "disabled"
+        if hasattr(self, "_page_next2_btn"):
+            self._page_next2_btn["state"] = "normal" if self._has_next_page else "disabled"
         self._tree.delete(*self._tree.get_children())
         for m in self._matches:
             endo = getattr(m, "endogamy_cluster", "") or ""
@@ -1911,6 +1934,8 @@ class MatchesTab(ttk.Frame):
 
         # Update relationship probability bars
         self.after(10, lambda: self._update_rel_prob(cm))
+        # C1: cM Predictor aktualisieren
+        self._update_cm_predictor(cm)
 
         # Load research checklist
         flags = getattr(match, "research_flags", 0) or 0
