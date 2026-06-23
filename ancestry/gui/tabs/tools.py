@@ -152,6 +152,7 @@ class ToolsTab(ttk.Frame):
         self._tl_diff_out = tk.StringVar(value="")
         self._tl_diff_include_new = tk.BooleanVar(value=True)
         self._tl_ftdna_csv = tk.StringVar(value="")
+        self._tl_mat_diocese = tk.StringVar(value="")
 
         # ── Pipeline: Datenquellen-Übersicht ──────────────────────────────
         pipe_lf = self._tool_section(inner, "🔌  Datenquellen-Pipeline")
@@ -340,6 +341,19 @@ class ToolsTab(ttk.Frame):
                 n = src_counts.get("webtrees", 0) + src_counts.get("anverwandte", 0)
                 statuses["webtrees"] = (f"{n:,} Personen", "ok") if n else ("nicht geladen", "empty")
 
+                # Matricula
+                try:
+                    from ancestry.tools import matricula_status as _mstat
+                    _mat_p = _mstat.get_parish_status()
+                    _mat_done = sum(1 for _p in _mat_p if _p["status"] == _mstat.STATUS_DONE)
+                    if _mat_p:
+                        statuses["matricula"] = (
+                            f"{len(_mat_p)} Pfarreien ({_mat_done} fertig)", "ok")
+                    else:
+                        statuses["matricula"] = ("nicht geladen", "empty")
+                except Exception:
+                    statuses["matricula"] = ("nicht verfügbar", "empty")
+
                 # MyHeritage
                 n = match_counts.get("myheritage", 0)
                 statuses["myheritage"] = (f"{n:,} Matches", "ok") if n else ("nicht geladen", "empty")
@@ -412,6 +426,20 @@ class ToolsTab(ttk.Frame):
                     "Prerequisite: network access to the Webtrees instance and a valid profile."
                 ),
                 "builder": self._src_webtrees,
+            },
+            {
+                "id": "matricula",
+                "icon": "⛪",
+                "label": "Matricula",
+                "sub": "Kirchenbücher",
+                "color": "#5D4037",
+                "desc": (
+                    "[DE] Kirchenbücher aus Matricula-Online herunterladen und transkribieren.\n"
+                    "Bistums-Katalog laden → Pfarrei wählen → Bücher scannen (Claude Vision).\n"
+                    "[EN] Download and transcribe church books from Matricula-Online.\n"
+                    "Load diocese catalog → select parish → scan books (Claude Vision)."
+                ),
+                "builder": self._src_matricula,
             },
             {
                 "id": "myheritage",
@@ -565,6 +593,47 @@ class ToolsTab(ttk.Frame):
         self._tool_action(frame, "🧪 Testlauf: Seiten lokal sichern", "wt_training",
                           self._tl_cmd_wt_training)
 
+    def _src_matricula(self, frame: ttk.Frame):
+        dim = self._state.colors().get("text_dim", "#888888")
+        try:
+            from ancestry.tools import matricula_status as mstat
+            dioceses = mstat.get_dioceses()
+            parishes = mstat.get_parish_status()
+            done_p = sum(1 for p in parishes if p["status"] == mstat.STATUS_DONE)
+            if dioceses:
+                info = (f"{len(dioceses)} Bistum/Archiv · {len(parishes)} Pfarreien"
+                        f" ({done_p} fertig transkribiert)")
+            else:
+                info = "Noch keine Bestände geladen — Bistums-Katalog starten."
+        except Exception:
+            info = "Status nicht verfügbar"
+        ttk.Label(frame, text=info, foreground=dim, wraplength=460).pack(
+            anchor="w", pady=(0, 6))
+
+        row = ttk.Frame(frame); row.pack(fill="x", pady=2)
+        ttk.Label(row, text="Bistum-Slug:").pack(side="left")
+        ttk.Entry(row, textvariable=self._tl_mat_diocese, width=18).pack(
+            side="left", padx=(4, 8))
+        ttk.Label(row,
+                  text="z. B. osnabrueck · muenster · paderborn\n"
+                       "(leer = alle Bistümer auflisten)",
+                  foreground=dim, justify="left").pack(side="left")
+        self._tool_action(frame, "⛪ Bistums-Katalog laden", "mat_cat_v2",
+                          self._tl_cmd_mat_catalog)
+
+        ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=6)
+        ttk.Button(
+            frame,
+            text="→ Zum Matricula-Tab wechseln",
+            command=self._jump_to_matricula_tab,
+        ).pack(anchor="w")
+        ttk.Label(
+            frame,
+            text="Dort: Pfarrei wählen, Bücher scannen (Claude Vision), "
+                 "Viewer, NER-Personensuche.",
+            foreground=dim, wraplength=460, justify="left",
+        ).pack(anchor="w", pady=(2, 0))
+
     def _src_myheritage(self, frame: ttk.Frame):
         self._tool_action(frame, "1 · Matchliste herunterladen", "mh_dl",
                           lambda: [sys.executable, "-u", _tool("download_myheritage.py")])
@@ -696,9 +765,13 @@ class ToolsTab(ttk.Frame):
         if not hasattr(self, "_mat_listbox"):
             return result
         for i in self._mat_listbox.curselection():
-            item = self._mat_listbox.get(i).strip().lstrip("✓◐○ ")
+            item = self._mat_listbox.get(i).strip()
+            if item.startswith("──"):   # Bistums-Überschrift überspringen
+                continue
+            item = item.lstrip("✓◐○ ")
             slug = item.split()[0]
-            result.append(slug)
+            if slug:
+                result.append(slug)
         return result
 
     def _mat_save_last_parish(self):
@@ -711,9 +784,13 @@ class ToolsTab(ttk.Frame):
                 pass
 
     def _mat_refresh_parishes(self):
-        """Lädt Pfarrei-Liste mit Scan-Status aus DB in die Listbox."""
+        """Lädt Pfarrei-Liste mit Scan-Status aus DB in die Listbox.
+
+        Bei mehreren Bistümern werden Pfarreien unter Bistums-Überschriften
+        gruppiert und eingerückt angezeigt."""
         try:
             import sqlite3
+            from collections import defaultdict
 
             from ancestry.tools.scan_matricula_kirchspiel import PARISH_DB
             if not PARISH_DB.exists():
@@ -741,22 +818,41 @@ class ToolsTab(ttk.Frame):
             except Exception:
                 pass
 
-            self._mat_listbox.delete(0, "end")
+            # Gruppieren nach Bistum (alles außer letztem Pfad-Segment)
+            diocese_map: dict[str, list] = defaultdict(list)
             for parish_id, total, done in rows:
-                slug = parish_id.split("/")[-1]
-                if total and total > 0:
-                    pct = int(done * 100 / total)
-                    if pct >= 100:
-                        label = f"✓ {slug}  ({done}/{total})"
-                    elif done > 0:
-                        label = f"◐ {slug}  ({done}/{total})"
+                parts = parish_id.split("/")
+                diocese = "/".join(parts[:-1]) if len(parts) > 1 else ""
+                diocese_map[diocese].append((parish_id, total, done))
+
+            self._mat_listbox.delete(0, "end")
+            multi = len(diocese_map) > 1
+
+            for diocese in sorted(diocese_map):
+                if multi:
+                    dioc_slug = diocese.split("/")[-1].upper() if diocese else "UNBEKANNT"
+                    self._mat_listbox.insert("end", f"── {dioc_slug} ──")
+                    hdr_idx = self._mat_listbox.size() - 1
+                    self._mat_listbox.itemconfig(hdr_idx, fg="#777777",
+                                                 selectbackground="#e0e0e0",
+                                                 selectforeground="#777777")
+
+                indent = "  " if multi else ""
+                for parish_id, total, done in diocese_map[diocese]:
+                    slug = parish_id.split("/")[-1]
+                    if total and total > 0:
+                        pct = int(done * 100 / total)
+                        if pct >= 100:
+                            label = f"{indent}✓ {slug}  ({done}/{total})"
+                        elif done > 0:
+                            label = f"{indent}◐ {slug}  ({done}/{total})"
+                        else:
+                            label = f"{indent}○ {slug}"
                     else:
-                        label = f"○ {slug}"
-                else:
-                    label = f"○ {slug}"
-                self._mat_listbox.insert("end", label)
-                if slug in prev:
-                    self._mat_listbox.selection_set("end")
+                        label = f"{indent}○ {slug}"
+                    self._mat_listbox.insert("end", label)
+                    if slug in prev:
+                        self._mat_listbox.selection_set("end")
         except Exception:
             pass
 
@@ -781,6 +877,25 @@ class ToolsTab(ttk.Frame):
                 pass
             return None   # nicht in den Log schreiben
         return line
+
+    def _jump_to_matricula_tab(self):
+        """Wechselt zum Matricula-Tab im Haupt-Notebook."""
+        try:
+            nb = self.nametowidget(self.winfo_parent())
+            from ancestry.gui.tabs.matricula import MatriculaTab
+            for tab_id in nb.tabs():
+                try:
+                    if isinstance(nb.nametowidget(tab_id), MatriculaTab):
+                        nb.select(tab_id)
+                        return
+                except Exception:
+                    continue
+            for tab_id in nb.tabs():
+                if "matricula" in nb.tab(tab_id, "text").lower():
+                    nb.select(tab_id)
+                    return
+        except Exception:
+            pass
 
     # ── Brick-Wall-Finder ─────────────────────────────────────────────────
     def _open_brickwall_finder(self):
@@ -901,6 +1016,14 @@ class ToolsTab(ttk.Frame):
 
     def _tl_cmd_diff_anv_ftm_test(self) -> list[str]:
         return [sys.executable, "-u", _tool("diff_anv_ftm.py"), "--test-one"]
+
+    def _tl_cmd_mat_catalog(self) -> list[str]:
+        """Lädt Bistums-Katalog von Matricula-Online (universal scraper)."""
+        diocese = self._tl_mat_diocese.get().strip()
+        cmd = [sys.executable, "-u", "-m", "ancestry.tools.scrape_matricula"]
+        if diocese:
+            cmd += ["--diocese", diocese]
+        return cmd
 
     # ── Matricula-Priorität ───────────────────────────────────────────────
     def _tl_pick_save(self, var: tk.StringVar, label: str, pattern: str):
