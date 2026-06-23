@@ -896,7 +896,13 @@ class ClusterTab(ttk.Frame):
             frame, height=160, bg="#f8f8f8",
             highlightthickness=1, highlightbackground="#cccccc")
         self._phase_canvas.pack(fill="x", pady=(4, 0))
+        # B4: <Configure> bereits vorhanden; zusätzlich Scroll/Drag-Events
+        # damit der Lazy-Canvas bei Viewport-Änderungen neu zeichnet.
         self._phase_canvas.bind("<Configure>", self._draw_phasing_quadrants)
+        self._phase_canvas.bind("<MouseWheel>", self._draw_phasing_quadrants)
+        self._phase_canvas.bind("<Button-4>", self._draw_phasing_quadrants)   # Linux scroll up
+        self._phase_canvas.bind("<Button-5>", self._draw_phasing_quadrants)   # Linux scroll down
+        self._phase_canvas.bind("<B1-Motion>", self._draw_phasing_quadrants)
 
     def _populate_phase_kits(self):
         """Befüllt Mutter-Kit-Combobox aus dna_kits."""
@@ -1310,6 +1316,104 @@ class ClusterTab(ttk.Frame):
                     descs.get(str(cid), ""),
                 ])
         messagebox.showinfo("Export", f"{len(self._clusters)} Cluster → {p}")
+
+    # ── C3: Cluster-Report als HTML ──────────────────────────────────────────
+
+    def _export_cluster_report(self):
+        """Exportiert alle Cluster als HTML-Bericht und öffnet ihn im Browser."""
+        if not self._clusters:
+            messagebox.showinfo("Report", "Zuerst Cluster berechnen.")
+            return
+
+        kit_id = self._get_current_guid() or "—"
+        path = filedialog.asksaveasfilename(
+            title="Cluster-Report speichern",
+            defaultextension=".html",
+            filetypes=[("HTML", "*.html"), ("Alle", "*.*")],
+            initialfile="cluster_report.html",
+        )
+        if not path:
+            return
+
+        today = datetime.date.today().strftime("%d.%m.%Y")
+        descs = self._load_settings().get("cluster_descs", {})
+        cluster_colors_html = COLORS["cluster"]
+
+        rows_html = []
+        for cid, members in sorted(self._clusters.items()):
+            color = self._cluster_side_colors.get(
+                cid, cluster_colors_html[(cid - 1) % len(cluster_colors_html)]
+            )
+            # Seite ermitteln
+            if color == "#DDF0FF":
+                side = "paternal"
+            elif color == "#FFE0E0":
+                side = "maternal"
+            else:
+                side = "—"
+            n = len(members)
+            desc = descs.get(str(cid), "")
+            color_box = (
+                f'<span style="display:inline-block;width:18px;height:18px;'
+                f'background:{color};border:1px solid #aaa;'
+                f'vertical-align:middle;border-radius:3px;"></span>'
+            )
+            rows_html.append(
+                f"<tr>"
+                f"<td style='text-align:center'>#{cid}</td>"
+                f"<td style='text-align:center'>{n}</td>"
+                f"<td>{side}</td>"
+                f"<td style='text-align:center'>{color_box}</td>"
+                f"<td>{desc}</td>"
+                f"</tr>"
+            )
+
+        table_body = "\n".join(rows_html)
+        html = f"""<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <title>Cluster-Report — Kit {kit_id}</title>
+  <style>
+    body {{ font-family: 'Segoe UI', Arial, sans-serif; margin: 32px; color: #222; }}
+    h1   {{ color: #1A1A2E; }}
+    table {{ border-collapse: collapse; width: 100%; margin-top: 16px; }}
+    th   {{ background: #1A1A2E; color: #fff; padding: 8px 12px; text-align: left; }}
+    td   {{ padding: 6px 12px; border-bottom: 1px solid #e0e0e0; }}
+    tr:nth-child(even) td {{ background: #f7f7f7; }}
+    footer {{ margin-top: 32px; color: #888; font-size: 0.85em; }}
+  </style>
+</head>
+<body>
+  <h1>Cluster-Report — Kit {kit_id}</h1>
+  <p>Erstellt am {today} &nbsp;|&nbsp; {len(self._clusters)} Cluster</p>
+  <table>
+    <thead>
+      <tr>
+        <th>Cluster-ID</th>
+        <th>Anzahl Matches</th>
+        <th>Seite</th>
+        <th>Farbe</th>
+        <th>Beschreibung</th>
+      </tr>
+    </thead>
+    <tbody>
+{table_body}
+    </tbody>
+  </table>
+  <footer>Erstellt mit dem Genealogie-DNA-Analyse-Tool &mdash; {today}</footer>
+</body>
+</html>
+"""
+        try:
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(html)
+        except OSError as exc:
+            messagebox.showerror("Report – Fehler", str(exc))
+            return
+
+        self._set_status(f"Cluster-Report gespeichert: {path}")
+        webbrowser.open(f"file://{path}")
 
     # ── Stammbaum-Analyse-Popup ───────────────────────────────────────────────
 

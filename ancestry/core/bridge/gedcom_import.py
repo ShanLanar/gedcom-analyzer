@@ -329,7 +329,7 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
         "(Sosa: %d, veraltet entfernt: %d)",
         imported_count, updated_count, skipped_count,
         sum(1 for r in rows if r["sosa_number"]),
-        len(stale_ids) if rows else 0,
+        len(stale_ids),
     )
     return ImportSummary(imported_count, updated_count, skipped_count)
 
