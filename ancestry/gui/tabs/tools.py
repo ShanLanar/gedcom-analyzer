@@ -11,11 +11,13 @@ from __future__ import annotations
 
 import os
 import queue
+import shutil
 import subprocess
 import sys
 import threading
 import tkinter as tk
 import webbrowser
+from datetime import datetime
 from tkinter import filedialog, scrolledtext, ttk
 
 from ancestry.gui.state import AppState
@@ -580,7 +582,9 @@ class ToolsTab(ttk.Frame):
         _b.pack(anchor="w", pady=(0, 2))
         register_tooltip(_b, "tt.tl_dbdel", self._state)
         self._tool_action(frame, "Crawl → Datenbank importieren", "wt_import",
-                          lambda: [sys.executable, "-u", _tool("import_webtrees.py")])
+                          lambda: [sys.executable, "-u", _tool("import_webtrees.py")],
+                          on_start=self._wt_backup_db,
+                          on_line=self._wt_import_on_line)
         self._tool_action(frame, "💾 Als GEDCOM-Datei exportieren", "wt_export",
                           self._tl_cmd_wt_export)
         row = ttk.Frame(frame); row.pack(fill="x", pady=2)
@@ -592,6 +596,28 @@ class ToolsTab(ttk.Frame):
                   ).pack(side="left")
         self._tool_action(frame, "🧪 Testlauf: Seiten lokal sichern", "wt_training",
                           self._tl_cmd_wt_training)
+
+    # ── Webtrees-Import-Helfer ────────────────────────────────────────────
+
+    def _wt_backup_db(self):
+        """P11 – Erstellt ein Backup der SQLite-Datenbank vor dem Import."""
+        try:
+            src = getattr(self._state.db, "_path", None)
+            if not src:
+                import ancestry.paths as _ap
+                src = str(_ap.DB_PATH)
+            ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+            dst = os.path.join(os.path.dirname(src), f"ancestry_backup_{ts}.db")
+            shutil.copy2(src, dst)
+            self._tool_append(f"💾 Backup: {dst}\n")
+        except Exception as e:
+            self._tool_append(f"⚠ Backup fehlgeschlagen: {e}\n")
+
+    def _wt_import_on_line(self, line: str) -> str:
+        """P9 – Hebt wichtige Import-Statusmeldungen optisch hervor."""
+        if any(kw in line for kw in ("Importiert", "Personen", "fertig", "done", "Fehler", "Error")):
+            return f"  → {line}"
+        return line
 
     def _src_matricula(self, frame: ttk.Frame):
         dim = self._state.colors().get("text_dim", "#888888")
