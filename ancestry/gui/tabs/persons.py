@@ -1456,6 +1456,156 @@ class PersonsTab(ttk.Frame):
                 command=lambda i=cid: self._select_person_by_id(i),
             ).pack(side="right")
 
+    # ── C4: Personen-Zeitleiste ───────────────────────────────────────────────────
+    def _pers_show_timeline(self, ged_id: str, display_name: str):
+        """Öffnet einen Toplevel-Dialog mit der chronologischen Zeitleiste der
+        Lebensereignisse der ausgewählten Person sowie ihrer Eltern und Kinder."""
+        p = self._pers_get(ged_id)
+        if not p:
+            messagebox.showinfo("Zeitleiste", "Person nicht gefunden.")
+            return
+
+        # Alle relevanten Personen sammeln: Fokusperson + Eltern + Kinder
+        parents_ids  = _loads(p.get("parents_json"))
+        children_ids = _loads(p.get("children_json"))
+        all_ids = [str(ged_id)] + [str(i) for i in parents_ids] + [str(i) for i in children_ids]
+        all_ids = list(dict.fromkeys(all_ids))  # Duplikate entfernen, Reihenfolge behalten
+
+        persons_map: dict[str, dict] = {}
+        if all_ids:
+            try:
+                ph = ",".join("?" * len(all_ids))
+                with self._db._cursor() as cur:
+                    rows = cur.execute(
+                        f"SELECT ged_id, given_name, surname, birth_year, death_year, "
+                        f"birth_place, death_place, sex, "
+                        f"baptism_year, burial_year, baptism_place, burial_place "
+                        f"FROM gedcom_persons WHERE ged_id IN ({ph})",
+                        all_ids,
+                    ).fetchall()
+                persons_map = {str(r["ged_id"]): dict(r) for r in rows}
+            except Exception:
+                # Spalten baptism_year / burial_year existieren möglicherweise nicht
+                try:
+                    ph = ",".join("?" * len(all_ids))
+                    with self._db._cursor() as cur:
+                        rows = cur.execute(
+                            f"SELECT ged_id, given_name, surname, birth_year, death_year, "
+                            f"birth_place, death_place, sex "
+                            f"FROM gedcom_persons WHERE ged_id IN ({ph})",
+                            all_ids,
+                        ).fetchall()
+                    persons_map = {str(r["ged_id"]): dict(r) for r in rows}
+                except Exception:
+                    persons_map = {}
+
+        # Ereignisse zusammenstellen
+        events: list[tuple[int, str, str, str]] = []  # (sort_year, label, person_name, ort)
+
+        _EVENT_LABELS = {
+            "birth":   "Geburt",
+            "baptism": "Taufe",
+            "death":   "Tod",
+            "burial":  "Begräbnis",
+        }
+
+        def _person_name(pd: dict) -> str:
+            n = f"{(pd.get('given_name') or '').strip()} {(pd.get('surname') or '').strip()}".strip()
+            return n or str(pd.get("ged_id", "?"))
+
+        def _add_event(year_val, event_key: str, place_val, person_data: dict):
+            try:
+                yr = int(str(year_val).strip()) if year_val else None
+            except (ValueError, TypeError):
+                yr = None
+            if not yr or yr <= 0:
+                return
+            lbl = _EVENT_LABELS.get(event_key, event_key)
+            ort = (str(place_val or "")).strip() or "—"
+            pname = _person_name(person_data)
+            events.append((yr, lbl, pname, ort))
+
+        # Heiraten aus families-Tabelle (falls vorhanden)
+        def _add_marriages(xid: str, pdata: dict):
+            try:
+                with self._db._cursor() as cur:
+                    rows = cur.execute(
+                        "SELECT marriage_year, marriage_place "
+                        "FROM gedcom_families "
+                        "WHERE husb_id=? OR wife_id=?",
+                        (xid, xid),
+                    ).fetchall()
+                for r in rows:
+                    _add_event(r[0], "Heirat", r[1], pdata)
+            except Exception:
+                # Tabelle existiert nicht oder hat andere Spalten → ignorieren
+                pass
+
+        # Spouses auch: Heiratsjahr aus spouses_json ist nicht direkt vorhanden;
+        # gedcom_families ist die richtige Quelle.
+        for pid in all_ids:
+            pd = persons_map.get(pid)
+            if not pd:
+                continue
+            _add_event(pd.get("birth_year"),   "birth",   pd.get("birth_place"),   pd)
+            _add_event(pd.get("baptism_year"), "baptism", pd.get("baptism_place"), pd)
+            _add_event(pd.get("death_year"),   "death",   pd.get("death_place"),   pd)
+            _add_event(pd.get("burial_year"),  "burial",  pd.get("burial_place"),  pd)
+            _add_marriages(pid, pd)
+
+        # Heiraten der Fokusperson auch aus spouses_json (als Fallback)
+        spouses_ids = _loads(p.get("spouses_json"))
+        # gedcom_families für Fokusperson bereits oben verarbeitet
+
+        events.sort(key=lambda e: e[0])
+
+        # ── Dialog aufbauen ──
+        dlg = tk.Toplevel(self)
+        dlg.title(f"Zeitleiste — {display_name}")
+        dlg.geometry("640x460")
+        dlg.resizable(True, True)
+
+        ttk.Label(
+            dlg,
+            text=f"Lebensereignisse: {display_name} + Eltern & Kinder",
+            font=("Segoe UI", 10, "bold"),
+            wraplength=600,
+        ).pack(anchor="w", padx=12, pady=(10, 4))
+
+        cols = ("year", "event", "person", "place")
+        tv = ttk.Treeview(dlg, columns=cols, show="headings", height=18)
+        tv.heading("year",   text="Jahr")
+        tv.heading("event",  text="Ereignis")
+        tv.heading("person", text="Person")
+        tv.heading("place",  text="Ort")
+        tv.column("year",   width=55,  anchor="center", stretch=False)
+        tv.column("event",  width=90,  anchor="w",      stretch=False)
+        tv.column("person", width=200, anchor="w",      stretch=True)
+        tv.column("place",  width=260, anchor="w",      stretch=True)
+
+        sb_v = ttk.Scrollbar(dlg, orient="vertical",   command=tv.yview)
+        sb_h = ttk.Scrollbar(dlg, orient="horizontal", command=tv.xview)
+        tv.configure(yscrollcommand=sb_v.set, xscrollcommand=sb_h.set)
+
+        sb_v.pack(side="right", fill="y")
+        sb_h.pack(side="bottom", fill="x")
+        tv.pack(fill="both", expand=True, padx=(12, 0), pady=(0, 4))
+
+        if events:
+            for yr, lbl, pname, ort in events:
+                tv.insert("", "end", values=(yr, lbl, pname, ort))
+        else:
+            tv.insert("", "end", values=("—", "Keine Ereignisse gefunden", "", ""))
+
+        ttk.Label(
+            dlg,
+            text=f"{len(events)} Ereignis(se) · Person + {len(parents_ids)} Elternteil(e) + {len(children_ids)} Kind(er)",
+            foreground=_MUTED,
+            font=("Segoe UI", 8),
+        ).pack(anchor="w", padx=12, pady=(0, 2))
+
+        ttk.Button(dlg, text="Schließen", command=dlg.destroy).pack(pady=(2, 8))
+
     # ── Entity-Resolution: Duplikat-Prüf-Panel ───────────────────────────────────
     def _build_entity_resolution_panel(self, parent: tk.Widget):
         """Panel zum Prüfen und Bestätigen von Personen-Duplikaten."""
