@@ -122,6 +122,7 @@ class AncestryDnaApp(tk.Frame):
         self.after(200, self._load_settings)
         self.after(300, self._update_matches_kit_combo)
         self.after(400, self._load_lang_setting)
+        self.after(600, self._maybe_show_checklist)
 
     def mainloop(self, *a, **k):
         """Standalone-Kompatibilität: leitet an das Toplevel weiter."""
@@ -1154,6 +1155,115 @@ class AncestryDnaApp(tk.Frame):
             self._lang = lang
             self._apply_lang()
 
+    def _maybe_show_checklist(self):
+        """Zeigt beim ersten Start eine Setup-Checkliste, wenn noch keine Daten vorhanden sind."""
+        import os
+
+        # Nicht anzeigen, wenn der Nutzer die Anzeige unterdrückt hat
+        if self._load_ui_settings().get("hide_checklist"):
+            return
+
+        # Match-Anzahl prüfen
+        try:
+            n_matches = len(self._db.get_matches())
+        except Exception:
+            n_matches = 0
+
+        # Wenn bereits Matches vorhanden → kein Onboarding nötig
+        if n_matches > 0:
+            return
+
+        # GEDCOM geladen?
+        st = self._load_ui_settings()
+        gedcom_path = st.get("gedcom_path", "") or ""
+        gedcom_ok = bool(
+            self._state.startup_gedcom_path
+            or self._startup_gedcom_path
+            or (gedcom_path and os.path.exists(gedcom_path))
+        )
+
+        # Dialog aufbauen
+        dlg = tk.Toplevel(self)
+        dlg.title("Erste Schritte – Ancestry DNA Analyzer")
+        dlg.resizable(False, False)
+        dlg.grab_set()
+
+        # Intro-Text
+        tk.Label(
+            dlg,
+            text="Willkommen! Hier sind die nächsten Schritte, um die App einzurichten:",
+            font=("TkDefaultFont", 10, "bold"),
+            wraplength=420,
+            justify="left",
+            padx=18,
+            pady=12,
+        ).pack(anchor="w")
+
+        # Checkliste
+        checklist_frame = tk.Frame(dlg, padx=18, pady=4)
+        checklist_frame.pack(fill="x")
+
+        steps = [
+            (gedcom_ok,  "1. GEDCOM-Datei laden  (Menü: Datei → GEDCOM öffnen)"),
+            (False,      "2. Ancestry-Login  (Tab: Herunterladen → Einloggen)"),
+            (False,      "3. DNA-Matches herunterladen  (Tab: Herunterladen)"),
+            (False,      "4. Matches analysieren  (Tab: Matches)"),
+        ]
+        for done, text in steps:
+            icon = "✓" if done else "○"
+            color = "#217A3C" if done else "#C85000"
+            tk.Label(
+                checklist_frame,
+                text=f"  {icon}  {text}",
+                fg=color,
+                font=("TkDefaultFont", 10),
+                justify="left",
+                anchor="w",
+            ).pack(anchor="w", pady=2)
+
+        # Separator
+        ttk.Separator(dlg, orient="horizontal").pack(fill="x", padx=12, pady=8)
+
+        # "Nicht mehr anzeigen"-Checkbutton
+        hide_var = tk.BooleanVar(value=False)
+        bottom_frame = tk.Frame(dlg, padx=12, pady=4)
+        bottom_frame.pack(fill="x")
+        tk.Checkbutton(
+            bottom_frame,
+            text="Nicht mehr anzeigen",
+            variable=hide_var,
+        ).pack(side="left")
+
+        def _close():
+            if hide_var.get():
+                self._save_ui_settings(hide_checklist=True)
+            dlg.destroy()
+
+        tk.Button(
+            bottom_frame,
+            text="OK – Los geht's",
+            command=_close,
+            font=("TkDefaultFont", 10, "bold"),
+            bg="#217A3C",
+            fg="white",
+            relief="flat",
+            padx=12,
+            pady=4,
+        ).pack(side="right")
+
+        # Dialog zentrieren relativ zum Hauptfenster
+        self.update_idletasks()
+        dlg.update_idletasks()
+        px = self.winfo_toplevel().winfo_x()
+        py = self.winfo_toplevel().winfo_y()
+        pw = self.winfo_toplevel().winfo_width()
+        ph = self.winfo_toplevel().winfo_height()
+        dw = dlg.winfo_width()
+        dh = dlg.winfo_height()
+        x = px + (pw - dw) // 2
+        y = py + (ph - dh) // 2
+        dlg.geometry(f"+{x}+{y}")
+
     def _ensure_gedcom_loaded(self, on_ready, force_ask=False):
         """Lädt den eigenen GEDCOM (mit Cache) + baut Index/Ahnen-Map, dann
         ruft on_ready(ged_dict) auf dem Main-Thread. GEDCOM-Pfad und Wurzelperson
@@ -1569,7 +1679,7 @@ class AncestryDnaApp(tk.Frame):
             initialfile="ancestry_dna_matches.csv")
         if p:
             export_csv(matches, p)
-            messagebox.showinfo(self._t("dlg.done"), f"{len(matches)} Matches → {p}")
+            self._show_export_done(p, f"{len(matches)} Matches")
 
     def _export_shared_csv(self):
         from ancestry.core.export import export_shared_csv
@@ -1593,7 +1703,7 @@ class AncestryDnaApp(tk.Frame):
             initialfile="ancestry_shared_matches.csv")
         if p:
             export_shared_csv(shared, p, matches)
-            messagebox.showinfo(self._t("dlg.done"), f"{len(shared)} Shared Matches → {p}")
+            self._show_export_done(p, f"{len(shared)} Shared Matches")
 
     def _export_xlsx(self):
         from ancestry.core.export import export_xlsx
@@ -1606,7 +1716,7 @@ class AncestryDnaApp(tk.Frame):
             initialfile="ancestry_dna_matches.xlsx")
         if p:
             export_xlsx(matches, p)
-            messagebox.showinfo(self._t("dlg.done"), f"{len(matches)} Matches → {p}")
+            self._show_export_done(p, f"{len(matches)} Matches")
 
     def _export_all_xlsx(self):
         from ancestry.core.export import export_xlsx
@@ -1667,13 +1777,50 @@ class AncestryDnaApp(tk.Frame):
         if p:
             export_xlsx(matches, p, shared if shared else None, name_map,
                         stats=stats, analysis=analysis)
-            messagebox.showinfo(self._t("dlg.done"),
-                                f"{len(matches)} Matches + {len(shared)} Shared Matches\n"
-                                f"+ Statistik + Herkunft/Seiten → {p}")
+            self._show_export_done(
+                p,
+                f"{len(matches)} Matches + {len(shared)} Shared Matches"
+                " + Statistik + Herkunft/Seiten",
+            )
 
     # ─────────────────────────────────────────────────────────────────────────
     # Hilfsmethoden
     # ─────────────────────────────────────────────────────────────────────────
+
+    def _show_export_done(self, path: str, msg: str):
+        """Dialog nach erfolgreichem Export mit '📂 Öffnen'-Button."""
+        dlg = tk.Toplevel(self)
+        dlg.title(self._t("dlg.done"))
+        dlg.resizable(False, False)
+        tk.Label(
+            dlg,
+            text=f"{msg}\n→ {path}",
+            justify="left",
+            wraplength=480,
+            pady=8, padx=14,
+        ).pack()
+        btn_frame = tk.Frame(dlg)
+        btn_frame.pack(pady=(0, 10))
+        tk.Button(
+            btn_frame, text="📂 Öffnen",
+            command=lambda p=path: self._open_exported_file(p),
+        ).pack(side="left", padx=6)
+        tk.Button(btn_frame, text="OK", command=dlg.destroy).pack(side="left", padx=6)
+        dlg.grab_set()
+
+    @staticmethod
+    def _open_exported_file(path: str):
+        import subprocess
+        import sys as _sys
+        try:
+            if _sys.platform == "win32":
+                os.startfile(path)  # type: ignore[attr-defined]
+            elif _sys.platform == "darwin":
+                subprocess.Popen(["open", path])
+            else:
+                subprocess.Popen(["xdg-open", path])
+        except Exception:
+            pass
 
     def _import_names(self):
         """

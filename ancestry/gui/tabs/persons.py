@@ -768,6 +768,7 @@ class PersonsTab(ttk.Frame):
         self._pers_render_parish(p)        # Kirchspiel / Konfession (Matricula)
         self._pers_render_hints(p, ged_id) # Recherche-Tipps (externe Quellen) + Aufgabe
         self._pers_render_wikitree(p)      # WikiTree-Profil-Links (mit Konfidenz)
+        self._pers_render_duplicates(p)    # Entity-Resolution: mögliche Duplikate
         self._pers_render_relations(p)     # Eltern/Partner/Kinder/Geschwister (Links)
         self._pers_render_xref(ged_id)     # GEDCOM-Verknüpfung (Quellen-Dedup)
         self._pers_render_ner(p)           # Kirchenbuch-NER (Paten, Zeugen, …)
@@ -1148,6 +1149,110 @@ class PersonsTab(ttk.Frame):
             text=f"· {hint}",
             foreground=_MUTED
         ).pack(side="left")
+
+    # ── Detail-Abschnitt: Entity-Resolution – mögliche Duplikate ────────────────
+    def _pers_render_duplicates(self, p: dict):
+        """Zeigt bis zu 5 Personen aus der DB, die möglicherweise dieselbe
+        reale Person darstellen (gleicher Nachname / Vorname-Ersttoken,
+        optional Geburtsjahr ±5 Jahre)."""
+        given   = (p.get("given_name") or "").strip()
+        surname = (p.get("surname") or "").strip()
+        if not given and not surname:
+            return
+
+        # Geburtsjahr ermitteln (direkt oder aus birth_date)
+        p_year: int | None = None
+        by = p.get("birth_year")
+        if by:
+            try:
+                p_year = int(by)
+            except (ValueError, TypeError):
+                pass
+        if p_year is None:
+            bd = str(p.get("birth_date") or "")
+            m = re.search(r"\b(\d{4})\b", bd)
+            if m:
+                p_year = int(m.group(1))
+
+        first_token = given.split()[0] if given else ""
+        sn_filter   = f"%{surname}%" if surname else "%"
+        fn_filter   = f"%{first_token}%" if first_token else "%"
+        current_id  = str(p.get("ged_id", ""))
+
+        try:
+            with self._db._cursor() as cur:
+                raw = cur.execute(
+                    """
+                    SELECT ged_id, given_name, surname, birth_year, source
+                    FROM gedcom_persons
+                    WHERE ged_id != ?
+                      AND (given_name LIKE ? OR surname LIKE ?)
+                    LIMIT 10
+                    """,
+                    (current_id, fn_filter, sn_filter),
+                ).fetchall()
+        except Exception:
+            return
+
+        candidates = []
+        for r in raw:
+            r_given   = (r["given_name"] or "").strip()
+            r_surname = (r["surname"] or "").strip()
+            # Name-Relevanz: gleicher Nachname (case-insensitive) ODER
+            # gleicher Vorname-Ersttoken
+            same_sn = (surname and r_surname.lower() == surname.lower())
+            r_first = r_given.split()[0].lower() if r_given else ""
+            same_fn = bool(first_token and r_first == first_token.lower())
+            if not (same_sn or same_fn):
+                continue
+            # Geburtsjahr-Filter: wenn für beide Seiten bekannt, max. ±5 Jahre
+            if p_year is not None and r["birth_year"]:
+                try:
+                    if abs(int(r["birth_year"]) - p_year) > 5:
+                        continue
+                except (ValueError, TypeError):
+                    pass
+            candidates.append(dict(r))
+            if len(candidates) >= 5:
+                break
+
+        if not candidates:
+            return
+
+        self._pers_hdr("🔍 Mögliche Duplikate")
+        for cand in candidates:
+            cid     = str(cand["ged_id"])
+            cn      = f"{(cand['given_name'] or '').strip()} {(cand['surname'] or '').strip()}".strip() or cid
+            cby     = cand.get("birth_year")
+            csrc    = _SRC_LABEL.get(cand.get("source", ""), cand.get("source", ""))
+            details = cn
+            if cby:
+                details += f" · *{cby}"
+            if csrc:
+                details += f" · {csrc}"
+            row = ttk.Frame(self._pers_detail)
+            row.pack(fill="x", padx=10, pady=2)
+            ttk.Label(row, text=details, wraplength=210, foreground=_TXT).pack(
+                side="left", fill="x", expand=True)
+            ttk.Button(
+                row,
+                text="→ Anzeigen",
+                command=lambda i=cid: self._select_person_by_id(i),
+            ).pack(side="right")
+
+    def _select_person_by_id(self, person_id: str):
+        """Wählt eine Person im Listenfeld aus und löst die Detail-Anzeige aus."""
+        iid = str(person_id)
+        # Falls der Eintrag bereits in der Treeview-Liste vorhanden ist, direkt
+        # selektieren; andernfalls die Liste zurücksetzen und dann navigieren.
+        if self._pers_list.exists(iid):
+            self._pers_list.selection_set(iid)
+            self._pers_list.see(iid)
+            self._pers_navigate(iid)
+        else:
+            # Suche leeren → komplette Liste laden, dann navigieren
+            self._pers_search.set("")
+            self._pers_navigate(iid)
 
     def _pers_render_dna(self, ged_id: str):
         try:
