@@ -571,6 +571,19 @@ class MatchesTab(ttk.Frame):
         _b.pack(side="left", padx=4)
         register_tooltip(_b, "tt.md_tasks", self._state)
 
+        # P15: Cross-Quellen-Duplikat-Hinweis
+        self._cross_source_sep = ttk.Separator(info_frame, orient="horizontal")
+        self._cross_source_frame = ttk.Frame(info_frame)
+        self._cross_source_label_var = tk.StringVar(value="")
+        self._cross_source_label = ttk.Label(
+            self._cross_source_frame,
+            textvariable=self._cross_source_label_var,
+            foreground="#555577",
+            font=("Segoe UI", 9),
+            wraplength=260,
+        )
+        self._cross_source_label.pack(anchor="w", padx=8, pady=2)
+
         # Sub-Tab 2: Shared Matches
         sm_frame = ttk.Frame(self._detail_nb)
         self._detail_nb.add(sm_frame, text=t("md.tab_shared"))
@@ -1483,6 +1496,78 @@ class MatchesTab(ttk.Frame):
         self._load_ancestors_panel(match)
         self._load_kirchenbuch_panel(match)
         self._load_wikitree_panel(match)
+
+        # P15: Cross-Quellen-Duplikat-Hinweis laden
+        self._load_cross_source_hint(match)
+
+    def _load_cross_source_hint(self, match: "DnaMatch"):
+        """P15: Lädt gleichnamige Matches aus anderen Quellen im Hintergrund
+        und zeigt sie als Duplikat-Hinweis unter den Buttons an."""
+        # Reset: Separator + Frame verstecken bis Ergebnis da
+        self._cross_source_sep.pack_forget()
+        self._cross_source_frame.pack_forget()
+        self._cross_source_label_var.set("")
+
+        display_name = match.display_name or ""
+        current_source = getattr(match, "source", None) or "ancestry"
+        test_guid = self._get_test_guid() or ""
+        match_guid = match.match_guid
+
+        def _worker(dn=display_name, src=current_source, tg=test_guid, mg=match_guid):
+            try:
+                with self._state.db._cursor() as cur:
+                    rows = cur.execute(
+                        "SELECT COALESCE(source, 'ancestry') AS source, "
+                        "shared_cm, relationship_label "
+                        "FROM matches "
+                        "WHERE display_name = ? "
+                        "  AND COALESCE(source, 'ancestry') != ? "
+                        "  AND (test_guid IS NULL OR test_guid = ?) "
+                        "ORDER BY shared_cm DESC LIMIT 5",
+                        (dn, src, tg),
+                    ).fetchall()
+            except Exception:
+                rows = []
+            self.after(0, lambda: self._fill_cross_source_hint(mg, rows))
+
+        threading.Thread(target=_worker, daemon=True, name="cross-source").start()
+
+    def _fill_cross_source_hint(self, match_guid: str, rows):
+        """Befüllt (oder versteckt) den Cross-Quellen-Hinweis nach Abfrage."""
+        # Stale-Guard
+        if not self._selected_match or self._selected_match.match_guid != match_guid:
+            return
+        if not rows:
+            self._cross_source_sep.pack_forget()
+            self._cross_source_frame.pack_forget()
+            return
+
+        _src_label = {
+            "ancestry":   "Ancestry",
+            "myheritage": "MyHeritage",
+            "gedmatch":   "GEDmatch",
+            "ftdna":      "FamilyTreeDNA",
+        }
+        parts = []
+        for row in rows:
+            src_name = _src_label.get(row[0], row[0])
+            cm_val   = row[1]
+            rel_val  = row[2]
+            if cm_val:
+                entry = f"{src_name} ({cm_val:.0f} cM"
+                if rel_val:
+                    entry += f" · {rel_val}"
+                entry += ")"
+            else:
+                entry = src_name
+            parts.append(entry)
+
+        text = "🔗 Auch in: " + "  |  ".join(parts)
+        self._cross_source_label_var.set(text)
+
+        # Separator + Frame erst jetzt einblenden (nach den Buttons)
+        self._cross_source_sep.pack(fill="x", padx=8, pady=(4, 2))
+        self._cross_source_frame.pack(fill="x", padx=4, pady=(0, 4))
 
     def _copilot_explain_match(self):
         """Erklärt den ausgewählten Match via Claude-Copilot."""
