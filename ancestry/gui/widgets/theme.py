@@ -374,6 +374,11 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "mf.chip_pat":  {"de": "🔵 Väterlich",   "en": "🔵 Paternal"},
     "mf.chip_mat":  {"de": "🔴 Mütterlich",  "en": "🔴 Maternal"},
     "mf.chip_new":  {"de": "🆕 Neu (7 Tage)", "en": "🆕 New (7 days)"},
+    "mf.chip_anc":  {"de": "🧬 Ancestry",     "en": "🧬 Ancestry"},
+    "mf.chip_mh":   {"de": "💙 MyHeritage",   "en": "💙 MyHeritage"},
+    "mf.chip_gm":   {"de": "🔗 GEDmatch",     "en": "🔗 GEDmatch"},
+    "mf.chip_ftd":  {"de": "🔬 FTDNA",        "en": "🔬 FTDNA"},
+    "mf.chip_clustered": {"de": "🔗 Geclustert", "en": "🔗 Clustered"},
     # Empty state
     "mf.empty":     {"de": "📭  Noch keine Matches geladen",       "en": "📭  No matches loaded yet"},
     "mf.empty_hint":{"de": "→ Tab »Herunterladen« öffnen",         "en": "→ Open »Download« tab"},

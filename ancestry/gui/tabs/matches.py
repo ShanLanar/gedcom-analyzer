@@ -104,6 +104,7 @@ class MatchesTab(ttk.Frame):
         self._matches_kit_guid_map: dict = state.matches_kit_guid_map
         self._selected_match: Optional[DnaMatch] = None
         self._current_offset: int = 0
+        self._active_source: Optional[str] = None
         self._build()
 
     # ── Public API ────────────────────────────────────────────────────────────
@@ -294,6 +295,31 @@ class MatchesTab(ttk.Frame):
             self._chip_t_keys[key] = t_key
             lw.append((btn, t_key))
 
+        # Zweite Chip-Zeile: Quell-Filter + Geclustert
+        cf2 = ttk.Frame(f); cf2.pack(fill="x", padx=10, pady=(0, 4))
+        chip_defs2 = [
+            ("anc",       "mf.chip_anc",       lambda: self._chip_source("ancestry")),
+            ("mh",        "mf.chip_mh",        lambda: self._chip_source("myheritage")),
+            ("gm",        "mf.chip_gm",        lambda: self._chip_source("gedmatch")),
+            ("ftd",       "mf.chip_ftd",       lambda: self._chip_source("ftdna")),
+            ("clustered", "mf.chip_clustered", self._chip_clustered),
+        ]
+        for key, t_key, cmd in chip_defs2:
+            var = tk.BooleanVar(value=False)
+            self._chip_vars[key] = var
+            btn = tk.Button(
+                cf2, text=t(t_key),
+                font=("Segoe UI", 9), relief="flat", bd=1,
+                bg=COLORS["light"], fg=COLORS["text"],
+                activebackground=COLORS["primary"], activeforeground=COLORS["white"],
+                cursor="hand2", padx=10, pady=3,
+                command=lambda k=key, c=cmd: self._toggle_chip(k, c),
+            )
+            btn.pack(side="left", padx=3)
+            self._chip_btns[key] = btn
+            self._chip_t_keys[key] = t_key
+            lw.append((btn, t_key))
+
         # Haupt-Pane
         pane = ttk.PanedWindow(f, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=10, pady=4)
@@ -329,6 +355,37 @@ class MatchesTab(ttk.Frame):
         self.refresh()
 
     def _chip_new(self):
+        self.refresh()
+
+    _SOURCE_CHIP_KEYS = ("anc", "mh", "gm", "ftd")
+
+    def _chip_source(self, src: str):
+        """Quell-Filter: nur einen Quell-Chip aktiv halten."""
+        currently_active = self._active_source == src and self._chip_vars.get(
+            {"ancestry": "anc", "myheritage": "mh",
+             "gedmatch": "gm", "ftdna": "ftd"}.get(src, "anc"), tk.BooleanVar()
+        ).get()
+        # Alle Quell-Chips zurücksetzen
+        key_for = {"ancestry": "anc", "myheritage": "mh",
+                   "gedmatch": "gm", "ftdna": "ftd"}
+        for s, k in key_for.items():
+            if k in self._chip_vars:
+                self._chip_vars[k].set(False)
+            if k in self._chip_btns:
+                self._chip_btns[k].configure(bg=COLORS["light"], fg=COLORS["text"])
+        if currently_active:
+            # Zweiter Klick auf denselben → deaktivieren
+            self._active_source = None
+        else:
+            self._active_source = src
+            k = key_for[src]
+            if k in self._chip_vars:
+                self._chip_vars[k].set(True)
+            if k in self._chip_btns:
+                self._chip_btns[k].configure(bg=COLORS["primary"], fg=COLORS["white"])
+        self.refresh()
+
+    def _chip_clustered(self):
         self.refresh()
 
     def _toggle_chip(self, key: str, cmd):
@@ -838,6 +895,9 @@ class MatchesTab(ttk.Frame):
         elif _cv.get("mat", tk.BooleanVar()).get():
             _pm = "maternal"
 
+        _source = getattr(self, "_active_source", None)
+        _clustered = _cv.get("clustered", tk.BooleanVar()).get()
+
         # Ein Eintrag mehr als das Limit holen, um zu erkennen, ob mehr
         # Treffer existieren als angezeigt werden (→ Hinweis im Zähler).
         query = dict(
@@ -851,6 +911,8 @@ class MatchesTab(ttk.Frame):
             hide_endogamy      = getattr(self, "_hide_endo_var", tk.BooleanVar()).get(),
             paternal_maternal  = _pm,
             new_only           = _cv.get("new", tk.BooleanVar()).get(),
+            source             = _source,
+            clustered_only     = _clustered,
             sort_col           = sort_col,
             sort_asc           = self._sort_asc,
             limit              = self._MAX_DISPLAY_ROWS + 1,

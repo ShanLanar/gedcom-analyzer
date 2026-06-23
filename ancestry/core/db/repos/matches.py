@@ -130,6 +130,7 @@ class MatchesRepo:
         paternal_maternal: Optional[str]    = None,
         new_only: bool                      = False,
         guid_filter: Optional[list]         = None,
+        clustered_only: bool                = False,
     ) -> list[DnaMatch]:
         valid_cols = {"display_name", "shared_cm", "shared_segments",
                       "predicted_relationship", "fetched_at", "starred",
@@ -163,6 +164,13 @@ class MatchesRepo:
             placeholders = ",".join("?" * len(guid_filter))
             conditions.append(f"m.match_guid IN ({placeholders})")
             params.extend(guid_filter)
+        if clustered_only:
+            conditions.append(
+                "(EXISTS (SELECT 1 FROM shared_matches sm "
+                "WHERE sm.match_guid_a = m.match_guid) OR "
+                "EXISTS (SELECT 1 FROM shared_matches sm2 "
+                "WHERE sm2.match_guid_b = m.match_guid))"
+            )
 
         where        = ("WHERE " + " AND ".join(conditions)) if conditions else ""
         limit_clause = f"LIMIT {limit} OFFSET {offset}" if limit else ""

@@ -158,6 +158,8 @@ class ClusterTab(ttk.Frame):
                   foreground="#444466", font=("Segoe UI", 9),
                   wraplength=900, justify="left").pack(anchor="w", padx=14, pady=(0, 6))
 
+        self._build_legend()
+
         # PanedWindow
         pane = ttk.PanedWindow(self, orient="horizontal")
         pane.pack(fill="both", expand=True, padx=14, pady=4)
@@ -225,6 +227,37 @@ class ClusterTab(ttk.Frame):
         self._pairwise_tree.configure(yscrollcommand=sy3.set)
         self._pairwise_tree.pack(side="left", fill="both", expand=True)
         sy3.pack(side="right", fill="y")
+
+    def _build_legend(self):
+        """Kompakte Farb-Legende unterhalb der Cluster-Beschreibung."""
+        lf = tk.Frame(self, bd=0)
+        lf.pack(anchor="w", padx=14, pady=(0, 6))
+        tk.Label(lf, text="Legende:", font=("Segoe UI", 9, "bold"),
+                 fg="#1A1A2E").pack(side="left", padx=(0, 8))
+        # Seiten-Farben
+        for color, label in [
+            ("#DDF0FF", "🔵 Väterlich (≥70 %)"),
+            ("#FFE0E0", "🔴 Mütterlich (≥70 %)"),
+        ]:
+            tk.Label(lf, text=" ", bg=color, relief="solid", bd=1,
+                     padx=8, pady=2).pack(side="left", padx=(0, 2))
+            ttk.Label(lf, text=label,
+                      font=("Segoe UI", 9)).pack(side="left", padx=(0, 10))
+        # "Bunte Farbe" für unbekannte Seite
+        tk.Label(lf, text=" ", bg=COLORS["cluster"][2], relief="solid", bd=1,
+                 padx=8, pady=2).pack(side="left", padx=(0, 2))
+        ttk.Label(lf, text="Bunt = Seite unbekannt",
+                  font=("Segoe UI", 9)).pack(side="left", padx=(0, 14))
+        # Qualitäts-Icons
+        ttk.Label(lf, text="Qualität:",
+                  font=("Segoe UI", 9, "bold")).pack(side="left", padx=(0, 4))
+        for icon, desc in [
+            ("🟢", "≥85 % intern vernetzt"),
+            ("🟡", "50–84 %"),
+            ("🔴", "<50 %"),
+        ]:
+            ttk.Label(lf, text=f"{icon} {desc}",
+                      font=("Segoe UI", 9)).pack(side="left", padx=(0, 8))
 
     # ── Daten laden ──────────────────────────────────────────────────────────
 
