@@ -734,6 +734,7 @@ class ToolsTab(ttk.Frame):
                   ).pack(side="left")
         self._tool_action(frame, "🧪 Testlauf: Seiten lokal sichern", "wt_training",
                           self._tl_cmd_wt_training)
+        self._build_wt_monitor(frame)
 
     # ── Webtrees-Import-Helfer ────────────────────────────────────────────
 
@@ -756,6 +757,67 @@ class ToolsTab(ttk.Frame):
         if any(kw in line for kw in ("Importiert", "Personen", "fertig", "done", "Fehler", "Error")):
             return f"  → {line}"
         return line
+
+    # ── Webtrees-Crawl-Monitor ────────────────────────────────────────────
+
+    def _build_wt_monitor(self, parent: ttk.Frame):
+        """Webtrees-Crawl-Fortschritts-Monitor."""
+        frame = ttk.LabelFrame(parent, text="📡 Crawl-Monitor", padding=6)
+        frame.pack(fill="x", pady=(4, 0))
+
+        row1 = ttk.Frame(frame); row1.pack(fill="x")
+        ttk.Label(row1, text="Status:").pack(side="left")
+        self._wt_crawl_status_var = tk.StringVar(value="—")
+        ttk.Label(row1, textvariable=self._wt_crawl_status_var,
+                  width=40, anchor="w").pack(side="left", padx=4)
+        ttk.Button(row1, text="🔄 Aktualisieren",
+                   command=self._wt_crawl_refresh).pack(side="right")
+
+        row2 = ttk.Frame(frame); row2.pack(fill="x", pady=(2, 0))
+        self._wt_crawl_bar = ttk.Progressbar(row2, mode="determinate",
+                                              length=300, maximum=100)
+        self._wt_crawl_bar.pack(side="left", padx=(0, 4))
+        self._wt_crawl_pct_var = tk.StringVar(value="")
+        ttk.Label(row2, textvariable=self._wt_crawl_pct_var).pack(side="left")
+
+        # Auto-refresh 3 s nach Aufbau (einmalig; weiteres Polling bei status=running)
+        self.after(3000, self._wt_crawl_refresh)
+
+    def _wt_crawl_refresh(self):
+        """Liest data/wt_crawl_status.json und aktualisiert den Monitor."""
+        import json as _json
+        try:
+            path = os.path.join(str(ROOT), "data", "wt_crawl_status.json")
+            if not os.path.exists(path):
+                self._wt_crawl_status_var.set("Kein laufender Crawl")
+                self._wt_crawl_bar["value"] = 0
+                self._wt_crawl_pct_var.set("")
+                return
+            with open(path, encoding="utf-8") as f:
+                d = _json.load(f)
+            status = d.get("status", "idle")
+            progress = d.get("progress", 0)
+            total = d.get("total", 0) or 1
+            last = d.get("last_person", "")
+            pct = int(progress / total * 100) if total else 0
+
+            status_txt = {"running": "⏳ Läuft", "done": "✅ Fertig",
+                          "error": "❌ Fehler", "idle": "—"}.get(status, status)
+            if last and status == "running":
+                status_txt += f" — {last}"
+            if d.get("error"):
+                status_txt += f": {d['error']}"
+
+            self._wt_crawl_status_var.set(status_txt)
+            self._wt_crawl_bar["value"] = pct
+            self._wt_crawl_pct_var.set(
+                f"{pct}%  ({progress}/{total})" if total > 1 else "")
+
+            # Auto-poll alle 5 s solange Crawl läuft
+            if status == "running":
+                self.after(5000, self._wt_crawl_refresh)
+        except Exception as e:
+            self._wt_crawl_status_var.set(f"⚠ {e}")
 
     def _src_matricula(self, frame: ttk.Frame):
         dim = self._state.colors().get("text_dim", "#888888")
@@ -1471,6 +1533,32 @@ class ToolsTab(ttk.Frame):
                                          _dt.datetime.now().isoformat())
                                     )
                                     _db._conn.commit()
+                        except Exception:
+                            pass
+                    # Write wt_crawl_status.json on crawl completion
+                    if key == "wt_crawl":
+                        import json as _json
+                        _status_path = os.path.join(
+                            str(ROOT), "data", "wt_crawl_status.json")
+                        try:
+                            os.makedirs(os.path.dirname(_status_path), exist_ok=True)
+                            _final_status = "done" if rc == 0 else "error"
+                            _existing: dict = {}
+                            if os.path.exists(_status_path):
+                                try:
+                                    with open(_status_path, encoding="utf-8") as _f:
+                                        _existing = _json.load(_f)
+                                except Exception:
+                                    pass
+                            _existing.update({
+                                "status": _final_status,
+                                "finished_at": _dt.datetime.now().isoformat(),
+                                "error": None if rc == 0 else f"RC {rc}",
+                            })
+                            with open(_status_path, "w", encoding="utf-8") as _f:
+                                _json.dump(_existing, _f, ensure_ascii=False, indent=2)
+                            if hasattr(self, "_wt_crawl_status_var"):
+                                self.after(0, self._wt_crawl_refresh)
                         except Exception:
                             pass
                     return
