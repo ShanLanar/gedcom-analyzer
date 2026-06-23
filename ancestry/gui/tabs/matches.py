@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import csv
+import io
 import logging
 import threading
 import tkinter as tk
 import webbrowser
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Optional
 from urllib.parse import quote
 
@@ -216,6 +218,28 @@ class MatchesTab(ttk.Frame):
         if self._tree.yview()[1] >= 1.0:
             self._page_next()
 
+    # ── A1: user_prefs Helfer ─────────────────────────────────────────────────
+
+    def _pref_get(self, key: str, default: str = "") -> str:
+        try:
+            with self._state.db._cursor() as cur:
+                row = cur.execute(
+                    "SELECT value FROM user_prefs WHERE key=?", (key,)
+                ).fetchone()
+            return row[0] if row else default
+        except Exception:
+            return default
+
+    def _pref_set(self, key: str, value: str) -> None:
+        try:
+            with self._state.db._cursor() as cur:
+                cur.execute(
+                    "INSERT OR REPLACE INTO user_prefs (key, value) VALUES (?, ?)",
+                    (key, value),
+                )
+        except Exception:
+            pass
+
     # ── Aufbau ───────────────────────────────────────────────────────────────
 
     def _build(self):
@@ -275,6 +299,9 @@ class MatchesTab(ttk.Frame):
         self._min_cm_var = tk.StringVar(value="0")
         ttk.Entry(fl, textvariable=self._min_cm_var, width=6).pack(side="left")
         ttk.Button(fl, text="↩", width=3, command=self.refresh).pack(side="left", padx=2)
+        # A4: Filter-Profil speichern/laden
+        ttk.Button(fl, text="💾 Filter", command=self._save_filter_profile).pack(side="left", padx=(6, 2))
+        ttk.Button(fl, text="📂 Filter", command=self._load_filter_profile).pack(side="left", padx=2)
 
         self._starred_var = tk.BooleanVar()
         _sv_starred = tk.StringVar(value=t("mf.starred"))

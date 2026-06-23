@@ -1351,6 +1351,8 @@ class AncestryDnaApp(tk.Frame):
 
         self._gedcom_root_name = root_name
         self._save_ui_settings(gedcom_path=path, gedcom_root=root_name)
+        # D1: Pfad in "Zuletzt geöffnet" aufnehmen
+        self._recent_files_save(path)
 
         import threading
         self._set_status("GEDCOM wird geladen … (läuft im Hintergrund)")
@@ -2797,15 +2799,15 @@ class AncestryDnaApp(tk.Frame):
             pass
 
     def _shortcut_focus_search(self):
-        """Ctrl+F: Suchfeld im Matches-Tab fokussieren."""
+        """Ctrl+F: Suchfeld im aktiven Tab fokussieren (oder Matches-Tab als Fallback)."""
         try:
+            tab = self._active_tab()
+            fn = getattr(tab, "focus_search", None)
+            if callable(fn):
+                fn()
+                return
+            # Fallback: Matches-Tab-Suchfeld direkt suchen
             if self._matches_tab is not None and hasattr(self._matches_tab, "_search_var"):
-                # Finde das Entry-Widget über den Matches-Tab
-                for child in self._matches_tab.winfo_children():
-                    if isinstance(child, ttk.Entry):
-                        child.focus_set()
-                        return
-                # Rekursive Suche in Kind-Widgets
                 def _find_entry(w):
                     for c in w.winfo_children():
                         if isinstance(c, ttk.Entry):
@@ -2819,6 +2821,143 @@ class AncestryDnaApp(tk.Frame):
                     entry.focus_set()
         except Exception:
             pass
+
+    def _shortcut_refresh(self):
+        """F5: on_show() oder refresh() des aktiven Tabs aufrufen."""
+        try:
+            tab = self._active_tab()
+            fn = getattr(tab, "on_show", None) or getattr(tab, "refresh", None)
+            if callable(fn):
+                fn()
+        except Exception:
+            pass
+
+    def _shortcut_clear_filter(self):
+        """Escape: clear_filter() des aktiven Tabs aufrufen."""
+        try:
+            tab = self._active_tab()
+            fn = getattr(tab, "clear_filter", None)
+            if callable(fn):
+                fn()
+        except Exception:
+            pass
+
+    def _shortcut_export(self):
+        """Ctrl+E: export_current() des aktiven Tabs aufrufen; Fallback: XLSX-Export."""
+        try:
+            tab = self._active_tab()
+            fn = getattr(tab, "export_current", None)
+            if callable(fn):
+                fn()
+            else:
+                self._export_xlsx()
+        except Exception:
+            pass
+
+    # ── A2: Live-Zähler-Statuszeile ──────────────────────────────────────────
+
+    def _update_statusbar(self):
+        """Liest DB-Zähler und aktualisiert die Live-Statuszeile. Auto-Refresh 30s."""
+        try:
+            db = self._state.db
+            with db._cursor() as cur:
+                n_matches = cur.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+            with db._cursor() as cur:
+                n_persons = cur.execute("SELECT COUNT(*) FROM persons").fetchone()[0]
+            # DB-Dateigröße
+            db_path = getattr(db, "db_file", None) or str(DB_PATH)
+            if db_path and os.path.exists(db_path):
+                size_bytes = os.path.getsize(db_path)
+                if size_bytes >= 1_048_576:
+                    size_str = f"{size_bytes / 1_048_576:.1f} MB"
+                else:
+                    size_str = f"{size_bytes / 1024:.0f} KB"
+            else:
+                size_str = "–"
+            text = (f"Matches: {n_matches} | Personen: {n_persons} | DB: {size_str}")
+            if hasattr(self, "_live_bar_var"):
+                self._live_bar_var.set(text)
+        except Exception:
+            pass
+        # Auto-Refresh alle 30 s
+        try:
+            self.after(30_000, self._update_statusbar)
+        except Exception:
+            pass
+
+    # ── D1: Zuletzt geöffnet ─────────────────────────────────────────────────
+
+    def _recent_files_load(self) -> list:
+        """Liest die zuletzt geöffneten Dateipfade aus user_prefs (recent_0 … recent_4)."""
+        paths = []
+        try:
+            with self._state.db._cursor() as cur:
+                for i in range(5):
+                    row = cur.execute(
+                        "SELECT value FROM user_prefs WHERE key=?", (f"recent_{i}",)
+                    ).fetchone()
+                    if row and row[0]:
+                        paths.append(row[0])
+        except Exception:
+            pass
+        return paths
+
+    def _recent_files_save(self, path: str) -> None:
+        """Speichert path vorne in die Liste der zuletzt geöffneten Dateien (max. 5)."""
+        if not path:
+            return
+        try:
+            existing = self._recent_files_load()
+            # Duplikate entfernen, neuen Pfad vorne einfügen, auf 5 begrenzen
+            updated = [path] + [p for p in existing if p != path]
+            updated = updated[:5]
+            with self._state.db._cursor() as cur:
+                for i in range(5):
+                    val = updated[i] if i < len(updated) else ""
+                    cur.execute(
+                        "INSERT OR REPLACE INTO user_prefs (key, value) VALUES (?, ?)",
+                        (f"recent_{i}", val),
+                    )
+        except Exception:
+            pass
+        self.after(0, self._recent_menu_rebuild)
+
+    def _recent_menu_rebuild(self) -> None:
+        """Baut das 'Zuletzt geöffnet'-Untermenü neu auf."""
+        menu = getattr(self, "_recent_menu", None)
+        if menu is None:
+            return
+        try:
+            menu.delete(0, "end")
+            paths = self._recent_files_load()
+            if not paths:
+                menu.add_command(label="(keine Einträge)", state="disabled")
+                return
+            for p in paths:
+                label = os.path.basename(p) if p else p
+                menu.add_command(
+                    label=label,
+                    command=lambda fp=p: self._open_recent_file(fp),
+                )
+        except Exception:
+            pass
+
+    def _open_recent_file(self, path: str) -> None:
+        """Öffnet eine zuletzt verwendete Datei (GEDCOM oder ähnliches)."""
+        if not path:
+            return
+        if not os.path.exists(path):
+            messagebox.showwarning("Datei nicht gefunden",
+                                   f"Die Datei wurde nicht gefunden:\n{path}")
+            return
+        ext = os.path.splitext(path)[1].lower()
+        if ext in (".ged", ".gedcom"):
+            self._save_ui_settings(gedcom_path=path)
+            self._set_status(f"GEDCOM vorbelegt: {os.path.basename(path)}")
+            self._gedcom = None  # Cache verwerfen
+            self._ensure_gedcom_loaded(self._on_gedcom_loaded_update_header)
+        else:
+            self._set_status(f"Unbekanntes Dateiformat: {ext}")
 
     def _set_gedcom(self, path: str):
         """Setzt den GEDCOM-Pfad von außen (z.B. aus dem Start-Tab)."""
