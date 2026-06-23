@@ -7,7 +7,7 @@ from pathlib import Path
 log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
-TARGET_VERSION = 38
+TARGET_VERSION = 39
 
 
 def _strip_leading_comments(stmt: str) -> str:
