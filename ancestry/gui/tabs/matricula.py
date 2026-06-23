@@ -57,12 +57,35 @@ class MatriculaTab(ttk.Frame):
         t  = self._state.t
         lw = self._state.lang_widgets
 
+        # ── Outer Notebook: "Pfarreien" + "Korrekturen" ──────────────────────
+        self._outer_nb = ttk.Notebook(self)
+        self._outer_nb.pack(fill="both", expand=True)
+
+        pfarreien_frame = ttk.Frame(self._outer_nb)
+        self._outer_nb.add(pfarreien_frame, text="📋 Pfarreien")
+
+        korrekturen_frame = ttk.Frame(self._outer_nb)
+        self._outer_nb.add(korrekturen_frame, text="✏ Korrekturen")
+
+        self._build_pfarreien_tab(pfarreien_frame, t, lw)
+        self._build_corrections_tab(korrekturen_frame)
+
+        # Defensiv: ein Fehler beim Pfarrei-Laden darf die gesamte App-Init
+        # nicht abbrechen (z. B. fehlendes Matricula-Schema).
+        try:
+            self.refresh_parishes()
+        except Exception:
+            log.exception("refresh_parishes beim Tab-Aufbau fehlgeschlagen")
+
+    def _build_pfarreien_tab(self, parent: tk.Widget, t, lw):
+        """Bisheriger Pfarreien-Inhalt, nun in eigenem Sub-Tab."""
+
         # ── Bistums-Übersicht ─────────────────────────────────────────────────
         self._overview_frame: tk.Frame | None = None
-        self._build_diocese_overview(self)
+        self._build_diocese_overview(parent)
 
         # ── Bistums-Zeile ─────────────────────────────────────────────────────
-        dioc_row = ttk.Frame(self); dioc_row.pack(fill="x", padx=14, pady=(10, 2))
+        dioc_row = ttk.Frame(parent); dioc_row.pack(fill="x", padx=14, pady=(10, 2))
         ttk.Label(dioc_row, text="Bistum/Archiv:", style="Bold.TLabel").pack(side="left")
         self._diocese_var = tk.StringVar(value="(alle)")
         self._diocese_combo = ttk.Combobox(
@@ -79,7 +102,7 @@ class MatriculaTab(ttk.Frame):
         )
 
         # ── Pfarrei-Zeile ─────────────────────────────────────────────────────
-        top = ttk.Frame(self); top.pack(fill="x", padx=14, pady=(2, 4))
+        top = ttk.Frame(parent); top.pack(fill="x", padx=14, pady=(2, 4))
 
         _sv = tk.StringVar(value=t("mat.next"))
         ttk.Label(top, textvariable=_sv, style="Bold.TLabel").pack(side="left")
@@ -96,7 +119,7 @@ class MatriculaTab(ttk.Frame):
         ttk.Combobox(top, textvariable=self._booktype_var, width=10,
                      state="readonly", values=self.BOOK_TYPES).pack(side="left", padx=6)
 
-        bar = ttk.Frame(self); bar.pack(fill="x", padx=14, pady=4)
+        bar = ttk.Frame(parent); bar.pack(fill="x", padx=14, pady=4)
         self._start_btn = ttk.Button(bar, text=t("mat.start"), command=self._start_scan)
         self._start_btn.pack(side="left")
         register_tooltip(self._start_btn, "tt.mat_start", self._state)
@@ -137,11 +160,11 @@ class MatriculaTab(ttk.Frame):
 
         # Pfarreien-Übersicht: fertig = ✓ + ausgegraut
         _sv = tk.StringVar(value=t("mat.overview"))
-        ttk.Label(self, textvariable=_sv, style="Bold.TLabel").pack(
+        ttk.Label(parent, textvariable=_sv, style="Bold.TLabel").pack(
             anchor="w", padx=14, pady=(8, 2))
         lw.append((_sv, "mat.overview"))
 
-        mid = ttk.Frame(self); mid.pack(fill="both", expand=True, padx=14, pady=(0, 4))
+        mid = ttk.Frame(parent); mid.pack(fill="both", expand=True, padx=14, pady=(0, 4))
         cols = ("parish", "books", "pages", "status")
         self._tv = ttk.Treeview(mid, columns=cols, show="headings", height=8,
                                 selectmode="browse")
@@ -162,16 +185,201 @@ class MatriculaTab(ttk.Frame):
         self._tv.bind("<<TreeviewSelect>>", self._on_tree_select)
 
         # Log
-        self._log = tk.Text(self, height=10, wrap="word",
+        self._log = tk.Text(parent, height=10, wrap="word",
                             font=("Consolas", 9), state="disabled")
         self._log.pack(fill="both", expand=True, padx=14, pady=(4, 10))
 
-        # Defensiv: ein Fehler beim Pfarrei-Laden darf die gesamte App-Init
-        # nicht abbrechen (z. B. fehlendes Matricula-Schema).
+    # ── OCR-Korrektur-Tab ─────────────────────────────────────────────────────
+
+    def _build_corrections_tab(self, parent: tk.Widget):
+        """Tab für OCR-Korrektur ungeprüfter Einträge."""
+        # Filter controls
+        ctrl = ttk.Frame(parent)
+        ctrl.pack(fill="x", padx=8, pady=4)
+        ttk.Label(ctrl, text="Nur unkorrigierte:").pack(side="left")
+        self._corr_only_open = tk.BooleanVar(value=True)
+        ttk.Checkbutton(ctrl, variable=self._corr_only_open).pack(side="left", padx=4)
+        ttk.Label(ctrl, text="  Buchtyp:").pack(side="left")
+        self._corr_booktype_var = tk.StringVar(value="(alle)")
+        ttk.Combobox(ctrl, textvariable=self._corr_booktype_var, width=10,
+                     state="readonly",
+                     values=["(alle)"] + self.BOOK_TYPES[1:]).pack(side="left", padx=4)
+        ttk.Button(ctrl, text="🔄 Laden",
+                   command=self._load_corrections).pack(side="left", padx=8)
+
+        # Treeview listing entries
+        list_frame = ttk.Frame(parent)
+        list_frame.pack(fill="both", expand=True, padx=8, pady=(0, 4))
+        cols = ("book_id", "book_type", "person", "date", "status")
+        self._corr_tree = ttk.Treeview(
+            list_frame, columns=cols, show="headings", height=10,
+            selectmode="browse",
+        )
+        self._corr_tree.heading("book_id",   text="Buch-ID")
+        self._corr_tree.heading("book_type", text="Buchtyp")
+        self._corr_tree.heading("person",    text="Person")
+        self._corr_tree.heading("date",      text="Datum")
+        self._corr_tree.heading("status",    text="Status")
+        self._corr_tree.column("book_id",   width=160)
+        self._corr_tree.column("book_type", width=70)
+        self._corr_tree.column("person",    width=160)
+        self._corr_tree.column("date",      width=90)
+        self._corr_tree.column("status",    width=90, anchor="center")
+
+        sb = ttk.Scrollbar(list_frame, orient="vertical",
+                           command=self._corr_tree.yview)
+        self._corr_tree.configure(yscrollcommand=sb.set)
+        self._corr_tree.pack(side="left", fill="both", expand=True)
+        sb.pack(side="left", fill="y")
+
+        self._corr_tree.bind("<<TreeviewSelect>>", self._on_corr_select)
+
+        # Edit area
+        edit_frame = ttk.LabelFrame(parent, text="Transkription bearbeiten", padding=8)
+        edit_frame.pack(fill="x", padx=8, pady=4)
+
+        self._corr_text = tk.Text(edit_frame, height=5, wrap="word",
+                                  font=("Segoe UI", 9))
+        self._corr_text.pack(fill="x")
+
+        btn_row = ttk.Frame(edit_frame)
+        btn_row.pack(fill="x", pady=(4, 0))
+        ttk.Button(btn_row, text="💾 Korrektur speichern",
+                   command=self._save_correction).pack(side="left", padx=(0, 6))
+        ttk.Button(btn_row, text="✓ Als korrekt markieren",
+                   command=lambda: self._save_correction(mark_correct=True)).pack(side="left")
+        self._corr_id_var = tk.IntVar(value=-1)
+
+        # Status-Zeile
+        self._corr_status_var = tk.StringVar(value="")
+        ttk.Label(edit_frame, textvariable=self._corr_status_var,
+                  foreground="#555555", font=("Segoe UI", 8)).pack(anchor="w", pady=(4, 0))
+
+    def _load_corrections(self):
+        """Lädt Einträge aus source_matrikula_entries in den Korrektur-Treeview."""
+        only_open = self._corr_only_open.get()
+        book_filter = self._corr_booktype_var.get()
+
+        rows: list = []
         try:
-            self.refresh_parishes()
+            with self._state.db._cursor() as cur:
+                # Prüfe ob Tabelle vorhanden
+                cur.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table'"
+                    " AND name='source_matrikula_entries'"
+                )
+                if cur.fetchone() is None:
+                    self._corr_status_var.set("Keine OCR-Daten verfügbar.")
+                    return
+
+                where_parts = []
+                params: list = []
+                if only_open:
+                    where_parts.append(
+                        "(corrected_at IS NULL OR corrected_at = '')"
+                    )
+                if book_filter and book_filter != "(alle)":
+                    where_parts.append("entry_type = ?")
+                    params.append(book_filter)
+
+                where_sql = ("WHERE " + " AND ".join(where_parts)
+                             if where_parts else "")
+                rows = cur.execute(
+                    f"""
+                    SELECT entry_id, book_id, entry_type, person_name,
+                           event_date, corrected_at
+                    FROM source_matrikula_entries
+                    {where_sql}
+                    ORDER BY entry_id ASC
+                    LIMIT 500
+                    """,
+                    params,
+                ).fetchall()
+        except Exception as exc:
+            self._corr_status_var.set(f"Fehler: {exc}")
+            return
+
+        for item in self._corr_tree.get_children():
+            self._corr_tree.delete(item)
+
+        for r in rows:
+            entry_id, book_id, entry_type, person_name, event_date, corrected_at = r
+            status = "✓ korrigiert" if corrected_at else "○ offen"
+            self._corr_tree.insert(
+                "", "end", iid=str(entry_id),
+                values=(
+                    book_id or "",
+                    entry_type or "",
+                    person_name or "",
+                    event_date or "",
+                    status,
+                ),
+            )
+        self._corr_status_var.set(f"{len(rows)} Einträge geladen.")
+
+    def _on_corr_select(self, _event=None):
+        """Zeigt den Transkriptions-Text des gewählten Eintrags im Textfeld."""
+        sel = self._corr_tree.selection()
+        if not sel:
+            return
+        rid = int(sel[0])
+        self._corr_id_var.set(rid)
+        try:
+            with self._state.db._cursor() as cur:
+                row = cur.execute(
+                    "SELECT notes, raw_json FROM source_matrikula_entries"
+                    " WHERE entry_id = ?",
+                    (rid,),
+                ).fetchone()
+            if row:
+                # Bevorzuge notes; falls leer, extrahiere raw_text aus raw_json
+                text = row[0] or ""
+                if not text and row[1]:
+                    import json as _json
+                    try:
+                        text = _json.loads(row[1]).get("raw_text", "")
+                    except Exception:
+                        pass
+                self._corr_text.delete("1.0", "end")
+                self._corr_text.insert("1.0", text)
         except Exception:
-            log.exception("refresh_parishes beim Tab-Aufbau fehlgeschlagen")
+            pass
+
+    def _save_correction(self, mark_correct: bool = False):
+        """Speichert die bearbeitete Transkription zurück in die DB."""
+        import datetime
+
+        rid = self._corr_id_var.get()
+        if rid < 0:
+            return
+        new_text = self._corr_text.get("1.0", "end").strip()
+        now = datetime.datetime.now().isoformat()
+        try:
+            with self._state.db._cursor() as cur:
+                # Prüfe ob Spalte corrected_by existiert (Migrations-Guard)
+                col_sql = (
+                    "UPDATE source_matrikula_entries"
+                    " SET notes = ?, corrected_at = ?, corrected_by = ?"
+                    " WHERE entry_id = ?"
+                )
+                try:
+                    cur.execute(col_sql, (new_text, now, "gui", rid))
+                except Exception:
+                    # Fallback ohne corrected_by
+                    cur.execute(
+                        "UPDATE source_matrikula_entries"
+                        " SET notes = ?, corrected_at = ?"
+                        " WHERE entry_id = ?",
+                        (new_text, now, rid),
+                    )
+        except Exception as exc:
+            from tkinter import messagebox
+            messagebox.showerror("Fehler", str(exc), parent=self)
+            return
+        self._corr_status_var.set(
+            f"Eintrag {rid} gespeichert ({'als korrekt markiert' if mark_correct else 'bearbeitet'})."
+        )
+        self._load_corrections()
 
     # ── Bistums-Übersicht ─────────────────────────────────────────────────────
 
