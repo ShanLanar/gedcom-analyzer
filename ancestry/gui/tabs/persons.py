@@ -569,6 +569,17 @@ class PersonsTab(ttk.Frame):
         except Exception:
             depth = 2
 
+        # C1: Tiefenbegrenzung für große Bäume (>10.000 Personen → max. 2 Gen.)
+        try:
+            with self._db._cursor() as cur:
+                total = cur.execute(
+                    "SELECT COUNT(*) FROM gedcom_persons").fetchone()[0]
+            if total > 10_000:
+                depth = min(self._pers_depth.get(), 2)
+                self._pers_depth.set(depth)
+        except Exception:
+            pass
+
         focus = self._pers_get(ged_id)
         if not focus:
             tc.create_text(60, 50, anchor="nw", text=self._state.t("pe.not_found"),
@@ -781,6 +792,9 @@ class PersonsTab(ttk.Frame):
         self._pers_render_xref(ged_id)     # GEDCOM-Verknüpfung (Quellen-Dedup)
         self._pers_render_ner(p)           # Kirchenbuch-NER (Paten, Zeugen, …)
         self._pers_render_dna(ged_id)      # DNA-Matches (Anker)
+        self._pers_render_entity_links(p)  # A3: Entity-Resolution-Ergebnisse (DNA-Verknüpfungen)
+        self._pers_render_matricula(p)     # A4: Matricula-Bridge-Treffer
+        self._pers_render_pedigree_gaps(p) # B4: Pedigree-Vollständigkeit
 
         # Allgemeiner „In Matches suchen"-Button (immer am Ende, falls Callback gesetzt)
         display_name = name
@@ -1504,3 +1518,116 @@ class PersonsTab(ttk.Frame):
                 (r["display_name"] or "—")[:28], f"{cm:.0f}",
                 r["predicted_relationship"] or ""))
         tree.pack(fill="both", expand=True, padx=10, pady=(2, 8))
+
+    # ── A3: Entity-Resolution-Ergebnisse (DNA-Match-Verknüpfungen) ───────────────
+    def _pers_render_entity_links(self, p: dict):
+        """Zeigt entity_assignments (DNA-Match-Verknüpfungen) für diese Person."""
+        ged_id = p.get("ged_id", "")
+        if not ged_id:
+            return
+        try:
+            with self._db._cursor() as cur:
+                rows = cur.execute("""
+                    SELECT ea.match_guid, ea.confidence, ea.source, m.name, m.cm
+                    FROM entity_assignments ea
+                    LEFT JOIN matches m ON ea.match_guid = m.guid
+                    WHERE ea.ged_id = ?
+                    ORDER BY ea.confidence DESC
+                    LIMIT 10
+                """, (ged_id,)).fetchall()
+        except Exception:
+            rows = []
+
+        if not rows:
+            return
+
+        self._pers_hdr("🔗 Entitäts-Zuordnungen")
+        for r in rows[:5]:
+            name = r["name"] if hasattr(r, "keys") else r[3]
+            cm = r["cm"] if hasattr(r, "keys") else r[4]
+            conf = r["confidence"] if hasattr(r, "keys") else r[1]
+            pct = f"{conf:.0%}" if conf else "?"
+            ttk.Label(self._pers_detail,
+                      text=f"  DNA: {name or '?'}  {cm or '?'} cM  [{pct}]",
+                      font=("Segoe UI", 8), foreground="#336699"
+                      ).pack(anchor="w", padx=14)
+
+    # ── A4: Matricula-Bridge-Treffer ─────────────────────────────────────────────
+    def _pers_render_matricula(self, p: dict):
+        """Zeigt passende Kirchenbucheinträge für diese Person."""
+        given = p.get("given_name", "").strip()
+        surname = p.get("surname", "").strip()
+        if not given and not surname:
+            return
+        try:
+            with self._db._cursor() as cur:
+                rows = cur.execute("""
+                    SELECT entry_id, entry_type, person_name, event_date
+                    FROM source_matrikula_entries
+                    WHERE person_name LIKE ? OR person_name LIKE ?
+                    LIMIT 5
+                """, (f"%{surname}%", f"%{given}%")).fetchall()
+        except Exception:
+            rows = []
+
+        if not rows:
+            return
+
+        self._pers_hdr("⛪ Kirchenbuch-Treffer")
+        for r in rows[:4]:
+            etype = r["entry_type"] if hasattr(r, "keys") else r[1]
+            pname = r["person_name"] if hasattr(r, "keys") else r[2]
+            date = r["event_date"] if hasattr(r, "keys") else r[3]
+            ttk.Label(self._pers_detail,
+                      text=f"  {etype or '?'}: {pname}  {date or ''}",
+                      font=("Segoe UI", 8), foreground="#5a3e00"
+                      ).pack(anchor="w", padx=14)
+
+    # ── B4: Pedigree-Vollständigkeit ─────────────────────────────────────────────
+    def _pers_render_pedigree_gaps(self, p: dict):
+        """Zeigt GEDCOM-Vollständigkeit über Generationen."""
+        ged_id = p.get("ged_id", "")
+        if not ged_id:
+            return
+        try:
+            with self._db._cursor() as cur:
+                total = cur.execute(
+                    "SELECT COUNT(*) FROM gedcom_persons"
+                ).fetchone()[0]
+        except Exception:
+            return
+
+        if total <= 0:
+            return
+
+        self._pers_hdr("📊 Stammbaum-Vollständigkeit")
+        bar_frame = ttk.Frame(self._pers_detail)
+        bar_frame.pack(anchor="w", padx=12, pady=(0, 6))
+
+        try:
+            with self._db._cursor() as cur:
+                gen_data = []
+                for gen in range(1, 7):
+                    min_sosa = 2 ** gen
+                    max_sosa = 2 ** (gen + 1) - 1
+                    expected = max_sosa - min_sosa + 1
+                    found = cur.execute(
+                        "SELECT COUNT(*) FROM gedcom_persons "
+                        "WHERE sosa_number BETWEEN ? AND ?",
+                        (min_sosa, max_sosa)
+                    ).fetchone()[0]
+                    pct = found / expected if expected else 0
+                    gen_data.append((gen, found, expected, pct))
+
+            for gen, found, expected, pct in gen_data:
+                row = ttk.Frame(bar_frame)
+                row.pack(fill="x", pady=1)
+                ttk.Label(row, text=f"Gen {gen}:", width=6).pack(side="left")
+                bar = ttk.Progressbar(row, length=120, maximum=100,
+                                      value=int(pct * 100), mode="determinate")
+                bar.pack(side="left", padx=4)
+                ttk.Label(row, text=f"{found}/{expected}  ({pct:.0%})",
+                          foreground="#666666", font=("Segoe UI", 8)).pack(side="left")
+        except Exception:
+            ttk.Label(bar_frame, text=f"  {total} Personen gesamt",
+                      foreground="#666666").pack(anchor="w")

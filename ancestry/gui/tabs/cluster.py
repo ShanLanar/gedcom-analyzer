@@ -154,12 +154,33 @@ class ClusterTab(ttk.Frame):
         _hb.pack(side="left", padx=6)
         register_tooltip(_hb, "tt.cl_hypo", self._state)
 
+        # A1: AI-Copilot „Erklären"-Button
+        ttk.Button(hf, text="🤖 Erklären (AI)",
+                   command=self._ai_explain_cluster).pack(side="left", padx=4)
+        self._ai_explain_label = tk.StringVar(value="")
+        ttk.Label(hf, textvariable=self._ai_explain_label,
+                  wraplength=320, foreground="#334455",
+                  font=("Segoe UI", 8)).pack(side="left", padx=8)
+
+        # A2: Triangulations-Bericht-Button
+        af = ttk.Frame(self)
+        af.pack(fill="x", padx=14, pady=(0, 2))
+        self._tri_report_btn = ttk.Button(
+            af, text="📄 HTML-Bericht öffnen (Triangulation)",
+            command=self._open_triangulation_report,
+        )
+        self._tri_report_btn.pack(side="left", padx=0)
+
         self._text_var = tk.StringVar(value="")
         ttk.Label(self, textvariable=self._text_var,
                   foreground="#444466", font=("Segoe UI", 9),
                   wraplength=900, justify="left").pack(anchor="w", padx=14, pady=(0, 6))
 
         self._build_legend()
+
+        # B3: Phasing-Panel
+        self._build_phasing_panel(self)
+        self._populate_phase_kits()
 
         # PanedWindow
         pane = ttk.PanedWindow(self, orient="horizontal")
@@ -669,6 +690,129 @@ class ClusterTab(ttk.Frame):
         ttk.Button(bf, text="🗑 Löschen", command=_delete).pack(side="left", padx=4)
         ttk.Button(bf, text="Abbrechen", command=dlg.destroy).pack(side="right")
         ttk.Button(bf, text="💾 Speichern", command=_save).pack(side="right", padx=4)
+
+    # ── A1: AI-Copilot ───────────────────────────────────────────────────────
+
+    def _ai_explain_cluster(self):
+        """Ruft ai_copilot.py auf und zeigt die Erklärung im Cluster-Detail an."""
+        try:
+            from ancestry.core.ai_copilot import cluster_prompt, explain_async
+        except ImportError:
+            messagebox.showinfo("AI-Copilot", "ai_copilot nicht verfügbar.")
+            return
+
+        sel = self._cluster_list.selection()
+        if not sel:
+            messagebox.showinfo("AI-Copilot", "Bitte zuerst einen Cluster auswählen.")
+            return
+        cluster_id = int(sel[0])
+
+        self._ai_explain_label.set("⏳ Lade AI-Erklärung …")
+
+        members = self._clusters.get(cluster_id, [])
+        # Baue die Mitgliederliste mit allen verfügbaren Feldern
+        match_list = [
+            {"name": m.get("name", ""), "cm": m.get("cm", 0),
+             "rel_type": m.get("rel", ""), "probable_origin": m.get("origin", "")}
+            for m in members
+        ]
+
+        prompt = cluster_prompt(cluster_id, match_list)
+        if not prompt:
+            self._ai_explain_label.set("Keine Daten für AI-Erklärung.")
+            return
+
+        accumulated: list[str] = []
+
+        def _on_chunk(chunk: str):
+            accumulated.append(chunk)
+            text = "".join(accumulated)[:500]
+            self.after(0, lambda t=text: self._ai_explain_label.set(t))
+
+        def _on_done(text: str):
+            self.after(0, lambda t=text: self._ai_explain_label.set(t[:500]))
+
+        explain_async(prompt, on_chunk=_on_chunk, on_done=_on_done)
+
+    # ── A2: Triangulations-Bericht ────────────────────────────────────────────
+
+    def _open_triangulation_report(self):
+        import webbrowser
+        try:
+            from ancestry.paths import EXPORT_DIR
+            import os
+            path = str(EXPORT_DIR / "triangulation_report.html")
+            if os.path.exists(path):
+                webbrowser.open(f"file://{path}")
+            else:
+                messagebox.showinfo(
+                    "Bericht",
+                    f"Kein Bericht unter:\n{path}\n\n"
+                    "Bitte zuerst Triangulation ausführen\n"
+                    "(Menü → Analyse → Segment-Triangulation).")
+        except Exception as e:
+            messagebox.showerror("Fehler", str(e))
+
+    # ── B3: Phasing-Panel ────────────────────────────────────────────────────
+
+    def _build_phasing_panel(self, parent):
+        frame = ttk.LabelFrame(parent, text="🧬 Phasing – Elternlinie", padding=6)
+        frame.pack(fill="x", padx=14, pady=(0, 4))
+
+        row = ttk.Frame(frame)
+        row.pack(fill="x")
+        ttk.Label(row, text="Mutter-Kit:").pack(side="left")
+        self._phase_mother_var = tk.StringVar(value="")
+        self._phase_mother_cb = ttk.Combobox(
+            row, textvariable=self._phase_mother_var, width=24, state="readonly")
+        self._phase_mother_cb.pack(side="left", padx=4)
+        ttk.Button(row, text="📊 Phasing berechnen",
+                   command=self._run_phasing).pack(side="left", padx=4)
+
+        # 4-Quadrant Canvas
+        self._phase_canvas = tk.Canvas(
+            frame, height=160, bg="#f8f8f8",
+            highlightthickness=1, highlightbackground="#cccccc")
+        self._phase_canvas.pack(fill="x", pady=(4, 0))
+        self._phase_canvas.bind("<Configure>", self._draw_phasing_quadrants)
+
+    def _populate_phase_kits(self):
+        """Befüllt Mutter-Kit-Combobox aus dna_kits."""
+        try:
+            with self._state.db._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT guid, name FROM dna_kits ORDER BY name"
+                ).fetchall()
+            values = [f"{r[1] or r[0]}" for r in rows]
+            if hasattr(self, "_phase_mother_cb"):
+                self._phase_mother_cb["values"] = values
+        except Exception:
+            pass
+
+    def _draw_phasing_quadrants(self, event=None):
+        if not hasattr(self, "_phase_canvas"):
+            return
+        c = self._phase_canvas
+        c.delete("all")
+        w = c.winfo_width() or 300
+        h = c.winfo_height() or 160
+        # 4 Quadranten: pat-pat / pat-mat / mat-pat / mat-mat
+        colors = ["#DDF0FF", "#FFE0E0", "#DDF0FF", "#FFE0E0"]
+        labels = ["Väterl.-Väterl.", "Väterl.-Mütterl.",
+                  "Mütterl.-Väterl.", "Mütterl.-Mütterl."]
+        for i, (col, lbl) in enumerate(zip(colors, labels)):
+            x0 = (i % 2) * w // 2
+            y0 = (i // 2) * h // 2
+            x1 = x0 + w // 2
+            y1 = y0 + h // 2
+            c.create_rectangle(x0, y0, x1, y1, fill=col, outline="#aaaaaa")
+            c.create_text((x0 + x1) // 2, (y0 + y1) // 2, text=lbl,
+                          font=("Segoe UI", 8), fill="#444444")
+
+    def _run_phasing(self):
+        """Placeholder: berechnet Phasing und zeichnet Matches als Punkte."""
+        self._draw_phasing_quadrants()
+        # TODO: Actual phasing logic using mother_kit assignment
 
     # ── Phasing-Dashboard ─────────────────────────────────────────────────────
 
