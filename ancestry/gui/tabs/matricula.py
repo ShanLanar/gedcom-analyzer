@@ -361,8 +361,6 @@ class MatriculaTab(ttk.Frame):
 
     def _save_correction(self, mark_correct: bool = False):
         """Speichert die bearbeitete Transkription zurück in die DB."""
-        import datetime
-
         rid = self._corr_id_var.get()
         if rid < 0:
             return
@@ -387,13 +385,160 @@ class MatriculaTab(ttk.Frame):
                         (new_text, now, rid),
                     )
         except Exception as exc:
-            from tkinter import messagebox
             messagebox.showerror("Fehler", str(exc), parent=self)
             return
         self._corr_status_var.set(
             f"Eintrag {rid} gespeichert ({'als korrekt markiert' if mark_correct else 'bearbeitet'})."
         )
         self._load_corrections()
+
+    def _batch_apply(self, mark_correct: bool) -> None:
+        """Wendet Bestätigung/Ablehnung auf alle selektierten Treeview-Zeilen an."""
+        sel = self._corr_tree.selection()
+        if not sel:
+            self._corr_status_var.set("Keine Einträge ausgewählt.")
+            return
+
+        now = datetime.datetime.now().isoformat()
+        saved = 0
+        errors: list[str] = []
+        for iid in sel:
+            rid = int(iid)
+            try:
+                with self._state.db._cursor() as cur:
+                    try:
+                        cur.execute(
+                            "UPDATE source_matrikula_entries"
+                            " SET corrected_at = ?, corrected_by = ?"
+                            " WHERE entry_id = ?",
+                            (now, "gui", rid),
+                        )
+                    except Exception:
+                        cur.execute(
+                            "UPDATE source_matrikula_entries"
+                            " SET corrected_at = ?"
+                            " WHERE entry_id = ?",
+                            (now, rid),
+                        )
+                saved += 1
+            except Exception as exc:
+                errors.append(f"{rid}: {exc}")
+
+        action = "bestätigt" if mark_correct else "abgelehnt"
+        msg = f"{saved} Korrekturen {action}."
+        if errors:
+            msg += f" Fehler: {'; '.join(errors[:3])}"
+        self._corr_status_var.set(msg)
+        self._load_corrections()
+
+    def _batch_confirm(self) -> None:
+        """Bestätigt alle ausgewählten Einträge als korrekt."""
+        self._batch_apply(mark_correct=True)
+
+    def _batch_reject(self) -> None:
+        """Lehnt alle ausgewählten Einträge ab (setzt corrected_at ohne Textänderung)."""
+        self._batch_apply(mark_correct=False)
+
+    # ── CSV/XLSX-Export ───────────────────────────────────────────────────────
+
+    def _export_entries(self) -> None:
+        """Exportiert Kirchenbuch-Einträge der aktuellen Pfarrei als CSV oder XLSX."""
+        # Dateiformat-Auswahl
+        filetypes = [("CSV-Datei", "*.csv")]
+        try:
+            import openpyxl  # noqa: F401
+            filetypes.append(("Excel-Datei", "*.xlsx"))
+        except ImportError:
+            pass
+
+        path = filedialog.asksaveasfilename(
+            parent=self,
+            title="Kirchenbuch-Einträge exportieren",
+            defaultextension=".csv",
+            filetypes=filetypes,
+        )
+        if not path:
+            return
+
+        # Aktuell gewählte Pfarrei bestimmen
+        parish_label = self._parish_var.get()
+        parish_id = self._label_to_id.get(parish_label)
+
+        columns = [
+            "entry_id", "book_id", "entry_type", "person_name",
+            "event_date", "notes", "corrected_at", "corrected_by",
+        ]
+        try:
+            with self._state.db._cursor() as cur:
+                # Prüfe ob Tabelle vorhanden
+                cur.execute(
+                    "SELECT 1 FROM sqlite_master WHERE type='table'"
+                    " AND name='source_matrikula_entries'"
+                )
+                if cur.fetchone() is None:
+                    messagebox.showwarning("Export", "Keine OCR-Daten verfügbar.", parent=self)
+                    return
+
+                # Verfügbare Spalten ermitteln (Migrations-Schutz)
+                col_info = cur.execute(
+                    "PRAGMA table_info(source_matrikula_entries)"
+                ).fetchall()
+                existing_cols = {row[1] for row in col_info}
+                export_cols = [c for c in columns if c in existing_cols]
+
+                if not export_cols:
+                    messagebox.showwarning("Export", "Tabelle hat keine bekannten Spalten.",
+                                          parent=self)
+                    return
+
+                where_sql = ""
+                params: list = []
+                if parish_id:
+                    # parish_id ist in source_matrikula_books, nicht direkt in entries —
+                    # prüfe ob parish_id-Spalte direkt existiert oder via book_id joinen
+                    if "parish_id" in existing_cols:
+                        where_sql = "WHERE parish_id = ?"
+                        params.append(parish_id)
+
+                col_list = ", ".join(export_cols)
+                rows = cur.execute(
+                    f"SELECT {col_list} FROM source_matrikula_entries {where_sql}"
+                    " ORDER BY entry_id",
+                    params,
+                ).fetchall()
+
+        except Exception as exc:
+            messagebox.showerror("Export-Fehler", str(exc), parent=self)
+            return
+
+        n = len(rows)
+        path_lower = path.lower()
+
+        try:
+            if path_lower.endswith(".xlsx"):
+                import openpyxl
+
+                wb = openpyxl.Workbook()
+                ws = wb.active
+                ws.title = "Kirchenbuch"
+                ws.append(export_cols)
+                for row in rows:
+                    ws.append(list(row))
+                wb.save(path)
+            else:
+                with open(path, "w", newline="", encoding="utf-8") as fh:
+                    writer = csv.writer(fh)
+                    writer.writerow(export_cols)
+                    writer.writerows(rows)
+
+        except Exception as exc:
+            messagebox.showerror("Export-Fehler", f"Schreiben fehlgeschlagen:\n{exc}",
+                                 parent=self)
+            return
+
+        short_path = Path(path).name
+        self._set_status(f"✓ {n} Einträge exportiert nach {short_path}")
+        self._log_line(f"✓ Export: {n} Einträge → {path}")
 
     # ── Bistums-Übersicht ─────────────────────────────────────────────────────
 
