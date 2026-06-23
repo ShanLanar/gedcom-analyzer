@@ -168,12 +168,18 @@ class AncestryDnaApp(tk.Frame):
         fm.add_separator()
         fm.add_command(label=self._t("mn.imp_names"),  command=self._import_names)
         fm.add_separator()
+        # D1: "Zuletzt geöffnet" Untermenü
+        self._recent_menu = tk.Menu(fm, tearoff=False)
+        fm.add_cascade(label="Zuletzt geöffnet ▶", menu=self._recent_menu)
+        fm.add_separator()
         fm.add_command(label=self._t("mn.quit"),       command=self._on_close)
         mb.add_cascade(label=self._t("mn.file"), menu=fm)
         for idx, key in [(0,"mn.exp_csv"),(1,"mn.exp_xlsx"),(2,"mn.exp_sh_csv"),
-                         (3,"mn.exp_all"),(5,"mn.imp_names"),(7,"mn.quit")]:
+                         (3,"mn.exp_all"),(5,"mn.imp_names"),(9,"mn.quit")]:
             self._lang_menus.append((fm, idx, key))
         self._lang_menus.append((mb, 0, "mn.file"))
+        # Populate recent files submenu after menu is built
+        self.after(0, self._recent_menu_rebuild)
 
         vm = tk.Menu(mb, tearoff=False)
         vm.add_command(label=self._t("mn.refresh_t"), command=self._refresh_match_table)
@@ -375,6 +381,14 @@ class AncestryDnaApp(tk.Frame):
         self._status_bar.pack(fill="x", side="bottom")
         # Kompatibilitäts-Alias: älterer Code der _status_var.set() nutzt
         self._status_var = self._status_bar._var
+
+        # A2: Live-Zähler-Statuszeile
+        self._live_bar = ttk.Frame(self)
+        self._live_bar.pack(fill="x", side="bottom")
+        self._live_bar_var = tk.StringVar(value="Matches: – | Personen: – | DB: –")
+        ttk.Label(self._live_bar, textvariable=self._live_bar_var,
+                  anchor="w", padding=(6, 1)).pack(fill="x")
+        self.after(0, self._update_statusbar)
 
     def _init_heavy_tabs(self):
         """Initialisiert schwere Tabs asynchron nach GUI-Rendering.
@@ -2745,13 +2759,23 @@ class AncestryDnaApp(tk.Frame):
 
     # ── Tastaturkürzel ────────────────────────────────────────────────────────
 
+    def _active_tab(self):
+        """Gibt die aktuell sichtbare Tab-Instanz zurück (oder None)."""
+        try:
+            return self._nb.nametowidget(self._nb.select())
+        except Exception:
+            return None
+
     def _bind_shortcuts(self):
         root = self.winfo_toplevel()
-        root.bind("<Control-e>", lambda _: self._export_xlsx())
+        # A3: Tastaturkürzel
+        self.bind_all("<Control-f>", lambda _: self._shortcut_focus_search())
+        self.bind_all("<F5>",        lambda _: self._shortcut_refresh())
+        self.bind_all("<Escape>",    lambda _: self._shortcut_clear_filter())
+        self.bind_all("<Control-e>", lambda _: self._shortcut_export())
+        # Ältere globale Kürzel beibehalten
         root.bind("<Control-E>", lambda _: self._export_all_xlsx())
-        root.bind("<F5>",        lambda _: self._refresh_current_tab())
         root.bind("<Control-m>", lambda _: self._shortcut_toggle_star())
-        root.bind("<Control-f>", lambda _: self._shortcut_focus_search())
 
     def _refresh_current_tab(self):
         """F5: aktuellen Tab aktualisieren."""

@@ -268,6 +268,46 @@ class ClusterTab(ttk.Frame):
         self._pairwise_tree.pack(side="left", fill="both", expand=True)
         sy3.pack(side="right", fill="y")
 
+        # A1: Spaltenbreiten-Persistenz — nach Aufbau aller Treeviews
+        # Laden über after() damit Widgets bereits realisiert sind
+        self.after(
+            200,
+            lambda: (
+                self._load_col_widths(
+                    self._cluster_list,
+                    ("cid", "count", "max_cm", "top", "quality"),
+                    "cluster_col",
+                ),
+                self._load_col_widths(
+                    self._member_tree, ("name", "cm", "rel", "baum"), "cluster_member_col"
+                ),
+                self._load_col_widths(
+                    self._pairwise_tree, ("a", "b", "cm"), "cluster_pw_col"
+                ),
+            ),
+        )
+        # Resize-Event: Breiten beim Loslassen der Maus nach dem Schieben speichern
+        self._cluster_list.bind(
+            "<ButtonRelease-1>",
+            lambda _e: self._save_col_widths(
+                self._cluster_list,
+                ("cid", "count", "max_cm", "top", "quality"),
+                "cluster_col",
+            ),
+        )
+        self._member_tree.bind(
+            "<ButtonRelease-1>",
+            lambda _e: self._save_col_widths(
+                self._member_tree, ("name", "cm", "rel", "baum"), "cluster_member_col"
+            ),
+        )
+        self._pairwise_tree.bind(
+            "<ButtonRelease-1>",
+            lambda _e: self._save_col_widths(
+                self._pairwise_tree, ("a", "b", "cm"), "cluster_pw_col"
+            ),
+        )
+
     def _build_legend(self):
         """Kompakte Farb-Legende unterhalb der Cluster-Beschreibung."""
         lf = tk.Frame(self, bd=0)
@@ -872,24 +912,91 @@ class ClusterTab(ttk.Frame):
             pass
 
     def _draw_phasing_quadrants(self, event=None):
+        """Zeichnet den Phasing-Canvas.
+
+        B4: Lazy Loading — bei mehr als 100 Clustern werden nur die Segmente
+        gezeichnet, die im aktuell sichtbaren Viewport liegen.  Bei ≤ 100
+        Clustern bleibt das Verhalten unverändert (alle 4 Quadranten).
+        """
         if not hasattr(self, "_phase_canvas"):
             return
         c = self._phase_canvas
         c.delete("all")
         w = c.winfo_width() or 300
         h = c.winfo_height() or 160
-        # 4 Quadranten: pat-pat / pat-mat / mat-pat / mat-mat
-        colors = ["#DDF0FF", "#FFE0E0", "#DDF0FF", "#FFE0E0"]
-        labels = ["Väterl.-Väterl.", "Väterl.-Mütterl.",
-                  "Mütterl.-Väterl.", "Mütterl.-Mütterl."]
-        for i, (col, lbl) in enumerate(zip(colors, labels)):
-            x0 = (i % 2) * w // 2
-            y0 = (i // 2) * h // 2
-            x1 = x0 + w // 2
-            y1 = y0 + h // 2
-            c.create_rectangle(x0, y0, x1, y1, fill=col, outline="#aaaaaa")
-            c.create_text((x0 + x1) // 2, (y0 + y1) // 2, text=lbl,
-                          font=("Segoe UI", 8), fill="#444444")
+
+        n_clusters = len(self._clusters)
+
+        if n_clusters <= 100:
+            # Ursprüngliches Verhalten: 4 statische Quadranten
+            colors = ["#DDF0FF", "#FFE0E0", "#DDF0FF", "#FFE0E0"]
+            labels = [
+                "Väterl.-Väterl.", "Väterl.-Mütterl.",
+                "Mütterl.-Väterl.", "Mütterl.-Mütterl.",
+            ]
+            for i, (col, lbl) in enumerate(zip(colors, labels)):
+                x0 = (i % 2) * w // 2
+                y0 = (i // 2) * h // 2
+                x1 = x0 + w // 2
+                y1 = y0 + h // 2
+                c.create_rectangle(x0, y0, x1, y1, fill=col, outline="#aaaaaa")
+                c.create_text(
+                    (x0 + x1) // 2, (y0 + y1) // 2, text=lbl,
+                    font=("Segoe UI", 8), fill="#444444",
+                )
+        else:
+            # B4: Lazy-Loading — Cluster als kleine farbige Kacheln rendern,
+            # nur sichtbare Kacheln (innerhalb des Viewports) werden gezeichnet.
+            TILE_W = 28
+            TILE_H = 22
+            PADDING = 2
+
+            # Scroll-Offset des Canvas ermitteln
+            try:
+                scroll_y = c.yview()
+                total_rows = -(-n_clusters // max(w // (TILE_W + PADDING), 1))
+                total_h = total_rows * (TILE_H + PADDING)
+                vy0 = int(scroll_y[0] * total_h)
+                vy1 = int(scroll_y[1] * total_h)
+            except Exception:
+                vy0 = 0
+                vy1 = h
+
+            cols_per_row = max(w // (TILE_W + PADDING), 1)
+            cluster_ids = sorted(self._clusters.keys())
+            cluster_colors = COLORS["cluster"]
+
+            # Hintergrund
+            c.create_rectangle(0, 0, w, h, fill="#f8f8f8", outline="")
+            c.create_text(
+                4, 4, text=f"Cluster-Kacheln ({n_clusters} gesamt) — Lazy View",
+                anchor="nw", font=("Segoe UI", 7), fill="#888888",
+            )
+
+            for idx, cid in enumerate(cluster_ids):
+                row_idx = idx // cols_per_row
+                col_idx = idx % cols_per_row
+                tile_y0 = row_idx * (TILE_H + PADDING)
+                tile_y1 = tile_y0 + TILE_H
+
+                # Nur Kacheln im sichtbaren Viewport zeichnen (Lazy Loading)
+                if tile_y1 < vy0 or tile_y0 > vy1:
+                    continue
+
+                tile_x0 = col_idx * (TILE_W + PADDING)
+                tile_x1 = tile_x0 + TILE_W
+                color = self._cluster_side_colors.get(
+                    cid, cluster_colors[(cid - 1) % len(cluster_colors)]
+                )
+                c.create_rectangle(
+                    tile_x0, tile_y0, tile_x1, tile_y1,
+                    fill=color, outline="#aaaaaa",
+                )
+                n_members = len(self._clusters.get(cid, []))
+                c.create_text(
+                    (tile_x0 + tile_x1) // 2, (tile_y0 + tile_y1) // 2,
+                    text=str(n_members), font=("Segoe UI", 7), fill="#333333",
+                )
 
     def _run_phasing(self):
         """Auto-Phasing via Mutter-Kit: ordnet Cluster maternal/paternal zu."""

@@ -187,12 +187,52 @@ def _build_relationship_map(individuals: dict, families: dict) -> dict:
     return rel
 
 
+class ImportSummary(int):
+    """Ergebnis von import_gedcom_persons — verhält sich wie int (= total),
+    trägt aber zusätzlich Felder für imported, updated, skipped und total.
+    Bestehende Aufrufer, die den Rückgabewert als Ganzzahl verwenden
+    (%d-Formatierung, f-String mit :,), bleiben vollständig kompatibel."""
+
+    def __new__(cls, imported: int, updated: int, skipped: int):
+        total = imported + updated + skipped
+        obj = super().__new__(cls, total)
+        obj.imported = imported
+        obj.updated = updated
+        obj.skipped = skipped
+        obj.total = total
+        return obj
+
+    def as_dict(self) -> dict:
+        return {
+            "imported": self.imported,
+            "updated":  self.updated,
+            "skipped":  self.skipped,
+            "total":    self.total,
+        }
+
+    def __repr__(self) -> str:
+        return (f"ImportSummary(imported={self.imported}, "
+                f"updated={self.updated}, skipped={self.skipped}, "
+                f"total={self.total})")
+
+
 def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
-                          root_id: str = "", families: dict | None = None) -> int:
-    """Löscht und füllt gedcom_persons aus einem GEDCOM-Individuals-Dict.
+                          root_id: str = "", families: dict | None = None,
+                          ) -> "ImportSummary":
+    """Füllt gedcom_persons aus einem GEDCOM-Individuals-Dict.
+
+    Duplikat-Logik (D3):
+      * Vorhandene Personen (gleiche ged_id) werden per UPDATE aktualisiert
+        (updated_count).
+      * Neue Personen werden per INSERT eingefügt (imported_count).
+      * Personen ohne Namen (gegeben UND Nachname leer) werden übersprungen
+        (skipped_count).
+
     Falls root_id + families angegeben werden, enthält sosa_number die
     Sosa-Stradonitz-Nummer jeder Person (für spätere Verwandtschaftsberechnung).
-    Gibt Anzahl importierter Personen zurück."""
+
+    Rückgabe: ImportSummary (verhält sich wie int = total, hat zusätzlich
+    .imported / .updated / .skipped / .total und .as_dict())."""
     sosa_map: dict = {}
     if root_id and families:
         sosa_map = _build_sosa_map(root_id, individuals, families)
@@ -200,9 +240,11 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
     rel_map = _build_relationship_map(individuals, families) if families else {}
 
     rows = []
+    skipped_count = 0
     for ged_id, ind in individuals.items():
         given, surname = _parse_name_from_indi(ind)
         if not given and not surname:
+            skipped_count += 1
             continue
         birt = ind.get("BIRT") or {}
         deat = ind.get("DEAT") or {}
@@ -226,24 +268,70 @@ def import_gedcom_persons(db, individuals: dict, ged_file: str = "",
             "children_json": json.dumps((rel_map.get(ged_id) or {}).get("children", [])),
             "siblings_json": json.dumps((rel_map.get(ged_id) or {}).get("siblings", [])),
         })
+
+    imported_count = 0
+    updated_count = 0
+
     with db._cursor() as cur:
-        # Nur die EIGENEN GEDCOM-Personen ersetzen – Anverwandte/WikiTree bleiben
-        cur.execute("DELETE FROM gedcom_persons WHERE source='gedcom'")
-        cur.executemany(
-            """INSERT OR REPLACE INTO gedcom_persons
-               (ged_id, given_name, surname, surname_norm, koelner_code,
-                sex, birth_year, birth_qual, birth_place,
-                death_year, death_place, ged_file, sosa_number,
-                parents_json, spouses_json, children_json, siblings_json)
-               VALUES (:ged_id, :given_name, :surname, :surname_norm, :koelner_code,
-                       :sex, :birth_year, :birth_qual, :birth_place,
-                       :death_year, :death_place, :ged_file, :sosa_number,
-                       :parents_json, :spouses_json, :children_json, :siblings_json)""",
-            rows,
-        )
-    log.info("bridge: %d GEDCOM-Personen importiert (Sosa: %d)",
-             len(rows), sum(1 for r in rows if r["sosa_number"]))
-    return len(rows)
+        # Bestehende ged_ids (source='gedcom') vorab einlesen für Duplikat-Check
+        existing_ids: set = {
+            row[0] for row in cur.execute(
+                "SELECT ged_id FROM gedcom_persons WHERE source='gedcom'"
+            ).fetchall()
+        }
+
+        for row in rows:
+            if row["ged_id"] in existing_ids:
+                # Vorhandene Person aktualisieren
+                cur.execute(
+                    """UPDATE gedcom_persons SET
+                       given_name=:given_name, surname=:surname,
+                       surname_norm=:surname_norm, koelner_code=:koelner_code,
+                       sex=:sex, birth_year=:birth_year, birth_qual=:birth_qual,
+                       birth_place=:birth_place, death_year=:death_year,
+                       death_place=:death_place, ged_file=:ged_file,
+                       sosa_number=:sosa_number,
+                       parents_json=:parents_json, spouses_json=:spouses_json,
+                       children_json=:children_json, siblings_json=:siblings_json
+                       WHERE ged_id=:ged_id AND source='gedcom'""",
+                    row,
+                )
+                updated_count += 1
+            else:
+                # Neue Person einfügen
+                cur.execute(
+                    """INSERT INTO gedcom_persons
+                       (ged_id, given_name, surname, surname_norm, koelner_code,
+                        sex, birth_year, birth_qual, birth_place,
+                        death_year, death_place, ged_file, sosa_number,
+                        parents_json, spouses_json, children_json, siblings_json)
+                       VALUES (:ged_id, :given_name, :surname, :surname_norm, :koelner_code,
+                               :sex, :birth_year, :birth_qual, :birth_place,
+                               :death_year, :death_place, :ged_file, :sosa_number,
+                               :parents_json, :spouses_json, :children_json, :siblings_json)""",
+                    row,
+                )
+                imported_count += 1
+
+        # Personen aus vorherigem Import entfernen, die im neuen GEDCOM nicht
+        # mehr vorhanden sind (entspricht dem alten DELETE-Verhalten).
+        new_ids = {row["ged_id"] for row in rows}
+        stale_ids = existing_ids - new_ids
+        if stale_ids:
+            cur.executemany(
+                "DELETE FROM gedcom_persons WHERE ged_id=? AND source='gedcom'",
+                [(gid,) for gid in stale_ids],
+            )
+            log.debug("bridge: %d veraltete GEDCOM-Personen entfernt", len(stale_ids))
+
+    log.info(
+        "GEDCOM Import: %d neu, %d aktualisiert, %d Duplikate übersprungen "
+        "(Sosa: %d, veraltet entfernt: %d)",
+        imported_count, updated_count, skipped_count,
+        sum(1 for r in rows if r["sosa_number"]),
+        len(stale_ids) if rows else 0,
+    )
+    return ImportSummary(imported_count, updated_count, skipped_count)
 
 
 def import_external_persons(db, persons: list[dict], source: str) -> int:

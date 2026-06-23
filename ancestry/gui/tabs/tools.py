@@ -15,6 +15,7 @@ import shutil
 import subprocess
 import sys
 import threading
+import time
 import tkinter as tk
 import webbrowser
 from datetime import datetime
@@ -57,6 +58,7 @@ class ToolsTab(ttk.Frame):
         super().__init__(parent)
         self._state = state
         self._tool_procs: dict[str, subprocess.Popen | None] = {}
+        self._job_start_time: float = 0.0
         self._build()
 
     def _build(self):
@@ -133,6 +135,27 @@ class ToolsTab(ttk.Frame):
                            command=self._tool_log_clear)
         clear.pack(anchor="e", pady=(4, 0))
         register_tooltip(clear, "tt.tl_logclear", self._state)
+
+        # ── Job-History ───────────────────────────────────────────────────
+        hist_lf = ttk.LabelFrame(right_wrap, text="🕐 Job-History", padding=6)
+        hist_lf.pack(fill="x", pady=(8, 0))
+        hist_cols = ("ts", "tool", "dur", "status")
+        self._hist_tree = ttk.Treeview(
+            hist_lf, columns=hist_cols, show="headings", height=6,
+            selectmode="browse")
+        self._hist_tree.heading("ts",     text="Zeitstempel")
+        self._hist_tree.heading("tool",   text="Tool")
+        self._hist_tree.heading("dur",    text="Dauer")
+        self._hist_tree.heading("status", text="Status")
+        self._hist_tree.column("ts",     width=140, anchor="w")
+        self._hist_tree.column("tool",   width=180, anchor="w")
+        self._hist_tree.column("dur",    width=60,  anchor="center")
+        self._hist_tree.column("status", width=80,  anchor="center")
+        hist_vsb = ttk.Scrollbar(hist_lf, orient="vertical",
+                                 command=self._hist_tree.yview)
+        self._hist_tree.configure(yscrollcommand=hist_vsb.set)
+        self._hist_tree.pack(side="left", fill="x", expand=True)
+        hist_vsb.pack(side="left", fill="y")
 
         # ── Eingabefelder (Profile/Pfarrei/IDs/Dateien) ───────────────────
         self._tl_wt_profile = tk.StringVar(value="anverwandte")
@@ -1730,6 +1753,7 @@ class ToolsTab(ttk.Frame):
             return
 
         self._tool_procs[key] = proc
+        self._job_start_time = time.time()
         if on_start:
             on_start()
 
@@ -1753,6 +1777,8 @@ class ToolsTab(ttk.Frame):
                     self._tool_procs[key] = None
                     btn_start.configure(state="normal")
                     btn_stop.configure(state="disabled")
+                    _hist_status = "✓ OK" if rc == 0 else "✗ Fehler"
+                    self._hist_add_entry(key, _hist_status)
                     # Update pipeline_runs timestamp
                     import datetime as _dt
                     _src_map = {
@@ -1816,6 +1842,20 @@ class ToolsTab(ttk.Frame):
             self._tool_append(f"■ Stop-Signal an {key} gesendet.\n")
         except Exception as exc:
             self._tool_append(f"⚠ Stop fehlgeschlagen: {exc}\n")
+
+    # ── Job-History ───────────────────────────────────────────────────────
+    def _hist_add_entry(self, tool_name: str, status_text: str):
+        """Fügt einen Eintrag in die Job-History-Treeview ein (neueste oben)."""
+        if not hasattr(self, "_hist_tree") or not self._hist_tree.winfo_exists():
+            return
+        ts = datetime.now().strftime("%d.%m. %H:%M:%S")
+        dur = f"{int(time.time() - self._job_start_time)}s"
+        self._hist_tree.insert("", 0, values=(ts, tool_name, dur, status_text))
+        # Auf max. 50 Einträge begrenzen
+        children = self._hist_tree.get_children()
+        if len(children) > 50:
+            for old in children[50:]:
+                self._hist_tree.delete(old)
 
     # ── Log ───────────────────────────────────────────────────────────────
     def _tool_append(self, text: str):
