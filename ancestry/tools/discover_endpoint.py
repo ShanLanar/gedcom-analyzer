@@ -9,6 +9,7 @@ sonst ancestry.json neben diesem Skript) und probiert alle bekannten
 Endpoint-Muster durch. Gibt aus welcher einen Namen liefert.
 """
 
+import argparse
 import json
 import os
 import re
@@ -162,5 +163,44 @@ def main():
     print("\nFertig.")
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Sucht automatisch den Ancestry-API-Endpoint, der den Match-Namen liefert.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Beispiele:
+  python -m ancestry.tools.discover_endpoint
+  python -m ancestry.tools.discover_endpoint --cookies ancestry/ancestry.json
+  python -m ancestry.tools.discover_endpoint --test-guid ABCD1234 --sample-guid EFGH5678
+""",
+    )
+    parser.add_argument(
+        "--cookies", "-c",
+        metavar="DATEI",
+        default=None,
+        help="Pfad zur Cookie-JSON-Datei (Standard: ancestry/ancestry.json neben dem Skript)",
+    )
+    parser.add_argument(
+        "--test-guid",
+        metavar="GUID",
+        default=None,
+        help="Eigene Test-GUID (wird sonst aus der DB gelesen)",
+    )
+    parser.add_argument(
+        "--sample-guid",
+        metavar="GUID",
+        default=None,
+        help="Match-GUID für den Endpoint-Test (wird sonst aus der DB gelesen)",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
+    _args = _parse_args()
+    if _args.cookies:
+        COOKIE_FILE = _args.cookies
+    if _args.test_guid:
+        TEST_GUID = _args.test_guid
+    if _args.sample_guid:
+        SAMPLE_ID = _args.sample_guid
     main()

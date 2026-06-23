@@ -18,6 +18,7 @@ Autor: ged_slim v1.0
 Lizenz: frei verwendbar
 """
 
+import argparse
 import logging
 import os
 import re
@@ -639,9 +640,112 @@ class GedSlimApp(tk.Tk):
 # Einstiegspunkt
 # ---------------------------------------------------------------------------
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="GED Slim – GEDCOM-Reduktionswerkzeug. Entfernt SOUR-Verweise, "
+                    "GPS-Koordinaten, _LINK und SSN aus großen GEDCOM-Dateien.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Beispiele:
+  # GUI-Modus (Standard, kein --input angegeben):
+  python -m ancestry.tools.ged_slim
+
+  # CLI-Modus (ohne GUI):
+  python -m ancestry.tools.ged_slim --input daten/mein.ged --output daten/mein_slim.ged
+
+  # Nur Koordinaten und SSN entfernen, SOUR-Verweise behalten:
+  python -m ancestry.tools.ged_slim -i mein.ged -o slim.ged --no-sour-inline --no-sour-sub
+""",
+    )
+    parser.add_argument(
+        "--input", "-i",
+        metavar="DATEI",
+        default=None,
+        help="Eingabe-GEDCOM-Datei. Ohne diese Option startet die GUI.",
+    )
+    parser.add_argument(
+        "--output", "-o",
+        metavar="DATEI",
+        default=None,
+        help="Ausgabe-GEDCOM-Datei (Standard: <eingabe>_slim.ged neben der Eingabedatei).",
+    )
+    parser.add_argument(
+        "--no-sour-inline",
+        action="store_true",
+        help="SOUR-Verweise auf Level 1 in INDI/FAM NICHT entfernen.",
+    )
+    parser.add_argument(
+        "--no-sour-sub",
+        action="store_true",
+        help="SOUR-Verweise in Unterblöcken NICHT entfernen.",
+    )
+    parser.add_argument(
+        "--no-map",
+        action="store_true",
+        help="MAP/LATI/LONG-Koordinaten NICHT entfernen.",
+    )
+    parser.add_argument(
+        "--no-link",
+        action="store_true",
+        help="_LINK-Einträge NICHT entfernen.",
+    )
+    parser.add_argument(
+        "--no-ssn",
+        action="store_true",
+        help="SSN-Einträge NICHT entfernen.",
+    )
+    parser.add_argument(
+        "--encoding-in",
+        metavar="ENC",
+        default="utf-8-sig",
+        help="Eingabe-Encoding (Standard: utf-8-sig).",
+    )
+    parser.add_argument(
+        "--encoding-out",
+        metavar="ENC",
+        default="utf-8",
+        help="Ausgabe-Encoding (Standard: utf-8).",
+    )
+    return parser.parse_args()
+
+
 def main():
-    app = GedSlimApp()
-    app.mainloop()
+    args = _parse_args()
+
+    if args.input:
+        # ── CLI-Modus ──────────────────────────────────────────────────────
+        in_path = Path(args.input)
+        if not in_path.is_file():
+            print(f"[FEHLER] Eingabedatei nicht gefunden: {in_path}")
+            raise SystemExit(1)
+        out_path = Path(args.output) if args.output else (
+            in_path.parent / (in_path.stem + "_slim.ged")
+        )
+        sub_tags: set = set()
+        if not args.no_map:
+            sub_tags |= {"MAP", "LATI", "LONG"}
+        if not args.no_link:
+            sub_tags |= {"_LINK"}
+        cfg = SlimConfig(
+            input_path=str(in_path),
+            output_path=str(out_path),
+            remove_inline_sour=not args.no_sour_inline,
+            remove_sub_sour=not args.no_sour_sub,
+            remove_ssn=not args.no_ssn,
+            remove_sub_tags=sub_tags,
+            input_encoding=args.encoding_in,
+            output_encoding=args.encoding_out,
+        )
+        reducer = GedcomReducer(
+            config=cfg,
+            log_callback=print,
+            progress_callback=lambda pct: None,
+        )
+        reducer.run()
+    else:
+        # ── GUI-Modus ──────────────────────────────────────────────────────
+        app = GedSlimApp()
+        app.mainloop()
 
 
 if __name__ == "__main__":

@@ -14,6 +14,7 @@ Matches vorliegen und insgesamt >= ~300 Labels.
 Aufruf:
   python ml_data_check.py
 """
+import argparse
 import json
 import sqlite3
 import sys
@@ -24,7 +25,32 @@ ANCESTRY_DIR = Path(__file__).resolve().parent.parent
 DB_PATH = ANCESTRY_DIR / "ancestry_dna.db"
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="ML-Datencheck — prüft, ob genug gelabelte Daten für ein "
+                    "Herkunfts-Klassifikationsmodell in der ancestry_dna.db vorhanden sind.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Beispiele:
+  python -m ancestry.tools.ml_data_check
+  python -m ancestry.tools.ml_data_check --db /pfad/zur/ancestry_dna.db
+""",
+    )
+    parser.add_argument(
+        "--db",
+        metavar="DATEI",
+        default=None,
+        help=f"SQLite-Datenbank (Standard: {DB_PATH}).",
+    )
+    return parser.parse_args()
+
+
 def main():
+    args = _parse_args()
+    if args.db:
+        global DB_PATH
+        DB_PATH = Path(args.db)
+
     if not DB_PATH.exists():
         print(f"DB nicht gefunden: {DB_PATH}")
         sys.exit(1)

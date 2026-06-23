@@ -6,8 +6,10 @@ Liest mh_all_matches.json (aus download_all_matches.js) und importiert
 alle Matches in die ancestry_dna.db mit source='myheritage'.
 
 Aufruf:
-  python import_mh_matches.py [pfad/zu/mh_all_matches.json]
+  python -m ancestry.tools.import_mh_matches
+  python -m ancestry.tools.import_mh_matches --input pfad/zu/mh_all_matches.json
 """
+import argparse
 import json
 import os
 import sqlite3
@@ -353,7 +355,42 @@ def run():
     print(f"  Datenbank:    {DB_PATH}")
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Importiert MyHeritage DNA-Matches aus einer JSON-Datei "
+                    "(mh_all_matches.json) in die ancestry_dna.db.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Beispiele:
+  # Standardpfad (ancestry/data/snapshots/mh_all_matches.json):
+  python -m ancestry.tools.import_mh_matches
+
+  # Explizite Eingabedatei:
+  python -m ancestry.tools.import_mh_matches --input pfad/zu/mh_all_matches.json
+
+  # Andere Datenbank:
+  python -m ancestry.tools.import_mh_matches -i matches.json --db /pfad/zur/ancestry_dna.db
+""",
+    )
+    parser.add_argument(
+        "--input", "-i",
+        metavar="DATEI",
+        default=None,
+        help="JSON-Datei mit MyHeritage-Matches (Standard: ancestry/data/snapshots/mh_all_matches.json).",
+    )
+    parser.add_argument(
+        "--db",
+        metavar="DATEI",
+        default=None,
+        help=f"SQLite-Datenbank (Standard: {DB_PATH}).",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        JSON_FILE = Path(sys.argv[1])
+    _args = _parse_args()
+    if _args.input:
+        JSON_FILE = Path(_args.input)
+    if _args.db:
+        DB_PATH = Path(_args.db)
     run()

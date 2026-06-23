@@ -6,13 +6,14 @@ Liest eine TSV/CSV-Exportdatei von GEDmatch (One-to-Many-Vergleich) und
 importiert alle Treffer in die Datenbank.
 
 Aufruf:
-  python import_gedmatch_matches.py [pfad/zur/datei.tsv]
-  python import_gedmatch_matches.py    # sucht in ancestry/data/ nach gedmatch_*.tsv
+  python -m ancestry.tools.import_gedmatch_matches [pfad/zur/datei.tsv]
+  python -m ancestry.tools.import_gedmatch_matches    # sucht in ancestry/data/ nach gedmatch_*.tsv
 
 Dateiformat (GEDmatch One-to-Many, Tab-getrennt):
   Kit_Number  Name  Email  Tags  Sex  Total_cM  Largest_Seg  Gen
   X-DNA_cM  X-DNA_Segs  [Rel_Type]  Source  SNPs  Overlap  mtDNA  YDNA
 """
+import argparse
 import csv
 import json
 import sqlite3
@@ -318,10 +319,52 @@ def run(input_file: Path):
     print(f"  Datenbank:    {DB_PATH}")
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Importiert GEDmatch One-to-Many Matches aus einer TSV/CSV-Datei "
+                    "in die ancestry_dna.db.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Beispiele:
+  # Automatische Suche in ancestry/data/:
+  python -m ancestry.tools.import_gedmatch_matches
+
+  # Explizite Eingabedatei:
+  python -m ancestry.tools.import_gedmatch_matches --input ancestry/data/gedmatch_CM8449775.tsv
+
+  # Andere Datenbank:
+  python -m ancestry.tools.import_gedmatch_matches -i meine.tsv --db /pfad/zur/ancestry_dna.db
+""",
+    )
+    parser.add_argument(
+        "--input", "-i",
+        metavar="DATEI",
+        default=None,
+        help="GEDmatch TSV/CSV-Datei. Ohne Angabe wird in ancestry/data/ gesucht.",
+    )
+    parser.add_argument(
+        "--db",
+        metavar="DATEI",
+        default=None,
+        help=f"SQLite-Datenbank (Standard: {DB_PATH}).",
+    )
+    parser.add_argument(
+        "--kit",
+        metavar="KIT_ID",
+        default=None,
+        help=f"Eigene GEDmatch-Kit-ID (Standard: {OUR_KIT}).",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    if len(sys.argv) > 1:
-        input_path = Path(sys.argv[1])
+    _args = _parse_args()
+    if _args.db:
+        DB_PATH = Path(_args.db)
+    if _args.kit:
+        OUR_KIT = _args.kit
+    if _args.input:
+        input_path = Path(_args.input)
     else:
         input_path = find_input_file()
-
     run(input_path)

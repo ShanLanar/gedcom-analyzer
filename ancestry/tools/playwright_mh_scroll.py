@@ -16,6 +16,7 @@ AUFRUF:
 AUSGABE:
   ancestry/data/mh_playwright_matches.json
 """
+import argparse
 import asyncio
 import json
 import random
@@ -201,5 +202,152 @@ def _save(arr: list, count: int, label: str):
     print(f"  Gespeichert: {out} ({len(arr)} Matches)")
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Scrollt die MyHeritage DNA-Matches-Seite via Playwright (echter "
+                    "Chrome-Browser mit gespeichertem Profil) und speichert alle Matches "
+                    "als JSON.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Voraussetzungen:
+  pip install playwright
+  playwright install chromium
+
+Beispiele:
+  # Standard (Chrome-Profil automatisch erkannt):
+  python -m ancestry.tools.playwright_mh_scroll
+
+  # Explizites Chrome-Profil:
+  python -m ancestry.tools.playwright_mh_scroll --profile ~/.config/google-chrome
+
+  # Andere Ausgabedatei und anderes Kit:
+  python -m ancestry.tools.playwright_mh_scroll --output daten/matches.json --kit OYYV65GLYXMJ2JPTF5BJPM3IIQRB5LQ --total 12000
+""",
+    )
+    parser.add_argument(
+        "--profile",
+        metavar="VERZEICHNIS",
+        default=None,
+        help="Pfad zum Chrome/Chromium-Benutzerprofil (Standard: plattformabhängiger Standardpfad).",
+    )
+    parser.add_argument(
+        "--output", "-o",
+        metavar="DATEI",
+        default=None,
+        help=f"Ausgabe-JSON-Datei (Standard: {OUT_FILE}).",
+    )
+    parser.add_argument(
+        "--kit",
+        metavar="KIT_ID",
+        default=None,
+        help=f"MyHeritage Site-Kit-ID (Standard: {SITE_KIT}).",
+    )
+    parser.add_argument(
+        "--total",
+        metavar="ANZAHL",
+        type=int,
+        default=None,
+        help=f"Erwartete Gesamtzahl der Matches (Standard: {TOTAL}).",
+    )
+    parser.add_argument(
+        "--headless",
+        action="store_true",
+        help="Browser im Headless-Modus starten (Standard: sichtbar).",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    asyncio.run(main())
+    _args = _parse_args()
+    if _args.output:
+        OUT_FILE = Path(_args.output)
+    if _args.kit:
+        SITE_KIT = _args.kit
+        URL = f"https://www.myheritage.com/dna/matches/{SITE_KIT}"
+    if _args.total:
+        TOTAL = _args.total
+
+    # Headless-Flag in main() berücksichtigen
+    _headless = _args.headless
+    _profile_override = Path(_args.profile) if _args.profile else None
+
+    async def _main_with_args():
+        profile = _profile_override if _profile_override else default_profile()
+        print(f"Chrome-Profil: {profile}")
+        if not profile.exists():
+            print("⚠️  Chrome-Profil nicht gefunden. Nutze frischen Browser ohne Login.")
+            profile = None
+
+        async with async_playwright() as p:
+            launch_args = dict(
+                headless=_headless,
+                slow_mo=0 if _headless else 50,
+            )
+            if profile:
+                ctx = await p.chromium.launch_persistent_context(
+                    str(profile),
+                    channel="chrome",
+                    **launch_args,
+                )
+                page = ctx.pages[0] if ctx.pages else await ctx.new_page()
+            else:
+                browser = await p.chromium.launch(**launch_args)
+                ctx = await browser.new_context(locale="de-DE",
+                                                viewport={"width": 1280, "height": 900})
+                page = await ctx.new_page()
+                if not _headless:
+                    print("→ Bitte manuell einloggen, dann Enter drücken …")
+                    await page.goto("https://www.myheritage.com/login")
+                    input("Nach dem Login Enter drücken …")
+
+            await page.add_init_script(SPY_JS)
+            print(f"Navigiere zu: {URL}")
+            await page.goto(URL, wait_until="domcontentloaded")
+
+            print("Warte auf erste Matches …")
+            for _ in range(30):
+                await asyncio.sleep(2)
+                count = await page.evaluate(GET_COUNT_JS)
+                if count > 0:
+                    print(f"✓ Erste Matches geladen: {count}")
+                    break
+            else:
+                print("❌ Keine Matches geladen. Session ggf. abgelaufen.")
+                await ctx.close()
+                return
+
+            last_count = 0
+            stable = 0
+            scrolls = 0
+            print(f"Starte Scroll-Loop (Ziel: {TOTAL} Matches) …")
+
+            while stable < 12 and await page.evaluate(GET_COUNT_JS) < TOTAL:
+                amount = random.randint(800, 1200)
+                await page.evaluate(f"window.scrollBy(0, {amount})")
+                await page.evaluate("document.dispatchEvent(new Event('scroll', {bubbles: true}))")
+                pause = 2.5 + random.random() * 2.0
+                await asyncio.sleep(pause)
+                scrolls += 1
+                if scrolls % 20 == 0:
+                    long_p = 4 + random.random() * 3
+                    print(f"  Pause {long_p:.1f}s …")
+                    await asyncio.sleep(long_p)
+                current = await page.evaluate(GET_COUNT_JS)
+                if current > last_count:
+                    last_count = current
+                    stable = 0
+                    pct = current / TOTAL * 100
+                    print(f"  [{scrolls:4d} Scrolls] {current:5d}/{TOTAL} ({pct:.1f}%)")
+                else:
+                    stable += 1
+                if current > 0 and current % 1000 < 5 and current != last_count:
+                    arr = await page.evaluate(GET_DATA_JS)
+                    _save(arr, current, "backup")
+
+            print("Extrahiere alle Matches aus dem Spy …")
+            arr = await page.evaluate(GET_DATA_JS)
+            _save(arr, len(arr), "final")
+            await ctx.close()
+            print("✅ Fertig!")
+
+    asyncio.run(_main_with_args())

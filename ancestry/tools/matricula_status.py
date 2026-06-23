@@ -19,6 +19,7 @@ CLI:
 """
 from __future__ import annotations
 
+import argparse
 import sqlite3
 from pathlib import Path
 
@@ -151,16 +152,50 @@ def format_parish_label(p: dict) -> str:
     return f"{mark} {p['name']}  ({suffix})"
 
 
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Zeigt den Matricula-Scan-Fortschritt pro Pfarrei aus der "
+                    "matricula_parishes.db an.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Beispiele:
+  # Alle Pfarreien aus der Standard-DB:
+  python -m ancestry.tools.matricula_status
+
+  # Nur eine bestimmte Diözese:
+  python -m ancestry.tools.matricula_status --diocese deutschland/osnabrueck
+
+  # Andere Datenbank:
+  python -m ancestry.tools.matricula_status --db /pfad/zu/matricula_parishes.db
+""",
+    )
+    parser.add_argument(
+        "--db",
+        metavar="DATEI",
+        default=None,
+        help=f"Pfad zur Pfarrei-Datenbank (Standard: {PARISH_DB}).",
+    )
+    parser.add_argument(
+        "--diocese", "-d",
+        metavar="DIÖZESE",
+        default=None,
+        help="Filtert auf eine bestimmte Diözese (z.B. 'deutschland/osnabrueck').",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    dioceses = get_dioceses()
+    _args = _parse_args()
+    _db = _args.db or None
+    dioceses = get_dioceses(_db)
     if not dioceses:
-        print(f"Keine Pfarrei-DB gefunden: {PARISH_DB}")
+        print(f"Keine Pfarrei-DB gefunden: {_args.db or PARISH_DB}")
         print("Zuerst ausführen: python -m ancestry.tools.scrape_matricula --diocese osnabrueck")
     else:
         print(f"Bekannte Diözesen ({len(dioceses)}):")
         for d in dioceses:
             print(f"  {d['path']}")
         print()
-    parishes = get_parish_status()
+    parishes = get_parish_status(_db, diocese=_args.diocese)
     for p in parishes:
         print(format_parish_label(p))

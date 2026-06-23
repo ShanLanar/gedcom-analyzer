@@ -14,6 +14,7 @@ Anleitung:
 AUSGABE:
   ancestry/data/gedmatch_CM8449775.tsv  (direkt importierbar)
 """
+import argparse
 import sys
 from datetime import date
 from pathlib import Path
@@ -32,8 +33,52 @@ HEADER = (
 )
 
 
-def read_input() -> str:
-    if len(sys.argv) > 1:
+def _parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        description="Konvertiert kopierte GEDmatch-Tabellendaten (aus Clipboard oder Stdin) "
+                    "in eine TSV-Datei, die direkt mit import_gedmatch_matches.py importiert "
+                    "werden kann.",
+        formatter_class=argparse.RawDescriptionHelpFormatter,
+        epilog="""
+Beispiele:
+  # Aus Datei (kopierte GEDmatch-Tabelle als Textdatei gespeichert):
+  python -m ancestry.tools.gedmatch_paste_to_tsv --input meine_paste.txt
+
+  # Aus Stdin (interaktiv einfügen, Strg+D zum Beenden):
+  python -m ancestry.tools.gedmatch_paste_to_tsv
+
+  # Mit eigenem Kit-Kürzel und Ausgabepfad:
+  python -m ancestry.tools.gedmatch_paste_to_tsv -i paste.txt --kit CM1234567 -o ausgabe.tsv
+""",
+    )
+    parser.add_argument(
+        "--input", "-i",
+        metavar="DATEI",
+        default=None,
+        help="Eingabedatei mit der kopierten GEDmatch-Tabelle. "
+             "Ohne Angabe wird interaktiv von Stdin gelesen.",
+    )
+    parser.add_argument(
+        "--output", "-o",
+        metavar="DATEI",
+        default=None,
+        help="Ausgabe-TSV-Datei (Standard: ancestry/data/gedmatch_<KIT>.tsv).",
+    )
+    parser.add_argument(
+        "--kit",
+        metavar="KIT_ID",
+        default=None,
+        help=f"Eigene Kit-Nummer (Standard: {OUR_KIT}).",
+    )
+    return parser.parse_args()
+
+
+def read_input(input_path: str | None = None) -> str:
+    if input_path:
+        p = Path(input_path)
+        return p.read_text(encoding="utf-8", errors="replace")
+    # Legacy: positional arg
+    if len(sys.argv) > 1 and not sys.argv[1].startswith("-"):
         p = Path(sys.argv[1])
         return p.read_text(encoding="utf-8", errors="replace")
     print("Füge GEDmatch-Tabelle ein (Strg+D zum Beenden):")
@@ -48,8 +93,19 @@ def read_input() -> str:
 
 
 def main():
+    args = _parse_args()
+
+    # Allow overriding kit and output via args
+    global OUR_KIT, OUT_FILE
+    if args.kit:
+        OUR_KIT = args.kit
+    if args.output:
+        OUT_FILE = Path(args.output)
+    elif args.kit:
+        OUT_FILE = DATA_DIR / f"gedmatch_{OUR_KIT}.tsv"
+
     DATA_DIR.mkdir(exist_ok=True)
-    text = read_input().strip()
+    text = read_input(args.input).strip()
     if not text:
         print("Keine Eingabe. Abbruch.")
         sys.exit(1)
