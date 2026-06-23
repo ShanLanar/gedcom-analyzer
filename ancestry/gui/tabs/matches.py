@@ -158,7 +158,7 @@ class MatchesTab(ttk.Frame):
                 self._search_history = self._search_history[:5]
                 if hasattr(self, "_search_combo"):
                     self._search_combo["values"] = self._search_history
-        self._search_after_id = self.after(300, self.refresh)
+        self._search_after_id = self.after(350, self.refresh)
 
     def refresh(self, *_):
         # Filter-/Such-/Kit-Wechsel: zurück auf Seite 1 (Offset 0).
