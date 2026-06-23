@@ -195,6 +195,80 @@ class DataSourcePipeline(tk.Frame):
             )
             self._summary_lbl.configure(fg=_WARN_FG)
 
+    # ── Datenfrische-Ampel ────────────────────────────────────────────────────
+
+    @staticmethod
+    def _freshness_icon(last_run: str | None) -> str:
+        """Gibt 🟢/🟡/🔴 zurück je nach Alter des letzten Syncs."""
+        if not last_run:
+            return "🔴"
+        try:
+            dt = datetime.datetime.fromisoformat(last_run)
+            days = (datetime.datetime.now() - dt).days
+            if days <= 7:
+                return "🟢"
+            if days <= 30:
+                return "🟡"
+            return "🔴"
+        except Exception:
+            return "🔴"
+
+    @staticmethod
+    def _freshness_tooltip(last_run: str | None) -> str:
+        """Gibt den Tooltip-Text für die Frische-Ampel zurück."""
+        if not last_run:
+            return "Letzter Sync: noch nie"
+        try:
+            dt = datetime.datetime.fromisoformat(last_run)
+            return f"Letzter Sync: {dt.strftime('%Y-%m-%d %H:%M')}"
+        except Exception:
+            return f"Letzter Sync: {last_run}"
+
+    def _load_pipeline_runs(self) -> dict[str, str]:
+        """Lädt letzte Laufzeiten aus pipeline_runs. Gibt {source: last_run} zurück."""
+        try:
+            if not self._state or not getattr(self._state, "db", None):
+                return {}
+            with self._state.db._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT source, last_run FROM pipeline_runs"
+                ).fetchall()
+            return {r[0]: r[1] for r in rows}
+        except Exception:
+            return {}
+
+    def update_freshness(self, pipeline_runs: dict[str, str]) -> None:
+        """Aktualisiert die Frische-Ampel aller Kacheln.
+
+        Parameters
+        ----------
+        pipeline_runs:
+            {source_id: last_run_iso}  — z. B. aus der pipeline_runs-Tabelle.
+        """
+        self._freshness_cache = pipeline_runs or {}
+        for src in self._sources:
+            sid = src["id"]
+            btn = self._box_btns.get(sid)
+            if btn is None:
+                continue
+            fresh = self._freshness_icon(self._freshness_cache.get(sid))
+            # Bestehenden Kachel-Text nehmen und Ampel am Anfang aktualisieren
+            current = btn.cget("text")
+            lines = current.split("\n")
+            if lines:
+                first = lines[0]
+                # Führendes altes Frische-Emoji entfernen falls vorhanden
+                for old_icon in ("🟢", "🟡", "🔴"):
+                    if first.startswith(old_icon):
+                        first = first[len(old_icon):].lstrip()
+                        break
+                lines[0] = f"{fresh} {first}"
+                btn.configure(text="\n".join(lines))
+            # Tooltip aktualisieren
+            tip = self._tile_tooltips.get(sid)
+            if tip is not None:
+                tip.text = self._freshness_tooltip(self._freshness_cache.get(sid))
+
     # ── Toggle / Panel ────────────────────────────────────────────────────────
 
     def _toggle(self, src_id: str):

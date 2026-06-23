@@ -354,6 +354,7 @@ class ToolsTab(ttk.Frame):
 
         def _query():
             statuses: dict[str, tuple[str, str]] = {}
+            pipeline_ts: dict[str, tuple[str, int]] = {}
             try:
                 db = getattr(self._state, "db", None)
                 if db is None:
@@ -456,7 +457,10 @@ class ToolsTab(ttk.Frame):
                 pass
 
             if statuses and hasattr(self, "_pipeline") and self._pipeline.winfo_exists():
-                def _apply(s=statuses):
+                _fresh = {k: v[0] for k, v in pipeline_ts.items()}
+
+                def _apply(s=statuses, fr=_fresh):
+                    self._pipeline.update_freshness(fr)
                     self._pipeline.update_status(s)
                     if hasattr(self, "_next_step_var"):
                         self._update_next_step(s)
