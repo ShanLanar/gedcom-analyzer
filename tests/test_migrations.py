@@ -2,6 +2,7 @@
 
 Wichtig: source_webtrees-Tabelle muss nach jeder Migration erhalten bleiben.
 """
+import re
 import sqlite3
 import pytest
 from pathlib import Path
@@ -16,9 +17,33 @@ def _get_migration_files():
 
 
 def _apply_migration(conn: sqlite3.Connection, sql_path: Path) -> None:
-    """Wendet eine einzelne Migration an."""
+    """Wendet eine einzelne Migration an — ignoriert idempotente Fehler.
+
+    Repliziert die Fehlertoleranz des production runners (runner.run()):
+    - duplicate column name  → überspringen
+    - already exists         → überspringen
+    - no such table bei CREATE INDEX/VIEW → überspringen
+    """
     sql = sql_path.read_text(encoding="utf-8")
-    conn.executescript(sql)
+    statements = [s.strip() for s in re.split(r";", sql) if s.strip()]
+    for stmt in statements:
+        try:
+            conn.execute(stmt)
+        except sqlite3.OperationalError as e:
+            msg = str(e).lower()
+            if "duplicate column name" in msg or "already exists" in msg:
+                continue
+            # Remove leading comment lines before checking statement type
+            lines = stmt.splitlines()
+            while lines and lines[0].lstrip().startswith("--"):
+                lines.pop(0)
+            stmt_upper = "\n".join(lines).lstrip().upper()
+            if "no such table" in msg and stmt_upper.startswith(
+                ("CREATE INDEX", "CREATE VIEW")
+            ):
+                continue
+            raise
+    conn.commit()
 
 
 @pytest.fixture
