@@ -19,7 +19,7 @@ import re
 import threading
 import tkinter as tk
 import webbrowser
-from tkinter import ttk
+from tkinter import filedialog, messagebox, ttk
 
 from ancestry.core.place_concordance import map_place
 from ancestry.gui.state import AppState
@@ -181,6 +181,12 @@ class PersonsTab(ttk.Frame):
         _b = ttk.Button(bar, text="🔍 Dubletten", command=self._pers_open_dedup)
         _b.pack(side="left", padx=4)
         register_tooltip(_b, "tt.pe_dedup", self._state)
+        _bw = ttk.Button(bar, text="🧱 Brick-Wall-Analyse",
+                         command=self._pers_open_brickwall)
+        _bw.pack(side="left", padx=4)
+        _bg = ttk.Button(bar, text="📤 GRAMPS exportieren",
+                         command=self._pers_export_gramps)
+        _bg.pack(side="left", padx=4)
 
         cols = ("name", "years", "rel")
         self._pers_list = ttk.Treeview(left, columns=cols, show="headings",
@@ -247,8 +253,66 @@ class PersonsTab(ttk.Frame):
             from ancestry.gui.analysis.dedup_review import open_dedup_review
             open_dedup_review(self.winfo_toplevel(), self._db)
         except Exception as exc:
-            from tkinter import messagebox
             messagebox.showerror("Dubletten", str(exc))
+
+    # ── A2: Brick-Wall-Finder ─────────────────────────────────────────────────
+    def _pers_open_brickwall(self):
+        """Öffnet den Brick-Wall-Finder-Dialog (A2)."""
+        try:
+            from ancestry.gui.analysis.brickwall_finder import show_brickwall_finder
+            show_brickwall_finder(self, self._state)
+        except Exception as exc:
+            log.exception("Brick-Wall-Finder Fehler")
+            messagebox.showerror("Brick-Wall-Analyse", str(exc))
+
+    # ── D3: GRAMPS-Export ─────────────────────────────────────────────────────
+    def _pers_export_gramps(self):
+        """Exportiert Vorfahren-Gruppen als Gramps-XML (D3)."""
+        test_guid = getattr(self._state, "current_test_guid", None)
+        if not test_guid:
+            messagebox.showwarning(
+                "GRAMPS exportieren",
+                "Kein DNA-Kit ausgewählt.\n\n"
+                "Bitte zuerst im Download-Tab ein Kit auswählen.")
+            return
+        try:
+            groups = self._db.get_pedigree_groups(
+                test_guid, min_matches=2, mode="person")
+        except Exception as exc:
+            messagebox.showerror("GRAMPS exportieren",
+                                 f"Datenbankfehler: {exc}")
+            return
+        if not groups:
+            messagebox.showinfo(
+                "GRAMPS exportieren",
+                "Keine Vorfahren-Gruppen gefunden.\n\n"
+                "Bitte zuerst Ahnentafeln für die Matches laden "
+                "(z. B. über den Matches-Tab → 🌳 GEDCOM abgleichen).")
+            return
+        path = filedialog.asksaveasfilename(
+            title="GRAMPS-Export speichern",
+            defaultextension=".gramps",
+            filetypes=[("GRAMPS", "*.gramps"), ("XML", "*.xml")],
+            initialfile="ancestry_dna_ancestors.gramps")
+        if not path:
+            return
+
+        def _do_export():
+            try:
+                from ancestry.core.gramps_export import export_gramps
+                n = export_gramps(groups, path, mask_living=True)
+                self.after(0, lambda: messagebox.showinfo(
+                    "GRAMPS exportieren",
+                    f"{n} Personen exportiert → {path}\n"
+                    "Lebende Personen wurden als [privat] maskiert (DSGVO)."))
+            except Exception as exc:  # noqa: BLE001
+                log.exception("GRAMPS-Export fehlgeschlagen")
+                msg = str(exc)
+                self.after(0, lambda m=msg: messagebox.showerror(
+                    "GRAMPS exportieren", m))
+
+        threading.Thread(target=_do_export, daemon=True,
+                         name="gramps-export").start()
 
     # ── Datenzugriff ──────────────────────────────────────────────────────
     def _pers_source_key(self) -> str:
