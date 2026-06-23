@@ -313,6 +313,12 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "st.side_mat":  {"de": "🔴 Mütterlich:",                       "en": "🔴 Maternal:"},
     "st.side_open": {"de": "❓ Nicht zugewiesen:",                  "en": "❓ Unassigned:"},
     "st.kit_kz":    {"de": "Kits & Matches",                       "en": "Kits & Matches"},
+    "st.qual_kz":       {"de": "📊 Daten-Qualität",    "en": "📊 Data Quality"},
+    "st.qual_notes":    {"de": "% mit Notizen",         "en": "% with notes"},
+    "st.qual_side":     {"de": "% mit Seite",           "en": "% with side"},
+    "st.qual_clustered":{"de": "% geclustert",          "en": "% clustered"},
+    "st.qual_avg_cm":   {"de": "Ø cM",                  "en": "avg cM"},
+    "st.qual_sources":  {"de": "Quellen aktiv",         "en": "Active sources"},
     # Menu bar — cascade labels
     "mn.file":      {"de": "Datei",                                "en": "File"},
     "mn.view":      {"de": "Ansicht",                              "en": "View"},

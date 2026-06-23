@@ -159,6 +159,30 @@ class StatsTab(ttk.Frame):
                                       highlightthickness=0)
         self._ring_canvas.pack(fill="x")
 
+        # ── Daten-Qualität ───────────────────────────────────────────────────────
+        qf = ttk.LabelFrame(self, text=t("st.qual_kz"), padding=10)
+        qf.pack(fill="x", padx=14, pady=4)
+        lw.append((qf, "st.qual_kz"))
+        qual_label_keys = [
+            ("qual_notes_pct",    "st.qual_notes"),
+            ("qual_side_pct",     "st.qual_side"),
+            ("qual_clustered_pct","st.qual_clustered"),
+            ("qual_avg_cm",       "st.qual_avg_cm"),
+            ("qual_sources",      "st.qual_sources"),
+        ]
+        for i, (stat_key, t_key) in enumerate(qual_label_keys):
+            row_i = i // 3
+            col_i = i % 3
+            sv_lbl = tk.StringVar(value=t(t_key))
+            ttk.Label(qf, textvariable=sv_lbl, foreground="#555555").grid(
+                row=row_i, column=col_i * 2, sticky="e", padx=(14, 4), pady=3)
+            lw.append((sv_lbl, t_key))
+            var = tk.StringVar(value="—")
+            ttk.Label(qf, textvariable=var, font=("Segoe UI", 10, "bold"),
+                      foreground=COLORS["primary"]).grid(
+                row=row_i, column=col_i * 2 + 1, sticky="w")
+            self._stat_vars[stat_key] = var
+
         rf = ttk.LabelFrame(self, text=t("st.rel_dist"), padding=10)
         rf.pack(fill="x", padx=14, pady=4)
         lw.append((rf, "st.rel_dist"))
@@ -240,13 +264,48 @@ class StatsTab(ttk.Frame):
 
         def _worker():
             stats = self._state.db.get_statistics()
+            # ── Daten-Qualitäts-Metriken ────────────────────────────────────
+            tg = self._get_test_guid()
+            total = stats.get("total") or 0
+            with_note = stats.get("with_note") or 0
+            stats["qual_notes_pct"] = (with_note / total * 100) if total > 0 else 0.0
+            n_with_side = (stats.get("side_paternal") or 0) + (stats.get("side_maternal") or 0)
+            stats["qual_side_pct"] = (n_with_side / total * 100) if total > 0 else 0.0
+            avg_cm = stats.get("avg_cm")
+            stats["qual_avg_cm"] = float(avg_cm) if avg_cm is not None else None
+            if tg:
+                try:
+                    with self._state.db._cursor() as cur:
+                        n_clustered = cur.execute(
+                            "SELECT COUNT(DISTINCT match_guid_a) + COUNT(DISTINCT match_guid_b) "
+                            "FROM shared_matches WHERE test_guid=?", (tg,)
+                        ).fetchone()[0]
+                        n_sources = cur.execute(
+                            "SELECT COUNT(DISTINCT source) FROM matches "
+                            "WHERE test_guid=? AND source IS NOT NULL AND source != ''",
+                            (tg,)
+                        ).fetchone()[0]
+                except Exception as e:
+                    log.debug("qual metrics query: %s", e)
+                    n_clustered = 0
+                    n_sources = 0
+            else:
+                n_clustered = 0
+                n_sources = 0
+            stats["qual_clustered_pct"] = (n_clustered / total * 100) if total > 0 else 0.0
+            stats["qual_sources"] = n_sources
             self.after(0, lambda s=stats: _apply(s))
 
         def _apply(stats):
+            _qual_pct_keys = {"qual_notes_pct", "qual_side_pct", "qual_clustered_pct"}
             for key, var in self._stat_vars.items():
                 v = stats.get(key)
                 if key == "gen_length":
                     var.set(f"{v:.1f} J." if isinstance(v, float) else "—")
+                elif key in _qual_pct_keys:
+                    var.set(f"{v:.1f} %" if v is not None else "—")
+                elif key == "qual_avg_cm":
+                    var.set(f"{v:.1f}" if v is not None else "—")
                 elif isinstance(v, float):
                     var.set(f"{v:.1f}")
                 else:
