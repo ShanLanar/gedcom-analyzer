@@ -264,6 +264,13 @@ class ToolsTab(ttk.Frame):
                           lambda: [sys.executable, "-u", "-m",
                                    "ancestry.tools.bundle_for_llm"])
 
+        # ── Abschnitt G: Visualisierungen ─────────────────────────────────────
+        sec_vis = self._tool_section(inner, "📊 Visualisierungen")
+        self._tool_action(sec_vis, "🌸 Sosa-Fächerdiagramm (SVG)", "fanchart",
+                          lambda: [sys.executable, "-u", "-m", "ancestry.tools.gen_fanchart"])
+        self._tool_action(sec_vis, "🌐 HTML-Dashboard (Chart.js)", "dashboard_html",
+                          lambda: [sys.executable, "-u", "-m", "ancestry.tools.gen_dashboard"])
+
         # ── Abschnitt F: Ortskonkordanz (Anverwandte → Standardorte) ──────────
         sec = self._tool_section(inner, "🗺  Ortskonkordanz")
         row = ttk.Frame(sec); row.pack(fill="x", pady=2)
