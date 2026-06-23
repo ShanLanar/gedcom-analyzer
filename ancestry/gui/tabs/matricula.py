@@ -11,6 +11,8 @@ Pfarrei automatisch die nächste offene gestartet (Warteschlangen-Prinzip).
 
 from __future__ import annotations
 
+import csv
+import datetime
 import logging
 import os
 import queue
@@ -19,7 +21,7 @@ import sys
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import messagebox, ttk
+from tkinter import filedialog, messagebox, ttk
 from typing import Callable, Optional
 
 from ancestry.gui.state import AppState
@@ -136,8 +138,10 @@ class MatriculaTab(ttk.Frame):
         self._ner_btn = ttk.Button(bar, text="NER extrahieren", command=self._extract_ner)
         self._ner_btn.pack(side="left", padx=6)
         register_tooltip(self._ner_btn, "tt.mat_ner", self._state)
-        ttk.Button(bar, text="🔍 Personensuche",
+        ttk.Button(bar, text="🔍 NER-Suche",
                    command=self._show_ner_search).pack(side="left", padx=6)
+        ttk.Button(bar, text="📥 Export (CSV/XLSX)",
+                   command=self._export_entries).pack(side="left", padx=6)
 
         self._autonext_var = tk.BooleanVar(value=False)
         _sv = tk.StringVar(value=t("mat.autonext"))
@@ -213,7 +217,7 @@ class MatriculaTab(ttk.Frame):
         cols = ("book_id", "book_type", "person", "date", "status")
         self._corr_tree = ttk.Treeview(
             list_frame, columns=cols, show="headings", height=10,
-            selectmode="browse",
+            selectmode="extended",
         )
         self._corr_tree.heading("book_id",   text="Buch-ID")
         self._corr_tree.heading("book_type", text="Buchtyp")
@@ -249,6 +253,16 @@ class MatriculaTab(ttk.Frame):
         ttk.Button(btn_row, text="✓ Als korrekt markieren",
                    command=lambda: self._save_correction(mark_correct=True)).pack(side="left")
         self._corr_id_var = tk.IntVar(value=-1)
+
+        # Batch-Buttons für Mehrfachauswahl
+        batch_row = ttk.Frame(edit_frame)
+        batch_row.pack(fill="x", pady=(4, 0))
+        ttk.Label(batch_row, text="Mehrfachauswahl:",
+                  font=("Segoe UI", 8)).pack(side="left", padx=(0, 6))
+        ttk.Button(batch_row, text="✓ Alle ausgewählten bestätigen",
+                   command=self._batch_confirm).pack(side="left", padx=(0, 6))
+        ttk.Button(batch_row, text="✗ Alle ausgewählten ablehnen",
+                   command=self._batch_reject).pack(side="left")
 
         # Status-Zeile
         self._corr_status_var = tk.StringVar(value="")
@@ -732,8 +746,12 @@ class MatriculaTab(ttk.Frame):
             self._set_status(f"Matricula-Scan beendet (Code {rc}).")
 
     def _show_ner_search(self):
-        from ancestry.gui.analysis.ner_search import show_ner_search
-        show_ner_search(self.winfo_toplevel(), self._state.db)
+        try:
+            from ancestry.gui.analysis.ner_search import show_ner_search
+            show_ner_search(self.winfo_toplevel(), self._state.db)
+        except Exception as exc:
+            messagebox.showerror("NER-Suche", f"Fehler beim Öffnen der NER-Suche:\n{exc}",
+                                 parent=self)
 
     def _extract_ner(self):
         if self.is_running():

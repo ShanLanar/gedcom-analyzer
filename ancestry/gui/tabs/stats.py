@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import tkinter as tk
-from tkinter import ttk
+from tkinter import messagebox, ttk
 from typing import Callable, Optional
 
 from ancestry.gui.state import AppState
@@ -42,6 +42,7 @@ class StatsTab(ttk.Frame):
         # zwischengespeichert; mark_dirty() erzwingt eine Neuberechnung
         # (z. B. bei GEDCOM-Änderung oder nach einem Download).
         self._stats_dirty = True
+        self._research_badge_var: Optional[tk.StringVar] = None
         self._build()
 
     # ── Aufbau ───────────────────────────────────────────────────────────────
@@ -52,11 +53,26 @@ class StatsTab(ttk.Frame):
         lw = s.lang_widgets
         lh = s.lang_headings
 
+        # ── Toolbar (Aktualisieren + Analyse-Tools) ───────────────────────────
+        toolbar = ttk.Frame(self)
+        toolbar.pack(fill="x", padx=14, pady=(8, 2))
+
         _sv = tk.StringVar(value=t("st.refresh"))
-        _b = ttk.Button(self, textvariable=_sv, command=self.refresh)
-        _b.pack(anchor="ne", padx=14, pady=8)
+        _b = ttk.Button(toolbar, textvariable=_sv, command=self.refresh)
+        _b.pack(side="right", padx=(4, 0))
         register_tooltip(_b, "tt.st_refresh", self._state)
         lw.append((_sv, "st.refresh"))
+
+        # A3 — Nachname-Matrix-Button
+        _btn_matrix = ttk.Button(toolbar, text="📊 Nachname-Matrix",
+                                 command=self._open_surname_matrix)
+        _btn_matrix.pack(side="left", padx=(0, 6))
+
+        # D4 — Research-Dashboard-Button
+        self._research_badge_var = tk.StringVar(value="📋 Forschungs-Aufgaben")
+        _btn_research = ttk.Button(toolbar, textvariable=self._research_badge_var,
+                                   command=self._open_research_tasks)
+        _btn_research.pack(side="left")
 
         kz = ttk.LabelFrame(self, text=t("st.kz"), padding=10)
         kz.pack(fill="x", padx=14, pady=4)
@@ -325,6 +341,7 @@ class StatsTab(ttk.Frame):
             self.after(60, self._draw_traits)
             self.after(70, self._refresh_population)
             self.after(80, self._refresh_timeseries)
+            self.after(90, self._update_research_badge)
 
         _threading.Thread(target=_worker, daemon=True, name="stats-load").start()
 
@@ -593,3 +610,51 @@ class StatsTab(ttk.Frame):
                           text=result + pct_txt, anchor="w",
                           font=("Segoe UI", 8, "bold"),
                           fill=COLORS.get("primary", "#1a73e8"))
+
+    # ── Analyse-Tool-Buttons ──────────────────────────────────────────────────
+
+    def _open_surname_matrix(self) -> None:
+        """A3 — Öffnet den Nachname-Matrix-Dialog."""
+        try:
+            from ancestry.gui.analysis.surname_matrix_view import show_surname_matrix
+
+            class _AppProxy:
+                """Minimaler Proxy, der das von show_surname_matrix erwartete
+                app-Interface auf den StatsTab abbildet."""
+                def __init__(self_, tab: "StatsTab"):  # noqa: N805
+                    self_._tab = tab
+                    self_._state = tab._state
+                    self_._db = tab._state.db
+
+                def _current_guid(self_):  # noqa: N805
+                    return self_._tab._get_test_guid()
+
+            show_surname_matrix(_AppProxy(self))
+        except Exception as exc:
+            log.exception("Fehler beim Öffnen der Nachname-Matrix")
+            messagebox.showerror("Nachname-Matrix", str(exc))
+
+    def _open_research_tasks(self) -> None:
+        """D4 — Öffnet den Research-Dashboard-Dialog."""
+        try:
+            from ancestry.gui.analysis.research_tasks_view import show_research_tasks
+            show_research_tasks(self, self._state)
+            # Badge nach Schließen des Dialogs aktualisieren
+            self.after(500, self._update_research_badge)
+        except Exception as exc:
+            log.exception("Fehler beim Öffnen des Forschungs-Dashboards")
+            messagebox.showerror("Forschungs-Aufgaben", str(exc))
+
+    def _update_research_badge(self) -> None:
+        """D4 — Aktualisiert die Anzahl offener Tasks im Button-Label."""
+        if self._research_badge_var is None:
+            return
+        try:
+            n_open = self._state.db.count_open_tasks()
+            if n_open > 0:
+                self._research_badge_var.set(f"📋 Forschungs-Aufgaben ({n_open} offen)")
+            else:
+                self._research_badge_var.set("📋 Forschungs-Aufgaben")
+        except Exception:
+            # Tabelle fehlt oder DB nicht verfügbar — Badge ohne Zahl
+            self._research_badge_var.set("📋 Forschungs-Aufgaben")

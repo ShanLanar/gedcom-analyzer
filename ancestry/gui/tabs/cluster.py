@@ -162,7 +162,7 @@ class ClusterTab(ttk.Frame):
                   wraplength=320, foreground="#334455",
                   font=("Segoe UI", 8)).pack(side="left", padx=8)
 
-        # A2: Triangulations-Bericht-Button
+        # A2: Triangulations-Bericht-Button + A1: Chromosomen-Browser-Button
         af = ttk.Frame(self)
         af.pack(fill="x", padx=14, pady=(0, 2))
         self._tri_report_btn = ttk.Button(
@@ -170,6 +170,12 @@ class ClusterTab(ttk.Frame):
             command=self._open_triangulation_report,
         )
         self._tri_report_btn.pack(side="left", padx=0)
+        self._chrom_btn = ttk.Button(
+            af, text="🧬 Chromosomen-Browser",
+            command=self._open_chromosome_browser,
+        )
+        self._chrom_btn.pack(side="left", padx=(8, 0))
+        register_tooltip(self._chrom_btn, "tt.cl_chrom", self._state)
 
         self._text_var = tk.StringVar(value="")
         ttk.Label(self, textvariable=self._text_var,
@@ -403,6 +409,10 @@ class ClusterTab(ttk.Frame):
             self._cluster_list.tag_configure(f"c{cid}", background=color)
         self._member_tree.delete(*self._member_tree.get_children())
         self._calc_btn.configure(state="normal")
+        # B1: Gespeicherte Farben aus DB laden und anwenden
+        self._load_cluster_colors()
+        # B1: Aktuell berechnete Farben direkt persistieren
+        self._save_cluster_colors()
 
     # ── Selektion ────────────────────────────────────────────────────────────
 
@@ -753,6 +763,66 @@ class ClusterTab(ttk.Frame):
         except Exception as e:
             messagebox.showerror("Fehler", str(e))
 
+    # ── A1: Chromosomen-Browser ───────────────────────────────────────────────
+
+    def _open_chromosome_browser(self):
+        """Öffnet den Chromosomen-Browser für den aktuell selektierten Match."""
+        from ancestry.gui.analysis.chromosome_browser import show_chromosome_browser
+
+        test_guid = self._get_current_guid()
+        if not test_guid:
+            messagebox.showwarning(
+                self._state.t("dlg.no_kit"),
+                self._state.t("dlg.m_choose_kit"),
+            )
+            return
+
+        # Selektierten Match aus dem Mitglieder-Treeview holen
+        sel_member = self._member_tree.selection()
+        sel_cluster = self._cluster_list.selection()
+
+        match_guid: str | None = None
+        match_name: str = ""
+
+        if sel_member:
+            # Zeile im Member-Tree: Name in Spalte 0
+            vals = self._member_tree.item(sel_member[0], "values")
+            if vals:
+                match_name = vals[0]
+                # GUID über aktiven Cluster suchen
+                if sel_cluster:
+                    cid = int(sel_cluster[0])
+                    for m in self._clusters.get(cid, []):
+                        if m["name"] == match_name:
+                            match_guid = m["guid"]
+                            break
+        elif sel_cluster:
+            # Kein Match ausgewählt: Top-Match des Clusters nehmen
+            cid = int(sel_cluster[0])
+            members = self._clusters.get(cid, [])
+            if members:
+                match_guid = members[0]["guid"]
+                match_name = members[0]["name"]
+
+        if not match_guid:
+            messagebox.showinfo(
+                "Chromosomen-Browser",
+                "Bitte zuerst einen Match im Cluster-Mitglieder-Panel auswählen.",
+            )
+            return
+
+        try:
+            show_chromosome_browser(
+                self, self._state, test_guid, match_guid, match_name
+            )
+        except Exception as exc:
+            log.exception("chromosome_browser: %s", exc)
+            messagebox.showerror(
+                "Chromosomen-Browser",
+                f"Fehler beim Öffnen:\n{exc}\n\n"
+                "Möglicherweise sind keine Segmentdaten vorhanden.",
+            )
+
     # ── B3: Phasing-Panel ────────────────────────────────────────────────────
 
     def _build_phasing_panel(self, parent):
@@ -813,6 +883,58 @@ class ClusterTab(ttk.Frame):
         """Placeholder: berechnet Phasing und zeichnet Matches als Punkte."""
         self._draw_phasing_quadrants()
         # TODO: Actual phasing logic using mother_kit assignment
+
+    # ── B1: Cluster-Farb-Persistierung ───────────────────────────────────────
+
+    def _save_cluster_colors(self):
+        """Schreibt aktuelle Cluster-Farben (side + color) in cluster_colors-Tabelle."""
+        kit_id = self._get_current_guid()
+        if not kit_id or not self._cluster_side_colors:
+            return
+        try:
+            with self._state.db._cursor() as cur:
+                for cid, color in self._cluster_side_colors.items():
+                    if color == "#DDF0FF":
+                        side = "paternal"
+                    elif color == "#FFE0E0":
+                        side = "maternal"
+                    else:
+                        side = ""
+                    cur.execute(
+                        """INSERT OR REPLACE INTO cluster_colors
+                           (kit_id, cluster_id, side, color)
+                           VALUES (?, ?, ?, ?)""",
+                        (kit_id, str(cid), side, color),
+                    )
+        except Exception as exc:
+            log.debug("_save_cluster_colors: %s", exc)
+
+    def _load_cluster_colors(self):
+        """Lädt Cluster-Farben aus DB und wendet sie auf den Treeview an."""
+        kit_id = self._get_current_guid()
+        if not kit_id:
+            return
+        try:
+            with self._state.db._cursor() as cur:
+                rows = cur.execute(
+                    "SELECT cluster_id, color FROM cluster_colors WHERE kit_id = ?",
+                    (kit_id,),
+                ).fetchall()
+        except Exception as exc:
+            log.debug("_load_cluster_colors: %s", exc)
+            return
+        for row in rows:
+            try:
+                cid = int(row[0])
+            except (ValueError, TypeError):
+                continue
+            color = row[1] or ""
+            if not color:
+                continue
+            # Nur anwenden wenn der Cluster im Treeview vorhanden ist
+            if str(cid) in self._cluster_list.get_children():
+                self._cluster_side_colors[cid] = color
+                self._cluster_list.tag_configure(f"c{cid}", background=color)
 
     # ── Phasing-Dashboard ─────────────────────────────────────────────────────
 
@@ -1047,6 +1169,15 @@ class ClusterTab(ttk.Frame):
             ttk.Label(mf, text=f"#{i + 1} {m['name']}  ({m['cm']:.0f} cM)",
                       foreground=COLORS["primary"]).grid(
                 row=0, column=i, padx=10, pady=2, sticky="w")
+
+    # ── Tab-Lebenszyklus ──────────────────────────────────────────────────────
+
+    def on_show(self):
+        """Wird aufgerufen wenn dieser Tab aktiviert wird."""
+        # B1: Persistierte Cluster-Farben wiederherstellen
+        self._load_cluster_colors()
+        # Combobox mit aktuellen Kits befüllen
+        self._populate_phase_kits()
 
     # ── Public accessor für _show_cluster_tree (Rückwärtskompatibilität) ──────
 
