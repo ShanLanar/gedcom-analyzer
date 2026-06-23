@@ -411,6 +411,8 @@ class AncestryDnaApp(tk.Frame):
             self._persons_tab = PersonsTab(self._nb, self._state)
             self._nb.add(self._persons_tab, text=self._t("tab_persons"))
             self._lang_nb_tabs.append((self._persons_tab, "tab_persons"))
+            if hasattr(self._persons_tab, "set_on_goto_matches"):
+                self._persons_tab.set_on_goto_matches(self._goto_matches_for_wikitree)
         except Exception as _exc:
             self._add_error_tab("tab_persons", _exc)
 
@@ -421,6 +423,20 @@ class AncestryDnaApp(tk.Frame):
             self._lang_nb_tabs.append((self._tools_tab, "tab_tools"))
         except Exception as _exc:
             self._add_error_tab("tab_tools", _exc)
+
+    def _goto_matches_for_wikitree(self, name: str):
+        """Wechselt zum Matches-Tab und setzt die Suche auf den WikiTree-Namen."""
+        try:
+            for i in range(self._nb.index("end")):
+                tab_id = self._nb.tabs()[i]
+                w = self._nb.nametowidget(tab_id)
+                if hasattr(w, "_search_var"):   # MatchesTab hat _search_var
+                    self._nb.select(i)
+                    w._search_var.set(name)
+                    self.after(50, w.refresh)
+                    break
+        except Exception as e:
+            log.debug("goto_matches_for_wikitree: %s", e)
 
     # ─────────────────────────────────────────────────────────────────────────
     # TAB 1: LOGIN  →  siehe ancestry/gui/tabs/login.py
@@ -509,15 +525,19 @@ class AncestryDnaApp(tk.Frame):
         if not path:
             return
         import csv
-        with open(path, "w", newline="", encoding="utf-8-sig") as f:
-            w = csv.writer(f, quoting=csv.QUOTE_ALL)
-            w.writerow(["Gemeinsamer Vorfahr","*Jahr","Anzahl Matches","Match","cM","Pfad"])
-            for g in groups:
-                for guid_m, name, pth, cm in sorted(g["matches"], key=lambda x:-(x[3] or 0)):
-                    w.writerow([g["ancestor_name"], g["birth_year"], g["count"],
-                                name or guid_m, f"{cm:.0f}" if cm else "", pth or ""])
-        messagebox.showinfo(self._t("dlg.export"), f"{len(groups)} Vorfahren-Gruppen gespeichert.")
-        self._set_status(f"Vorfahren-Gruppen exportiert: {len(groups)}")
+        try:
+            with open(path, "w", newline="", encoding="utf-8-sig") as f:
+                w = csv.writer(f, quoting=csv.QUOTE_ALL)
+                w.writerow(["Gemeinsamer Vorfahr","*Jahr","Anzahl Matches","Match","cM","Pfad"])
+                for g in groups:
+                    for guid_m, name, pth, cm in sorted(g["matches"], key=lambda x:-(x[3] or 0)):
+                        w.writerow([g["ancestor_name"], g["birth_year"], g["count"],
+                                    name or guid_m, f"{cm:.0f}" if cm else "", pth or ""])
+            messagebox.showinfo(self._t("dlg.export"), f"{len(groups)} Vorfahren-Gruppen gespeichert.")
+            self._set_status(f"Vorfahren-Gruppen exportiert: {len(groups)}")
+        except Exception as e:
+            log.debug("export_ancestor_groups: %s", e)
+            self._set_status(f"⚠ Vorfahren-Gruppen-Export: {e}", "warn")
 
     # ── Ahnentafel eines Matches ────────────────────────────────────────────────
 
@@ -1092,6 +1112,7 @@ class AncestryDnaApp(tk.Frame):
                 json.dump(s, f, ensure_ascii=False, indent=2)
         except Exception as e:
             log.debug("Settings speichern fehlgeschlagen: %s", e)
+            self._set_status(f"⚠ UI-Einstellungen speichern: {e}", "warn")
         # P20: GEDCOM-Pfad in config_user.json spiegeln, damit tasks/_runner.py
         # dieselbe Datei sieht wie die GUI.
         if "gedcom_path" in kw and kw["gedcom_path"]:
@@ -1100,6 +1121,7 @@ class AncestryDnaApp(tk.Frame):
                 _cfg.save_overrides({"gedfile": kw["gedcom_path"]})
             except Exception as e:
                 log.debug("config_user.json sync fehlgeschlagen: %s", e)
+                self._set_status(f"⚠ config_user.json sync: {e}", "warn")
 
     # ── Sprache / Localisation ────────────────────────────────────────────────
 
@@ -1696,8 +1718,12 @@ class AncestryDnaApp(tk.Frame):
             defaultextension=".csv", filetypes=[("CSV","*.csv"),("Alle","*.*")],
             initialfile="ancestry_dna_matches.csv")
         if p:
-            export_csv(matches, p)
-            self._show_export_done(p, f"{len(matches)} Matches")
+            try:
+                export_csv(matches, p)
+                self._show_export_done(p, f"{len(matches)} Matches")
+            except Exception as e:
+                log.debug("export_csv: %s", e)
+                self._set_status(f"⚠ CSV-Export: {e}", "warn")
 
     def _export_shared_csv(self):
         from ancestry.core.export import export_shared_csv
@@ -1720,8 +1746,12 @@ class AncestryDnaApp(tk.Frame):
             defaultextension=".csv", filetypes=[("CSV","*.csv"),("Alle","*.*")],
             initialfile="ancestry_shared_matches.csv")
         if p:
-            export_shared_csv(shared, p, matches)
-            self._show_export_done(p, f"{len(shared)} Shared Matches")
+            try:
+                export_shared_csv(shared, p, matches)
+                self._show_export_done(p, f"{len(shared)} Shared Matches")
+            except Exception as e:
+                log.debug("export_shared_csv: %s", e)
+                self._set_status(f"⚠ Shared-CSV-Export: {e}", "warn")
 
     def _export_xlsx(self):
         from ancestry.core.export import export_xlsx
@@ -1734,9 +1764,13 @@ class AncestryDnaApp(tk.Frame):
             initialfile="ancestry_dna_matches.xlsx")
         if p:
             self._set_status("Export läuft…")
-            export_xlsx(matches, p)
-            self._set_status(f"Export fertig: {len(matches)} Matches", "ok")
-            self._show_export_done(p, f"{len(matches)} Matches")
+            try:
+                export_xlsx(matches, p)
+                self._set_status(f"Export fertig: {len(matches)} Matches", "ok")
+                self._show_export_done(p, f"{len(matches)} Matches")
+            except Exception as e:
+                log.debug("export_xlsx: %s", e)
+                self._set_status(f"⚠ XLSX-Export: {e}", "warn")
 
     def _export_all_xlsx(self):
         from ancestry.core.export import export_xlsx
@@ -1759,6 +1793,7 @@ class AncestryDnaApp(tk.Frame):
             stats = self._db.get_statistics(test_guid)
         except Exception as e:
             log.debug("export_all get_statistics: %s", e)
+            self._set_status(f"⚠ Statistik-Abfrage beim Export: {e}", "warn")
             stats = None
 
         # Analyse-Blatt: Herkunft (Regel + ML) und Seite je Match
@@ -1796,15 +1831,19 @@ class AncestryDnaApp(tk.Frame):
             initialfile="ancestry_dna_komplett.xlsx")
         if p:
             self._set_status("Komplett-Export läuft…")
-            export_xlsx(matches, p, shared if shared else None, name_map,
-                        stats=stats, analysis=analysis)
-            self._set_status(
-                f"Komplett-Export fertig: {len(matches)} Matches", "ok")
-            self._show_export_done(
-                p,
-                f"{len(matches)} Matches + {len(shared)} Shared Matches"
-                " + Statistik + Herkunft/Seiten",
-            )
+            try:
+                export_xlsx(matches, p, shared if shared else None, name_map,
+                            stats=stats, analysis=analysis)
+                self._set_status(
+                    f"Komplett-Export fertig: {len(matches)} Matches", "ok")
+                self._show_export_done(
+                    p,
+                    f"{len(matches)} Matches + {len(shared)} Shared Matches"
+                    " + Statistik + Herkunft/Seiten",
+                )
+            except Exception as e:
+                log.debug("export_all_xlsx: %s", e)
+                self._set_status(f"⚠ Komplett-XLSX-Export: {e}", "warn")
 
     # ─────────────────────────────────────────────────────────────────────────
     # Hilfsmethoden
@@ -2671,6 +2710,7 @@ class AncestryDnaApp(tk.Frame):
                 json.dump(s, f, ensure_ascii=False, indent=2)
         except Exception as e:
             log.warning('Einstellungen konnten nicht gespeichert werden: %s', e)
+            self._set_status(f"⚠ Einstellungen speichern: {e}", "warn")
 
     def _on_close(self):
         dl_running = self._download_tab.is_running() if self._download_tab else False

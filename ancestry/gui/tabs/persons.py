@@ -130,12 +130,18 @@ def _lighten(hex_color: str, amount: int = 24) -> str:
 class PersonsTab(ttk.Frame):
     """Personen-/Stammbaum-Tab des Ancestry-DNA-Tools."""
 
-    def __init__(self, parent: tk.Widget, state: AppState):
+    def __init__(self, parent: tk.Widget, state: AppState,
+                 on_goto_matches=None):
         super().__init__(parent)
         self._state = state
+        self._on_goto_matches = on_goto_matches
         self._pers_history: list[str] = []
         self._pers_current: str | None = None
         self._build()
+
+    def set_on_goto_matches(self, cb):
+        """Setzt den Callback zum Wechsel in den Matches-Tab."""
+        self._on_goto_matches = cb
 
     @property
     def _db(self):
@@ -776,6 +782,17 @@ class PersonsTab(ttk.Frame):
         self._pers_render_ner(p)           # Kirchenbuch-NER (Paten, Zeugen, …)
         self._pers_render_dna(ged_id)      # DNA-Matches (Anker)
 
+        # Allgemeiner „In Matches suchen"-Button (immer am Ende, falls Callback gesetzt)
+        display_name = name
+        if display_name and getattr(self, "_on_goto_matches", None):
+            sep = ttk.Separator(self._pers_detail, orient="horizontal")
+            sep.pack(fill="x", padx=8, pady=6)
+            ttk.Button(
+                self._pers_detail,
+                text=f"🔍 In Matches suchen: {display_name}",
+                command=lambda n=display_name: self._on_goto_matches(n),
+            ).pack(anchor="w", padx=12, pady=(0, 8))
+
     # ── Detail-Abschnitt: Recherche-Tipps (externe Quellen, anklickbar) ────────
     def _pers_render_hints(self, p: dict, ged_id: str):
         """Zeigt auf Person+Ort+Zeit zugeschnittene Recherche-Links — nutzt die
@@ -1151,6 +1168,16 @@ class PersonsTab(ttk.Frame):
             text=f"· {hint}",
             foreground=_MUTED
         ).pack(side="left")
+
+        # WikiTree-Name → Matches-Tab
+        display_name = f"{given} {surname}".strip()
+        if display_name and getattr(self, "_on_goto_matches", None):
+            btn = ttk.Button(
+                self._pers_detail,
+                text=f"🔍 → Matches: {display_name}",
+                command=lambda n=display_name: self._on_goto_matches(n),
+            )
+            btn.pack(anchor="w", padx=12, pady=2)
 
     # ── Detail-Abschnitt: Online-Recherche-Schnell-Buttons ──────────────────────
     def _pers_render_online_research(self, p: dict):
