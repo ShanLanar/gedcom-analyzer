@@ -9,6 +9,7 @@ from typing import Callable, Optional
 
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.gui.state import AppState
+from ancestry.gui.undo import UndoStack as _UndoStack
 from ancestry.gui.widgets.theme import register_lang, COLORS
 from ancestry.gui.widgets.tooltip import register_tooltip
 
@@ -480,12 +481,32 @@ class ClusterTab(ttk.Frame):
         sel = self._cluster_list.selection()
         if not sel:
             return
-        cid  = int(sel[0])
-        desc = self._desc_var.get().strip()
+        cid      = int(sel[0])
+        new_desc = self._desc_var.get().strip()
+        old_desc = self._load_settings().get("cluster_descs", {}).get(str(cid), "")
         descs = self._load_settings().get("cluster_descs", {})
-        descs[str(cid)] = desc
+        descs[str(cid)] = new_desc
         self._save_settings(cluster_descs=descs)
         self._set_status(f"Cluster #{cid} Beschreibung gespeichert.")
+
+        # Undo-Hook: Beschreibungsänderung rückgängig machen
+        _cid, _old, _new = cid, old_desc, new_desc
+
+        def _undo_desc():
+            d = self._load_settings().get("cluster_descs", {})
+            d[str(_cid)] = _old
+            self._save_settings(cluster_descs=d)
+            if self._cluster_list.selection() and int(self._cluster_list.selection()[0]) == _cid:
+                self._desc_var.set(_old)
+
+        def _redo_desc():
+            d = self._load_settings().get("cluster_descs", {})
+            d[str(_cid)] = _new
+            self._save_settings(cluster_descs=d)
+            if self._cluster_list.selection() and int(self._cluster_list.selection()[0]) == _cid:
+                self._desc_var.set(_new)
+
+        _UndoStack.get().push(f"Cluster #{_cid} Beschreibung", _undo_desc, _redo_desc)
 
     # ── Ahn-Hypothese je Cluster (B3) ─────────────────────────────────────────
 
@@ -583,13 +604,59 @@ class ClusterTab(ttk.Frame):
             sug_tree.bind("<Double-1>", _use_suggestion)
 
         def _save():
+            new_mrca_ged_id = gid_var.get().strip()
+            new_mrca_label  = label_var.get().strip()
+            new_confidence  = conf_var.get()
+            new_evidence    = ev_txt.get("1.0", "end").strip()
+            # Alte Werte für Undo festhalten
+            _old = dict(existing) if existing else {}
+            _new = {
+                "mrca_ged_id": new_mrca_ged_id,
+                "mrca_label":  new_mrca_label,
+                "confidence":  new_confidence,
+                "evidence":    new_evidence,
+            }
             self._state.db.set_cluster_hypothesis(
-                tg, cid, mrca_ged_id=gid_var.get().strip(),
-                mrca_label=label_var.get().strip(), confidence=conf_var.get(),
-                evidence=ev_txt.get("1.0", "end").strip())
+                tg, cid, mrca_ged_id=new_mrca_ged_id,
+                mrca_label=new_mrca_label, confidence=new_confidence,
+                evidence=new_evidence)
             self._load_hypothesis(cid)
             self._set_status(f"Cluster #{cid}: Ahn-Hypothese gespeichert.")
             dlg.destroy()
+
+            # Undo-Hook: Ahn-Hypothese rückgängig machen
+            _tg, _cid_u = tg, cid
+
+            def _undo_hypo():
+                try:
+                    if _old:
+                        self._state.db.set_cluster_hypothesis(
+                            _tg, _cid_u,
+                            mrca_ged_id=_old.get("mrca_ged_id", ""),
+                            mrca_label=_old.get("mrca_label", ""),
+                            confidence=_old.get("confidence", ""),
+                            evidence=_old.get("evidence", ""))
+                    else:
+                        self._state.db.delete_cluster_hypothesis(_tg, _cid_u)
+                    if getattr(self, "_hypo_cid", None) == _cid_u:
+                        self._load_hypothesis(_cid_u)
+                except Exception:
+                    pass
+
+            def _redo_hypo():
+                try:
+                    self._state.db.set_cluster_hypothesis(
+                        _tg, _cid_u,
+                        mrca_ged_id=_new["mrca_ged_id"],
+                        mrca_label=_new["mrca_label"],
+                        confidence=_new["confidence"],
+                        evidence=_new["evidence"])
+                    if getattr(self, "_hypo_cid", None) == _cid_u:
+                        self._load_hypothesis(_cid_u)
+                except Exception:
+                    pass
+
+            _UndoStack.get().push(f"Ahn-Hypothese Cluster #{_cid_u}", _undo_hypo, _redo_hypo)
 
         def _delete():
             self._state.db.delete_cluster_hypothesis(tg, cid)
