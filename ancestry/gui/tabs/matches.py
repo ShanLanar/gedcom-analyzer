@@ -446,7 +446,7 @@ class MatchesTab(ttk.Frame):
     def _build_match_tree(self, parent):
         t  = self._state.t
         lw = self._state.lang_widgets
-        cols = ("name","guid","note","cm","seg","rel","tree","ged","ca","starred")
+        cols = ("name","guid","note","cm","seg","rel","tree","ged","ca","starred","side")
         self._tree = ttk.Treeview(parent, columns=cols, show="headings", selectmode="browse")
 
         # Load persisted column widths (U3: Spaltenbreite-Persistenz)
@@ -464,6 +464,7 @@ class MatchesTab(ttk.Frame):
             "ged"    : ("m.ged",      40, "center"),
             "ca"     : ("m.ca",       70, "center"),
             "starred": ("m.starred",  40, "center"),
+            "side"   : ("m.side",     45, "center"),  # B4: Phasing-Badge
         }.items():
             self._tree.heading(col, text=t(key), command=lambda c=col: self._sort_by(c))
             # Use saved width if available and >= 50px, else use default
@@ -1281,6 +1282,14 @@ class MatchesTab(ttk.Frame):
 
             n_hits = bridge_hits.get(m.match_guid, 0)
             ged_txt = f"🌳{n_hits}" if n_hits else ""
+            # B4: Phasing-Badge — paternal_maternal → Emoji
+            _pm_val = getattr(m, "paternal_maternal", "") or ""
+            if _pm_val == "paternal":
+                side_badge = "🔵"
+            elif _pm_val == "maternal":
+                side_badge = "🔴"
+            else:
+                side_badge = ""
             self._tree.insert("", "end", iid=m.match_guid, tags=tags, values=(
                 m.display_name,
                 src_badge,
@@ -1292,6 +1301,7 @@ class MatchesTab(ttk.Frame):
                 ged_txt,
                 "👪" if getattr(m, "has_common_ancestor", False) else "—",
                 "⭐" if m.starred else "",
+                side_badge,
             ))
         # Auswahl + Scroll-Position wiederherstellen (nach Bearbeitung tief in
         # der Liste); wird vom Worker-Refresh asynchron befüllt.
@@ -1546,10 +1556,11 @@ class MatchesTab(ttk.Frame):
             self._sort_col = col
             self._sort_asc = col in ("name","rel")
         # Update column header to show sort direction
-        for c in ("name","guid","note","cm","seg","rel","tree","ca","starred"):
+        for c in ("name","guid","note","cm","seg","rel","tree","ca","starred","side"):
             base = self._state.t({
                 "name":"m.name","guid":"m.guid","note":"m.note","cm":"m.cm",
-                "seg":"m.seg","rel":"m.rel","tree":"m.tree","ca":"m.ca","starred":"m.starred",
+                "seg":"m.seg","rel":"m.rel","tree":"m.tree","ca":"m.ca",
+                "starred":"m.starred","side":"m.side",
             }[c])
             if c == self._sort_col:
                 self._tree.heading(c, text=base + (" ▲" if self._sort_asc else " ▼"))
@@ -1562,7 +1573,7 @@ class MatchesTab(ttk.Frame):
     def _on_tree_configure(self, _event):
         """U3: Speichert Spaltenbreiten bei Resize-Events."""
         widths = {}
-        for col in ("name","guid","note","cm","seg","rel","tree","ged","ca","starred"):
+        for col in ("name","guid","note","cm","seg","rel","tree","ged","ca","starred","side"):
             widths[col] = self._tree.column(col, "width")
         self._save_ui_settings(column_widths=widths)
 
