@@ -59,6 +59,7 @@ class ToolsTab(ttk.Frame):
         self._state = state
         self._tool_procs: dict[str, subprocess.Popen | None] = {}
         self._job_start_time: float = 0.0
+        self._killed_jobs: set[str] = set()
         self._build()
 
     def _build(self):
@@ -464,6 +465,7 @@ class ToolsTab(ttk.Frame):
             self._er_btn_stop.configure(state="disabled")
             return
 
+        self._job_start_time = time.time()
         q: queue.Queue[str | None] = queue.Queue()
 
         def _reader(p: subprocess.Popen):
@@ -487,6 +489,15 @@ class ToolsTab(ttk.Frame):
                     rc = self._er_proc.returncode if self._er_proc else -1
                     self._tool_append(
                         f"✓ Entity-Resolution abgeschlossen (RC {rc})\n\n")
+                    _er_aborted = "er_resolution" in self._killed_jobs
+                    self._killed_jobs.discard("er_resolution")
+                    if _er_aborted:
+                        _er_hist = "⏹ Abgebrochen"
+                    elif rc == 0:
+                        _er_hist = "✓ OK"
+                    else:
+                        _er_hist = "✗ Fehler"
+                    self._hist_add_entry("entity_resolution", _er_hist)
                     self._er_proc = None
                     self._er_btn_start.configure(state="normal")
                     self._er_btn_stop.configure(state="disabled")
@@ -503,6 +514,7 @@ class ToolsTab(ttk.Frame):
             return
         try:
             self._er_proc.terminate()
+            self._killed_jobs.add("er_resolution")
             self._tool_append("■ Stop-Signal an Entity-Resolution gesendet.\n")
         except Exception as exc:
             self._tool_append(f"⚠ Stop fehlgeschlagen: {exc}\n")
@@ -1777,7 +1789,13 @@ class ToolsTab(ttk.Frame):
                     self._tool_procs[key] = None
                     btn_start.configure(state="normal")
                     btn_stop.configure(state="disabled")
-                    _hist_status = "✓ OK" if rc == 0 else "✗ Fehler"
+                    if key in self._killed_jobs:
+                        _hist_status = "⏹ Abgebrochen"
+                        self._killed_jobs.discard(key)
+                    elif rc == 0:
+                        _hist_status = "✓ OK"
+                    else:
+                        _hist_status = "✗ Fehler"
                     self._hist_add_entry(key, _hist_status)
                     # Update pipeline_runs timestamp
                     import datetime as _dt
@@ -1839,6 +1857,7 @@ class ToolsTab(ttk.Frame):
             return
         try:
             proc.terminate()
+            self._killed_jobs.add(key)
             self._tool_append(f"■ Stop-Signal an {key} gesendet.\n")
         except Exception as exc:
             self._tool_append(f"⚠ Stop fehlgeschlagen: {exc}\n")

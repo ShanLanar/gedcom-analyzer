@@ -50,6 +50,7 @@ class MatriculaTab(ttk.Frame):
         self._log_queue: "queue.Queue[str]" = queue.Queue()
         self._stop_requested = False
         self._label_to_id: dict[str, str] = {}
+        self._search_after_id: Optional[str] = None
         self._build()
         self._poll_log()
 
@@ -93,7 +94,7 @@ class MatriculaTab(ttk.Frame):
         self._diocese_combo = ttk.Combobox(
             dioc_row, textvariable=self._diocese_var, width=42, state="readonly")
         self._diocese_combo.pack(side="left", padx=(6, 12))
-        self._diocese_combo.bind("<<ComboboxSelected>>", lambda _: self.refresh_parishes())
+        self._diocese_combo.bind("<<ComboboxSelected>>", self._on_diocese_changed)
         ttk.Button(dioc_row, text="Katalog laden",
                    command=self._start_catalog_scraper).pack(side="left", padx=(0, 6))
         register_tooltip(
@@ -701,6 +702,23 @@ class MatriculaTab(ttk.Frame):
         """Overview-Tiles neu aufbauen (nach parish-Refresh aufrufen)."""
         if self._overview_frame is not None and self._overview_frame.winfo_exists():
             self._render_diocese_tiles(self._overview_frame)
+
+    # ── Debounced-Suche ───────────────────────────────────────────────────────
+
+    def _on_diocese_changed(self, _event=None):
+        """Debounced Handler für Bistum-Combobox-Auswahl (350 ms Verzögerung)."""
+        if self._search_after_id is not None:
+            try:
+                self.after_cancel(self._search_after_id)
+            except Exception:
+                pass
+            self._search_after_id = None
+        self._search_after_id = self.after(350, self._do_search)
+
+    def _do_search(self):
+        """Führt die Pfarrei-Aktualisierung nach Debounce-Delay aus."""
+        self._search_after_id = None
+        self.refresh_parishes()
 
     # ── Pfarrei-Status ────────────────────────────────────────────────────────
 
