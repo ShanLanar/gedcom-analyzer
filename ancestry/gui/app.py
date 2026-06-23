@@ -34,6 +34,7 @@ from ancestry.gui.tabs.cluster import ClusterTab
 from ancestry.gui.tabs.download import DownloadTab
 from ancestry.gui.tabs.matches import MatchesTab
 from ancestry.gui.widgets.log_handler import install_gui_log_handler
+from ancestry.gui.widgets.status_bar import StatusBar
 from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_style, translate
 from ancestry.models import DnaKit, DnaMatch, SharedMatch
 from ancestry.paths import DB_PATH
@@ -113,6 +114,7 @@ class AncestryDnaApp(tk.Frame):
         self._build_style()
         self._build_menu()
         self._build_main()
+        self.after(200, self._bind_shortcuts)
         # ⚠️ _refresh_match_table() ist teuer (große DB) — asynchron laden
         # damit GUI schnell responsive ist (Startup <1s statt Minuten)
         self.after(50, self._refresh_match_table)
@@ -283,6 +285,8 @@ class AncestryDnaApp(tk.Frame):
         # Statistik wird erst beim Öffnen des Reiters berechnet (nicht beim
         # Start) — siehe StatsTab.on_show().
         self._nb.bind("<<NotebookTabChanged>>", self._on_nb_tab_changed, add=True)
+        self._nb.bind("<<NotebookTabChanged>>", lambda _: self._save_ui_settings(
+            active_tab=self._nb.index("current")), add=True)
 
         # Jeder Reiter wird einzeln abgesichert: schlägt der Aufbau eines
         # Reiters fehl (z. B. wegen Datenlage), kommt ein Platzhalter statt
@@ -367,9 +371,10 @@ class AncestryDnaApp(tk.Frame):
         # Das spart erheblich Startup-Zeit, da diese Tabs komplex sind
         self.after(100, self._init_heavy_tabs)
 
-        self._status_var = tk.StringVar(value="Bereit.")
-        ttk.Label(self, textvariable=self._status_var,
-                  relief="sunken", anchor="w", padding=(6, 2)).pack(fill="x", side="bottom")
+        self._status_bar = StatusBar(self, bg=self._active_colors()["bg"])
+        self._status_bar.pack(fill="x", side="bottom")
+        # Kompatibilitäts-Alias: älterer Code der _status_var.set() nutzt
+        self._status_var = self._status_bar._var
 
     def _init_heavy_tabs(self):
         """Initialisiert schwere Tabs asynchron nach GUI-Rendering.
@@ -1362,6 +1367,7 @@ class AncestryDnaApp(tk.Frame):
         if getattr(self, "_matches_tab", None) is None:
             return  # Tab noch nicht aufgebaut; after(300, …) füllt später nach
         self._matches_tab.update_kit_combo()
+        self._set_status("Fertig", "ok")
 
     def _load_gedcom_link_panel(self, match: "DnaMatch"):
         """Delegation stub — füllt den GEDCOM-Treffer-Tab im Matches-Tab."""
@@ -1386,6 +1392,7 @@ class AncestryDnaApp(tk.Frame):
             return
 
         self._ged_link_status.set("Bulk-Abgleich läuft …")
+        self._set_status("GEDCOM-Abgleich läuft…")
 
         def _worker():
             try:
@@ -1398,6 +1405,8 @@ class AncestryDnaApp(tk.Frame):
                 total = bridge.run_match_all(self._db, test_guid)
                 self.after(0, lambda: self._ged_link_status.set(
                     f"Bulk-Abgleich fertig: {total} Treffer gesamt"))
+                self.after(0, lambda: self._set_status(
+                    f"GEDCOM-Abgleich fertig: {total} Treffer", "ok"))
                 # Match-Tabelle aktualisieren (🌳N-Spalte) + aktuelle Detail-Ansicht
                 self.after(0, self._refresh_match_table)
                 if self._selected_match:
@@ -1405,6 +1414,7 @@ class AncestryDnaApp(tk.Frame):
             except Exception as exc:
                 log.warning("bridge bulk: %s", exc)
                 self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
+                self.after(0, lambda exc=exc: self._set_status(f"Fehler: {exc}", "error"))
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="bridge-bulk").start()
@@ -1723,7 +1733,9 @@ class AncestryDnaApp(tk.Frame):
             defaultextension=".xlsx", filetypes=[("XLSX","*.xlsx"),("Alle","*.*")],
             initialfile="ancestry_dna_matches.xlsx")
         if p:
+            self._set_status("Export läuft…")
             export_xlsx(matches, p)
+            self._set_status(f"Export fertig: {len(matches)} Matches", "ok")
             self._show_export_done(p, f"{len(matches)} Matches")
 
     def _export_all_xlsx(self):
@@ -1783,8 +1795,11 @@ class AncestryDnaApp(tk.Frame):
             defaultextension=".xlsx", filetypes=[("XLSX","*.xlsx"),("Alle","*.*")],
             initialfile="ancestry_dna_komplett.xlsx")
         if p:
+            self._set_status("Komplett-Export läuft…")
             export_xlsx(matches, p, shared if shared else None, name_map,
                         stats=stats, analysis=analysis)
+            self._set_status(
+                f"Komplett-Export fertig: {len(matches)} Matches", "ok")
             self._show_export_done(
                 p,
                 f"{len(matches)} Matches + {len(shared)} Shared Matches"
@@ -1961,8 +1976,13 @@ class AncestryDnaApp(tk.Frame):
         messagebox.showinfo(self._t("dlg.import_done"), msg)
         self._set_status("Namen: " + str(updated) + " importiert")
 
-    def _set_status(self, msg: str):
-        self._status_var.set(msg)
+    def _set_status(self, msg: str, level: str = "default"):
+        if hasattr(self, "_status_bar"):
+            self._status_bar.set(msg, level)
+        else:
+            # Fallback während __init__ bevor _status_bar gebaut wird
+            if hasattr(self, "_status_var"):
+                self._status_var.set(msg)
         if msg.endswith("…"):
             self._animate_status_spinner()
         else:
@@ -2610,6 +2630,21 @@ class AncestryDnaApp(tk.Frame):
         except (FileNotFoundError, Exception):
             pass
 
+        # UI-Einstellungen: Fenstergeometrie + aktiver Tab
+        st = self._load_ui_settings()
+        geom = st.get("window_geometry")
+        if geom and not self._embedded:
+            try:
+                self.winfo_toplevel().geometry(geom)
+            except Exception:
+                pass
+        tab_idx = st.get("active_tab")
+        if tab_idx is not None:
+            try:
+                self.after(100, lambda: self._nb.select(int(tab_idx)))
+            except Exception:
+                pass
+
         # GEDCOM-Pfad aus Kommandozeile vorbelegen (überschreibt ui_settings nur wenn nötig)
         if self._startup_gedcom_path:
             import os as _os
@@ -2650,6 +2685,7 @@ class AncestryDnaApp(tk.Frame):
                 self._matricula_tab._stop_scan()
             if self._scraper:
                 self._scraper.stop()
+        self._save_ui_settings(window_geometry=self.winfo_toplevel().winfo_geometry())
         self.shutdown()
         self.winfo_toplevel().destroy()
 
@@ -2659,6 +2695,59 @@ class AncestryDnaApp(tk.Frame):
         except Exception as e: log.debug("shutdown _save_settings: %s", e)
         try: self._db.close()
         except Exception as e: log.debug("shutdown _db.close: %s", e)
+
+    # ── Tastaturkürzel ────────────────────────────────────────────────────────
+
+    def _bind_shortcuts(self):
+        root = self.winfo_toplevel()
+        root.bind("<Control-e>", lambda _: self._export_xlsx())
+        root.bind("<Control-E>", lambda _: self._export_all_xlsx())
+        root.bind("<F5>",        lambda _: self._refresh_current_tab())
+        root.bind("<Control-m>", lambda _: self._shortcut_toggle_star())
+        root.bind("<Control-f>", lambda _: self._shortcut_focus_search())
+
+    def _refresh_current_tab(self):
+        """F5: aktuellen Tab aktualisieren."""
+        try:
+            tab = self._nb.nametowidget(self._nb.select())
+            if hasattr(tab, "refresh"):
+                tab.refresh()
+            elif hasattr(tab, "_refresh"):
+                tab._refresh()
+        except Exception:
+            pass
+
+    def _shortcut_toggle_star(self):
+        """Ctrl+M: ausgewählten Match markieren/demarkieren."""
+        try:
+            if self._selected_match and self._matches_tab is not None:
+                self._matches_tab._toggle_starred_match(self._selected_match)
+        except Exception:
+            pass
+
+    def _shortcut_focus_search(self):
+        """Ctrl+F: Suchfeld im Matches-Tab fokussieren."""
+        try:
+            if self._matches_tab is not None and hasattr(self._matches_tab, "_search_var"):
+                # Finde das Entry-Widget über den Matches-Tab
+                for child in self._matches_tab.winfo_children():
+                    if isinstance(child, ttk.Entry):
+                        child.focus_set()
+                        return
+                # Rekursive Suche in Kind-Widgets
+                def _find_entry(w):
+                    for c in w.winfo_children():
+                        if isinstance(c, ttk.Entry):
+                            return c
+                        found = _find_entry(c)
+                        if found:
+                            return found
+                    return None
+                entry = _find_entry(self._matches_tab)
+                if entry:
+                    entry.focus_set()
+        except Exception:
+            pass
 
     def _set_gedcom(self, path: str):
         """Setzt den GEDCOM-Pfad von außen (z.B. aus dem Start-Tab)."""
