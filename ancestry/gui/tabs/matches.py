@@ -2231,6 +2231,173 @@ class MatchesTab(ttk.Frame):
                           anchor="w", font=("Segoe UI", 8),
                           fill=COLORS["text"])
 
+    def _update_cm_predictor(self, cm: float):
+        """C1: Aktualisiert die top-5 Verwandtschaftsgrad-Liste im Detail-Panel."""
+        if not hasattr(self, "_cm_predict_labels"):
+            return
+        try:
+            from ancestry.core.shared_cm import relationship_probabilities
+            probs = relationship_probabilities(cm, top=5)
+        except Exception:
+            probs = []
+        for i, lbl in enumerate(self._cm_predict_labels):
+            if i < len(probs):
+                p = probs[i]
+                names = " / ".join(p["labels"][:2])
+                pct = p["probability"] * 100
+                lbl.configure(text=f"  {pct:.0f}%  {names}")
+            else:
+                lbl.configure(text="")
+
+    # ── A4: Filter-Profil ────────────────────────────────────────────────────
+
+    def _save_filter_profile(self):
+        """A4: Speichert den aktuellen Filterstand in user_prefs."""
+        self._pref_set("filter_matches_search", self._search_var.get())
+        self._pref_set("filter_matches_min_cm", self._min_cm_var.get())
+        self._pref_set("filter_matches_source", self._active_source or "")
+        self._set_status("Filter-Profil gespeichert.")
+
+    def _load_filter_profile(self):
+        """A4: Lädt den gespeicherten Filterstand aus user_prefs."""
+        search = self._pref_get("filter_matches_search")
+        min_cm = self._pref_get("filter_matches_min_cm", "0")
+        source = self._pref_get("filter_matches_source")
+        self._search_var.set(search)
+        self._min_cm_var.set(min_cm)
+        if source:
+            self._active_source = source
+            key_for = {"ancestry": "anc", "myheritage": "mh",
+                       "gedmatch": "gm", "ftdna": "ftd"}
+            for s, k in key_for.items():
+                active = (s == source)
+                if k in self._chip_vars:
+                    self._chip_vars[k].set(active)
+                if k in self._chip_btns:
+                    self._chip_btns[k].configure(
+                        bg=COLORS["primary"] if active else COLORS["light"],
+                        fg=COLORS["white"] if active else COLORS["text"])
+        else:
+            self._active_source = None
+        self.refresh()
+
+    # ── C2: Export ───────────────────────────────────────────────────────────
+
+    def _export_matches(self):
+        """C2: Exportiert gefilterte Matches als CSV oder XLSX."""
+        try:
+            import openpyxl
+            _has_xlsx = True
+        except ImportError:
+            _has_xlsx = False
+
+        ftypes = [("CSV (UTF-8)", "*.csv")]
+        if _has_xlsx:
+            ftypes.append(("Excel", "*.xlsx"))
+        path = filedialog.asksaveasfilename(
+            defaultextension=".csv",
+            filetypes=ftypes,
+            title="Matches exportieren",
+            parent=self,
+        )
+        if not path:
+            return
+
+        try:
+            min_cm = float(self._min_cm_var.get() or 0)
+        except ValueError:
+            min_cm = 0.0
+
+        col_map = {
+            "name": "display_name", "guid": "match_guid", "note": "tag_surname",
+            "cm": "shared_cm", "seg": "shared_segments",
+            "rel": "predicted_relationship", "tree": "tree_size",
+            "ged": "match_guid", "ca": "has_common_ancestor", "starred": "starred",
+        }
+        sort_col = col_map.get(self._sort_col, "shared_cm")
+
+        active_kit = None
+        selected_kit_name = ""
+        if hasattr(self, "_matches_kit_var") and self._matches_kit_var.get():
+            selected_kit_name = self._matches_kit_var.get()
+            active_kit = self._matches_kit_guid_map.get(selected_kit_name)
+        all_sources_mode = (selected_kit_name == self._ALL_SOURCES_LABEL)
+        if not all_sources_mode and not active_kit:
+            active_kit = self._get_test_guid()
+
+        _cv = getattr(self, "_chip_vars", {})
+        _pm = getattr(self, "_side_var", tk.StringVar()).get() or None
+        if _cv.get("pat", tk.BooleanVar()).get():
+            _pm = "paternal"
+        elif _cv.get("mat", tk.BooleanVar()).get():
+            _pm = "maternal"
+
+        try:
+            matches = self._state.db.get_matches(
+                test_guid=active_kit,
+                all_sources=all_sources_mode,
+                search=self._search_var.get().strip() or None,
+                relationship=self._rel_var.get() if hasattr(self, "_rel_var") else None,
+                starred_only=self._starred_var.get() if hasattr(self, "_starred_var") else False,
+                has_tree_only=self._tree_var.get() if hasattr(self, "_tree_var") else False,
+                min_cm=min_cm,
+                hide_endogamy=getattr(self, "_hide_endo_var", tk.BooleanVar()).get(),
+                paternal_maternal=_pm,
+                new_only=_cv.get("new", tk.BooleanVar()).get(),
+                source=getattr(self, "_active_source", None),
+                clustered_only=_cv.get("clustered", tk.BooleanVar()).get(),
+                sort_col=sort_col,
+                sort_asc=self._sort_asc,
+                limit=50000,
+                offset=0,
+            )
+        except Exception as e:
+            messagebox.showerror("Export-Fehler", str(e), parent=self)
+            return
+
+        headers = [
+            "Name", "Quelle", "Notiz", "cM", "Segmente", "Beziehung",
+            "Stammbaum", "GEDCOM-Treffer", "Gem. Vorfahre", "Favorit", "Seite",
+        ]
+        rows_data = []
+        for m in matches:
+            src = getattr(m, "source", "ancestry") or "ancestry"
+            rows_data.append([
+                m.display_name,
+                src,
+                m.tag_surname or "",
+                f"{m.shared_cm:.1f}" if m.shared_cm else "",
+                m.shared_segments or "",
+                m.predicted_relationship or "",
+                f"{m.tree_size}" if m.tree_size else ("Ja" if m.has_tree else ""),
+                "",
+                "Ja" if getattr(m, "has_common_ancestor", False) else "",
+                "Ja" if m.starred else "",
+                getattr(m, "paternal_maternal", "") or "",
+            ])
+
+        if path.lower().endswith(".xlsx") and _has_xlsx:
+            import openpyxl as _openpyxl
+            wb = _openpyxl.Workbook()
+            ws = wb.active
+            ws.title = "Matches"
+            ws.append(headers)
+            for row in rows_data:
+                ws.append(row)
+            wb.save(path)
+        else:
+            with io.open(path, "w", encoding="utf-8-sig", newline="") as _f:
+                writer = csv.writer(_f)
+                writer.writerow(headers)
+                writer.writerows(rows_data)
+
+        self._set_status(f"Export: {len(rows_data)} Matches → {path}")
+        messagebox.showinfo(
+            "Export abgeschlossen",
+            f"{len(rows_data)} Matches exportiert nach:\n{path}",
+            parent=self,
+        )
+
     # ── Kirchenbücher ─────────────────────────────────────────────────────────
 
     def _build_kirchenbuch_panel(self, parent):
