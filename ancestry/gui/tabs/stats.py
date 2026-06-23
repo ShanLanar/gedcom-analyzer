@@ -258,6 +258,10 @@ class StatsTab(ttk.Frame):
         Öffnen des Reiters bzw. via on_show())."""
         self._stats_dirty = True
 
+    def invalidate_cache(self, source: str = "") -> None:
+        """Löscht den gecachten Stats-Zustand (aufrufen nach Download/Import)."""
+        self.mark_dirty()
+
     def refresh(self):
         import threading as _threading
         self._stats_dirty = False

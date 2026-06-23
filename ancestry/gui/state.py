@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Callable, Optional
 
 from ancestry.core.database import Database
 from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, translate
@@ -48,6 +48,21 @@ class AppState:
     dl_counters: dict  = field(default_factory=lambda: {"matches": 0, "trees": 0, "shared": 0, "errors": 0})
     dl_t0:       float = 0.0
     dl_total:    int   = 1
+
+    # Daten-Änderungs-Listener (Download, Import)
+    _data_change_listeners: list = field(default_factory=list)
+
+    def register_data_change(self, cb: Callable) -> None:
+        """Registriert einen Callback für Datenänderungen (Download, Import)."""
+        self._data_change_listeners.append(cb)
+
+    def notify_data_changed(self, source: str = "") -> None:
+        """Benachrichtigt alle Listener über eine Datenänderung."""
+        for cb in self._data_change_listeners:
+            try:
+                cb(source)
+            except Exception:
+                pass
 
     def t(self, key: str) -> str:
         return translate(key, self.lang)

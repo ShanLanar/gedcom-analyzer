@@ -392,6 +392,11 @@ class AncestryDnaApp(tk.Frame):
             )
             self._nb.add(self._stats_tab, text=self._t("tab_stats"))
             self._lang_nb_tabs.append((self._stats_tab, "tab_stats"))
+            # Cache-Invalidierung: nach Download oder GEDCOM-Import dirty markieren
+            # und ggf. sofort neuberechnen (wenn Reiter sichtbar).
+            self._state.register_data_change(
+                lambda src: self._invalidate_stats()
+            )
         except Exception as _exc:
             self._add_error_tab("tab_stats", _exc)
 
@@ -1431,6 +1436,7 @@ class AncestryDnaApp(tk.Frame):
                     f"GEDCOM-Abgleich fertig: {total} Treffer", "ok"))
                 # Match-Tabelle aktualisieren (🌳N-Spalte) + aktuelle Detail-Ansicht
                 self.after(0, self._refresh_match_table)
+                self.after(0, lambda: self._state.notify_data_changed("import"))
                 if self._selected_match:
                     self.after(0, lambda: self._load_gedcom_link_panel(self._selected_match))
             except Exception as exc:
@@ -1675,9 +1681,10 @@ class AncestryDnaApp(tk.Frame):
     # ─────────────────────────────────────────────────────────────────────────
 
     def _refresh_stats(self):
-        # Nach einem Download: Statistik aktualisieren (gewünschtes Verhalten).
-        if self._stats_tab is not None:
-            self._stats_tab.refresh()
+        # Nach einem Download: Statistik als veraltet markieren und alle
+        # Listener benachrichtigen; on_show() sorgt für Neuberechnung beim
+        # nächsten Öffnen des Reiters (oder sofort, wenn er gerade sichtbar ist).
+        self._state.notify_data_changed("download")
 
     def _on_nb_tab_changed(self, _evt=None):
         """Berechnet die Statistik beim Öffnen des Statistik-Reiters
