@@ -167,12 +167,41 @@ class MatchesTab(ttk.Frame):
         """Nächste Seite — nur wenn aktuelle Seite voll war (mehr Treffer da)."""
         if getattr(self, "_has_next_page", False):
             self._current_offset += self._MAX_DISPLAY_ROWS
+            page = self._current_offset // self._MAX_DISPLAY_ROWS + 1
+            if hasattr(self, "_match_count_var"):
+                self._match_count_var.set(f"Lade Seite {page} …")
             self._do_refresh()
 
     def _page_prev(self):
         if self._current_offset > 0:
             self._current_offset = max(0, self._current_offset - self._MAX_DISPLAY_ROWS)
+            page = self._current_offset // self._MAX_DISPLAY_ROWS + 1
+            if hasattr(self, "_match_count_var"):
+                self._match_count_var.set(f"Lade Seite {page} …")
             self._do_refresh()
+
+    # ── S2-6: Scroll-getriggerte Pagination ──────────────────────────────────
+
+    def _on_match_scroll(self, event):
+        """Windows-Mausrad: delta > 0 = nach oben, < 0 = nach unten."""
+        if event.delta < 0:
+            self._on_match_scroll_down(event)
+        else:
+            self._on_match_scroll_up(event)
+
+    def _on_match_scroll_up(self, event):
+        """Scroll past first row → previous page."""
+        if not self._tree.get_children():
+            return
+        if self._tree.yview()[0] <= 0.0:
+            self._page_prev()
+
+    def _on_match_scroll_down(self, event):
+        """Scroll past last row → next page."""
+        if not self._tree.get_children():
+            return
+        if self._tree.yview()[1] >= 1.0:
+            self._page_next()
 
     # ── Aufbau ───────────────────────────────────────────────────────────────
 
@@ -454,6 +483,14 @@ class MatchesTab(ttk.Frame):
         self._tree.bind("<Left>", lambda _: self._on_prev_match())
         self._tree.bind("<Right>", lambda _: self._on_next_match())
         self.bind_all("<F5>", lambda _: self.refresh())
+
+        # S2-6: Scroll-getriggerte Pagination
+        self._tree.bind("<MouseWheel>", self._on_match_scroll)        # Windows
+        self._tree.bind("<Button-4>",   self._on_match_scroll_up)     # Linux scroll up
+        self._tree.bind("<Button-5>",   self._on_match_scroll_down)   # Linux scroll down
+        self._tree.bind("<End>",  lambda _: self._page_next())
+        self._tree.bind("<Home>", lambda _: (setattr(self, "_current_offset", 0),
+                                              self._do_refresh()))
 
         # Empty state overlay
         self._empty_frame = ttk.Frame(parent)
