@@ -162,22 +162,49 @@ def discover_dioceses(page) -> list[dict]:
     except Exception:
         page.goto(BESTANDE_URL, wait_until="domcontentloaded", timeout=30_000)
 
-    # Warten bis div.list-group mit Links gerendert ist (JS-SPA)
-    pattern = re.compile(r"/de/([^/]+)/([^/?#]+)/?$")
+    # Mehrere Selektoren versuchen (Seite ist JS-gerendert, Klasse kann variieren)
+    _candidates = [
+        "div.list-group a[href]",
+        "a.list-group-item[href]",
+        ".col-lg-5 a[href]",
+        "a[href*='/de/deutschland/']",
+        "a[href*='/de/']",
+    ]
+    for _sel in _candidates:
+        try:
+            page.wait_for_selector(_sel, timeout=8_000)
+            break
+        except Exception:
+            continue
+    else:
+        time.sleep(4.0)   # letzter Ausweg
+
+    # Seite scrollen → Lazy-Load triggern
     try:
-        page.wait_for_selector("div.list-group a[href]", timeout=15_000)
+        page.evaluate("() => window.scrollTo(0, document.body.scrollHeight)")
+        time.sleep(1.0)
     except Exception:
-        time.sleep(3.0)   # letzter Ausweg: Blindwarte
+        pass
+
+    pattern = re.compile(r"/de/([^/]+)/([^/?#]+)/?$")
+
+    # Diagnose-Ausgabe: hilft bei Debugging auf dem Zielsystem
+    _all = page.query_selector_all("a[href]")
+    _matching = [el for el in _all
+                 if pattern.search(el.get_attribute("href") or "")]
+    print(f"  [Diagnose] {len(_all)} Links auf Seite, "
+          f"{len(_matching)} passen /de/…/…/-Muster.", flush=True)
 
     seen2: set[str] = set()
     dioceses2: list[dict] = []
-    for el in page.query_selector_all("div.list-group a[href]"):
+    # Breit suchen: alle Links auf der Seite, nicht nur div.list-group
+    for el in page.query_selector_all("a[href]"):
         href = el.get_attribute("href") or ""
         m = pattern.search(href)
         if not m:
             continue
         country, slug = m.group(1), m.group(2)
-        if slug in _NAV_SLUGS:
+        if slug in _NAV_SLUGS or country in _NAV_SLUGS:
             continue
         path = f"{country}/{slug}"
         if path in seen2:
@@ -383,9 +410,16 @@ def export_json(db: sqlite3.Connection, path: Path):
     for r in db.execute("SELECT parent_id, child_id FROM abpfarrungen WHERE child_id!=''"):
         parent_map[r[0]] = r[1]   # child → parent
 
+    # Ältere DBs (scrape_matricula_osnabrueck.py) haben keine diocese-Spalte
+    has_diocese = any(
+        r[1] == "diocese"
+        for r in db.execute("PRAGMA table_info(parishes)")
+    )
+    diocese_col = "p.diocese" if has_diocese else "''"
+
     lookup: dict = {}
-    for row in db.execute("""
-        SELECT p.id, p.name, p.diocese, p.confession,
+    for row in db.execute(f"""
+        SELECT p.id, p.name, {diocese_col}, p.confession,
                pv.village
         FROM parishes p
         LEFT JOIN parish_villages pv ON pv.parish_id = p.id
