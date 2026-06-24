@@ -993,7 +993,7 @@ class ToolsTab(ttk.Frame):
         _b.pack(anchor="w", pady=(0, 2))
         register_tooltip(_b, "tt.tl_dbdel", self._state)
         self._tool_action(frame, "Crawl → Datenbank importieren", "wt_import",
-                          lambda: [sys.executable, "-u", _tool("import_webtrees.py")],
+                          lambda: self._wt_import_cmd(),
                           on_start=self._wt_backup_db,
                           on_line=self._wt_import_on_line)
         self._tool_action(frame, "💾 Als GEDCOM-Datei exportieren", "wt_export",
@@ -1030,6 +1030,20 @@ class ToolsTab(ttk.Frame):
         if any(kw in line for kw in ("Importiert", "Personen", "fertig", "done", "Fehler", "Error")):
             return f"  → {line}"
         return line
+
+    def _wt_import_cmd(self) -> list:
+        """Gibt den Import-Befehl zurück — oder [] wenn Crawl-DB fehlt."""
+        from tkinter import messagebox
+        crawl_db = _tool("webtrees_crawl.db")
+        if not os.path.exists(crawl_db):
+            messagebox.showerror(
+                "Crawl-DB nicht gefunden",
+                f"Die Crawl-Datenbank wurde nicht gefunden:\n{crawl_db}\n\n"
+                "Bitte zuerst 'Öffentlichen Baum crawlen' ausführen.",
+                parent=self,
+            )
+            return []
+        return [sys.executable, "-u", _tool("import_webtrees.py")]
 
     # ── Webtrees-Crawl-Monitor ────────────────────────────────────────────
 

@@ -29,6 +29,7 @@ SOURCE     = "anverwandte"
 def load_wt_persons(crawl_db: Path, source: str = SOURCE) -> list[dict]:
     if not crawl_db.exists():
         print(f"Crawl-DB nicht gefunden: {crawl_db}")
+        print("Hinweis: Bitte zuerst den Webtrees-Crawler ausführen (Tab 'Werkzeuge' → 'Öffentlichen Baum crawlen').")
         sys.exit(1)
     c = sqlite3.connect(str(crawl_db)); c.row_factory = sqlite3.Row
 
