@@ -110,40 +110,97 @@ def _init_db(path: Path) -> sqlite3.Connection:
 
 # ── Bestandsübersicht — alle Diözesen entdecken ───────────────────────────────
 
+_NAV_SLUGS = frozenset(
+    ("suche", "bestande", "info", "kontakt", "impressum", "datenschutz",
+     "login", "logout", "register", "account", "hilfe", "faq", "news",
+     "de", "en", "hu", "pl", "sk", "cz", "hr", "at", "si")
+)
+
+
 def discover_dioceses(page) -> list[dict]:
-    """Liest alle verfügbaren Diözesen/Archive von der Bestandsübersicht."""
+    """Liest alle verfügbaren Diözesen/Archive von der Bestandsübersicht.
+
+    Probiert zuerst die REST-API (JSON), fällt bei Fehler auf HTML-Scraping zurück.
+    Wartet bis zu 8 Sekunden auf dynamisch gerenderte Links.
+    """
+    # ── Versuch 1: JSON-API ──────────────────────────────────────────────────
+    api_url = "https://data.matricula-online.eu/api/v1/dioceses/?format=json&limit=500"
+    try:
+        import json as _json
+        page.goto(api_url, wait_until="domcontentloaded", timeout=15_000)
+        body = page.inner_text("body") or ""
+        data = _json.loads(body)
+        results = data.get("results") or (data if isinstance(data, list) else [])
+        dioceses: list[dict] = []
+        seen: set[str] = set()
+        for item in results:
+            # Felder können je nach API-Version variieren
+            slug    = (item.get("slug") or item.get("identifier") or "").strip()
+            country = (item.get("country") or item.get("land") or "").strip().lower()
+            name    = (item.get("name") or item.get("bezeichnung") or slug).strip()
+            url     = item.get("url") or item.get("link") or ""
+            if not slug or not country:
+                continue
+            path = f"{country}/{slug}"
+            if path in seen:
+                continue
+            seen.add(path)
+            if not url:
+                url = f"{MATRICULA_BASE}/de/{path}/"
+            dioceses.append({
+                "path": path, "country": country, "slug": slug,
+                "name": name, "url": url,
+            })
+        if dioceses:
+            return sorted(dioceses, key=lambda d: (d["country"], d["slug"]))
+    except Exception:
+        pass
+
+    # ── Versuch 2: HTML-Scraping der Bestandsübersicht ───────────────────────
     try:
         page.goto(BESTANDE_URL, wait_until="networkidle", timeout=30_000)
     except Exception:
         page.goto(BESTANDE_URL, wait_until="domcontentloaded", timeout=30_000)
-    time.sleep(1.0)
 
-    # Links mit Format /de/<land>/<diözese>/ sammeln
-    pattern = re.compile(r"/de/([^/]+)/([^/]+)/?$")
-    seen: set[str] = set()
-    dioceses: list[dict] = []
+    # Bis zu 8 Sekunden auf dynamisch geladene Bistum-Links warten
+    pattern = re.compile(r"/de/([^/]+)/([^/?#]+)/?$")
+    for _attempt in range(8):
+        time.sleep(1.0)
+        found = [
+            el for el in page.query_selector_all("a[href]")
+            if pattern.search(el.get_attribute("href") or "")
+        ]
+        # Filtere Nav-Links heraus — wenn echte Bistum-Links da sind, reicht das
+        real = [
+            el for el in found
+            if pattern.search(el.get_attribute("href") or "").group(2)  # type: ignore[union-attr]
+            not in _NAV_SLUGS
+        ]
+        if real:
+            break
 
+    seen2: set[str] = set()
+    dioceses2: list[dict] = []
     for el in page.query_selector_all("a[href]"):
         href = el.get_attribute("href") or ""
         m = pattern.search(href)
         if not m:
             continue
         country, slug = m.group(1), m.group(2)
-        # Navigationslinks ausfiltern (suche, bestande, info …)
-        if slug in ("suche", "bestande", "info", "kontakt", "impressum", "datenschutz"):
+        if slug in _NAV_SLUGS:
             continue
         path = f"{country}/{slug}"
-        if path in seen:
+        if path in seen2:
             continue
-        seen.add(path)
+        seen2.add(path)
         name = (el.inner_text() or "").strip() or slug.replace("-", " ").title()
         full_url = (MATRICULA_BASE + href) if href.startswith("/") else href
-        dioceses.append({
+        dioceses2.append({
             "path": path, "country": country, "slug": slug,
             "name": name, "url": full_url,
         })
 
-    return sorted(dioceses, key=lambda d: (d["country"], d["slug"]))
+    return sorted(dioceses2, key=lambda d: (d["country"], d["slug"]))
 
 
 # ── Detailseite einer Pfarrei parsen ──────────────────────────────────────────
