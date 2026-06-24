@@ -241,8 +241,6 @@ class ToolsTab(ttk.Frame):
         self._mat_listbox.pack(side="left", fill="x", expand=True)
         lb_vsb.pack(side="left", fill="y")
         self.after(500, self._mat_refresh_parishes)
-        self._tool_action(sec, "0 · Pfarrei-Katalog (einmalig)", "mat_cat",
-                          lambda: [sys.executable, "-u", _tool("scrape_matricula_osnabrueck.py")])
         self._tool_action(sec, "1 · Bücherverzeichnis holen", "mat_books",
                           self._tl_cmd_mat_books)
         row2 = ttk.Frame(sec); row2.pack(fill="x", pady=(2, 0))
@@ -1113,15 +1111,38 @@ class ToolsTab(ttk.Frame):
             dioceses = mstat.get_dioceses()
             parishes = mstat.get_parish_status()
             done_p = sum(1 for p in parishes if p["status"] == mstat.STATUS_DONE)
+            part_p = sum(1 for p in parishes if p["status"] == mstat.STATUS_PARTIAL)
             if dioceses:
-                info = (f"{len(dioceses)} Bistum/Archiv · {len(parishes)} Pfarreien"
-                        f" ({done_p} fertig transkribiert)")
+                info = (f"{len(dioceses)} Bistum/Archiv · {len(parishes)} Pfarreien  "
+                        f"({done_p} fertig · {part_p} teilweise · "
+                        f"{len(parishes)-done_p-part_p} offen)")
+                # Pro-Diözese-Zeilen
+                from collections import defaultdict
+                by_dioc: dict = defaultdict(lambda: {"total": 0, "done": 0, "part": 0})
+                for p in parishes:
+                    slug = p.get("diocese", "?").split("/")[-1]
+                    by_dioc[slug]["total"] += 1
+                    if p["status"] == mstat.STATUS_DONE:
+                        by_dioc[slug]["done"] += 1
+                    elif p["status"] == mstat.STATUS_PARTIAL:
+                        by_dioc[slug]["part"] += 1
+                dioc_lines = []
+                for slug, c in sorted(by_dioc.items()):
+                    dioc_lines.append(
+                        f"  {slug}: {c['total']} Pfarreien"
+                        f" ({c['done']} ✓ · {c['part']} ◐ · {c['total']-c['done']-c['part']} ○)"
+                    )
+                detail = "\n".join(dioc_lines)
             else:
                 info = "Noch keine Bestände geladen — Bistums-Katalog starten."
+                detail = ""
         except Exception:
             info = "Status nicht verfügbar"
-        ttk.Label(frame, text=info, foreground=dim, wraplength=460).pack(
-            anchor="w", pady=(0, 6))
+            detail = ""
+        ttk.Label(frame, text=info, foreground=dim, wraplength=460).pack(anchor="w", pady=(0, 2))
+        if detail:
+            ttk.Label(frame, text=detail, foreground=dim, font=("Consolas", 8),
+                      justify="left").pack(anchor="w", pady=(0, 6))
 
         row = ttk.Frame(frame); row.pack(fill="x", pady=2)
         ttk.Label(row, text="Bistum-Slug:").pack(side="left")
