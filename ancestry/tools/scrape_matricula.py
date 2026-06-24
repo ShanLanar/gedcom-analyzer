@@ -210,27 +210,56 @@ def discover_dioceses(page) -> list[dict]:
           f"{len(_matching)} passen /de/…/…/-Muster.", flush=True)
     print(f"  [Diagnose] Erste hrefs: {_sample}", flush=True)
 
-    seen2: set[str] = set()
-    dioceses2: list[dict] = []
-    # Breit suchen: alle Links auf der Seite, nicht nur div.list-group
-    for el in page.query_selector_all("a[href]"):
-        href = el.get_attribute("href") or ""
-        m = pattern.search(href)
-        if not m:
-            continue
-        country, slug = m.group(1), m.group(2)
-        if slug in _NAV_SLUGS or country in _NAV_SLUGS:
-            continue
-        path = f"{country}/{slug}"
-        if path in seen2:
-            continue
-        seen2.add(path)
-        name = (el.inner_text() or "").strip() or slug.replace("-", " ").title()
-        full_url = (MATRICULA_BASE + href) if href.startswith("/") else href
-        dioceses2.append({
-            "path": path, "country": country, "slug": slug,
-            "name": name, "url": full_url,
-        })
+    def _collect(pg) -> list[dict]:
+        """Sammelt Diözesen-Links (/de/land/bistum/) von der aktuellen Seite."""
+        result: list[dict] = []
+        seen_local: set[str] = set()
+        for el in pg.query_selector_all("a[href]"):
+            href = el.get_attribute("href") or ""
+            m = pattern.search(href)
+            if not m:
+                continue
+            c, s = m.group(1), m.group(2)
+            if s in _NAV_SLUGS or c in _NAV_SLUGS:
+                continue
+            p = f"{c}/{s}"
+            if p in seen_local:
+                continue
+            seen_local.add(p)
+            name = (el.inner_text() or "").strip() or s.replace("-", " ").title()
+            full_url = (MATRICULA_BASE + href) if href.startswith("/") else href
+            result.append({"path": p, "country": c, "slug": s,
+                           "name": name, "url": full_url})
+        return result
+
+    dioceses2 = _collect(page)
+
+    # Fallback: wenn Bestandsseite leer → bekannte Länder-Seiten direkt laden
+    if not dioceses2:
+        print("  Bestandsseite leer — lade Länder-Seiten direkt …", flush=True)
+        _COUNTRIES = ["deutschland", "oesterreich", "slowakei", "kroatien",
+                      "bosnien-herzegowina", "tschechien", "ungarn", "slowenien",
+                      "luxemburg", "belgien", "italien", "polen"]
+        seen3: set[str] = set()
+        for country_slug in _COUNTRIES:
+            country_url = f"{MATRICULA_BASE}/de/{country_slug}/"
+            try:
+                try:
+                    page.goto(country_url, wait_until="networkidle", timeout=15_000)
+                except Exception:
+                    page.goto(country_url, wait_until="domcontentloaded", timeout=15_000)
+                try:
+                    page.wait_for_selector("div.list-group a[href]", timeout=8_000)
+                except Exception:
+                    time.sleep(2.0)
+                for item in _collect(page):
+                    if item["path"] not in seen3:
+                        seen3.add(item["path"])
+                        dioceses2.append(item)
+                print(f"    {country_slug}: {len([i for i in dioceses2 if i['country']==country_slug])} Bistümer",
+                      flush=True)
+            except Exception as exc:
+                print(f"    {country_slug}: übersprungen ({exc})", flush=True)
 
     return sorted(dioceses2, key=lambda d: (d["country"], d["slug"]))
 
@@ -485,11 +514,20 @@ def main():
         browser = pw.chromium.launch(headless=not args.visible)
         ctx = browser.new_context(
             user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                       "AppleWebKit/537.36 Chrome/124.0 Safari/537.36",
+                       "AppleWebKit/537.36 (KHTML, like Gecko) "
+                       "Chrome/124.0.0.0 Safari/537.36",
             locale="de-DE",
+            viewport={"width": 1280, "height": 900},
         )
         page = ctx.new_page()
-        page.set_extra_http_headers({"Accept-Language": "de-DE,de;q=0.9"})
+        # Webdriver-Flag verstecken → Bot-Erkennung der meisten Seiten umgehen
+        page.add_init_script(
+            "Object.defineProperty(navigator, 'webdriver', {get: () => undefined})"
+        )
+        page.set_extra_http_headers({
+            "Accept-Language": "de-DE,de;q=0.9,en-US;q=0.8,en;q=0.7",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        })
 
         print(f"Lade Bestandsübersicht: {BESTANDE_URL}")
         dioceses = discover_dioceses(page)

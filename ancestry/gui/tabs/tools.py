@@ -179,6 +179,7 @@ class ToolsTab(ttk.Frame):
         self._tl_diff_include_new = tk.BooleanVar(value=True)
         self._tl_ftdna_csv = tk.StringVar(value="")
         self._tl_mat_diocese = tk.StringVar(value="")
+        self._tl_mat_visible = tk.BooleanVar(value=False)
 
         # ── Pipeline: Datenquellen-Übersicht ──────────────────────────────
         pipe_lf = self._tool_section(inner, "🔌  Datenquellen-Pipeline")
@@ -1144,6 +1145,10 @@ class ToolsTab(ttk.Frame):
             ttk.Label(frame, text=detail, foreground=dim, font=("Consolas", 8),
                       justify="left").pack(anchor="w", pady=(0, 6))
 
+        vis_row = ttk.Frame(frame); vis_row.pack(fill="x", pady=(0, 2))
+        ttk.Checkbutton(vis_row, text="Browser sichtbar (--visible, hilft bei Bot-Erkennung)",
+                        variable=self._tl_mat_visible).pack(side="left")
+
         self._tool_action(frame, "🌍 Alle Bistümer laden (--all)", "mat_cat_v2",
                           self._tl_cmd_mat_catalog_all)
 
@@ -1610,7 +1615,10 @@ class ToolsTab(ttk.Frame):
 
     def _tl_cmd_mat_catalog_all(self) -> list[str]:
         """Lädt alle Bistümer von Matricula-Online (--all)."""
-        return [sys.executable, "-u", "-m", "ancestry.tools.scrape_matricula", "--all"]
+        cmd = [sys.executable, "-u", "-m", "ancestry.tools.scrape_matricula", "--all"]
+        if getattr(self, "_tl_mat_visible", None) and self._tl_mat_visible.get():
+            cmd.append("--visible")
+        return cmd
 
     def _tl_cmd_mat_catalog(self) -> list[str]:
         """Lädt ein einzelnes Bistum von Matricula-Online."""
@@ -1623,8 +1631,11 @@ class ToolsTab(ttk.Frame):
                 "oder 'Alle Bistümer laden' verwenden.",
                 parent=self)
             return []
-        return [sys.executable, "-u", "-m", "ancestry.tools.scrape_matricula",
-                "--diocese", diocese]
+        cmd = [sys.executable, "-u", "-m", "ancestry.tools.scrape_matricula",
+               "--diocese", diocese]
+        if getattr(self, "_tl_mat_visible", None) and self._tl_mat_visible.get():
+            cmd.append("--visible")
+        return cmd
 
     # ── Matricula-Priorität ───────────────────────────────────────────────
     def _tl_pick_save(self, var: tk.StringVar, label: str, pattern: str):
