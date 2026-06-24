@@ -105,6 +105,13 @@ def _init_db(path: Path) -> sqlite3.Connection:
         PRIMARY KEY (parish_id, village)
     );
     """)
+    # Alte DBs (scrape_matricula_osnabrueck.py) haben parishes ohne diocese/slug
+    for col, typedef in [("diocese", "TEXT NOT NULL DEFAULT ''"),
+                         ("slug",    "TEXT NOT NULL DEFAULT ''")]:
+        cols = {r[1] for r in db.execute("PRAGMA table_info(parishes)")}
+        if col not in cols:
+            db.execute(f"ALTER TABLE parishes ADD COLUMN {col} {typedef}")
+    db.commit()
     return db
 
 
