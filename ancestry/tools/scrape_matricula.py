@@ -188,12 +188,27 @@ def discover_dioceses(page) -> list[dict]:
 
     pattern = re.compile(r"/de/([^/]+)/([^/?#]+)/?$")
 
+    # Cookie-Consent / DSGVO-Banner wegklicken (verhindert Inhalt)
+    for _cs in ["button[id*='accept']", "button[class*='accept']",
+                "button[id*='cookie']", ".cookie-accept", "#cookieConsent button",
+                "button[class*='consent']", "a[class*='accept']"]:
+        try:
+            _el = page.query_selector(_cs)
+            if _el and _el.is_visible():
+                _el.click()
+                time.sleep(1.0)
+                break
+        except Exception:
+            pass
+
     # Diagnose-Ausgabe: hilft bei Debugging auf dem Zielsystem
     _all = page.query_selector_all("a[href]")
     _matching = [el for el in _all
                  if pattern.search(el.get_attribute("href") or "")]
+    _sample = [el.get_attribute("href") for el in _all[:30]]
     print(f"  [Diagnose] {len(_all)} Links auf Seite, "
           f"{len(_matching)} passen /de/…/…/-Muster.", flush=True)
+    print(f"  [Diagnose] Erste hrefs: {_sample}", flush=True)
 
     seen2: set[str] = set()
     dioceses2: list[dict] = []
