@@ -1144,15 +1144,19 @@ class ToolsTab(ttk.Frame):
             ttk.Label(frame, text=detail, foreground=dim, font=("Consolas", 8),
                       justify="left").pack(anchor="w", pady=(0, 6))
 
+        self._tool_action(frame, "🌍 Alle Bistümer laden (--all)", "mat_cat_v2",
+                          self._tl_cmd_mat_catalog_all)
+
+        ttk.Label(frame, text="— oder einzelnes Bistum —",
+                  foreground=dim).pack(anchor="w", pady=(4, 0))
         row = ttk.Frame(frame); row.pack(fill="x", pady=2)
         ttk.Label(row, text="Bistum-Slug:").pack(side="left")
         ttk.Entry(row, textvariable=self._tl_mat_diocese, width=18).pack(
             side="left", padx=(4, 8))
         ttk.Label(row,
-                  text="z. B. osnabrueck · muenster · paderborn\n"
-                       "(leer = alle Bistümer auflisten)",
+                  text="z. B. osnabrueck · muenster · paderborn",
                   foreground=dim, justify="left").pack(side="left")
-        self._tool_action(frame, "⛪ Bistums-Katalog laden", "mat_cat_v2",
+        self._tool_action(frame, "⛪ Dieses Bistum laden", "mat_cat_v2",
                           self._tl_cmd_mat_catalog)
 
         ttk.Separator(frame, orient="horizontal").pack(fill="x", pady=6)
@@ -1604,13 +1608,23 @@ class ToolsTab(ttk.Frame):
     def _tl_cmd_diff_anv_ftm_test(self) -> list[str]:
         return [sys.executable, "-u", _tool("diff_anv_ftm.py"), "--test-one"]
 
+    def _tl_cmd_mat_catalog_all(self) -> list[str]:
+        """Lädt alle Bistümer von Matricula-Online (--all)."""
+        return [sys.executable, "-u", "-m", "ancestry.tools.scrape_matricula", "--all"]
+
     def _tl_cmd_mat_catalog(self) -> list[str]:
-        """Lädt Bistums-Katalog von Matricula-Online (universal scraper)."""
+        """Lädt ein einzelnes Bistum von Matricula-Online."""
+        from tkinter import messagebox
         diocese = self._tl_mat_diocese.get().strip()
-        cmd = [sys.executable, "-u", "-m", "ancestry.tools.scrape_matricula"]
-        if diocese:
-            cmd += ["--diocese", diocese]
-        return cmd
+        if not diocese:
+            messagebox.showwarning(
+                "Bistum-Slug fehlt",
+                "Bitte einen Bistum-Slug eingeben (z. B. osnabrueck)\n"
+                "oder 'Alle Bistümer laden' verwenden.",
+                parent=self)
+            return []
+        return [sys.executable, "-u", "-m", "ancestry.tools.scrape_matricula",
+                "--diocese", diocese]
 
     # ── Matricula-Priorität ───────────────────────────────────────────────
     def _tl_pick_save(self, var: tk.StringVar, label: str, pattern: str):
