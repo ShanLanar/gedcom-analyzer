@@ -43,13 +43,16 @@ def get_dioceses(db_path: Path | str | None = None) -> list[dict]:
     """Gibt alle bekannten Diözesen aus der DB zurück.
 
     Jeder Eintrag: {path, slug, country, name, url}
-    Fällt auf die parishes.diocese-Spalte zurück wenn die dioceses-Tabelle
-    noch nicht existiert (Altdaten von scrape_matricula_osnabrueck.py).
+    Drei Fallbacks für Altdaten (scrape_matricula_osnabrueck.py):
+    1. dioceses-Tabelle (neuer universeller Scraper)
+    2. parishes.diocese-Spalte (wenn befüllt)
+    3. kirchenbuecher.book_id-Parsing (immer vorhanden, z.B. "deutschland/osnabrueck/...")
     """
     db = _open(db_path)
     if db is None:
         return []
     try:
+        # 1. Bevorzugt: dioceses-Tabelle
         try:
             rows = db.execute(
                 "SELECT path, slug, country, name, url FROM dioceses ORDER BY country, name"
@@ -58,13 +61,44 @@ def get_dioceses(db_path: Path | str | None = None) -> list[dict]:
                 return [dict(r) for r in rows]
         except sqlite3.OperationalError:
             pass
-        # Fallback: eindeutige diocese-Werte aus der parishes-Tabelle
-        rows = db.execute(
-            "SELECT DISTINCT diocese AS path FROM parishes WHERE diocese!='' ORDER BY diocese"
-        ).fetchall()
-        return [{"path": r[0], "slug": r[0].split("/")[-1],
-                 "country": r[0].split("/")[0] if "/" in r[0] else "?",
-                 "name": r[0], "url": ""} for r in rows]
+        # 2. Fallback: eindeutige diocese-Werte aus parishes-Tabelle
+        try:
+            rows = db.execute(
+                "SELECT DISTINCT diocese AS path FROM parishes WHERE diocese!='' ORDER BY diocese"
+            ).fetchall()
+            if rows:
+                return [{"path": r[0], "slug": r[0].split("/")[-1],
+                         "country": r[0].split("/")[0] if "/" in r[0] else "?",
+                         "name": r[0], "url": ""} for r in rows]
+        except sqlite3.OperationalError:
+            pass
+        # 3. Letzter Fallback: Diözese aus kirchenbuecher.book_id ableiten
+        #    book_id-Format: "land/diözese/pfarrei/buch" → "land/diözese" als Pfad
+        try:
+            rows = db.execute(
+                "SELECT DISTINCT book_id FROM kirchenbuecher WHERE book_id LIKE '%/%/%'"
+            ).fetchall()
+            seen: set[str] = set()
+            result = []
+            for (bid,) in rows:
+                parts = bid.split("/")
+                if len(parts) >= 3:
+                    dioc_path = "/".join(parts[:2])   # z.B. "deutschland/osnabrueck"
+                    if dioc_path not in seen:
+                        seen.add(dioc_path)
+                        slug = parts[1]               # z.B. "osnabrueck"
+                        result.append({
+                            "path": dioc_path,
+                            "slug": slug,
+                            "country": parts[0],
+                            "name": slug.replace("-", " ").title(),
+                            "url": "",
+                        })
+            if result:
+                return sorted(result, key=lambda d: d["path"])
+        except sqlite3.OperationalError:
+            pass
+        return []
     except sqlite3.OperationalError:
         return []
     finally:
