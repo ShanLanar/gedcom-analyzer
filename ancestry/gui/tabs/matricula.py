@@ -53,6 +53,9 @@ class MatriculaTab(ttk.Frame):
         self._search_after_id: Optional[str] = None
         self._build()
         self._poll_log()
+        self._state.register_data_change(
+            lambda src: self.after(0, self.refresh_parishes) if src == "mat_catalog" else None
+        )
 
     # ── Aufbau ───────────────────────────────────────────────────────────────
 

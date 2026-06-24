@@ -1808,6 +1808,8 @@ class ToolsTab(ttk.Frame):
                         self._killed_jobs.discard(key)
                     elif rc == 0:
                         _hist_status = "✓ OK"
+                        if key in ("mat_cat", "mat_cat_v2"):
+                            self._state.notify_data_changed("mat_catalog")
                     else:
                         _hist_status = "✗ Fehler"
                     self._hist_add_entry(key, _hist_status)
