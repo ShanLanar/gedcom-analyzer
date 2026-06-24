@@ -162,26 +162,16 @@ def discover_dioceses(page) -> list[dict]:
     except Exception:
         page.goto(BESTANDE_URL, wait_until="domcontentloaded", timeout=30_000)
 
-    # Bis zu 8 Sekunden auf dynamisch geladene Bistum-Links warten
+    # Warten bis div.list-group mit Links gerendert ist (JS-SPA)
     pattern = re.compile(r"/de/([^/]+)/([^/?#]+)/?$")
-    for _attempt in range(8):
-        time.sleep(1.0)
-        found = [
-            el for el in page.query_selector_all("a[href]")
-            if pattern.search(el.get_attribute("href") or "")
-        ]
-        # Filtere Nav-Links heraus — wenn echte Bistum-Links da sind, reicht das
-        real = [
-            el for el in found
-            if pattern.search(el.get_attribute("href") or "").group(2)  # type: ignore[union-attr]
-            not in _NAV_SLUGS
-        ]
-        if real:
-            break
+    try:
+        page.wait_for_selector("div.list-group a[href]", timeout=15_000)
+    except Exception:
+        time.sleep(3.0)   # letzter Ausweg: Blindwarte
 
     seen2: set[str] = set()
     dioceses2: list[dict] = []
-    for el in page.query_selector_all("a[href]"):
+    for el in page.query_selector_all("div.list-group a[href]"):
         href = el.get_attribute("href") or ""
         m = pattern.search(href)
         if not m:
