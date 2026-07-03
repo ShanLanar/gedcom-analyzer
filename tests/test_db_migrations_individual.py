@@ -9,7 +9,9 @@ import sqlite3
 
 import pytest
 
-from ancestry.core.db.runner import MIGRATIONS_DIR, TARGET_VERSION, run
+from ancestry.core.db.runner import (
+    MIGRATIONS_DIR, TARGET_VERSION, _strip_leading_comments, run,
+)
 
 # Tatsächlich vorhandene Migrationsnummern (Lücken wie 0005 sind bewusst erlaubt)
 EXISTING = sorted(int(p.stem) for p in MIGRATIONS_DIR.glob("*.sql"))
@@ -17,7 +19,8 @@ EXISTING = sorted(int(p.stem) for p in MIGRATIONS_DIR.glob("*.sql"))
 
 def _apply_file(conn: sqlite3.Connection, n: int) -> None:
     """Wendet eine einzelne Migrationsdatei an – identisch zur Runner-Logik
-    (Statement-Split, idempotentes Überspringen von 'duplicate column'/'exists')."""
+    (Statement-Split, idempotentes Überspringen von 'duplicate column'/'exists',
+    Index/View auf noch fehlende Tabellen wie gedcom_persons überspringen)."""
     sql_path = MIGRATIONS_DIR / f"{n:04d}.sql"
     sql = sql_path.read_text(encoding="utf-8")
     for stmt in (s.strip() for s in re.split(r";", sql) if s.strip()):
@@ -26,6 +29,10 @@ def _apply_file(conn: sqlite3.Connection, n: int) -> None:
         except sqlite3.OperationalError as e:
             msg = str(e).lower()
             if "duplicate column name" in msg or "already exists" in msg:
+                continue
+            stmt_upper = _strip_leading_comments(stmt).upper()
+            if "no such table" in msg and stmt_upper.startswith(
+                    ("CREATE INDEX", "CREATE VIEW")):
                 continue
             raise
 

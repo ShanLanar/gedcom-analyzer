@@ -149,6 +149,44 @@ def _ensure_table(db: sqlite3.Connection) -> None:
     CREATE INDEX IF NOT EXISTS idx_mner_book   ON matrikula_ner(book_id);
     """)
     db.commit()
+    _ensure_fts(db)
+
+
+def _ensure_fts(db: sqlite3.Connection) -> None:
+    """FTS5-Volltextindex über Namen/Orte/Berufe (external content).
+
+    Trigger halten den Index bei INSERT/UPDATE/DELETE synchron. Fehlt FTS5
+    im SQLite-Build, wird der Index still übersprungen — die Suche fällt
+    dann auf LIKE zurück."""
+    try:
+        db.executescript("""
+        CREATE VIRTUAL TABLE IF NOT EXISTS matrikula_ner_fts USING fts5(
+            name_raw, name_norm, ort, beruf,
+            content='matrikula_ner', content_rowid='ner_id'
+        );
+        CREATE TRIGGER IF NOT EXISTS mner_fts_ai AFTER INSERT ON matrikula_ner BEGIN
+            INSERT INTO matrikula_ner_fts(rowid, name_raw, name_norm, ort, beruf)
+            VALUES (new.ner_id, new.name_raw, new.name_norm, new.ort, new.beruf);
+        END;
+        CREATE TRIGGER IF NOT EXISTS mner_fts_ad AFTER DELETE ON matrikula_ner BEGIN
+            INSERT INTO matrikula_ner_fts(matrikula_ner_fts, rowid, name_raw, name_norm, ort, beruf)
+            VALUES ('delete', old.ner_id, old.name_raw, old.name_norm, old.ort, old.beruf);
+        END;
+        CREATE TRIGGER IF NOT EXISTS mner_fts_au AFTER UPDATE ON matrikula_ner BEGIN
+            INSERT INTO matrikula_ner_fts(matrikula_ner_fts, rowid, name_raw, name_norm, ort, beruf)
+            VALUES ('delete', old.ner_id, old.name_raw, old.name_norm, old.ort, old.beruf);
+            INSERT INTO matrikula_ner_fts(rowid, name_raw, name_norm, ort, beruf)
+            VALUES (new.ner_id, new.name_raw, new.name_norm, new.ort, new.beruf);
+        END;
+        """)
+        # Bestandsdaten nachindizieren, falls der Index neu/leer ist
+        n_src = db.execute("SELECT COUNT(*) FROM matrikula_ner").fetchone()[0]
+        n_fts = db.execute("SELECT COUNT(*) FROM matrikula_ner_fts").fetchone()[0]
+        if n_src > 0 and n_fts == 0:
+            db.execute("INSERT INTO matrikula_ner_fts(matrikula_ner_fts) VALUES('rebuild')")
+        db.commit()
+    except sqlite3.OperationalError as e:
+        print(f"⚠ FTS5 nicht verfügbar, Volltextindex übersprungen: {e}")
 
 
 def print_stats(db: sqlite3.Connection) -> None:

@@ -16,7 +16,10 @@ from typing import Callable
 
 log = logging.getLogger(__name__)
 
-_MODEL      = "claude-sonnet-4-6"
+_MODEL      = os.environ.get("AI_COPILOT_MODEL", "claude-sonnet-4-6")
+# Günstiges Modell für Batch-/Bulk-Aufrufe (viele kurze strukturierte Antworten,
+# z. B. Hypothesen für hunderte Brick Walls): ~10× billiger als Sonnet.
+_BULK_MODEL = os.environ.get("AI_COPILOT_BULK_MODEL", "claude-haiku-4-5")
 _MAX_TOKENS = 450
 _CACHE: dict[str, str] = {}  # SHA-256[:20] → vollständiger Response
 
@@ -58,6 +61,7 @@ def explain_async(
     on_chunk: Callable[[str], None] | None = None,
     on_done: Callable[[str], None] | None = None,
     max_tokens: int = _MAX_TOKENS,
+    bulk: bool = False,
 ) -> None:
     """Startet asynchronen Claude-Aufruf im Background-Thread.
 
@@ -65,7 +69,9 @@ def explain_async(
     GUI-Code muss widget.after(0, ...) verwenden, um thread-safe zu bleiben.
     on_done wird einmal mit dem vollständigen Ergebnis gerufen.
     Gleiche Prompts werden gecached — kein zweiter API-Call.
+    bulk=True nutzt das günstige Bulk-Modell (Haiku) für Massen-Anfragen.
     """
+    model = _BULK_MODEL if bulk else _MODEL
     k = _cache_key(prompt)
     if k in _CACHE:
         full = _CACHE[k]
@@ -81,7 +87,7 @@ def explain_async(
             client = anthropic.Anthropic()
             buf: list[str] = []
             with client.messages.stream(
-                model=_MODEL,
+                model=model,
                 max_tokens=max_tokens,
                 messages=[{"role": "user", "content": prompt}],
             ) as stream:

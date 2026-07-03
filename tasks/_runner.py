@@ -302,13 +302,72 @@ _CORE_TASKS: list[tuple[str, str]] = [
     ("data_quality",         "Datenvollständigkeit"),
 ]
 
+#: Tasks, die nur lesend auf individuals/families/location_data zugreifen und
+#: ausschließlich eigene _state-Keys schreiben. Solche Tasks dürfen nebenläufig
+#: in Fork-Kindprozessen laufen (Copy-on-Write, kein Pickling der Eingaben).
+PARALLEL_SAFE_TASKS: frozenset[str] = frozenset({
+    "military", "demographics", "surnames_and_countries", "history",
+    "names", "data_quality", "anomalies", "sibling_and_namedrift",
+    "seasonality", "snapshot", "spatial", "family_structure",
+    "lineage", "naming_sociology", "osnabrueck",
+})
+
+#: Eingabe-Keys, die nie aus einem Kindprozess zurückgespielt werden dürfen.
+_PARALLEL_INPUT_KEYS = frozenset({
+    "individuals", "families", "location_data", "cache", "stop_event",
+    "root_paths", "root_related_ids",
+})
+
+
+def _parallel_worker(fn_name: str) -> dict:
+    """Läuft im Fork-Kindprozess: führt run_<fn_name> aus und liefert nur die
+    neu geschriebenen _state-Einträge zurück (Ergebnis-Listen, picklebar)."""
+    before = {k: id(v) for k, v in vars(_state).items()}
+    globals()[f"run_{fn_name}"](progress_cb=None)
+    return {
+        k: v for k, v in vars(_state).items()
+        if k not in _PARALLEL_INPUT_KEYS
+        and (k not in before or id(v) != before[k])
+    }
+
+
+def _fork_available() -> bool:
+    import multiprocessing
+    return "fork" in multiprocessing.get_all_start_methods()
+
+
+def _run_group_parallel(group: list[tuple[str, str]], progress_cb, stop_event) -> None:
+    """Führt eine Gruppe parallel-sicherer Tasks in Fork-Prozessen aus."""
+    import multiprocessing
+    from concurrent.futures import ProcessPoolExecutor, as_completed
+
+    ctx = multiprocessing.get_context("fork")
+    workers = min(len(group), max(1, (os.cpu_count() or 2) - 1))
+    labels = {fn: lbl for fn, lbl in group}
+    _p(progress_cb, f"▶ {len(group)} Analysen parallel ({workers} Prozesse): "
+                    + ", ".join(labels.values()))
+    with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
+        futs = {ex.submit(_parallel_worker, fn): fn for fn, _ in group}
+        for fut in as_completed(futs):
+            fn = futs[fut]
+            try:
+                for k, v in fut.result().items():
+                    _state[k] = v
+                _p(progress_cb, f"  ✓ {labels[fn]}", tag="ok")
+            except Exception as e:
+                _p(progress_cb, f"  ⚠ {labels[fn]}: {e}", tag="warn")
+            if stop_event is not None and stop_event.is_set():
+                ex.shutdown(cancel_futures=True)
+                break
+
 
 def run_all_with_progress(
     task_list: list[tuple[str, str]] | None = None,
     progress_cb=None,
     stop_event=None,
+    parallel: bool = True,
 ):
-    """Führt eine Liste von run_*-Tasks sequenziell aus und meldet Fortschritt.
+    """Führt eine Liste von run_*-Tasks aus und meldet Fortschritt.
 
     Parameters
     ----------
@@ -320,24 +379,48 @@ def run_all_with_progress(
         Zwischen-Ausgaben der Tasks selbst aufgerufen.
     stop_event:
         ``threading.Event``; wenn gesetzt, wird nach jedem Schritt geprüft.
+    parallel:
+        Aufeinanderfolgende Tasks aus ``PARALLEL_SAFE_TASKS`` werden in
+        Fork-Kindprozessen nebenläufig ausgeführt (nur auf Plattformen mit
+        fork, d. h. Linux/macOS; sonst automatisch sequenziell).
     """
     if task_list is None:
         task_list = _CORE_TASKS
     n = len(task_list)
     _set_stop_event(stop_event)
-    for i, (fn_name, label) in enumerate(task_list, 1):
-        if is_aborted():
-            _p(progress_cb, "Abgebrochen.", tag="warn")
-            return
+    use_parallel = parallel and _fork_available()
+
+    def _run_one(i: int, fn_name: str, label: str) -> None:
         _p(progress_cb, f"[{i}/{n}] {label} …")
         fn = globals().get(f"run_{fn_name}")
         if fn is None:
             _p(progress_cb, f"  ⚠ Unbekannte Task: run_{fn_name}", tag="warn")
-            continue
+            return
         fn(
             progress_cb=lambda m, **kw: _p(progress_cb, f"    {m}", **kw),
             stop_event=stop_event,
         )
+
+    i = 0
+    while i < n:
+        if is_aborted():
+            _p(progress_cb, "Abgebrochen.", tag="warn")
+            return
+        fn_name, label = task_list[i]
+        # Lauf aufeinanderfolgender parallel-sicherer Tasks einsammeln
+        if use_parallel and fn_name in PARALLEL_SAFE_TASKS:
+            group = []
+            while i < n and task_list[i][0] in PARALLEL_SAFE_TASKS:
+                group.append(task_list[i])
+                i += 1
+            if len(group) >= 2:
+                _run_group_parallel(group, progress_cb, stop_event)
+                continue
+            fn_name, label = group[0]
+            _run_one(i, fn_name, label)
+            continue
+        i += 1
+        _run_one(i, fn_name, label)
     _p(progress_cb, f"✓ Alle {n} Analysen abgeschlossen.", tag="ok")
 
 

@@ -127,11 +127,15 @@ class Database:
                         "LIMIT 1"
                     ).fetchone()
                     if has_orphan:
-                        bg.execute(
-                            f"DELETE FROM {tbl} t "
-                            f"WHERE NOT EXISTS (SELECT 1 FROM matches m WHERE m.match_guid=t.{col})"
+                        # Kein Tabellen-Alias: SQLite erlaubt bei DELETE keinen
+                        # Alias — mit Alias schlug der Cleanup bisher still fehl.
+                        cur = bg.execute(
+                            f"DELETE FROM {tbl} "
+                            f"WHERE NOT EXISTS (SELECT 1 FROM matches m "
+                            f"WHERE m.match_guid={tbl}.{col})"
                         )
-                        log.info("FK-Cleanup: Waisenzeilen in %s bereinigt", tbl)
+                        log.info("FK-Cleanup: %d Waisenzeilen in %s bereinigt",
+                                 cur.rowcount, tbl)
                 bg.commit()
                 bg.close()
             except Exception as e:

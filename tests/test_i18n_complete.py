@@ -25,6 +25,9 @@ ALLOWED_IDENTICAL = {
     "dl.dash_sh", "md.fs_link", "mf.kit",
     # Eigennamen / Formate, in beiden Sprachen identisch
     "dlg.gedcom", "dlg.export", "dlg.wikitree",
+    # Plattform-Markennamen (Chips + WikiTree-Tab)
+    "mf.chip_anc", "mf.chip_mh", "mf.chip_gm", "mf.chip_ftd",
+    "md.tab_wikitree",
     # Ähnlichkeits-Matrix: Spaltenbezeichnungen sind in beiden Sprachen gleich
     "sm.match_a", "sm.match_b", "sm.score",
 }

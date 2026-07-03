@@ -284,15 +284,18 @@ class SharedRepo:
     def get_shared_pairs_set(self, test_guid: str, min_cm: float = 7.0) -> set:
         """Return shared-match pairs as frozensets for O(1) lookup.
 
-        min_cm filters out noise matches below 7 cM (default) to keep the
-        materialized set small.
+        For triangulation the relevant quantity is the *pairwise* cM that A and
+        B share with each other (``shared_cm_ab``). Many API responses don't
+        carry in-common cM, so we fall back to B's cM with the kit owner
+        (``shared_cm_b``) when ``shared_cm_ab`` is absent/zero. ``min_cm``
+        filters out noise pairs to keep the materialized set small.
         """
         with self._db._cursor() as cur:
             cur.execute("""
                 SELECT match_guid_a, match_guid_b
                 FROM shared_matches
                 WHERE test_guid = ?
-                  AND shared_cm_b >= ?
+                  AND COALESCE(NULLIF(shared_cm_ab, 0), shared_cm_b, 0) >= ?
             """, (test_guid, min_cm))
             return {frozenset((r[0], r[1])) for r in cur.fetchall()}
 

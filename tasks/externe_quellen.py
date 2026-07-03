@@ -523,14 +523,15 @@ def _genwiki_ort(place):
 
 def run_externe_quellen(individuals: dict, root_related_ids=None,
                         progress_cb=None,
-                        max_persons: int = 5_000) -> list:
+                        max_persons: int | None = None) -> list:
     p = progress_cb or (lambda m, **kw: None)
     p("Externe Quellen: Recherche-Links generieren …")
 
     scope = root_related_ids or set(individuals.keys())
     rows  = []
 
-    for pid in list(scope)[:max_persons]:
+    pids = list(scope) if max_persons is None else list(scope)[:max_persons]
+    for pid in pids:
         pdata = individuals.get(pid)
         if not pdata:
             continue

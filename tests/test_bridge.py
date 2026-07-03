@@ -238,7 +238,9 @@ _SAMPLE_INDIVIDUALS = {
 
 def test_import_gedcom_persons(db):
     n = import_gedcom_persons(db, _SAMPLE_INDIVIDUALS, "test.ged")
-    assert n == 3  # @I4@ hat keinen Namen → übersprungen
+    # Rückgabe ist ImportSummary (int = total inkl. Übersprungener)
+    assert n.imported == 3
+    assert n.skipped == 1   # @I4@ hat keinen Namen → übersprungen
     assert get_gedcom_person_count(db) == 3
 
 

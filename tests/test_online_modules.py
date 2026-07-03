@@ -353,7 +353,10 @@ class TestExterneQuellenRun:
         assert rows == []
 
     def test_headers_count(self):
-        assert len(EXTERNE_QUELLEN_HEADERS) == 27
+        # Header und Zeilen müssen synchron bleiben; Duplikate wären ein
+        # Zeichen für Copy-Paste-Fehler beim Erweitern der Linkliste.
+        assert len(EXTERNE_QUELLEN_HEADERS) == 37
+        assert len(set(EXTERNE_QUELLEN_HEADERS)) == len(EXTERNE_QUELLEN_HEADERS)
 
     def test_scope_filter(self):
         rows_all = run_externe_quellen(_INDIVIDUALS)

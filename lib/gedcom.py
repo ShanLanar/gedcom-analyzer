@@ -8,6 +8,7 @@ import os
 import re
 import traceback
 from datetime import datetime
+from functools import lru_cache
 
 # Wird von außen injiziert (main.py oder Tasks)
 _logger = None
@@ -52,12 +53,19 @@ def safe_parse_gedcom_date(date_str: str) -> dict:
         return {"DATE": date_str, "YEAR": None, "DATE_QUAL": "error"}
 
 
+@lru_cache(maxsize=131072)
+def _extract_year_cached(date_str: str) -> int | None:
+    m = re.search(_YEAR_RE, date_str)
+    return int(m.group(1)) if m else None
+
+
 def safe_extract_year(date_str) -> int | None:
+    # Gecacht: dieselben Datumsstrings werden von 50+ Analyse-Tasks
+    # wiederholt geparst — der LRU-Cache spart den Regex-Match.
     try:
         if not date_str:
             return None
-        m = re.search(_YEAR_RE, str(date_str))
-        return int(m.group(1)) if m else None
+        return _extract_year_cached(str(date_str))
     except Exception:
         return None
 

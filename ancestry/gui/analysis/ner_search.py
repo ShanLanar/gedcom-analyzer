@@ -19,6 +19,18 @@ def _phonetik(name: str) -> str:
     return ""
 
 
+def _has_fts(db) -> bool:
+    """True wenn der FTS5-Index matrikula_ner_fts existiert."""
+    try:
+        with db._cursor() as cur:
+            cur.execute(
+                "SELECT 1 FROM sqlite_master WHERE type='table' "
+                "AND name='matrikula_ner_fts'")
+            return cur.fetchone() is not None
+    except Exception:
+        return False
+
+
 def show_ner_search(parent: tk.Widget, db) -> None:
 
     win = tk.Toplevel(parent)
@@ -96,6 +108,13 @@ def show_ner_search(parent: tk.Widget, db) -> None:
             else:
                 conditions.append("n.name_norm LIKE ?")
                 params.append(f"%{name.lower()}%")
+        elif _has_fts(db):
+            # FTS5-Präfixsuche statt LIKE-Vollscan
+            esc = name.replace('"', '""')
+            conditions.append(
+                "n.ner_id IN (SELECT rowid FROM matrikula_ner_fts "
+                "WHERE matrikula_ner_fts MATCH ?)")
+            params.append(f'"{esc}"*')
         else:
             conditions.append("n.name_raw LIKE ?")
             params.append(f"%{name}%")
