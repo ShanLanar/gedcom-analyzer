@@ -17,17 +17,23 @@ class MatchesRepo:
         self._db = db
 
     def upsert_match(self, m: DnaMatch):
-        d = m.to_dict()
         with self._db._cursor() as cur:
-            cur.execute("""
-                INSERT OR IGNORE INTO dna_kits (guid, name, test_type)
-                VALUES (?, ?, ?)
-            """, (m.test_guid, m.test_guid[:8] + "…", "AncestryDNA"))
-            _now = datetime.now(timezone.utc).isoformat()
-            d.setdefault("first_seen_at", _now)
-            if not d.get("first_seen_at"):
-                d["first_seen_at"] = _now
-            cur.execute("""
+            self._upsert_match_cur(cur, m)
+
+    def _upsert_match_cur(self, cur, m: DnaMatch) -> None:
+        """Führt die drei Upsert-Statements für einen Match auf einem bereits
+        offenen Cursor aus — von upsert_match (ein Commit) und bulk_upsert
+        (ein Commit für alle) gemeinsam genutzt."""
+        d = m.to_dict()
+        cur.execute("""
+            INSERT OR IGNORE INTO dna_kits (guid, name, test_type)
+            VALUES (?, ?, ?)
+        """, (m.test_guid, m.test_guid[:8] + "…", "AncestryDNA"))
+        _now = datetime.now(timezone.utc).isoformat()
+        d.setdefault("first_seen_at", _now)
+        if not d.get("first_seen_at"):
+            d["first_seen_at"] = _now
+        cur.execute("""
                 INSERT INTO matches (
                     match_guid, test_guid, display_name,
                     shared_cm, shared_segments, longest_segment,
@@ -91,17 +97,24 @@ class MatchesRepo:
                         THEN excluded.source
                         ELSE source
                     END
-            """, d)
-            cur.execute(
-                "INSERT OR IGNORE INTO match_kit_membership (match_guid, test_guid) VALUES (?,?)",
-                (m.match_guid, m.test_guid),
-            )
+        """, d)
+        cur.execute(
+            "INSERT OR IGNORE INTO match_kit_membership (match_guid, test_guid) VALUES (?,?)",
+            (m.match_guid, m.test_guid),
+        )
 
     def bulk_upsert(self, matches: list[DnaMatch]) -> int:
-        saved = 0
-        for m in matches:
-            self.upsert_match(m)
-            saved += 1
+        """Fügt alle Matches in EINER Transaktion ein (ein Commit statt N).
+
+        Bei zehntausenden Matches ist der Unterschied dramatisch: der frühere
+        Pfad committete pro Match (N fsyncs); jetzt hält ein einziger Cursor-
+        Block die gesamte Charge zusammen."""
+        if not matches:
+            return 0
+        with self._db._cursor() as cur:
+            for m in matches:
+                self._upsert_match_cur(cur, m)
+        saved = len(matches)
         try:
             self._db._get_conn().execute("PRAGMA wal_checkpoint(PASSIVE)")
         except Exception as e:

@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 39
+    SCHEMA_VERSION = 40
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -91,6 +91,25 @@ class Database:
                 pass
             self._conn.close()
             self._conn = None
+
+    def backup_to(self, dst_path: str) -> str:
+        """Erstellt eine transaktional konsistente Sicherung nach dst_path.
+
+        Nutzt die SQLite-Online-Backup-API (conn.backup) statt shutil.copy2:
+        im WAL-Modus liegen frisch committete Daten im ``-wal``-Sidecar, das
+        ein reines Datei-Kopieren verpassen würde — das Backup wäre dann
+        inkonsistent/veraltet. backup() zieht WAL-Inhalt korrekt mit ein und
+        hält dazu kurz den Lock. Gibt den Zielpfad zurück."""
+        import os
+        os.makedirs(os.path.dirname(os.path.abspath(dst_path)), exist_ok=True)
+        with self._lock:
+            src = self._get_conn()
+            dst = sqlite3.connect(dst_path)
+            try:
+                src.backup(dst)
+            finally:
+                dst.close()
+        return dst_path
 
     # ── Schema ────────────────────────────────────────────────────────────────
 

@@ -1013,13 +1013,18 @@ class ToolsTab(ttk.Frame):
     def _wt_backup_db(self):
         """P11 – Erstellt ein Backup der SQLite-Datenbank vor dem Import."""
         try:
-            src = getattr(self._state.db, "_path", None)
+            src = getattr(self._state.db, "db_file", None) \
+                or getattr(self._state.db, "_path", None)
             if not src:
                 import ancestry.paths as _ap
                 src = str(_ap.DB_PATH)
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             dst = os.path.join(os.path.dirname(src), f"ancestry_backup_{ts}.db")
-            shutil.copy2(src, dst)
+            # WAL-sichere Online-Sicherung statt Datei-Kopie
+            if hasattr(self._state.db, "backup_to"):
+                self._state.db.backup_to(dst)
+            else:
+                shutil.copy2(src, dst)
             self._tool_append(f"💾 Backup: {dst}\n")
         except Exception as e:
             self._tool_append(f"⚠ Backup fehlgeschlagen: {e}\n")

@@ -281,7 +281,8 @@ class SharedRepo:
                             (test_guid,))
             return cur.fetchone()[0]
 
-    def get_shared_pairs_set(self, test_guid: str, min_cm: float = 7.0) -> set:
+    def get_shared_pairs_set(self, test_guid: str, min_cm: float = 7.0,
+                             guids: "set | list | None" = None) -> set:
         """Return shared-match pairs as frozensets for O(1) lookup.
 
         For triangulation the relevant quantity is the *pairwise* cM that A and
@@ -289,15 +290,46 @@ class SharedRepo:
         carry in-common cM, so we fall back to B's cM with the kit owner
         (``shared_cm_b``) when ``shared_cm_ab`` is absent/zero. ``min_cm``
         filters out noise pairs to keep the materialized set small.
+
+        ``guids`` scopes the result to pairs where BOTH matches are in the given
+        set. Triangulation passes only the match_guids that actually carry
+        segments — so the materialized set is bounded by the (small) segment
+        population instead of the full match table, which keeps memory flat even
+        at 300k+ matches. The IN-lists are chunked to respect SQLite's variable
+        limit.
         """
+        if guids is not None:
+            guids = list(guids)
+            if not guids:
+                return set()
+
+        pairs: set = set()
         with self._db._cursor() as cur:
-            cur.execute("""
-                SELECT match_guid_a, match_guid_b
-                FROM shared_matches
-                WHERE test_guid = ?
-                  AND COALESCE(NULLIF(shared_cm_ab, 0), shared_cm_b, 0) >= ?
-            """, (test_guid, min_cm))
-            return {frozenset((r[0], r[1])) for r in cur.fetchall()}
+            if guids is None:
+                cur.execute("""
+                    SELECT match_guid_a, match_guid_b
+                    FROM shared_matches
+                    WHERE test_guid = ?
+                      AND COALESCE(NULLIF(shared_cm_ab, 0), shared_cm_b, 0) >= ?
+                """, (test_guid, min_cm))
+                pairs.update(frozenset((r[0], r[1])) for r in cur.fetchall())
+                return pairs
+
+            allowed = set(guids)
+            for start in range(0, len(guids), 900):
+                chunk = guids[start:start + 900]
+                ph = ",".join("?" * len(chunk))
+                cur.execute(f"""
+                    SELECT match_guid_a, match_guid_b
+                    FROM shared_matches
+                    WHERE test_guid = ?
+                      AND COALESCE(NULLIF(shared_cm_ab, 0), shared_cm_b, 0) >= ?
+                      AND match_guid_a IN ({ph})
+                """, (test_guid, min_cm, *chunk))
+                for a, b in cur.fetchall():
+                    if b in allowed:
+                        pairs.add(frozenset((a, b)))
+        return pairs
 
     def get_all_shared_for_cluster(self, test_guid: str,
                                     min_cm_primary: float = 20.0,

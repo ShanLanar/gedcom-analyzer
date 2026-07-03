@@ -48,7 +48,11 @@ def build_triangulation_groups(
     if not segments:
         return []
 
-    shared_pairs = db.get_shared_pairs_set(test_guid)
+    # Nur Paare unter den Matches laden, die tatsächlich Segmente tragen —
+    # begrenzt den RAM-Bedarf auf die (kleine) Segment-Population statt der
+    # gesamten Match-Tabelle (relevant bei 300k+ Matches).
+    seg_guids = {s["match_guid"] for s in segments}
+    shared_pairs = db.get_shared_pairs_set(test_guid, guids=seg_guids)
 
     by_chrom: dict[int, list[dict]] = defaultdict(list)
     for seg in segments:

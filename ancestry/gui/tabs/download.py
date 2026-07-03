@@ -674,7 +674,6 @@ class DownloadTab(ttk.Frame):
         """Erstellt eine DB-Sicherung (max. 3 behalten)."""
         import glob
         import os
-        import shutil
         try:
             from ancestry.paths import ROOT
             db_path = self._state.db.db_file
@@ -685,7 +684,8 @@ class DownloadTab(ttk.Frame):
             from datetime import datetime
             ts = datetime.now().strftime("%Y%m%d_%H%M%S")
             backup_path = os.path.join(backup_dir, f"ancestry_backup_{ts}.db")
-            shutil.copy2(db_path, backup_path)
+            # WAL-sichere Online-Sicherung statt Datei-Kopie
+            self._state.db.backup_to(backup_path)
             # Keep only last 3 backups
             backups = sorted(glob.glob(os.path.join(backup_dir, "ancestry_backup_*.db")))
             for old in backups[:-3]:

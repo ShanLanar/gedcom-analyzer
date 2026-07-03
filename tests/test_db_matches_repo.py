@@ -214,6 +214,45 @@ class TestBulkUpsert:
         results = db.get_matches(test_guid=KIT_GUID)
         assert len(results) == 3
 
+    def test_bulk_upsert_empty_returns_zero(self, db):
+        """Empty list is a no-op returning 0 (no commit churn)."""
+        assert db.bulk_upsert([]) == 0
+
+    def test_bulk_upsert_single_transaction_persists(self, db):
+        """A larger batch persists atomically via one transaction/commit."""
+        _ensure_kit(db)
+        matches = [make_match(match_guid=f"TX_{i:04d}", shared_cm=float(i))
+                   for i in range(200)]
+        assert db.bulk_upsert(matches) == 200
+        assert db.get_match_count(KIT_GUID) == 200
+
+
+# ===========================================================================
+# WAL-safe online backup (backup_to)
+# ===========================================================================
+
+class TestBackupTo:
+
+    def test_backup_is_consistent_snapshot(self, db, tmp_path):
+        """backup_to writes a readable snapshot containing committed rows,
+        including data still living in the WAL sidecar."""
+        _ensure_kit(db)
+        db.bulk_upsert([make_match(match_guid=f"BK_{i}", shared_cm=float(i))
+                        for i in range(10)])
+
+        dst = tmp_path / "sub" / "snapshot.db"   # nested dir must be created
+        out = db.backup_to(str(dst))
+        assert os.path.exists(out)
+
+        # Open the backup independently and count rows — no -wal replay needed.
+        import sqlite3
+        conn = sqlite3.connect(str(dst))
+        try:
+            n = conn.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+        finally:
+            conn.close()
+        assert n == 10
+
 
 # ===========================================================================
 # 3. get_matches – filtering
