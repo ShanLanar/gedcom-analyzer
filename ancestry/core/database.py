@@ -25,7 +25,7 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 40
+    SCHEMA_VERSION = 41
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os
@@ -255,3 +255,5 @@ class Database:
 
     def bulk_upsert_segments(self, *a, **kw) -> int:     return self._segs.bulk_upsert_segments(*a, **kw)
     def get_segments(self, *a, **kw) -> list:            return self._segs.get_segments(*a, **kw)
+    def get_x_dna_matches(self, *a, **kw) -> list:       return self._segs.get_x_dna_matches(*a, **kw)
+    def get_ibd2_matches(self, *a, **kw) -> list:        return self._segs.get_ibd2_matches(*a, **kw)

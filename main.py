@@ -1226,12 +1226,14 @@ def _cli_main(argv: list[str] | None = None) -> int | None:
 
     # ── Eigenständige CLI-Sub-Tools ────────────────────────────────────────
     if args.predict_cm is not None:
-        from tasks.dna_predict import predict_relationship_from_cm
-        result = predict_relationship_from_cm(args.predict_cm)
+        from tasks.dna_predict import predict_relationship_detailed
+        result = predict_relationship_detailed(args.predict_cm)
         print(f"\nDNA-Vorhersage für {args.predict_cm:.0f} cM:")
-        for label, prob in result:
-            bar = "█" * int(prob * 30)
-            print(f"  {label:35s} {prob*100:5.1f}%  {bar}")
+        for d in result:
+            bar = "█" * int(d["probability"] * 30)
+            ci = f"95%-KI {d['ci_low']:.0f}–{d['ci_high']:.0f} cM"
+            print(f"  {d['label']:35s} {d['probability']*100:5.1f}%  "
+                  f"{bar:<30s} {ci}")
         return 0
 
     if args.mrca:

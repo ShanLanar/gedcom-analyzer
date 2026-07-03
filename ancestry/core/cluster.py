@@ -477,6 +477,12 @@ def compute_wrights_f(
     return result
 
 
+# Klassische Leeds-Methode: vier Farben für die vier Großelternlinien.
+# Reihenfolge = Slot A–D (mitgliederstärkster Cluster zuerst).
+LEEDS_COLORS = ["#F4B942", "#5B8FF9", "#5AD8A6", "#E8684A"]     # gelb, blau, grün, rot
+LEEDS_COLOR_NAMES = ["Gelb", "Blau", "Grün", "Rot"]
+
+
 def assign_grandparent_quadrants(clusters: dict[int, list[dict]],
                                  top_names: int = 6) -> dict:
     """Ordnet die (bis zu) 4 größten Cluster den vier Großeltern-Linien zu.
@@ -523,7 +529,9 @@ def assign_grandparent_quadrants(clusters: dict[int, list[dict]],
     for idx, (cid, members) in enumerate(ordered):
         entry = _summary(cid, members)
         if idx < 4:
-            entry = {"slot": idx, "label": slot_labels[idx], **entry}
+            entry = {"slot": idx, "label": slot_labels[idx],
+                     "color": LEEDS_COLORS[idx],
+                     "color_name": LEEDS_COLOR_NAMES[idx], **entry}
             quadrants.append(entry)
         else:
             unassigned.append(entry)

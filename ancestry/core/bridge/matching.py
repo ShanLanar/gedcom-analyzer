@@ -289,8 +289,15 @@ _DEPTH_CM_BAND: dict[int, tuple[float, float]] = {
     9:  (  1,  192),   # 3C1R              (4+5)
     10: (  1,  139),   # 4. Cousins        (5+5)
     11: (  1,  126),   # 4C1R
-    12: (  1,  117),   # 5. Cousins
+    12: (  1,  117),   # 5. Cousins        (6+6)
+    13: (  1,  109),   # 5C1R              (6+7)
+    14: (  1,   71),   # 6. Cousins        (7+7)
+    15: (  1,   68),   # 6C1R              (7+8)
+    16: (  1,   57),   # 7. Cousins        (8+8)
 }
+
+# Tiefste im Band abgedeckte Meiosen-Distanz (Clamp-Obergrenze).
+_MAX_BAND_DEPTH = max(_DEPTH_CM_BAND)
 
 
 def _cm_consistency(shared_cm: float, total_depth: int) -> tuple[str, str]:
@@ -306,7 +313,7 @@ def _cm_consistency(shared_cm: float, total_depth: int) -> tuple[str, str]:
     cm = shared_cm or 0
     if cm <= 0 or total_depth < 4:
         return "", ""
-    d = min(max(total_depth, 4), 12)
+    d = min(max(total_depth, 4), _MAX_BAND_DEPTH)
     low, high = _DEPTH_CM_BAND[d]
     band = f"{low:.0f}–{high:.0f} cM erwartet"
     if cm > high * 1.4:

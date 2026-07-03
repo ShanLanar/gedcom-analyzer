@@ -31,10 +31,11 @@ def db():
         os.unlink(path)
 
 
-def _seg(match_guid, chrom, start, end, cm, test_guid="kit-1"):
+def _seg(match_guid, chrom, start, end, cm, test_guid="kit-1", is_ibd2=0):
     return {"test_guid": test_guid, "match_guid": match_guid,
             "chromosome": chrom, "start_location": start, "end_location": end,
-            "length_cm": cm, "snp_count": 1000, "fetched_at": "2026-01-01"}
+            "length_cm": cm, "snp_count": 1000, "fetched_at": "2026-01-01",
+            "is_ibd2": is_ibd2}
 
 
 def _share(db, a, b, test_guid="kit-1"):
@@ -114,6 +115,52 @@ def test_x_chromosome_label(db):
     tgs = build_triangulation_groups(db, "kit-1")
     assert tgs[0]["chromosome_label"] == "X"
     assert chromosome_label(7) == "7"
+
+
+# ── X-DNA & IBD2 (Sprint 7) ──────────────────────────────────────────────────
+
+
+def test_get_x_dna_matches_aggregates_chr23(db):
+    db.bulk_upsert_segments([
+        _seg("A", 23, 10 * MBP, 60 * MBP, 20.0),
+        _seg("A", 23, 70 * MBP, 90 * MBP, 8.0),
+        _seg("B", 5,  10 * MBP, 60 * MBP, 25.0),   # autosomal → nicht X
+    ])
+    rows = db.get_x_dna_matches("kit-1")
+    assert len(rows) == 1
+    assert rows[0]["match_guid"] == "A"
+    assert rows[0]["x_cm"] == 28.0
+    assert rows[0]["x_segments"] == 2
+    assert rows[0]["longest_x_cm"] == 20.0
+
+
+def test_get_x_dna_matches_min_cm(db):
+    db.bulk_upsert_segments([_seg("A", 23, 10 * MBP, 20 * MBP, 4.0)])
+    assert db.get_x_dna_matches("kit-1", min_cm=7.0) == []
+
+
+def test_get_ibd2_matches(db):
+    db.bulk_upsert_segments([
+        _seg("A", 1, 10 * MBP, 60 * MBP, 40.0, is_ibd2=1),
+        _seg("A", 2, 10 * MBP, 60 * MBP, 30.0, is_ibd2=0),   # IBD1 → ignoriert
+        _seg("B", 3, 10 * MBP, 60 * MBP, 25.0, is_ibd2=0),
+    ])
+    rows = db.get_ibd2_matches("kit-1")
+    assert len(rows) == 1
+    assert rows[0]["match_guid"] == "A"
+    assert rows[0]["ibd2_cm"] == 40.0
+    assert rows[0]["ibd2_segments"] == 1
+
+
+def test_ibd2_defaults_to_zero(db):
+    """Segmente ohne is_ibd2-Feld gelten als IBD1 (rückwärtskompatibel)."""
+    db.bulk_upsert_segments([{
+        "test_guid": "kit-1", "match_guid": "A", "chromosome": 1,
+        "start_location": 10 * MBP, "end_location": 60 * MBP,
+        "length_cm": 40.0, "snp_count": 1000, "fetched_at": "2026-01-01",
+    }])
+    assert db.get_ibd2_matches("kit-1") == []
+    assert db.get_segments("kit-1")[0]["is_ibd2"] == 0
 
 
 # ── Segment-Import ────────────────────────────────────────────────────────────

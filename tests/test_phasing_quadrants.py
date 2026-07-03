@@ -53,6 +53,17 @@ def test_summary_fields():
     assert q["label"] == "Großeltern-Linie A"
 
 
+def test_leeds_colors_assigned():
+    """Jeder der vier Quadranten bekommt eine eindeutige Leeds-Farbe."""
+    from ancestry.core.cluster import LEEDS_COLORS
+    clusters = {1: _cluster(5), 2: _cluster(4), 3: _cluster(3), 4: _cluster(2)}
+    quads = assign_grandparent_quadrants(clusters)["quadrants"]
+    colors = [q["color"] for q in quads]
+    assert colors == LEEDS_COLORS            # Slot-Reihenfolge A–D
+    assert len(set(colors)) == 4             # alle verschieden
+    assert quads[0]["color_name"] == "Gelb"
+
+
 def test_names_truncated():
     clusters = {1: _cluster(20)}
     q = assign_grandparent_quadrants(clusters, top_names=6)["quadrants"][0]

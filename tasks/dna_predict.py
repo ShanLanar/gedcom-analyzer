@@ -36,7 +36,14 @@ _RELATIONSHIP_DIST = [
 ]
 
 
-PREDICT_HEADERS = ["Beziehung", "Wahrscheinlichkeit %"]
+PREDICT_HEADERS = ["Beziehung", "Wahrscheinlichkeit %", "95%-KI (cM)", "Ø cM"]
+
+
+def _ci95(mu, sigma):
+    """95%-Konfidenzintervall (μ ± 1,96·σ), unten bei 0 gekappt."""
+    lo = max(0.0, mu - 1.96 * sigma)
+    hi = mu + 1.96 * sigma
+    return lo, hi
 
 
 def _gauss_pdf(x, mu, sigma):
@@ -76,11 +83,48 @@ def predict_relationship_from_cm(target_cm):
     return normalized[:5]
 
 
+def predict_relationship_detailed(target_cm):
+    """Wie predict_relationship_from_cm, aber mit Konfidenzintervall je Grad.
+
+    Returns
+    -------
+    list[dict]
+        Absteigend nach Wahrscheinlichkeit, je Eintrag:
+        ``{label, probability, mean_cm, ci_low, ci_high}``. Das 95%-KI zeigt
+        die beobachtete cM-Streuung dieses Grades (Shared cM Project) — so ist
+        sichtbar, dass etwa 1.750 cM sowohl Halbgeschwister als auch
+        Großelternteil sein kann statt einer trügerischen Punktschätzung.
+    """
+    try:
+        target = float(target_cm)
+    except (TypeError, ValueError):
+        return []
+
+    dist_by_label = {lbl: (mu, sigma) for lbl, mu, sigma in _RELATIONSHIP_DIST}
+    detailed = []
+    for lbl, prob in predict_relationship_from_cm(target):
+        mu, sigma = dist_by_label[lbl]
+        lo, hi = _ci95(mu, sigma)
+        detailed.append({
+            "label":       lbl,
+            "probability": prob,
+            "mean_cm":     mu,
+            "ci_low":      round(lo, 0),
+            "ci_high":     round(hi, 0),
+        })
+    return detailed
+
+
 def predict_relationship_rows(target_cm):
     """Sheet-Generator-Variante: liefert Rows passend zu PREDICT_HEADERS."""
     rows = []
-    for lbl, prob in predict_relationship_from_cm(target_cm):
-        rows.append([lbl, round(prob * 100.0, 2)])
+    for d in predict_relationship_detailed(target_cm):
+        rows.append([
+            d["label"],
+            round(d["probability"] * 100.0, 2),
+            f"{d['ci_low']:.0f}–{d['ci_high']:.0f}",
+            round(d["mean_cm"], 0),
+        ])
     return rows
 
 
