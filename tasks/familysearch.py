@@ -17,6 +17,8 @@ import re
 import urllib.parse
 
 from lib.gedcom import safe_extract_year
+from tasks._online_common import first_place as _first_place_token
+from tasks._online_common import split_name as _split_name
 
 
 _FS_RECORDS_BASE = "https://www.familysearch.org/search/record/results"
@@ -24,29 +26,6 @@ _FS_TREE_BASE    = "https://www.familysearch.org/search/tree/results"
 
 
 # ── Namens-/Datums-Extraktion ──────────────────────────────────────────────────
-
-def _split_name(name: str) -> tuple[str, str]:
-    """GEDCOM-Name 'Hans Peter /Müller/ jun.' → ('Hans Peter', 'Müller')."""
-    if not name:
-        return "", ""
-    # Symbole entfernen
-    cleaned = re.sub(r"[✠★⚔‡]", "", name).strip()
-    cleaned = re.sub(r"\bmig\.\S*\b", "", cleaned, flags=re.IGNORECASE).strip()
-    if "/" in cleaned:
-        parts = cleaned.split("/")
-        given = parts[0].strip()
-        surname = parts[1].strip() if len(parts) >= 2 else ""
-        return given, surname
-    words = cleaned.split()
-    return (" ".join(words[:-1]), words[-1]) if len(words) > 1 else (cleaned, "")
-
-
-def _first_place_token(place: str) -> str:
-    """Erste Stadt-Komponente eines Komma-getrennten Ortsstrings."""
-    if not place:
-        return ""
-    return place.split(",")[0].strip()
-
 
 # ── URL-Bauer ──────────────────────────────────────────────────────────────────
 

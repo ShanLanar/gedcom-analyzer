@@ -389,7 +389,6 @@ def show_phasing_dashboard(parent, clusters: dict, *, set_status=None):
     # Quadranten-Slots 0..3 als 2×2-Raster (0,0)(0,1)(1,0)(1,1)
     positions = [(0, 0), (0, 1), (1, 0), (1, 1)]
     by_slot = {q["slot"]: q for q in data["quadrants"]}
-    cluster_colors = COLORS.get("cluster", ["#cccccc"])
 
     for slot, (r, cc) in enumerate(positions):
         q = by_slot.get(slot)
@@ -402,13 +401,15 @@ def show_phasing_dashboard(parent, clusters: dict, *, set_status=None):
                       foreground="#999999").pack(anchor="w")
             continue
 
-        color = cluster_colors[(q["cluster_id"] - 1) % len(cluster_colors)]
+        # Kanonische Leeds-Farbe der Linie (aus assign_grandparent_quadrants),
+        # damit die Quadranten der klassischen Leeds-Farbtabelle entsprechen.
+        color = q.get("color", "#cccccc")
         head = ttk.Frame(card)
         head.pack(fill="x")
         tk.Label(head, text="  ", background=color).pack(side="left", padx=(0, 6))
         ttk.Label(head,
                   text=f"Cluster #{q['cluster_id']} · {q['size']} Matches · "
-                       f"max {q['max_cm']:.0f} cM",
+                       f"max {q['max_cm']:.0f} cM · {q.get('color_name', '')}",
                   font=("Segoe UI", 9, "bold")).pack(side="left")
         names = ", ".join(q["names"])
         if q["size"] > len(q["names"]):

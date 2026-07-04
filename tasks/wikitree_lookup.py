@@ -22,7 +22,9 @@ import urllib.error
 import urllib.parse
 import urllib.request
 
-from lib.gedcom import safe_extract_year
+from tasks._online_common import first_place as _first
+from tasks._online_common import split_name as _split_name
+from tasks._online_common import year_of as _yr
 
 _API_BASE   = "https://api.wikitree.com/api.php"
 _PROFILE    = "https://www.wikitree.com/wiki/"
@@ -43,28 +45,7 @@ WIKITREE_HEADERS = [
 ]
 
 
-# ── Hilfsfunktionen ───────────────────────────────────────────────────────────
-
-def _split_name(name: str) -> tuple[str, str]:
-    if not name:
-        return "", ""
-    cleaned = re.sub(r"[✠★⚔‡]", "", name).strip()
-    cleaned = re.sub(r"\bmig\.\S*\b", "", cleaned, flags=re.IGNORECASE).strip()
-    if "/" in cleaned:
-        parts = cleaned.split("/")
-        return parts[0].strip(), (parts[1].strip() if len(parts) >= 2 else "")
-    words = cleaned.split()
-    return (" ".join(words[:-1]), words[-1]) if len(words) > 1 else (cleaned, "")
-
-
-def _yr(evt: dict | None) -> int | None:
-    if not evt:
-        return None
-    return evt.get("YEAR") or safe_extract_year(evt.get("DATE"))
-
-
-def _first(plac: str) -> str:
-    return plac.split(",")[0].strip() if plac else ""
+# ── Hilfsfunktionen (gemeinsam in tasks/_online_common) ───────────────────────
 
 
 # ── URL-Builder ───────────────────────────────────────────────────────────────

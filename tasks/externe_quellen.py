@@ -51,7 +51,9 @@ import re
 import urllib.parse
 from pathlib import Path
 
-from lib.gedcom import safe_extract_year
+from tasks._online_common import first_place as _first
+from tasks._online_common import split_name as _split_name
+from tasks._online_common import year_of as _yr
 
 # Optionale Archion-Archiv-Karte (wird von scrape_archion_archives.py erzeugt)
 _ARCHION_JSON = Path(__file__).resolve().parent.parent / "ancestry" / "tools" / "archion_archives.json"
@@ -138,28 +140,6 @@ _AUSTRIA_HABSBURG = {
 
 
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
-
-def _split_name(name: str) -> tuple[str, str]:
-    if not name:
-        return "", ""
-    cleaned = re.sub(r"[✠★⚔‡]", "", name).strip()
-    cleaned = re.sub(r"\bmig\.\S*\b", "", cleaned, flags=re.IGNORECASE).strip()
-    if "/" in cleaned:
-        parts = cleaned.split("/")
-        return parts[0].strip(), (parts[1].strip() if len(parts) >= 2 else "")
-    words = cleaned.split()
-    return (" ".join(words[:-1]), words[-1]) if len(words) > 1 else (cleaned, "")
-
-
-def _yr(evt) -> int | None:
-    if not evt:
-        return None
-    return evt.get("YEAR") or safe_extract_year(evt.get("DATE"))
-
-
-def _first(plac: str) -> str:
-    return plac.split(",")[0].strip() if plac else ""
-
 
 def _is_dach(plac: str) -> bool:
     if not plac:

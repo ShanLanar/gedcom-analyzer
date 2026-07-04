@@ -2681,33 +2681,41 @@ class MatchesTab(ttk.Frame):
 
     # ── C1: cM-Beziehungs-Predictor ─────────────────────────────────────────
 
-    _CM_TABLE = [
-        (3475, 3900, "Identisch/Zwilling"),
-        (2300, 3474, "Elternteil/Kind"),
-        (1450, 2299, "Vollgeschwister"),
-        (575,  1449, "Halbgeschwister / Großelternteil / Enkel / Tante-Onkel-Nichte-Neffe"),
-        (215,   574, "Cousin 1. Grades / Urgroßelternteil"),
-        (90,    214, "Cousin 2. Grades / Halbcousin 1. Grades"),
-        (35,     89, "Cousin 3. Grades"),
-        (7,      34, "Cousin 4. Grades oder entferntere Verwandtschaft"),
-    ]
-
     def _predict_relationship(self, cm: float) -> str:
-        """C1: Ermittelt möglichen Verwandtschaftsgrad aus cM-Wert."""
-        for lo, hi, label in self._CM_TABLE:
+        """C1: Ermittelt möglichen Verwandtschaftsgrad aus cM-Wert.
+
+        Nutzt die EINE kanonische Bereichstabelle (self._cm_ranges, von der App
+        durchgereicht) — keine eigene zweite cM-Tabelle mehr (Deduplizierung).
+        """
+        for lo, hi, label, _gen in self._cm_ranges:
             if lo <= cm <= hi:
                 return label
         return "Sehr entfernte Verwandtschaft oder kein Verwandter"
 
     def _update_cm_predictor(self, cm: float) -> None:
-        """C1: Aktualisiert das Verwandtschafts-Predictor-Label im Detail-Panel."""
+        """C1: Aktualisiert das Verwandtschafts-Predictor-Label im Detail-Panel.
+
+        Zeigt die 2 wahrscheinlichsten Grade mit 95%-Konfidenzintervall (statt
+        einer trügerischen Punktschätzung): 1750 cM ist z. B. sowohl
+        Halbgeschwister als auch Großelternteil.
+        """
         if not hasattr(self, "_cm_predictor_var"):
             return
-        if cm and cm > 0:
-            label = self._predict_relationship(cm)
-            self._cm_predictor_var.set(f"~{cm:.0f} cM  →  {label}")
-        else:
+        if not (cm and cm > 0):
             self._cm_predictor_var.set("—")
+            return
+        try:
+            from tasks.dna_predict import predict_relationship_detailed
+            top = predict_relationship_detailed(cm)[:2]
+        except Exception:
+            top = []
+        if top:
+            parts = [f"{d['label']} ({d['ci_low']:.0f}–{d['ci_high']:.0f} cM)"
+                     for d in top]
+            self._cm_predictor_var.set(f"~{cm:.0f} cM  →  " + "  ·  ".join(parts))
+        else:
+            # Außerhalb aller Verteilungen → Bereichstabelle als Fallback
+            self._cm_predictor_var.set(f"~{cm:.0f} cM  →  {self._predict_relationship(cm)}")
 
     # ── C2: Export CSV / XLSX ────────────────────────────────────────────────
 

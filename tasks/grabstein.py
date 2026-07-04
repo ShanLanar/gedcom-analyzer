@@ -17,7 +17,9 @@ Keine API-Keys erforderlich. Nur Lesezugriff.
 import re
 import urllib.parse
 
-from lib.gedcom import safe_extract_year
+from tasks._online_common import first_place as _first
+from tasks._online_common import split_name as _split_name
+from tasks._online_common import year_of as _yr
 
 GRABSTEIN_HEADERS = [
     "Person-ID", "Name", "Geburtsjahr", "Geburtsort",
@@ -41,28 +43,6 @@ _JEWISH_NAMES = {
     "mendel", "samuel", "joseph", "juda", "baruch", "elias",
     "sara", "rebekka", "rachel", "lea", "miriam", "esther",
 }
-
-
-def _split_name(name: str) -> tuple[str, str]:
-    if not name:
-        return "", ""
-    cleaned = re.sub(r"[✠★⚔‡]", "", name).strip()
-    cleaned = re.sub(r"\bmig\.\S*\b", "", cleaned, flags=re.IGNORECASE).strip()
-    if "/" in cleaned:
-        p = cleaned.split("/")
-        return p[0].strip(), (p[1].strip() if len(p) >= 2 else "")
-    words = cleaned.split()
-    return (" ".join(words[:-1]), words[-1]) if len(words) > 1 else (cleaned, "")
-
-
-def _yr(evt: dict | None) -> int | None:
-    if not evt:
-        return None
-    return evt.get("YEAR") or safe_extract_year(evt.get("DATE"))
-
-
-def _first(plac: str) -> str:
-    return plac.split(",")[0].strip() if plac else ""
 
 
 def _is_dach(plac: str) -> bool:

@@ -37,7 +37,8 @@ import urllib.parse
 import urllib.request
 import xml.etree.ElementTree as ET
 
-from lib.gedcom import safe_extract_year
+from tasks._online_common import first_place as _first
+from tasks._online_common import year_of as _yr
 
 # ── Konstanten ────────────────────────────────────────────────────────────────
 
@@ -111,16 +112,7 @@ except Exception:  # pragma: no cover - reiner Fallback
         return any(w in plac.lower() for w in _DACH_FALLBACK)
 
 
-# ── Hilfs-Extraktion (Konventionen wie externe_quellen) ───────────────────────
-
-def _yr(evt) -> int | None:
-    if not evt:
-        return None
-    return evt.get("YEAR") or safe_extract_year(evt.get("DATE"))
-
-
-def _first(plac: str) -> str:
-    return plac.split(",")[0].strip() if plac else ""
+# ── Hilfs-Extraktion (gemeinsam in tasks/_online_common) ──────────────────────
 
 
 def _gedbas_link(surname: str, place: str) -> str:
