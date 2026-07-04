@@ -14,6 +14,8 @@ import threading
 from collections import Counter
 from typing import Callable
 
+from ancestry.core import ai_cache
+
 log = logging.getLogger(__name__)
 
 _MODEL      = os.environ.get("AI_COPILOT_MODEL", "claude-sonnet-4-6")
@@ -77,8 +79,14 @@ def explain_async(
     """
     model = _BULK_MODEL if bulk else _MODEL
     k = _cache_key(prompt, model, max_tokens)
-    if k in _CACHE:
-        full = _CACHE[k]
+    # Zwei Cache-Ebenen: schneller In-Memory-dict über dem persistenten
+    # SQLite-Cache (überlebt Neustarts, sammelt Token-Usage).
+    full = _CACHE.get(k)
+    if full is None:
+        full = ai_cache.get(k)
+        if full is not None:
+            _CACHE[k] = full
+    if full is not None:
         if on_chunk:
             on_chunk(full)
         if on_done:
@@ -99,8 +107,16 @@ def explain_async(
                     buf.append(chunk)
                     if on_chunk:
                         on_chunk(chunk)
+                # Token-Verbrauch aus der Schluss-Nachricht (falls verfügbar)
+                t_in = t_out = 0
+                try:
+                    usage = stream.get_final_message().usage
+                    t_in, t_out = usage.input_tokens, usage.output_tokens
+                except Exception:
+                    pass
             result = "".join(buf)
             _CACHE[k] = result
+            ai_cache.put(k, model, result, t_in, t_out)
             if on_done:
                 on_done(result)
         except Exception as e:
