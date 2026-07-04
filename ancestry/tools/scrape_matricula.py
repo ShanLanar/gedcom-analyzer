@@ -124,46 +124,86 @@ _NAV_SLUGS = frozenset(
 )
 
 
+_DIOCESE_API_URL = (
+    "https://data.matricula-online.eu/api/v1/dioceses/?format=json&limit=500"
+)
+
+
+def _parse_diocese_json(data) -> list[dict]:
+    """Wandelt die JSON-Antwort der Diözesen-API in unsere Dict-Liste um."""
+    results = data.get("results") or (data if isinstance(data, list) else [])
+    dioceses: list[dict] = []
+    seen: set[str] = set()
+    for item in results:
+        # Felder können je nach API-Version variieren
+        slug    = (item.get("slug") or item.get("identifier") or "").strip()
+        country = (item.get("country") or item.get("land") or "").strip().lower()
+        name    = (item.get("name") or item.get("bezeichnung") or slug).strip()
+        url     = item.get("url") or item.get("link") or ""
+        if not slug or not country:
+            continue
+        path = f"{country}/{slug}"
+        if path in seen:
+            continue
+        seen.add(path)
+        if not url:
+            url = f"{MATRICULA_BASE}/de/{path}/"
+        dioceses.append({
+            "path": path, "country": country, "slug": slug,
+            "name": name, "url": url,
+        })
+    return sorted(dioceses, key=lambda d: (d["country"], d["slug"]))
+
+
+def _discover_via_http() -> list[dict]:
+    """Primärweg: Diözesen-JSON direkt per HTTP holen (ohne Browser).
+
+    Ein direkter GET umgeht die Bot-Erkennung, die dem headless-Browser nur
+    Navigations-HTML ausliefert — und ist deutlich schneller. Leere Liste bei
+    jedem Fehler (Aufrufer fällt dann auf den Browser-Pfad zurück).
+    """
+    try:
+        import urllib.request
+        req = urllib.request.Request(
+            _DIOCESE_API_URL,
+            headers={
+                "User-Agent": ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+                               "(KHTML, like Gecko) Chrome/122.0 Safari/537.36"),
+                "Accept": "application/json",
+            },
+        )
+        with urllib.request.urlopen(req, timeout=15) as resp:
+            data = json.loads(resp.read().decode("utf-8"))
+        return _parse_diocese_json(data)
+    except Exception:
+        return []
+
+
 def discover_dioceses(page) -> list[dict]:
     """Liest alle verfügbaren Diözesen/Archive von der Bestandsübersicht.
 
-    Probiert zuerst die REST-API (JSON), fällt bei Fehler auf HTML-Scraping zurück.
+    Reihenfolge: (1) direkter HTTP-Abruf der REST-API (umgeht Bot-Erkennung),
+    (2) REST-API über den Browser, (3) HTML-Scraping der Bestandsübersicht.
     Wartet bis zu 8 Sekunden auf dynamisch gerenderte Links.
     """
-    # ── Versuch 1: JSON-API ──────────────────────────────────────────────────
-    api_url = "https://data.matricula-online.eu/api/v1/dioceses/?format=json&limit=500"
+    # ── Versuch 1: JSON-API direkt per HTTP (kein Browser) ───────────────────
+    http_dioceses = _discover_via_http()
+    if http_dioceses:
+        print(f"  JSON-API (HTTP): {len(http_dioceses)} Bistümer/Archive.", flush=True)
+        return http_dioceses
+
+    # ── Versuch 2: JSON-API über den Browser ─────────────────────────────────
     try:
-        import json as _json
-        page.goto(api_url, wait_until="domcontentloaded", timeout=15_000)
+        page.goto(_DIOCESE_API_URL, wait_until="domcontentloaded", timeout=15_000)
         body = page.inner_text("body") or ""
-        data = _json.loads(body)
-        results = data.get("results") or (data if isinstance(data, list) else [])
-        dioceses: list[dict] = []
-        seen: set[str] = set()
-        for item in results:
-            # Felder können je nach API-Version variieren
-            slug    = (item.get("slug") or item.get("identifier") or "").strip()
-            country = (item.get("country") or item.get("land") or "").strip().lower()
-            name    = (item.get("name") or item.get("bezeichnung") or slug).strip()
-            url     = item.get("url") or item.get("link") or ""
-            if not slug or not country:
-                continue
-            path = f"{country}/{slug}"
-            if path in seen:
-                continue
-            seen.add(path)
-            if not url:
-                url = f"{MATRICULA_BASE}/de/{path}/"
-            dioceses.append({
-                "path": path, "country": country, "slug": slug,
-                "name": name, "url": url,
-            })
+        dioceses = _parse_diocese_json(json.loads(body))
         if dioceses:
-            return sorted(dioceses, key=lambda d: (d["country"], d["slug"]))
+            print(f"  JSON-API (Browser): {len(dioceses)} Bistümer/Archive.", flush=True)
+            return dioceses
     except Exception:
         pass
 
-    # ── Versuch 2: HTML-Scraping der Bestandsübersicht ───────────────────────
+    # ── Versuch 3: HTML-Scraping der Bestandsübersicht ───────────────────────
     try:
         page.goto(BESTANDE_URL, wait_until="networkidle", timeout=30_000)
     except Exception:

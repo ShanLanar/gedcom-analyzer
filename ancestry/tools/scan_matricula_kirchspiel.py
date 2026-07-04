@@ -85,11 +85,33 @@ VISION_MODEL = os.environ.get("MATRICULA_VISION_MODEL", "claude-haiku-4-5-202510
 
 # ── Prompts ────────────────────────────────────────────────────────────────────
 
-_SYSTEM_PROMPT = (
-    "Du bist ein Experte für historische deutsche Kirchenbücher aus dem Bistum Osnabrück "
-    "(18.–19. Jahrhundert). Du liest Kurrentschrift und erkennst die typischen Eintragsformate "
-    "für Taufen, Heiraten und Sterbefälle. Antworte ausschließlich mit validem JSON."
-)
+# Region/Bistum ist konfigurierbar: bei Kirchenbüchern anderer Diözesen
+# (z. B. Münster, Paderborn, Österreich) liefert ein passend gesetzter Kontext
+# deutlich bessere Transkriptionen. Env MATRICULA_REGION überschreibt den
+# Standard; scan_kirchspiel(region=…) hat Vorrang.
+_DEFAULT_REGION = os.environ.get("MATRICULA_REGION", "dem Bistum Osnabrück")
+
+
+def _build_system_prompt(region: str | None = None) -> str:
+    region = region or _DEFAULT_REGION
+    return (
+        f"Du bist ein Experte für historische deutsche Kirchenbücher aus {region} "
+        "(18.–19. Jahrhundert). Du liest Kurrentschrift und erkennst die typischen "
+        "Eintragsformate für Taufen, Heiraten und Sterbefälle. Antworte "
+        "ausschließlich mit validem JSON."
+    )
+
+
+# Aktuell aktive Region (zur Laufzeit über scan_kirchspiel(region=…) setzbar).
+_ACTIVE_REGION = _DEFAULT_REGION
+_SYSTEM_PROMPT = _build_system_prompt()
+
+
+def set_region(region: str | None) -> None:
+    """Setzt die für die Transkription verwendete Region/Diözese."""
+    global _ACTIVE_REGION
+    if region:
+        _ACTIVE_REGION = region
 
 _TAUFE_PROMPT = """Lies alle Taufeinträge auf dieser Kirchenbuchseite.
 Gib ein JSON-Array zurück. Jedes Element hat folgende Felder (leer lassen wenn nicht lesbar):
@@ -372,7 +394,7 @@ def _transcribe_claude(image_bytes: bytes, book_type: str) -> list[dict]:
         response = client.messages.create(
             model=VISION_MODEL,
             max_tokens=4096,
-            system=_SYSTEM_PROMPT,
+            system=_build_system_prompt(_ACTIVE_REGION),
             messages=[{
                 "role": "user",
                 "content": [
@@ -1073,7 +1095,9 @@ def scan_kirchspiel(
     dry_run: bool = False,
     archive_dir: Path = DEFAULT_ARCHIVE,
     retranscribe: bool = False,
+    region: str | None = None,
 ) -> dict:
+    set_region(region)
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout  # noqa
     except ImportError:
@@ -1221,6 +1245,10 @@ if __name__ == "__main__":
     ap.add_argument("--retranscribe", action="store_true",
                     help="Nur Re-Transkription: lokale Bilder neu durch Claude schicken, "
                          "kein Web-Zugriff auf Matricula")
+    ap.add_argument("--region", default=None,
+                    help="Region/Diözese für den Transkriptions-Kontext, z. B. "
+                         "'dem Bistum Münster' oder 'der Erzdiözese Wien'. "
+                         "Überschreibt MATRICULA_REGION.")
     args = ap.parse_args()
 
     for _parish_id in args.parish:
@@ -1234,4 +1262,5 @@ if __name__ == "__main__":
             dry_run=args.dry_run,
             archive_dir=Path(args.archive_dir),
             retranscribe=args.retranscribe,
+            region=args.region,
         )

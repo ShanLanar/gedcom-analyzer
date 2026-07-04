@@ -24,6 +24,8 @@ import sqlite3
 from pathlib import Path
 
 PARISH_DB = Path(__file__).resolve().parent / "matricula_parishes.db"
+ARCHION_DB   = Path(__file__).resolve().parent / "archion_archives.db"
+ARCHION_JSON = Path(__file__).resolve().parent / "archion_archives.json"
 
 STATUS_DONE    = "fertig"
 STATUS_PARTIAL = "teilweise"
@@ -103,6 +105,51 @@ def get_dioceses(db_path: Path | str | None = None) -> list[dict]:
         return []
     finally:
         db.close()
+
+
+def get_archion_archives(db_path: Path | str | None = None) -> list[dict]:
+    """Archion-Archivkatalog als Fallback-Quelle (evangelische Kirchenbücher).
+
+    Rund 40 % der deutschen evangelischen Kirchenbücher liegen nicht bei
+    Matricula, sondern nur bei Archion. Diese Funktion liest den von
+    scrape_archion_archives.py erzeugten Katalog (DB bevorzugt, sonst JSON) und
+    liefert je Archiv: {id, region, name, url, confession, source='archion'}.
+    Fehlt der Katalog, kommt eine leere Liste zurück (kein Absturz)."""
+    p = Path(db_path) if db_path else ARCHION_DB
+    if p.exists():
+        try:
+            db = sqlite3.connect(str(p))
+            db.row_factory = sqlite3.Row
+            try:
+                rows = db.execute(
+                    "SELECT id, region, name, url, confession "
+                    "FROM archion_archives ORDER BY region, name"
+                ).fetchall()
+            finally:
+                db.close()
+            return [{**dict(r), "source": "archion"} for r in rows]
+        except sqlite3.OperationalError:
+            pass
+    # JSON-Fallback (region → [archive, …])
+    if ARCHION_JSON.exists():
+        try:
+            import json
+            data = json.loads(ARCHION_JSON.read_text(encoding="utf-8"))
+            out: list[dict] = []
+            for region, archives in (data or {}).items():
+                for a in archives:
+                    out.append({
+                        "id":         a.get("id", ""),
+                        "region":     region,
+                        "name":       a.get("name", ""),
+                        "url":        a.get("url", ""),
+                        "confession": a.get("confession", "evang"),
+                        "source":     "archion",
+                    })
+            return sorted(out, key=lambda d: (d["region"], d["name"]))
+        except Exception:
+            pass
+    return []
 
 
 def get_parish_status(db_path: Path | str | None = None,
