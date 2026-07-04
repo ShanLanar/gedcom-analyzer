@@ -106,6 +106,20 @@ def test_separate_chromosomes_separate_tgs(db):
     assert [(t["chromosome"], len(t["members"])) for t in tgs] == [(2, 2), (9, 2)]
 
 
+def test_overlap_measured_in_cm_not_bp(db):
+    """Zwei Segmente mit großer bp-Überlappung, aber sehr niedriger cM-Dichte
+    (wenig cM auf viel bp) bilden KEINE TG, wenn die cM-Overlap-Schwelle greift."""
+    # 40 Mbp Überlappung, aber nur ~1 cM Segmentlänge → cM-Overlap << 5 cM
+    db.bulk_upsert_segments([
+        _seg("A", 8, 10 * MBP, 60 * MBP, 1.0),
+        _seg("B", 8, 15 * MBP, 65 * MBP, 1.0),
+    ])
+    _share(db, "A", "B")
+    # min_cm=0 lässt die kurzen Segmente durch, aber der cM-Overlap ist winzig
+    assert build_triangulation_groups(db, "kit-1", min_cm=0.0,
+                                      min_overlap_cm=5.0) == []
+
+
 def test_chain_without_common_region_does_not_inflate(db):
     """A–B und B–C überlappen, aber A und C nicht → KEINE TG über das ganze
     Chromosom, sondern zwei Untergruppen mit echtem gemeinsamem Bereich."""

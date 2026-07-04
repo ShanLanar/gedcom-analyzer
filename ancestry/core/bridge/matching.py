@@ -281,6 +281,8 @@ def infer_side_from_links(db, test_guid: str, match_guid: str, amap: dict) -> st
 # abgeleitet aus dem Shared cM Project 4.0 (beobachtete low/high-Bereiche).
 # Schlüssel = root_gen_depth + match_gen_depth (Meiosen über beide Linien).
 _DEPTH_CM_BAND: dict[int, tuple[float, float]] = {
+    2:  (1613, 3488),  # Vollgeschwister   (1+1 zum Elternpaar)
+    3:  ( 984, 2462),  # Großelt./Onkel-Tante/Halbgeschw. (Meiose 3)
     4:  (396, 1397),   # 1. Cousins        (2+2)
     5:  (102,  980),   # 1C1R              (2+3)
     6:  ( 41,  592),   # 2. Cousins        (3+3)
@@ -300,21 +302,31 @@ _DEPTH_CM_BAND: dict[int, tuple[float, float]] = {
 _MAX_BAND_DEPTH = max(_DEPTH_CM_BAND)
 
 
-def _cm_consistency(shared_cm: float, total_depth: int) -> tuple[str, str]:
+_MIN_BAND_DEPTH = min(_DEPTH_CM_BAND)
+
+
+def _cm_consistency(shared_cm: float, total_depth: int,
+                    half: bool = False, multiplier: int = 1) -> tuple[str, str]:
     """Vergleicht geteilte cM mit der vom GEDCOM-Link implizierten MRCA-Distanz.
 
     total_depth = root_gen_depth + match_gen_depth (Meiosen über beide Linien).
+    half=True: nur EIN gemeinsamer Ahn (Half-Beziehung) ⇒ erwartete cM halbiert.
+    multiplier>1: mehrfache gemeinsame Ahnenpaare (doppelte Cousins etc.) ⇒
+      erwartete cM entsprechend erhöht. Ohne diese Korrekturen würden solche
+      Fälle fälschlich als 'high'/'low' markiert.
+
     Rückgabe (verdict, band_text):
-      'high' — DNA deutlich höher als erwartet ⇒ Link vermutlich ZU ENTFERNT
-               (der verknüpfte Ahn liegt zu weit zurück für so viel geteilte DNA).
+      'high' — DNA deutlich höher als erwartet ⇒ Link vermutlich ZU ENTFERNT.
       'low'  — DNA deutlich niedriger ⇒ Link vermutlich ZU NAH.
       'ok'   — plausibel · ''  — unbekannt/zu wenig Daten.
     """
     cm = shared_cm or 0
-    if cm <= 0 or total_depth < 4:
+    if cm <= 0 or total_depth < _MIN_BAND_DEPTH:
         return "", ""
-    d = min(max(total_depth, 4), _MAX_BAND_DEPTH)
+    d = min(max(total_depth, _MIN_BAND_DEPTH), _MAX_BAND_DEPTH)
     low, high = _DEPTH_CM_BAND[d]
+    scale = max(1, multiplier) * (0.5 if half else 1.0)
+    low, high = low * scale, high * scale
     band = f"{low:.0f}–{high:.0f} cM erwartet"
     if cm > high * 1.4:
         return "high", band
@@ -398,8 +410,10 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
         multiplier = MULT_MAP.get(link_count, "")
 
         # cM-Konsistenz: passt die geteilte DNA zur Baum-Distanz des Links?
+        # Mehrfach-Links (doppelte/dreifache Cousins) heben die erwartete cM an.
         cm_verdict, cm_band = _cm_consistency(
-            best["shared_cm"], (root_depth or 0) + (match_depth or 0))
+            best["shared_cm"], (root_depth or 0) + (match_depth or 0),
+            multiplier=link_count)
 
         result.append({
             "match_guid":           match_guid,

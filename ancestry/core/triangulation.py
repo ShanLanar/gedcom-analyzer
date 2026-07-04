@@ -29,6 +29,24 @@ def chromosome_label(chrom: int) -> str:
     return "X" if chrom == X_CHROMOSOME else str(chrom)
 
 
+def _seg_density(seg: dict) -> float:
+    """cM pro Basenpaar eines Segments (0 wenn Länge/cM unbekannt)."""
+    span = (seg.get("end_location") or 0) - (seg.get("start_location") or 0)
+    cm = seg.get("length_cm") or 0
+    return (cm / span) if span > 0 and cm > 0 else 0.0
+
+
+def _overlap_cm(a: dict, b: dict, overlap_bp: int) -> float:
+    """Schätzt die überlappenden cM aus der mittleren cM/bp-Dichte beider
+    Segmente. Fehlt bei beiden die Dichte (keine cM/Spanne), fällt es auf die
+    grobe 1-cM-je-Mbp-Faustregel zurück, damit nichts unbeabsichtigt wegfällt."""
+    densities = [d for d in (_seg_density(a), _seg_density(b)) if d > 0]
+    if densities:
+        avg = sum(densities) / len(densities)
+        return overlap_bp * avg
+    return overlap_bp / 1_000_000.0
+
+
 def _common_region_subgroups(members: list[dict]) -> list[list[dict]]:
     """Zerlegt eine (ketten-verbundene) Segment-Komponente in maximale
     Untergruppen, die einen GEMEINSAMEN überlappenden Bereich teilen.
@@ -117,7 +135,14 @@ def build_triangulation_groups(
                     break
                 overlap_start = max(segs[i]["start_location"], segs[j]["start_location"])
                 overlap_end   = min(segs[i]["end_location"],   segs[j]["end_location"])
-                if overlap_end - overlap_start < min_overlap_cm * 1_000_000:
+                overlap_bp = overlap_end - overlap_start
+                if overlap_bp <= 0:
+                    continue
+                # Overlap in cM (genetische Karte) messen, nicht in bp: die
+                # frühere bp<cM*1e6-Prüfung unterstellte fix 1 cM = 1 Mbp, was
+                # regional stark schwankt (v. a. auf dem X). Wir schätzen die
+                # Overlap-cM aus der cM/bp-Dichte der beiden Segmente.
+                if _overlap_cm(segs[i], segs[j], overlap_bp) < min_overlap_cm:
                     continue
                 pair = frozenset({segs[i]["match_guid"], segs[j]["match_guid"]})
                 if pair in shared_pairs:
