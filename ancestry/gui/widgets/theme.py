@@ -443,6 +443,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "cl.timeline":  {"de": "📅 Zeitachse",   "en": "📅 Timeline"},
     "cl.assign_side": {"de": "⚡ Seite zuweisen", "en": "⚡ Assign side"},
     "cl.phasing":   {"de": "🧭 Phasing-Dashboard", "en": "🧭 Phasing dashboard"},
+    "cl.dna_segments": {"de": "🧬 X-DNA & IBD2", "en": "🧬 X-DNA & IBD2"},
     "cl.mrca_map":  {"de": "🗺 MRCA-Karte", "en": "🗺 MRCA map"},
 
     # ── Tooltips (Hover-Hinweise) ──────────────────────────────────────────
@@ -506,6 +507,8 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
                      "en": "Assign a parental side to all matches in the cluster"},
     "tt.cl_phasing": {"de": "Ordnet die 4 größten Cluster den Großelternlinien zu (Leeds)",
                       "en": "Maps the 4 largest clusters to the grandparent lines (Leeds)"},
+    "tt.cl_segments": {"de": "X-DNA- und IBD2-Matches (braucht importierte Segmentdaten)",
+                       "en": "X-DNA and IBD2 matches (requires imported segment data)"},
     "tt.cl_mrca":   {"de": "Geburtsorte der gemeinsamen Vorfahren als Leaflet-Karte (Browser)",
                      "en": "Birthplaces of common ancestors as a Leaflet map (browser)"},
     "tt.st_refresh": {"de": "Statistik neu berechnen (kann bei großen Beständen dauern)",

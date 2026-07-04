@@ -273,6 +273,49 @@ def test_phasing_dashboard_renders(fake_tk):
     show_phasing_dashboard(ttk.Frame(), {})
 
 
+def test_dna_segments_dialog_renders(fake_tk):
+    """Die X-DNA/IBD2-Ansicht baut ihr Fenster mit und ohne Daten fehlerfrei."""
+    import os as _os
+    import tempfile as _tmp
+    from tkinter import ttk
+
+    from ancestry.core.database import Database
+    from ancestry.gui.analysis.segment_views import show_dna_segments
+
+    fd, path = _tmp.mkstemp(suffix=".db")
+    _os.close(fd); _os.unlink(path)
+    db = Database(path)
+    try:
+        # leer → Empty-State, kein Fehler
+        status = []
+        show_dna_segments(ttk.Frame(), db, "kit-1", set_status=status.append)
+        assert status and "keine Daten" in status[0]
+
+        # mit X- und IBD2-Segmenten
+        db.bulk_upsert_segments([
+            {"test_guid": "kit-1", "match_guid": "A", "chromosome": 23,
+             "start_location": 1_000_000, "end_location": 40_000_000,
+             "length_cm": 18.0, "snp_count": 900, "fetched_at": "2026-01-01"},
+            {"test_guid": "kit-1", "match_guid": "B", "chromosome": 1,
+             "start_location": 1_000_000, "end_location": 60_000_000,
+             "length_cm": 40.0, "snp_count": 5000, "fetched_at": "2026-01-01",
+             "is_ibd2": 1},
+        ])
+        status2 = []
+        show_dna_segments(ttk.Frame(), db, "kit-1", set_status=status2.append)
+        assert status2 and "1 X-Matches" in status2[0]
+
+        # kein test_guid → Info-Dialog, kein Absturz
+        show_dna_segments(ttk.Frame(), db, "")
+    finally:
+        db.close()
+        for suf in ("", "-wal", "-shm"):
+            try:
+                _os.unlink(path + suf)
+            except FileNotFoundError:
+                pass
+
+
 def test_tooltip_helper(fake_tk):
     """Der Tooltip-Helfer bindet sich an ein Widget und überlebt
     schedule/show/hide ohne Ausnahme (defensiv)."""

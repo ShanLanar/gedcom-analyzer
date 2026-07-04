@@ -28,6 +28,8 @@ ALLOWED_IDENTICAL = {
     # Plattform-Markennamen (Chips + WikiTree-Tab)
     "mf.chip_anc", "mf.chip_mh", "mf.chip_gm", "mf.chip_ftd",
     "md.tab_wikitree",
+    # Fachbegriffe/Akronyme (in beiden Sprachen gleich)
+    "cl.dna_segments",
     # Ähnlichkeits-Matrix: Spaltenbezeichnungen sind in beiden Sprachen gleich
     "sm.match_a", "sm.match_b", "sm.score",
 }

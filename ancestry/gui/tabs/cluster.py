@@ -128,6 +128,11 @@ class ClusterTab(ttk.Frame):
         _b.pack(side="left", padx=4)
         register_tooltip(_b, "tt.cl_phasing", self._state)
         lw.append((_sv, "cl.phasing"))
+        _sv = tk.StringVar(value=t("cl.dna_segments"))
+        _b = ttk.Button(cf, textvariable=_sv, command=self._show_dna_segments)
+        _b.pack(side="left", padx=4)
+        register_tooltip(_b, "tt.cl_segments", self._state)
+        lw.append((_sv, "cl.dna_segments"))
         _sv = tk.StringVar(value=t("cl.mrca_map"))
         _b = ttk.Button(cf, textvariable=_sv, command=self._show_mrca_map)
         _b.pack(side="left", padx=4)
@@ -1246,6 +1251,11 @@ class ClusterTab(ttk.Frame):
     def _show_phasing(self):
         from ancestry.gui.analysis.cluster_views import show_phasing_dashboard
         show_phasing_dashboard(self, self._clusters, set_status=self._set_status)
+
+    def _show_dna_segments(self):
+        from ancestry.gui.analysis.segment_views import show_dna_segments
+        show_dna_segments(self, self._state.db, self._get_test_guid(),
+                          set_status=self._set_status)
 
     # ── MRCA-Karte (Leaflet-HTML) ─────────────────────────────────────────────
 
