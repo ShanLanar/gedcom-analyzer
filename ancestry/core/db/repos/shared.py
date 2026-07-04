@@ -285,11 +285,12 @@ class SharedRepo:
                              guids: "set | list | None" = None) -> set:
         """Return shared-match pairs as frozensets for O(1) lookup.
 
-        For triangulation the relevant quantity is the *pairwise* cM that A and
-        B share with each other (``shared_cm_ab``). Many API responses don't
-        carry in-common cM, so we fall back to B's cM with the kit owner
-        (``shared_cm_b``) when ``shared_cm_ab`` is absent/zero. ``min_cm``
-        filters out noise pairs to keep the materialized set small.
+        Triangulation setzt voraus, dass A und B *untereinander* DNA teilen —
+        das ist genau ``shared_cm_ab`` (in-common cM). Wir filtern strikt darauf
+        (kein Fallback auf ``shared_cm_b``, das nur B-zum-Kit-Eigner misst und
+        Pseudo-Triangulationen erzeugen würde). Liegt kein in-common-cM vor,
+        wird das Paar bewusst verworfen statt geraten. ``min_cm`` filtert
+        Rausch-Paare heraus.
 
         ``guids`` scopes the result to pairs where BOTH matches are in the given
         set. Triangulation passes only the match_guids that actually carry
@@ -310,7 +311,7 @@ class SharedRepo:
                     SELECT match_guid_a, match_guid_b
                     FROM shared_matches
                     WHERE test_guid = ?
-                      AND COALESCE(NULLIF(shared_cm_ab, 0), shared_cm_b, 0) >= ?
+                      AND shared_cm_ab >= ?
                 """, (test_guid, min_cm))
                 pairs.update(frozenset((r[0], r[1])) for r in cur.fetchall())
                 return pairs
@@ -323,7 +324,7 @@ class SharedRepo:
                     SELECT match_guid_a, match_guid_b
                     FROM shared_matches
                     WHERE test_guid = ?
-                      AND COALESCE(NULLIF(shared_cm_ab, 0), shared_cm_b, 0) >= ?
+                      AND shared_cm_ab >= ?
                       AND match_guid_a IN ({ph})
                 """, (test_guid, min_cm, *chunk))
                 for a, b in cur.fetchall():

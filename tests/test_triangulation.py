@@ -106,6 +106,41 @@ def test_separate_chromosomes_separate_tgs(db):
     assert [(t["chromosome"], len(t["members"])) for t in tgs] == [(2, 2), (9, 2)]
 
 
+def test_chain_without_common_region_does_not_inflate(db):
+    """A–B und B–C überlappen, aber A und C nicht → KEINE TG über das ganze
+    Chromosom, sondern zwei Untergruppen mit echtem gemeinsamem Bereich."""
+    db.bulk_upsert_segments([
+        _seg("A", 4,  1 * MBP, 40 * MBP, 20.0),
+        _seg("B", 4, 15 * MBP, 60 * MBP, 20.0),
+        _seg("C", 4, 45 * MBP, 90 * MBP, 20.0),   # A∩C leer
+    ])
+    _share(db, "A", "B")
+    _share(db, "B", "C")
+    tgs = build_triangulation_groups(db, "kit-1")
+    # Kein einziger TG darf das ganze Chromosom (1–90 Mb) beanspruchen
+    for tg in tgs:
+        span = tg["region_end"] - tg["region_start"]
+        assert span < 80 * MBP
+        assert tg["region_end"] > tg["region_start"]     # echte Schnittmenge
+    # A,C nie zusammen in einer Gruppe (sie überlappen nicht)
+    for tg in tgs:
+        guids = {m["match_guid"] for m in tg["members"]}
+        assert not {"A", "C"} <= guids
+
+
+def test_strict_requires_pairwise_shared_cm_ab(db):
+    """shared_cm_b allein (ohne in-common shared_cm_ab) begründet KEINE TG."""
+    db.bulk_upsert_segments([
+        _seg("A", 6, 10 * MBP, 60 * MBP, 25.0),
+        _seg("B", 6, 20 * MBP, 70 * MBP, 22.0),
+    ])
+    # Paar mit shared_cm_b, aber shared_cm_ab=0 → strikt verworfen
+    db.upsert_shared_match(SharedMatch(
+        test_guid="kit-1", match_guid_a="A", match_guid_b="B",
+        shared_cm_b=90.0, shared_cm_ab=0.0, fetched_at="2026-01-01"))
+    assert build_triangulation_groups(db, "kit-1") == []
+
+
 def test_x_chromosome_label(db):
     db.bulk_upsert_segments([
         _seg("A", X_CHROMOSOME, 10 * MBP, 60 * MBP, 20.0),

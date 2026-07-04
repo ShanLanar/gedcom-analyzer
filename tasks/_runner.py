@@ -312,23 +312,54 @@ PARALLEL_SAFE_TASKS: frozenset[str] = frozenset({
     "lineage", "naming_sociology", "osnabrueck",
 })
 
-#: Eingabe-Keys, die nie aus einem Kindprozess zurückgespielt werden dürfen.
-_PARALLEL_INPUT_KEYS = frozenset({
-    "individuals", "families", "location_data", "cache", "stop_event",
-    "root_paths", "root_related_ids",
-})
+#: Explizite Output-Keys je parallel-sicherer Task. Der Merge aus dem
+#: Fork-Kind spielt GENAU diese Keys zurück — kein id()-Diff mehr, der
+#: In-place-Mutationen still verschlucken würde (K5). Jede Task in
+#: PARALLEL_SAFE_TASKS MUSS hier gelistet sein (Guard-Test erzwingt das).
+TASK_OUTPUT_KEYS: dict[str, tuple[str, ...]] = {
+    "military":               ("military_results",),
+    "demographics":           ("demographic_results", "comprehensive_stats"),
+    "surnames_and_countries": ("surname_results", "country_dist_results"),
+    "history":                ("hist_event_rows", "hist_person_rows",
+                               "survival_curve_rows", "survival_summary_rows",
+                               "survival_cohort_names", "generation_lengths",
+                               "historical_trends"),
+    "names":                  ("soundex_variant_rows", "soundex_person_rows"),
+    "data_quality":           ("completeness_rows", "completeness_surname",
+                               "completeness_epoch"),
+    "anomalies":              ("anomaly_results", "duplicate_results",
+                               "island_results"),
+    "sibling_and_namedrift":  ("sibling_results", "namedrift_results"),
+    "seasonality":            ("birth_months", "marriage_months",
+                               "death_months", "conception_months"),
+    "snapshot":               ("snapshot_rows", "gen_overlap_rows"),
+    "spatial":                ("marriage_migration", "life_triangulation",
+                               "sedentariness", "surname_region_matrix"),
+    "family_structure":       ("multiple_marriages", "spouse_age_gap",
+                               "reproductive_span", "childlessness",
+                               "twin_results"),
+    "lineage":                ("y_line", "mt_line", "quartile_results",
+                               "extinction_results", "branching_factor"),
+    "naming_sociology":       ("patronyms", "juniors", "family_name_pool"),
+    "osnabrueck":             ("osnabrueck_results", "osnabrueck_summaries"),
+}
 
 
 def _parallel_worker(fn_name: str) -> dict:
-    """Läuft im Fork-Kindprozess: führt run_<fn_name> aus und liefert nur die
-    neu geschriebenen _state-Einträge zurück (Ergebnis-Listen, picklebar)."""
-    before = {k: id(v) for k, v in vars(_state).items()}
-    globals()[f"run_{fn_name}"](progress_cb=None)
-    return {
-        k: v for k, v in vars(_state).items()
-        if k not in _PARALLEL_INPUT_KEYS
-        and (k not in before or id(v) != before[k])
-    }
+    """Läuft im Fork-Kindprozess: führt run_<fn_name> aus und liefert GENAU die
+    deklarierten Output-Keys zurück (picklebar).
+
+    Das Abbruch-Event (multiprocessing.Event) wird NICHT als Argument übergeben
+    (Condition-Objekte lassen sich nicht picklen), sondern über den Fork aus
+    _state['stop_event'] geerbt — der Elternprozess setzt es dort vor dem
+    Submit. So sieht die Task den Abbruch über is_aborted()."""
+    mp_stop = _state.get("stop_event")
+    globals()[f"run_{fn_name}"](progress_cb=None, stop_event=mp_stop)
+    keys = TASK_OUTPUT_KEYS.get(fn_name)
+    if keys is None:
+        # Sollte nicht vorkommen (Guard-Test), aber nichts still verschlucken.
+        raise KeyError(f"Kein TASK_OUTPUT_KEYS-Eintrag für {fn_name!r}")
+    return {k: getattr(_state, k) for k in keys if hasattr(_state, k)}
 
 
 def _fork_available() -> bool:
@@ -337,28 +368,66 @@ def _fork_available() -> bool:
 
 
 def _run_group_parallel(group: list[tuple[str, str]], progress_cb, stop_event) -> None:
-    """Führt eine Gruppe parallel-sicherer Tasks in Fork-Prozessen aus."""
+    """Führt eine Gruppe parallel-sicherer Tasks in Fork-Prozessen aus.
+
+    stop_event ist ein threading.Event (GUI/CLI). Es wird auf ein
+    multiprocessing.Event (mp_stop) gebrückt, das die Fork-Kinder sehen — so
+    sind lange Tasks, die is_aborted() pollen, auch parallel abbrechbar (K3).
+    """
     import multiprocessing
-    from concurrent.futures import ProcessPoolExecutor, as_completed
+    from concurrent.futures import (
+        FIRST_COMPLETED, ProcessPoolExecutor, wait,
+    )
 
     ctx = multiprocessing.get_context("fork")
+    mp_stop = ctx.Event()
     workers = min(len(group), max(1, (os.cpu_count() or 2) - 1))
     labels = {fn: lbl for fn, lbl in group}
     _p(progress_cb, f"▶ {len(group)} Analysen parallel ({workers} Prozesse): "
                     + ", ".join(labels.values()))
-    with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
-        futs = {ex.submit(_parallel_worker, fn): fn for fn, _ in group}
-        for fut in as_completed(futs):
-            fn = futs[fut]
-            try:
-                for k, v in fut.result().items():
-                    _state[k] = v
-                _p(progress_cb, f"  ✓ {labels[fn]}", tag="ok")
-            except Exception as e:
-                _p(progress_cb, f"  ⚠ {labels[fn]}: {e}", tag="warn")
-            if stop_event is not None and stop_event.is_set():
-                ex.shutdown(cancel_futures=True)
-                break
+    # mp_stop über _state teilen, damit die Fork-Kinder es ERBEN (nicht als
+    # Argument picklen — das wirft "Condition objects … through inheritance").
+    prev_stop = _state.get("stop_event")
+    _state["stop_event"] = mp_stop
+    try:
+        with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
+            futs = {ex.submit(_parallel_worker, fn): fn for fn, _ in group}
+            pending = set(futs)
+            # Poll-Schleife statt as_completed: erlaubt regelmäßiges Prüfen des
+            # Abbruchs OHNE einen dauerblockierten Watcher-Thread zu leaken.
+            while pending:
+                done, pending = wait(pending, timeout=0.5,
+                                     return_when=FIRST_COMPLETED)
+                for fut in done:
+                    fn = futs[fut]
+                    try:
+                        for k, v in fut.result().items():
+                            _state[k] = v
+                        _p(progress_cb, f"  ✓ {labels[fn]}", tag="ok")
+                    except Exception as e:
+                        _p(progress_cb, f"  ⚠ {labels[fn]}: {e}", tag="warn")
+                # Elternseitiges threading.Event → mp_stop brücken
+                if stop_event is not None and stop_event.is_set():
+                    mp_stop.set()                   # laufende Kinder abbrechen
+                    ex.shutdown(cancel_futures=True)
+                    break
+    finally:
+        _state["stop_event"] = prev_stop
+
+
+def run_parallel_group(group: list[tuple[str, str]], progress_cb=None,
+                       stop_event=None) -> None:
+    """Öffentlicher Einstieg für die GUI: führt eine bereits als parallel-sicher
+    erkannte Gruppe (fn_name, label) nebenläufig aus (Fork), sonst sequenziell.
+    """
+    _set_stop_event(stop_event)
+    if _fork_available() and len(group) >= 2:
+        _run_group_parallel(group, progress_cb, stop_event)
+    else:
+        for fn_name, label in group:
+            fn = globals().get(f"run_{fn_name}")
+            if fn is not None:
+                fn(progress_cb=progress_cb, stop_event=stop_event)
 
 
 def run_all_with_progress(

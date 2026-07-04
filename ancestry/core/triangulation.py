@@ -29,6 +29,40 @@ def chromosome_label(chrom: int) -> str:
     return "X" if chrom == X_CHROMOSOME else str(chrom)
 
 
+def _common_region_subgroups(members: list[dict]) -> list[list[dict]]:
+    """Zerlegt eine (ketten-verbundene) Segment-Komponente in maximale
+    Untergruppen, die einen GEMEINSAMEN überlappenden Bereich teilen.
+
+    Hat die ganze Komponente eine gemeinsame Schnittmenge (max start < min
+    end), wird sie unverändert zurückgegeben. Andernfalls entsprechen die
+    maximalen gemeinsam-überlappenden Mengen bei Intervallen genau den aktiven
+    Mengen an den Segment-Startpunkten (Intervallgraphen sind perfekt). Es
+    werden nur maximale Mengen der Größe ≥ 2 zurückgegeben (keine, die Teilmenge
+    einer anderen ist)."""
+    rs = max(m["start_location"] for m in members)
+    re = min(m["end_location"] for m in members)
+    if re > rs:
+        return [members]
+
+    groups: list[list[dict]] = []
+    for p in sorted({m["start_location"] for m in members}):
+        active = [m for m in members
+                  if m["start_location"] <= p <= m["end_location"]]
+        if len(active) >= 2:
+            groups.append(active)
+
+    # Nur maximale Gruppen behalten (keine echten Teilmengen einer anderen)
+    maximal: list[list[dict]] = []
+    for g in groups:
+        gset = {id(m) for m in g}
+        if any(gset < {id(m) for m in h} for h in groups):
+            continue
+        if any(gset == {id(m) for m in h} for h in maximal):
+            continue
+        maximal.append(g)
+    return maximal
+
+
 def build_triangulation_groups(
     db: "Database",
     test_guid: str,
@@ -93,30 +127,40 @@ def build_triangulation_groups(
         for idx in range(n):
             comp[find(idx)].append(idx)
 
+        emitted: set[frozenset] = set()
         for indices in comp.values():
             if len(indices) < 2:
                 continue
             members = [segs[k] for k in indices]
-            region_start = max(s["start_location"] for s in members)
-            region_end   = min(s["end_location"]   for s in members)
-            if region_end <= region_start:
-                region_start = min(s["start_location"] for s in members)
-                region_end   = max(s["end_location"]   for s in members)
-            tgs.append({
-                "chromosome":   chrom,
-                "chromosome_label": chromosome_label(chrom),
-                "region_start": region_start,
-                "region_end":   region_end,
-                "members": [
-                    {
-                        "match_guid": s["match_guid"],
-                        "length_cm":  s["length_cm"],
-                        "start":      s["start_location"],
-                        "end":        s["end_location"],
-                    }
-                    for s in members
-                ],
-            })
+            # Echte TG verlangen einen GEMEINSAMEN überlappenden Bereich, nicht
+            # nur Kettenkonnektivität (A–B, B–C ohne A∩C). Hat die Komponente
+            # eine gemeinsame Schnittmenge, ist sie eine TG; sonst wird sie in
+            # Untergruppen mit gemeinsamem Bereich zerlegt (kein Aufblähen auf
+            # das ganze Chromosom mehr).
+            for sub in _common_region_subgroups(members):
+                if len(sub) < 2:
+                    continue
+                key = frozenset(id(s) for s in sub)
+                if key in emitted:
+                    continue
+                emitted.add(key)
+                region_start = max(s["start_location"] for s in sub)
+                region_end   = min(s["end_location"]   for s in sub)
+                tgs.append({
+                    "chromosome":   chrom,
+                    "chromosome_label": chromosome_label(chrom),
+                    "region_start": region_start,
+                    "region_end":   region_end,
+                    "members": [
+                        {
+                            "match_guid": s["match_guid"],
+                            "length_cm":  s["length_cm"],
+                            "start":      s["start_location"],
+                            "end":        s["end_location"],
+                        }
+                        for s in sub
+                    ],
+                })
 
     tgs.sort(key=lambda t: (t["chromosome"], t["region_start"]))
     return tgs

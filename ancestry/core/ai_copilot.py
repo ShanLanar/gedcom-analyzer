@@ -50,8 +50,12 @@ def availability_hint() -> str:
     return ""
 
 
-def _cache_key(prompt: str) -> str:
-    return hashlib.sha256(prompt.encode()).hexdigest()[:20]
+def _cache_key(prompt: str, model: str = "", max_tokens: int = 0) -> str:
+    # Modell UND max_tokens gehören in den Key: derselbe Prompt liefert mit
+    # Haiku (bulk) vs. Sonnet unterschiedliche Antworten — ohne Modell im Key
+    # würde die zuerst gecachte Antwort die andere still verdrängen.
+    raw = f"{model}\x00{max_tokens}\x00{prompt}"
+    return hashlib.sha256(raw.encode()).hexdigest()[:20]
 
 
 # ── Asynchroner Aufruf (für Tkinter-GUIs) ────────────────────────────────────
@@ -72,7 +76,7 @@ def explain_async(
     bulk=True nutzt das günstige Bulk-Modell (Haiku) für Massen-Anfragen.
     """
     model = _BULK_MODEL if bulk else _MODEL
-    k = _cache_key(prompt)
+    k = _cache_key(prompt, model, max_tokens)
     if k in _CACHE:
         full = _CACHE[k]
         if on_chunk:

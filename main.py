@@ -1152,19 +1152,56 @@ class AhnenApp(tk.Frame):
         thread.start()
 
     # ── Worker ─────────────────────────────────────────────────────────────────
+    @staticmethod
+    def _fn_name(task) -> str:
+        """'tasks._runner:run_surnames_and_countries' → 'surnames_and_countries'."""
+        return task["fn"].split(":")[-1].removeprefix("run_")
+
     def _worker(self, tasks):
-        from tasks._runner import AbortedError
+        from tasks._runner import (
+            PARALLEL_SAFE_TASKS, AbortedError, run_parallel_group,
+        )
         had_errors = False
         aborted = False
         total = len(tasks)
-        for i, task in enumerate(tasks):
+
+        def cb(msg, tag=""):
+            self._append_log(msg, tag=tag)
+
+        i = 0
+        done_count = 0
+        while i < total:
             if not self._running:
                 break
+            # Aufeinanderfolgende parallel-sichere Tasks als Gruppe nebenläufig
+            # ausführen (Fork). Nicht-sichere Tasks (load_gedcom, Exporte …)
+            # laufen wie bisher sequenziell.
+            if self._fn_name(tasks[i]) in PARALLEL_SAFE_TASKS:
+                group = []
+                while i < total and self._fn_name(tasks[i]) in PARALLEL_SAFE_TASKS:
+                    group.append((self._fn_name(tasks[i]), tasks[i]["name"]))
+                    i += 1
+                if len(group) >= 2:
+                    self._append_log(
+                        f"── {len(group)} Analysen parallel …", tag="info")
+                    self._set_status(f"[{done_count+1}–{done_count+len(group)}/{total}] "
+                                     f"parallel")
+                    try:
+                        run_parallel_group(group, progress_cb=cb,
+                                           stop_event=self._stop_event)
+                    except Exception as exc:
+                        self._append_log(f"FEHLER (parallel): {exc}", tag="err")
+                        had_errors = True
+                    done_count += len(group)
+                    self.after(0, lambda v=done_count: self._pbar.configure(value=v))
+                    continue
+                # Einzelne parallel-sichere Task → normaler sequenzieller Pfad
+                i -= 1  # zurücksetzen, unten sequenziell abarbeiten
+
+            task = tasks[i]
             self._append_log(f"── {task['name']} …", tag="info")
-            self._set_status(f"[{i+1}/{total}] {task['name']}")
+            self._set_status(f"[{done_count+1}/{total}] {task['name']}")
             try:
-                def cb(msg, tag=""):
-                    self._append_log(msg, tag=tag)
                 _call_task(task["fn"], progress_cb=cb,
                            stop_event=self._stop_event)
             except AbortedError as exc:
@@ -1174,7 +1211,9 @@ class AhnenApp(tk.Frame):
             except Exception as exc:
                 self._append_log(f"FEHLER in '{task['name']}': {exc}", tag="err")
                 had_errors = True
-            self.after(0, lambda v=i + 1: self._pbar.configure(value=v))
+            done_count += 1
+            i += 1
+            self.after(0, lambda v=done_count: self._pbar.configure(value=v))
         if aborted or not self._running:
             self._append_log("Abgebrochen.", tag="warn")
         self.after(0, self._finish, had_errors)

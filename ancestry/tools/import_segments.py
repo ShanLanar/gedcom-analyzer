@@ -88,8 +88,20 @@ def _get(row: dict, *keys, default=""):
     return default
 
 
+_IBD2_TRUE = {"1", "true", "yes", "ja", "fir", "ibd2", "full", "fully identical"}
+
+
+def _parse_ibd2(row: dict) -> int:
+    """Liest ein optionales FIR/IBD2-Feld. Standard-Segment-CSVs (GEDmatch
+    'Segment Search', MyHeritage, FTDNA) enthalten KEINE FIR-Kennung — die
+    steht nur in der grafischen one-to-one-Ansicht. Ist die Spalte vorhanden
+    (z. B. aus einem FIR-fähigen Export), wird sie ausgewertet, sonst 0."""
+    val = _get(row, "is_ibd2", "ibd2", "fir", "fully identical region", "type")
+    return 1 if str(val).strip().lower() in _IBD2_TRUE else 0
+
+
 def parse_rows(reader: csv.DictReader, fmt: str):
-    """Generator: (match_key, chrom, start, end, cm, snps).
+    """Generator: (match_key, chrom, start, end, cm, snps, is_ibd2).
     match_key ist bei GEDmatch die Kit-ID, sonst der Anzeigename."""
     for row in reader:
         if fmt == "gedmatch":
@@ -108,7 +120,7 @@ def parse_rows(reader: csv.DictReader, fmt: str):
             snps  = _int(_get(row, "snps", "matching snps", "#snps"))
         if not key or not chrom or end <= start:
             continue
-        yield key, chrom, start, end, cm, snps
+        yield key, chrom, start, end, cm, snps, _parse_ibd2(row)
 
 
 def resolve_names(db: Database, test_guid: str, names: set[str]) -> dict[str, str]:
@@ -157,7 +169,7 @@ def run(path: Path, kit_guid: str = "", db_file: str = "") -> dict:
         guid_of = resolve_names(db, kit_guid, {k for k, *_ in rows})
 
     segs, unresolved = [], {}
-    for key, chrom, start, end, cm, snps in rows:
+    for key, chrom, start, end, cm, snps, is_ibd2 in rows:
         guid = guid_of.get(key)
         if not guid:
             unresolved[key] = unresolved.get(key, 0) + 1
@@ -166,19 +178,22 @@ def run(path: Path, kit_guid: str = "", db_file: str = "") -> dict:
             "test_guid": kit_guid, "match_guid": guid,
             "chromosome": chrom, "start_location": start, "end_location": end,
             "length_cm": cm, "snp_count": snps, "fetched_at": now,
+            "is_ibd2": is_ibd2,
         })
 
     n = db.bulk_upsert_segments(segs)
     db.close()
 
-    n_x = sum(1 for s in segs if s["chromosome"] == 23)
+    n_x     = sum(1 for s in segs if s["chromosome"] == 23)
+    n_ibd2  = sum(1 for s in segs if s["is_ibd2"])
     print(f"Format: {fmt}  ·  Kit: {kit_guid}")
-    print(f"Importiert: {n} Segmente ({n_x} auf X)")
+    ibd2_note = f", {n_ibd2} IBD2" if n_ibd2 else ""
+    print(f"Importiert: {n} Segmente ({n_x} auf X{ibd2_note})")
     if unresolved:
         print(f"Nicht zugeordnet ({len(unresolved)} Namen – Match-Liste zuerst importieren?):")
         for name, cnt in sorted(unresolved.items(), key=lambda x: -x[1])[:15]:
             print(f"  {cnt:4d}×  {name}")
-    return {"format": fmt, "imported": n, "unresolved": unresolved}
+    return {"format": fmt, "imported": n, "unresolved": unresolved, "ibd2": n_ibd2}
 
 
 if __name__ == "__main__":
