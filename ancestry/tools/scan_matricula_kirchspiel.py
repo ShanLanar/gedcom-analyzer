@@ -26,6 +26,11 @@ Start:
     python scan_matricula_kirchspiel.py --parish ostercappeln --visible --pause 2.0
     python scan_matricula_kirchspiel.py --parish ostercappeln --dry-run   # ohne API-Calls
 
+Nur herunterladen (Transkription erfolgt anderswo, kein ANTHROPIC_API_KEY nötig):
+    python scan_matricula_kirchspiel.py --parish ostercappeln --download-only
+    Lädt/archiviert nur die Seitenbilder und markiert sie als 'downloaded'
+    (NICHT 'done'). Wiederaufsetzbar: bereits geladene Seiten werden übersprungen.
+
 Re-Transkription (Bilder bereits lokal vorhanden):
     python scan_matricula_kirchspiel.py --parish ostercappeln --retranscribe
     Löscht die alten Einträge für das Kirchspiel und transkribiert alle archivierten
@@ -719,8 +724,12 @@ def _scan_book(
     dry_run: bool,
     archive_dir: Path = DEFAULT_ARCHIVE,
     retranscribe: bool = False,
+    download_only: bool = False,
 ) -> tuple[int, int]:
-    """Scannt ein Kirchenbuch. Gibt (gescannte Seiten, neue Einträge) zurück."""
+    """Scannt ein Kirchenbuch. Gibt (gescannte Seiten, neue Einträge) zurück.
+
+    download_only=True lädt/archiviert nur die Seitenbilder (ohne Claude-
+    Transkription) und markiert sie als 'downloaded' statt 'done'."""
     book_id   = book["book_id"]
     book_type = book["book_type"]
     book_url  = book["url"]
@@ -758,11 +767,17 @@ def _scan_book(
         archived_by_nr = {i: p for i, p in enumerate(archived, 1)}
         page_range: list[int] | None = list(archived_by_nr.keys())
     else:
+        # download_only überspringt bereits geladene Seiten ('downloaded'),
+        # ein normaler Lauf überspringt nur transkribierte ('done') und nutzt
+        # für 'downloaded'-Seiten das lokale Archiv weiter (kein Re-Download).
+        _skip_status = ("done", "downloaded") if download_only else ("done",)
+        _ph = ",".join("?" * len(_skip_status))
         done_pages = {
             row[0]
             for row in parish_db.execute(
-                "SELECT page_nr FROM matricula_page_scans WHERE book_id=? AND status='done'",
-                (book_id,),
+                f"SELECT page_nr FROM matricula_page_scans "
+                f"WHERE book_id=? AND status IN ({_ph})",
+                (book_id, *_skip_status),
             ).fetchall()
         }
 
@@ -868,6 +883,22 @@ def _scan_book(
             continue
 
         last_good_page = max(last_good_page, page_nr)
+
+        # Download-Only: Bild ist archiviert, Transkription passiert anderswo.
+        # Seite als 'downloaded' markieren (NICHT 'done') und Claude überspringen.
+        if download_only:
+            with parish_db:
+                parish_db.execute(
+                    """INSERT OR REPLACE INTO matricula_page_scans
+                       (book_id, page_nr, image_url, image_path, status,
+                        entry_count, scanned_at)
+                       VALUES (?,?,?,?,'downloaded',0,datetime('now'))""",
+                    (book_id, page_nr, image_url or "", str(arch_file)),
+                )
+            print("✓ geladen", flush=True)
+            scanned += 1
+            time.sleep(pause * 0.5)
+            continue
 
         # OCR
         entries = _transcribe_page(image_bytes, book_type, dry_run)
@@ -1115,8 +1146,12 @@ def scan_kirchspiel(
     archive_dir: Path = DEFAULT_ARCHIVE,
     retranscribe: bool = False,
     region: str | None = None,
+    download_only: bool = False,
 ) -> dict:
     set_region(region)
+    if download_only:
+        print("MODUS: Download-Only — nur Seitenbilder herunterladen/archivieren, "
+              "keine Transkription (Seiten werden als 'downloaded' markiert).")
     try:
         from playwright.sync_api import sync_playwright, TimeoutError as PWTimeout  # noqa
     except ImportError:
@@ -1172,14 +1207,16 @@ def scan_kirchspiel(
     if retranscribe:
         print("MODUS: Re-Transkription (lokale Bilder, kein Web-Zugriff)")
     print(f"{len(books)} Kirchenbücher zu verarbeiten:\n")
+    _done_status = "downloaded" if download_only else "done"
+    _done_word   = "geladen" if download_only else "fertig"
     for b in books:
         done = parish_db.execute(
-            "SELECT COUNT(*) FROM matricula_page_scans WHERE book_id=? AND status='done'",
-            (b["book_id"],),
+            "SELECT COUNT(*) FROM matricula_page_scans WHERE book_id=? AND status=?",
+            (b["book_id"], _done_status),
         ).fetchone()[0]
         print(f"  {b['book_id']:<50} {b['book_type']:<12} "
               f"{b['year_from'] or '?'}–{b['year_to'] or '?'}  "
-              f"({done} Seiten fertig)")
+              f"({done} Seiten {_done_word})")
 
     total_scanned = 0
     total_entries = 0
@@ -1216,7 +1253,7 @@ def scan_kirchspiel(
             for book in books:
                 scanned, entries = _scan_book(
                     book, parish_db, main_db, pw_page, pause, dry_run,
-                    archive_dir=archive_dir,
+                    archive_dir=archive_dir, download_only=download_only,
                 )
                 total_scanned += scanned
                 total_entries += entries
@@ -1232,8 +1269,12 @@ def scan_kirchspiel(
 
     print(f"\n{'='*60}")
     print(f"Fertig: {parish['name']}")
-    print(f"  {len(books)} Bücher  |  {total_scanned} Seiten gescannt  "
-          f"|  {total_entries} neue Einträge")
+    if download_only:
+        print(f"  {len(books)} Bücher  |  {total_scanned} Seiten heruntergeladen "
+              f"(Download-Only, keine Transkription)")
+    else:
+        print(f"  {len(books)} Bücher  |  {total_scanned} Seiten gescannt  "
+              f"|  {total_entries} neue Einträge")
     return result
 
 
@@ -1268,6 +1309,10 @@ if __name__ == "__main__":
                     help="Region/Diözese für den Transkriptions-Kontext, z. B. "
                          "'dem Bistum Münster' oder 'der Erzdiözese Wien'. "
                          "Überschreibt MATRICULA_REGION.")
+    ap.add_argument("--download-only", action="store_true",
+                    help="Nur Seitenbilder herunterladen/archivieren, keine "
+                         "Transkription (kein ANTHROPIC_API_KEY nötig). Seiten "
+                         "werden als 'downloaded' markiert; wiederaufsetzbar.")
     args = ap.parse_args()
 
     for _parish_id in args.parish:
@@ -1282,4 +1327,5 @@ if __name__ == "__main__":
             archive_dir=Path(args.archive_dir),
             retranscribe=args.retranscribe,
             region=args.region,
+            download_only=args.download_only,
         )
