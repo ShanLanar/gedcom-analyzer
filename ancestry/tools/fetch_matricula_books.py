@@ -398,7 +398,7 @@ def scrape_books(
               "  Bitte zuerst scrape_matricula_osnabrueck.py ausführen.")
         sys.exit(1)
 
-    db = sqlite3.connect(DB_PATH)
+    db = sqlite3.connect(DB_PATH, timeout=30.0)  # 30s busy-timeout gg. Locks
     db.row_factory = sqlite3.Row
     _init_books_table(db)
 

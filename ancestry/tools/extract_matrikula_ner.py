@@ -222,7 +222,7 @@ def extract_ner(
         print(f"⚠ Haupt-DB nicht gefunden: {DB_PATH}")
         sys.exit(1)
 
-    db = sqlite3.connect(str(DB_PATH))
+    db = sqlite3.connect(str(DB_PATH), timeout=30.0)  # 30s busy-timeout gg. Locks
     db.row_factory = sqlite3.Row
     _ensure_table(db)
 

@@ -41,7 +41,7 @@ def build_lexicon(db_path: str) -> dict:
     surnames: Counter = Counter()
     given: Counter = Counter()
     places: Counter = Counter()
-    con = sqlite3.connect(db_path)
+    con = sqlite3.connect(db_path, timeout=30.0)  # 30s busy-timeout gg. Locks
     con.row_factory = sqlite3.Row
     try:
         for r in con.execute("SELECT given_name, surname, birth_place, death_place "

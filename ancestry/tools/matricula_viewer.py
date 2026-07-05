@@ -51,14 +51,14 @@ app.config.setdefault("ARCHIVE_DIR", DEFAULT_ARCHIVE)
 def _parish_db() -> sqlite3.Connection:
     if not PARISH_DB.exists():
         abort(503, f"Pfarrei-DB nicht gefunden: {PARISH_DB}")
-    db = sqlite3.connect(str(PARISH_DB))
+    db = sqlite3.connect(str(PARISH_DB), timeout=30.0)  # 30s busy-timeout gg. Locks
     db.row_factory = sqlite3.Row
     return db
 
 
 def _main_db() -> sqlite3.Connection:
     path = MAIN_DB_PATH if MAIN_DB_PATH.exists() else FALLBACK_DB
-    db = sqlite3.connect(str(path))
+    db = sqlite3.connect(str(path), timeout=30.0)  # 30s busy-timeout gg. Locks
     db.row_factory = sqlite3.Row
     _ensure_correction_cols(db)
     return db

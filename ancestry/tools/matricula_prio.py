@@ -64,7 +64,7 @@ def analyse(crawl_db: Path,
     if not crawl_db.exists():
         raise FileNotFoundError(f"Crawl-DB nicht gefunden: {crawl_db}")
 
-    conn = sqlite3.connect(str(crawl_db))
+    conn = sqlite3.connect(str(crawl_db), timeout=30.0)  # 30s busy-timeout gg. Locks
     conn.row_factory = sqlite3.Row
 
     # parish → {ref_count, persons, bands}

@@ -126,7 +126,7 @@ def get_archion_archives(db_path: Path | str | None = None) -> list[dict]:
     p = Path(db_path) if db_path else ARCHION_DB
     if p.exists():
         try:
-            db = sqlite3.connect(str(p))
+            db = sqlite3.connect(str(p), timeout=30.0)  # 30s busy-timeout gg. Locks
             db.row_factory = sqlite3.Row
             try:
                 rows = db.execute(

@@ -68,7 +68,7 @@ def _norm(v: str) -> str:
 # ── Datenbank ─────────────────────────────────────────────────────────────────
 
 def _init_db(path: Path) -> sqlite3.Connection:
-    db = sqlite3.connect(str(path))
+    db = sqlite3.connect(str(path), timeout=30.0)  # 30s busy-timeout gg. Locks
     db.row_factory = sqlite3.Row
     db.executescript("""
     CREATE TABLE IF NOT EXISTS dioceses (
