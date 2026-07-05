@@ -36,8 +36,16 @@ def _open(db_path: Path | str | None = None) -> sqlite3.Connection | None:
     p = Path(db_path) if db_path else PARISH_DB
     if not p.exists():
         return None
-    db = sqlite3.connect(str(p))
+    db = sqlite3.connect(str(p), timeout=30.0)
     db.row_factory = sqlite3.Row
+    # WAL + busy_timeout: dieser Lese-Zugriff (GUI-Statusanzeige) darf einen
+    # gleichzeitig laufenden CLI-Scan (scan_matricula_kirchspiel) nicht mit
+    # 'database is locked' blockieren.
+    try:
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA busy_timeout=30000")
+    except sqlite3.OperationalError:
+        pass
     return db
 
 

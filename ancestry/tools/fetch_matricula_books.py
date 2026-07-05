@@ -288,28 +288,18 @@ _JS_PARSE_BOOK_TABLE = """
 }
 """
 
-_JS_NEXT_PAGE = """
-() => {
-    // Gibt die URL der nächsten Seite zurück, oder null.
-    // Matricula-Bücherliste: ?page=2, ?page=3, …
-    const next = document.querySelector(
-        'ul.pagination a[href*="?page="]:last-of-type, ' +
-        '.page-item:not(.disabled) a[href*="?page="]'
-    );
-    // Nur wenn es wirklich eine "weiter"-Seite gibt (nicht die aktive)
-    const active = document.querySelector('.page-item.active');
-    if (!next || !active) return null;
-    // Aktive Seitennummer
-    const activePg = parseInt(active.innerText, 10) || 1;
-    // URL der nächsten Seite
-    const url = next.getAttribute('href');
-    // Seitennummer aus der URL extrahieren
-    const m = url.match(/[?&]page=(\\d+)/);
-    if (!m) return null;
-    const nextPg = parseInt(m[1], 10);
-    return nextPg > activePg ? url : null;
-}
-"""
+
+def _with_page(url: str, pg: int) -> str:
+    """Setzt/ersetzt den ?page=-Parameter einer URL."""
+    import urllib.parse
+    parts = urllib.parse.urlparse(url)
+    q = dict(urllib.parse.parse_qsl(parts.query))
+    q["page"] = str(pg)
+    return urllib.parse.urlunparse(parts._replace(query=urllib.parse.urlencode(q)))
+
+
+# Sicherheitsobergrenze (200 Seiten × 50 Bücher = 10 000 – weit über jeder Pfarrei)
+_MAX_BOOK_PAGES = 200
 
 
 def _scrape_parish_books(
@@ -319,42 +309,45 @@ def _scrape_parish_books(
     pause: float,
 ) -> list[dict]:
     """
-    Scrapt alle Kirchenbücher einer Pfarrei aus der Matricula-Tabelle.
+    Scrapt ALLE Kirchenbücher einer Pfarrei aus der Matricula-Tabelle.
 
-    Matricula zeigt 50 Bücher pro Seite — die Bücherliste selbst ist mit
-    ?page=2, ?page=3 … paginiert (nicht zu verwechseln mit ?pg=N für
-    die Bilder-Seiten im Viewer).
+    Matricula zeigt 50 Bücher pro Seite — die Bücherliste ist mit ?page=2,
+    ?page=3 … paginiert (nicht zu verwechseln mit ?pg=N für die Bilder-Seiten
+    im Viewer). Statt die brüchige Pagination-DOM zu parsen (verhakte sich
+    früher nach Seite 2 → Cap bei 100), zählen wir ?page=N hoch, bis eine Seite
+    KEINE neuen Signaturen mehr liefert (leere Seite oder Matricula spiegelt
+    out-of-range-Seiten auf die letzte).
 
-    Liest Signatur, Matrikeltyp und Datumsbereich direkt aus den <td>-Zellen —
-    nicht aus dem Link-Text, da Kamera-Links nur ein Icon enthalten.
+    Liest Signatur, Matrikeltyp und Datumsbereich direkt aus den <td>-Zellen.
     """
     from playwright.sync_api import TimeoutError as PWTimeout  # noqa
-
-    # Erste Seite der Bücherliste
-    try:
-        page.goto(base_url, wait_until="networkidle", timeout=20_000)
-    except PWTimeout:
-        page.goto(base_url, wait_until="domcontentloaded", timeout=20_000)
-    time.sleep(pause * 0.4)
 
     all_rows: list[dict] = []
     seen_sigs: set[str] = set()
 
-    while True:
+    for pg in range(1, _MAX_BOOK_PAGES + 1):
+        url = base_url if pg == 1 else _with_page(base_url, pg)
+        try:
+            page.goto(url, wait_until="networkidle", timeout=20_000)
+        except PWTimeout:
+            page.goto(url, wait_until="domcontentloaded", timeout=20_000)
+        time.sleep(pause * 0.4)
+
         raw_rows = page.evaluate(_JS_PARSE_BOOK_TABLE)
+        new_on_page = 0
 
         for r in raw_rows:
             sig = r["signatur"]
             if sig in seen_sigs:
                 continue
             seen_sigs.add(sig)
+            new_on_page += 1
 
-            href     = r["href"]    # /de/deutschland/osnabrueck/ostercappeln-st-lambertus/D1_001_1/
+            href     = r["href"]    # /de/deutschland/osnabrueck/…/D1_001_1/
             sub_id   = href.rstrip("/").rsplit("/", 1)[-1]
             full_url = f"{_MATRICULA_BASE}{href}" if href.startswith("/") else href
 
-            # Normalisierter Typ aus Detailzeile bevorzugen (z.B. "Taufen - Trauungen"
-            # statt "Taufen Heiraten Lutheraner in Kapelle Arenshorst")
+            # Normalisierter Typ aus Detailzeile bevorzugen
             typ_raw   = r.get("typNorm") or r.get("typDisplay", "")
             book_type = _map_matrikel_type(typ_raw)
 
@@ -374,26 +367,13 @@ def _scrape_parish_books(
                 "book_type": book_type,
                 "year_from": year_from,
                 "year_to":   year_to,
-                # Label = Anzeigetext + Datum — lesbarer als nur Signatur
                 "label":     f"{r.get('typDisplay', typ_raw)} {r.get('datum', '')}".strip(),
                 "url":       full_url,
             })
 
-        # Nächste Seite?
-        next_href = page.evaluate(_JS_NEXT_PAGE)
-        if not next_href:
+        # Keine neuen Bücher auf dieser Seite → Ende der Liste erreicht.
+        if new_on_page == 0:
             break
-
-        next_url = (
-            f"{_MATRICULA_BASE}{next_href}"
-            if next_href.startswith("/") else
-            f"{base_url.rstrip('/')}/{next_href.lstrip('/')}"
-        )
-        try:
-            page.goto(next_url, wait_until="networkidle", timeout=15_000)
-        except PWTimeout:
-            page.goto(next_url, wait_until="domcontentloaded", timeout=15_000)
-        time.sleep(pause * 0.3)
 
     return all_rows
 

@@ -173,6 +173,23 @@ _DEFAULT_PROMPT = _TAUFE_PROMPT  # Fallback für unbekannte Buchtypen
 
 # ── Datenbank ──────────────────────────────────────────────────────────────────
 
+def _tune_conn(db: sqlite3.Connection) -> None:
+    """Nebenläufigkeits-PRAGMAs: WAL erlaubt parallele Leser neben einem
+    Schreiber, busy_timeout lässt einen Schreiber bis zu 30 s auf einen kurz
+    gehaltenen Lock WARTEN statt sofort mit 'database is locked' zu scheitern
+    (z. B. wenn die GUI die Pfarrei-DB gerade offen hält)."""
+    try:
+        db.execute("PRAGMA journal_mode=WAL")
+        db.execute("PRAGMA busy_timeout=30000")   # 30 s
+        db.execute("PRAGMA synchronous=NORMAL")
+    except sqlite3.OperationalError:
+        # WAL kann auf manchen Netzlaufwerken scheitern → wenigstens Timeout
+        try:
+            db.execute("PRAGMA busy_timeout=30000")
+        except sqlite3.OperationalError:
+            pass
+
+
 def _open_parish_db() -> sqlite3.Connection:
     if not PARISH_DB.exists():
         print(f"⚠ Pfarrei-DB nicht gefunden: {PARISH_DB}")
@@ -180,8 +197,9 @@ def _open_parish_db() -> sqlite3.Connection:
         print("    python scrape_matricula_osnabrueck.py")
         print("    python fetch_matricula_books.py")
         sys.exit(1)
-    db = sqlite3.connect(str(PARISH_DB))
+    db = sqlite3.connect(str(PARISH_DB), timeout=30.0)
     db.row_factory = sqlite3.Row
+    _tune_conn(db)
     # Fortschritts-Tabelle anlegen falls nicht vorhanden
     db.executescript("""
     CREATE TABLE IF NOT EXISTS matricula_page_scans (
@@ -223,8 +241,9 @@ def _open_main_db():
         # Fallback: neben PARISH_DB
         main_db_path = PARISH_DB.parent / "matricula_entries.db"
 
-    db = sqlite3.connect(str(main_db_path))
+    db = sqlite3.connect(str(main_db_path), timeout=30.0)
     db.row_factory = sqlite3.Row
+    _tune_conn(db)
     db.executescript("""
     CREATE TABLE IF NOT EXISTS source_matrikula_entries (
         entry_id     INTEGER PRIMARY KEY AUTOINCREMENT,
