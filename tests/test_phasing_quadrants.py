@@ -53,6 +53,24 @@ def test_summary_fields():
     assert q["label"] == "Großeltern-Linie A"
 
 
+def test_quadrant_side_from_phased_matches():
+    """Sind Matches per Eltern-Kit gephast (paternal_maternal), bekommt der
+    Quadrant die echte Seite ins Label."""
+    clusters = {
+        1: [{"guid": f"m{i}", "name": f"M{i}", "cm": 100 - i,
+             "paternal_maternal": "maternal"} for i in range(5)],
+        2: [{"guid": f"p{i}", "name": f"P{i}", "cm": 90 - i,
+             "paternal_maternal": "paternal"} for i in range(4)],
+        3: [{"guid": "u0", "name": "U0", "cm": 80}],   # ungephast
+    }
+    quads = {q["slot"]: q for q in assign_grandparent_quadrants(clusters)["quadrants"]}
+    assert quads[0]["side"] == "mütterlich"
+    assert "mütterlich" in quads[0]["label"]
+    assert quads[1]["side"] == "väterlich"
+    assert quads[2]["side"] == ""                       # ohne Phasing kein Suffix
+    assert "·" not in quads[2]["label"]
+
+
 def test_leeds_colors_assigned():
     """Jeder der vier Quadranten bekommt eine eindeutige Leeds-Farbe."""
     from ancestry.core.cluster import LEEDS_COLORS

@@ -655,6 +655,31 @@ class TestBulkSetSide:
             db.upsert_match(make_match(match_guid=g))
         return guids
 
+    def test_parent_overlap_min_cm_guards_small_matches(self, db):
+        """Eltern-Kit-Phasing: min_cm hält winzige 'nur bei mir'-Matches von der
+        Gegenseite fern; große werden korrekt zugewiesen."""
+        _ensure_kit(db, KIT_GUID)          # Tester
+        _ensure_kit(db, KIT_GUID_B)        # Mutter
+        db.upsert_match(make_match("M1", KIT_GUID, shared_cm=50.0))
+        db.upsert_match(make_match("M2", KIT_GUID, shared_cm=10.0))   # klein
+        db.upsert_match(make_match("M3", KIT_GUID, shared_cm=100.0))
+        # Mutter teilt M1 (groß) und M2 (klein); M3 nur beim Tester
+        with db._cursor() as cur:
+            for g in ("M1", "M2"):
+                cur.execute("INSERT OR IGNORE INTO match_kit_membership "
+                            "(match_guid, test_guid) VALUES (?,?)", (g, KIT_GUID_B))
+
+        # Ohne Schwelle: M1,M2 mütterlich, M3 väterlich
+        ov = db.get_paternal_maternal_overlap(KIT_GUID, KIT_GUID_B)
+        assert ov["shared"] == {"M1", "M2"}
+        assert ov["only_a"] == {"M3"}
+
+        # Mit 20 cM: M2 (klein) fällt aus BEIDEN Buckets → bleibt unzugeordnet
+        ov2 = db.get_paternal_maternal_overlap(KIT_GUID, KIT_GUID_B, min_cm=20.0)
+        assert ov2["shared"] == {"M1"}         # nur der große maternale Match
+        assert ov2["only_a"] == {"M3"}         # großer paternaler Match
+        assert "M2" not in ov2["shared"] and "M2" not in ov2["only_a"]
+
     def test_sets_paternal_on_all_specified_guids(self, db):
         guids = self._insert_five(db)
         affected = db.bulk_set_side(guids[:3], "paternal")

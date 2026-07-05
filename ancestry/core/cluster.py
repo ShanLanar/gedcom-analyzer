@@ -470,12 +470,27 @@ def assign_grandparent_quadrants(clusters: dict[int, list[dict]],
     def _summary(cid: int, members: list[dict]) -> dict:
         cms = [float(m.get("cm") or 0) for m in members]
         names = [m.get("name", "") for m in members[:top_names]]
+        # Dominante Seite aus den (ggf. per Eltern-Kit phasten) Match-Seiten
+        # ableiten: 'maternal'/'paternal' aus paternal_maternal bzw. side.
+        sides = [str(m.get("paternal_maternal") or m.get("side") or "").lower()
+                 for m in members]
+        n_mat = sum(1 for s in sides if s.startswith("mat"))
+        n_pat = sum(1 for s in sides if s.startswith("pat"))
+        if n_mat and n_mat >= 2 * max(1, n_pat):
+            side = "mütterlich"
+        elif n_pat and n_pat >= 2 * max(1, n_mat):
+            side = "väterlich"
+        elif n_mat or n_pat:
+            side = "gemischt"
+        else:
+            side = ""            # ungephast
         return {
             "cluster_id": cid,
             "size":       len(members),
             "max_cm":     max(cms) if cms else 0.0,
             "total_cm":   sum(cms),
             "names":      names,
+            "side":       side,
         }
 
     # größte Cluster zuerst (nach Mitgliederzahl, dann max cM)
@@ -492,7 +507,12 @@ def assign_grandparent_quadrants(clusters: dict[int, list[dict]],
     for idx, (cid, members) in enumerate(ordered):
         entry = _summary(cid, members)
         if idx < 4:
-            entry = {"slot": idx, "label": slot_labels[idx],
+            # Label mit echter Seite anreichern, sobald Matches gephast sind
+            # (via Eltern-Kit): „Großeltern-Linie A · mütterlich".
+            base_label = slot_labels[idx]
+            if entry.get("side"):
+                base_label = f"{base_label} · {entry['side']}"
+            entry = {"slot": idx, "label": base_label,
                      "color": LEEDS_COLORS[idx],
                      "color_name": LEEDS_COLOR_NAMES[idx], **entry}
             quadrants.append(entry)

@@ -407,6 +407,12 @@ class ClusterTab(ttk.Frame):
     def _apply_cluster_result(self, shared_data, clusters, side_map):
         self._desc_cid = None   # Cluster-IDs neu vergeben → kein Auto-Save auf alte ID
         self._clusters = clusters
+        # Seite je Match in die Cluster-Dicts spiegeln, damit das Phasing-
+        # Dashboard die Quadranten mit echter Seite (mütterlich/väterlich)
+        # beschriften kann, sobald via Eltern-Kit gephast wurde.
+        for _mlist in self._clusters.values():
+            for _m in _mlist:
+                _m.setdefault("paternal_maternal", side_map.get(_m.get("guid"), ""))
         self._count_var.set(f"{len(self._clusters)} Cluster")
         self._text_var.set(suggest_grandparent_lines(self._clusters))
         self._cluster_side_colors = {}

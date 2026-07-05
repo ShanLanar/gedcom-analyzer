@@ -366,11 +366,29 @@ class MatchesRepo:
             )
         return len(guids)
 
-    def get_paternal_maternal_overlap(self, kit_a: str, kit_b: str) -> dict:
+    def get_paternal_maternal_overlap(self, kit_a: str, kit_b: str,
+                                      min_cm: float = 0.0) -> dict:
+        """Seiten-Zuordnung über ein Elternkit (kit_b, z. B. Mutter).
+
+        shared  = Matches in BEIDEN Kits  → Seite von kit_b (z. B. mütterlich).
+        only_a  = Matches nur in kit_a    → andere Seite (z. B. väterlich).
+
+        min_cm>0 beschränkt kit_a auf Matches ≥ min_cm: winzige „nur in meinem
+        Kit"-Matches sollen NICHT vorschnell der Gegenseite zugeordnet werden
+        (sie könnten unterschwellige Matches der Elternseite sein, die im
+        Elternkit gar nicht gelistet sind). Solche bleiben dann unzugeordnet.
+        """
         with self._db._cursor() as cur:
-            guids_a = {r[0] for r in cur.execute(
-                "SELECT match_guid FROM match_kit_membership WHERE test_guid=?",
-                (kit_a,)).fetchall()}
+            if min_cm and min_cm > 0:
+                guids_a = {r[0] for r in cur.execute(
+                    "SELECT mkm.match_guid FROM match_kit_membership mkm "
+                    "JOIN matches m ON m.match_guid = mkm.match_guid "
+                    "WHERE mkm.test_guid=? AND m.shared_cm >= ?",
+                    (kit_a, min_cm)).fetchall()}
+            else:
+                guids_a = {r[0] for r in cur.execute(
+                    "SELECT match_guid FROM match_kit_membership WHERE test_guid=?",
+                    (kit_a,)).fetchall()}
             guids_b = {r[0] for r in cur.execute(
                 "SELECT match_guid FROM match_kit_membership WHERE test_guid=?",
                 (kit_b,)).fetchall()}

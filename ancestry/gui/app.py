@@ -2313,7 +2313,10 @@ class AncestryDnaApp(tk.Frame):
                 messagebox.showinfo(self._t("dlg.no_kit"), self._t("dlg.m_no_second_kit"))
                 return
             parent_kit = other_kits[kit_index]
-            overlap = self._db.get_paternal_maternal_overlap(test_guid, parent_kit.guid)
+            # min_cm=20: kleine „nur bei mir"-Matches nicht vorschnell der
+            # Gegenseite zuordnen (unzuverlässig unterhalb ~20 cM).
+            overlap = self._db.get_paternal_maternal_overlap(
+                test_guid, parent_kit.guid, min_cm=20.0)
             mat = overlap["shared"]
             pat = overlap["only_a"]
             n_mat = self._db.bulk_set_side(list(mat), "maternal")
@@ -2321,8 +2324,9 @@ class AncestryDnaApp(tk.Frame):
             self._refresh_match_table()
             messagebox.showinfo(self._t("dlg.result"),
                                 f"✅ {n_mat} Matches als mütterlich markiert\n"
-                                f"✅ {n_pat} Matches als väterlich markiert\n\n"
-                                f"Mutter-Kit: {parent_kit.name or parent_kit.guid[:16]}")
+                                f"✅ {n_pat} Matches als väterlich markiert\n"
+                                f"(nur Matches ≥ 20 cM zuverlässig zuweisbar)\n\n"
+                                f"Eltern-Kit: {parent_kit.name or parent_kit.guid[:16]}")
         elif method == "ged":
             # Via GEDCOM-Baum
             if not has_amap:
