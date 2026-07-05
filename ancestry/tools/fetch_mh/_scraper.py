@@ -871,13 +871,17 @@ async ([url, bodyStr]) => {
                                 raw_segs = []
                         if isinstance(raw_segs, dict):
                             raw_segs = raw_segs.get("data") or []
+                        # parse_chromosome mappt 'X'→23 und fängt Nicht-Zahlen ab
+                        # (rohes int('X') warf ValueError → Batch-Verlust, und X
+                        # wurde nie auf 23 gemappt → X-DNA-Auswertung blieb leer).
+                        from ancestry.tools.import_segments import parse_chromosome
                         seg_rows = []
                         for seg in raw_segs:
                             if not isinstance(seg, dict):
                                 continue
-                            chrom = int(seg.get("chromosome_id") or
-                                        seg.get("chromosome") or seg.get("chr") or
-                                        seg.get("id") or 0)
+                            chrom = parse_chromosome(
+                                seg.get("chromosome_id") or seg.get("chromosome") or
+                                seg.get("chr") or seg.get("id") or "")
                             start = int(seg.get("start_position") or
                                         seg.get("start_location") or
                                         seg.get("startLocation") or 0)

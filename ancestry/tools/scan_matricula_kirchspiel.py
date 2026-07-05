@@ -318,8 +318,11 @@ def _open_main_db():
 OCR_BACKEND = os.environ.get("MATRICULA_OCR_BACKEND", "claude").strip().lower()
 
 
-def _transcribe_page(image_bytes: bytes, book_type: str, dry_run: bool) -> list[dict]:
-    """Dispatcher: transkribiert eine Seite über das gewählte OCR-Backend."""
+def _transcribe_page(image_bytes: bytes, book_type: str,
+                     dry_run: bool) -> list[dict] | None:
+    """Dispatcher: transkribiert eine Seite über das gewählte OCR-Backend.
+    None = Transkription fehlgeschlagen (→ Seite 'error', retry möglich);
+    [] = leere Seite (→ 'done')."""
     if dry_run:
         print("[dry-run] ", end="", flush=True)
         return []
@@ -397,18 +400,79 @@ def _transcribe_kraken(image_bytes: bytes, book_type: str) -> list[dict]:
 
 # ── Claude Vision ──────────────────────────────────────────────────────────────
 
-def _transcribe_claude(image_bytes: bytes, book_type: str) -> list[dict]:
-    """Schickt ein Seiten-Bild an Claude Vision und gibt strukturierte Einträge zurück."""
+def _parse_json_array(text: str) -> list | None:
+    """Extrahiert ein JSON-Array robust aus einer Claude-Antwort.
+
+    Reihenfolge: (1) direktes json.loads, (2) Markdown-Fence entfernen,
+    (3) ERSTES ausbalanciertes [...] finden (klammer-/string-bewusst — verhindert
+    den früheren greedy-Regex-Bug, der bei Begleittext wie '[Hinweis] … [ {…} ]'
+    vom ersten '[' bis zum letzten ']' matchte und die Seite still verwarf).
+    Gibt None zurück, wenn kein gültiges Array gefunden wird."""
+    text = text.strip()
+    try:
+        val = json.loads(text)
+        return val if isinstance(val, list) else None
+    except json.JSONDecodeError:
+        pass
+    if text.startswith("```"):
+        inner = text.strip("`")
+        if inner.lstrip().lower().startswith("json"):
+            inner = inner.lstrip()[4:]
+        try:
+            val = json.loads(inner.strip())
+            if isinstance(val, list):
+                return val
+        except json.JSONDecodeError:
+            pass
+    # Jedes ausbalancierte top-level [...] durchprobieren und das ERSTE
+    # zurückgeben, das als JSON-Liste parst. So wird eine vorangestellte
+    # Pseudo-Klammer wie '[Hinweis]' übersprungen statt alles zu verwerfen.
+    depth = 0
+    in_str = False
+    esc = False
+    start = -1
+    for i, c in enumerate(text):
+        if in_str:
+            if esc:
+                esc = False
+            elif c == "\\":
+                esc = True
+            elif c == '"':
+                in_str = False
+            continue
+        if c == '"':
+            in_str = True
+        elif c == "[":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif c == "]" and depth > 0:
+            depth -= 1
+            if depth == 0 and start >= 0:
+                try:
+                    val = json.loads(text[start:i + 1])
+                    if isinstance(val, list):
+                        return val
+                except json.JSONDecodeError:
+                    pass
+                start = -1
+    return None
+
+
+def _transcribe_claude(image_bytes: bytes, book_type: str) -> list[dict] | None:
+    """Schickt ein Seiten-Bild an Claude Vision und gibt strukturierte Einträge
+    zurück. None = Transkription fehlgeschlagen (Parse-/API-Fehler/kein Key) →
+    Seite als 'error' markieren, NICHT als leere Seite 'done'."""
     try:
         import anthropic
     except ImportError:
         print("  ⚠ anthropic nicht installiert: pip install anthropic")
-        return []
+        return None
 
     api_key = os.environ.get("ANTHROPIC_API_KEY", "")
     if not api_key:
         print("  ⚠ ANTHROPIC_API_KEY nicht gesetzt")
-        return []
+        return None
 
     client = anthropic.Anthropic(api_key=api_key)
     prompt = _PROMPTS.get(book_type, _DEFAULT_PROMPT)
@@ -435,17 +499,17 @@ def _transcribe_claude(image_bytes: bytes, book_type: str) -> list[dict]:
             }],
         )
         raw = response.content[0].text.strip()
-        # JSON aus der Antwort extrahieren (manchmal kommt Markdown drumrum)
-        m = re.search(r"\[.*\]", raw, re.S)
-        if m:
-            return json.loads(m.group())
-        return json.loads(raw)
-    except json.JSONDecodeError as e:
-        print(f"  ⚠ JSON-Parse-Fehler: {e}")
-        return []
+        parsed = _parse_json_array(raw)
+        if parsed is None:
+            # Antwort kam, war aber nicht als JSON-Array parsebar → NICHT als
+            # leere Seite behandeln (sonst würde die Seite als 'done' markiert
+            # und ginge verloren). None signalisiert dem Aufrufer 'error'.
+            print("  ⚠ JSON-Parse-Fehler (Seite wird als 'error' markiert)")
+            return None
+        return parsed
     except Exception as e:
         print(f"  ⚠ API-Fehler: {e}")
-        return []
+        return None
 
 
 # ── Name-Index ─────────────────────────────────────────────────────────────────
@@ -568,7 +632,10 @@ def _save_entries(
         return 0
 
     with main_db:
-        # Vorherige Einträge dieser Seite löschen (Idempotenz)
+        # Vorherige Einträge dieser Seite löschen (Idempotenz). Reihenfolge
+        # wichtig: NER referenziert source-Einträge per Subquery, also NER VOR
+        # den source-Zeilen löschen. Manuell korrigierte Einträge
+        # (corrected_by='human') bleiben in ALLEN Schritten erhalten.
         try:
             main_db.execute(
                 "DELETE FROM name_index WHERE book_id=? AND page_nr=?",
@@ -580,7 +647,19 @@ def _save_entries(
             main_db.execute(
                 """DELETE FROM matrikula_ner WHERE entry_id IN (
                        SELECT entry_id FROM source_matrikula_entries
-                       WHERE book_id=? AND page_nr=?)""",
+                       WHERE book_id=? AND page_nr=?
+                         AND (corrected_by IS NULL OR corrected_by != 'human'))""",
+                (book_id, page_nr),
+            )
+        except Exception:
+            pass
+        # Alte source-Zeilen der Seite entfernen — sonst verdoppeln sich die
+        # Basiseinträge bei jedem Re-Scan (nur name_index/NER wurden bisher
+        # gelöscht, die source-Zeilen blieben als Karteileichen zurück).
+        try:
+            main_db.execute(
+                "DELETE FROM source_matrikula_entries WHERE book_id=? AND page_nr=? "
+                "AND (corrected_by IS NULL OR corrected_by != 'human')",
                 (book_id, page_nr),
             )
         except Exception:
@@ -753,9 +832,14 @@ def _scan_book(
             print("  ⚠ Keine archivierten Bilder — überspringe")
             return 0, 0
         print(f"  {len(archived)} archivierte Seiten (Re-Transkription)")
+        # NUR nicht-korrigierte Einträge löschen — manuell im Viewer korrigierte
+        # Seiten (corrected_by='human') bleiben erhalten (früher: kompletter
+        # DELETE → Datenverlust, weil die corrected_pages-Abfrage erst danach lief).
         with main_db:
             main_db.execute(
-                "DELETE FROM source_matrikula_entries WHERE book_id=?", (book_id,)
+                "DELETE FROM source_matrikula_entries WHERE book_id=? "
+                "AND (corrected_by IS NULL OR corrected_by != 'human')",
+                (book_id,),
             )
         with parish_db:
             parish_db.execute(
@@ -902,6 +986,21 @@ def _scan_book(
 
         # OCR
         entries = _transcribe_page(image_bytes, book_type, dry_run)
+        # None = Transkription fehlgeschlagen → Seite als 'error' markieren
+        # (retry-fähig), NICHT als 'done' (sonst stiller Verlust).
+        if entries is None:
+            with parish_db:
+                parish_db.execute(
+                    """INSERT OR REPLACE INTO matricula_page_scans
+                       (book_id, page_nr, image_url, image_path, status,
+                        scanned_at, error_msg)
+                       VALUES (?,?,?,?,'error',datetime('now'),?)""",
+                    (book_id, page_nr, image_url or "", str(arch_file),
+                     "Transkription fehlgeschlagen"),
+                )
+            print("⚠ Transkription fehlgeschlagen", flush=True)
+            time.sleep(pause * 0.5)
+            continue
         if OCR_BACKEND in ("tesseract", "kraken") and entries:
             raw = "\n\n".join(e.get("notes", "") for e in entries if e.get("notes"))
             if raw.strip():

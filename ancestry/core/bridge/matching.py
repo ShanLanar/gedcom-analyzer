@@ -410,10 +410,14 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
         multiplier = MULT_MAP.get(link_count, "")
 
         # cM-Konsistenz: passt die geteilte DNA zur Baum-Distanz des Links?
-        # Mehrfach-Links (doppelte/dreifache Cousins) heben die erwartete cM an.
+        # HINWEIS: KEIN multiplier=link_count mehr — link_count zählt verknüpfte
+        # Pedigree-Positionen (oft auf DERSELBEN Linie: Vater+Großvater+…), nicht
+        # genetisch unabhängige MRCA-Paare. Als Multiplikator blähte das die
+        # Erwartungsbande massiv auf und schaltete 'high'-Verdikte faktisch ab.
+        # Echte Doppel-Cousin-Erkennung (distinkte MRCA-Paare) ist ein eigenes
+        # Thema; bis dahin ohne Multiplikator (konservativ korrekt).
         cm_verdict, cm_band = _cm_consistency(
-            best["shared_cm"], (root_depth or 0) + (match_depth or 0),
-            multiplier=link_count)
+            best["shared_cm"], (root_depth or 0) + (match_depth or 0))
 
         result.append({
             "match_guid":           match_guid,
