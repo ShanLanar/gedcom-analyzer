@@ -25,7 +25,9 @@ log = logging.getLogger(__name__)
 class Database:
     """Verwaltet die SQLite-Datenbank für DNA-Matches und Shared Matches."""
 
-    SCHEMA_VERSION = 42
+    # Einzige Quelle ist runner.TARGET_VERSION — hier nur referenziert, damit die
+    # Version nicht an zwei Stellen driftet (dient nur einer Log-Zeile).
+    from ancestry.core.db.runner import TARGET_VERSION as SCHEMA_VERSION
 
     def __init__(self, db_file: str = "ancestry_dna.db"):
         import os

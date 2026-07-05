@@ -53,12 +53,15 @@ class SegmentsRepo:
     # ── X-DNA (S7-US-1) ────────────────────────────────────────────────────────
 
     def get_x_dna_matches(self, test_guid: str, min_cm: float = 0.0) -> list[dict]:
-        """Matches mit X-Chromosom-Segmenten (chromosome = 23).
+        """Matches mit X-Chromosom-Segmenten (chromosome = 23), aggregiert.
 
-        X-DNA folgt einem eigenen Erbgang (ein Mann erbt kein X von seinem
-        Vater), daher grenzt ein X-Match die in Frage kommenden Ahnenlinien
-        stark ein. Rückgabe je Match: aggregiertes X-cM und Segmentzahl,
-        absteigend nach cM.
+        Rückgabe je Match: summiertes X-cM, Segmentzahl, längstes X-Segment,
+        absteigend nach cM. Dies ist ein ROH-Aggregat — die eigentliche
+        Linien-Eingrenzung (ein Mann erbt kein X vom Vater; gültige X-Ahnen
+        folgen dem Fibonacci-Fächer) ist NICHT implementiert und bräuchte das
+        Geschlecht des Testers. Hinweis: X-cM (X ≈ 180 cM gesamt) sind nicht
+        direkt mit autosomalen cM vergleichbar; kleine X-Segmente sind wegen
+        geringerer SNP-Dichte unzuverlässiger (ggf. min_cm setzen).
         """
         with self._db._cursor() as cur:
             cur.execute("""

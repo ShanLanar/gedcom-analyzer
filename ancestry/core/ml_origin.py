@@ -179,7 +179,10 @@ def load() -> bool:
             if actual != expected:
                 log.error("ml_origin: SHA-256-Prüfsumme stimmt nicht — Modell verworfen.")
                 return False
-        _MODEL = pickle.loads(raw)  # noqa: S301 — nach Hash-Verifikation sicher
+        # Die SHA-256-Prüfung liegt NEBEN der Datei (gleich schreibbar) →
+        # schützt nur gegen Korruption, NICHT gegen Manipulation. Lokal erzeugt,
+        # daher akzeptabel; niemals fremde/heruntergeladene Modelle laden (RCE).
+        _MODEL = pickle.loads(raw)  # noqa: S301
         return True
     except Exception as e:
         log.warning("ml_origin: Modell laden fehlgeschlagen: %s", e)

@@ -79,7 +79,12 @@ def open_entity_review(parent, db) -> None:
             min_c = float(min_conf_var.get())
         except ValueError:
             min_c = 0.0
-        where = (f"WHERE status='{status}'" if status != "alle" else "WHERE 1=1")
+        # status parametrisiert statt in den SQL-String interpoliert
+        # (Combobox ist zwar readonly, aber Parameter-Bindung ist der robuste Weg).
+        if status != "alle":
+            where, params = "WHERE status = ?", (status, min_c)
+        else:
+            where, params = "WHERE 1=1", (min_c,)
         try:
             with db._cursor() as cur:
                 rows = cur.execute(f"""
@@ -90,7 +95,7 @@ def open_entity_review(parent, db) -> None:
                       AND confidence >= ?
                     ORDER BY confidence DESC
                     LIMIT 500
-                """, (min_c,)).fetchall()
+                """, params).fetchall()
         except Exception as exc:
             count_var.set(f"Fehler: {exc}")
             return

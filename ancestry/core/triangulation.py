@@ -104,7 +104,9 @@ def build_triangulation_groups(
     # begrenzt den RAM-Bedarf auf die (kleine) Segment-Population statt der
     # gesamten Match-Tabelle (relevant bei 300k+ Matches).
     seg_guids = {s["match_guid"] for s in segments}
-    shared_pairs = db.get_shared_pairs_set(test_guid, guids=seg_guids)
+    # min_cm auch für die Shared-Pair-Schwelle verwenden (statt Repo-Default 7),
+    # damit Segment-Filter und Paar-Filter konsistent sind.
+    shared_pairs = db.get_shared_pairs_set(test_guid, min_cm=min_cm, guids=seg_guids)
 
     by_chrom: dict[int, list[dict]] = defaultdict(list)
     for seg in segments:
@@ -171,11 +173,21 @@ def build_triangulation_groups(
                 emitted.add(key)
                 region_start = max(s["start_location"] for s in sub)
                 region_end   = min(s["end_location"]   for s in sub)
+                # Qualitätsflag: bilden ALLE Mitglieder-Paare ein shared-Paar
+                # (echte Clique = stärkste Triangulation), oder nur transitiv
+                # verbunden? Ändert die Gruppierung nicht, macht die Güte sichtbar.
+                sub_guids = [s["match_guid"] for s in sub]
+                is_clique = all(
+                    frozenset({a, b}) in shared_pairs
+                    for x, a in enumerate(sub_guids)
+                    for b in sub_guids[x + 1:]
+                )
                 tgs.append({
                     "chromosome":   chrom,
                     "chromosome_label": chromosome_label(chrom),
                     "region_start": region_start,
                     "region_end":   region_end,
+                    "clique":       is_clique,
                     "members": [
                         {
                             "match_guid": s["match_guid"],

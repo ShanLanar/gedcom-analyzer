@@ -17,10 +17,12 @@ Schema von ``import_external_persons`` ab (source='familysearch').
 from __future__ import annotations
 
 import json
+import logging
 import re
 import urllib.parse
 import urllib.request
 
+log = logging.getLogger(__name__)
 _YEAR_RE = re.compile(r"\b(1[0-9]{3}|2[01]\d{2})\b")
 
 # Standard-Endpunkte (Produktions-Umgebung)
@@ -73,7 +75,10 @@ class FamilySearchClient:
             {"Content-Type": "application/x-www-form-urlencoded"}, data)
         self.access_token = resp.get("access_token")
         if not self.access_token:
-            raise RuntimeError(f"Kein access_token in Antwort: {resp}")
+            # Kein vollständiges resp loggen (kann error_description/Korrelations-
+            # IDs enthalten) — nur den Fehlercode.
+            raise RuntimeError(
+                f"Token-Austausch fehlgeschlagen (error={resp.get('error') or '?'})")
         return self.access_token
 
     # ── API ────────────────────────────────────────────────────────────────────
@@ -88,14 +93,23 @@ class FamilySearchClient:
         })
 
     def get_person(self, person_id: str) -> dict:
-        """Family-Tree-Person als rohes FS-JSON (persons[0])."""
-        data = self._get(f"/platform/tree/persons/{person_id}")
+        """Family-Tree-Person als rohes FS-JSON (persons[0]). {} bei HTTP-Fehler."""
+        if not self.access_token:
+            raise RuntimeError("Nicht authentifiziert – erst exchange_code() aufrufen.")
+        try:
+            data = self._get(f"/platform/tree/persons/{person_id}")
+        except Exception as e:
+            log.warning("FamilySearch get_person(%s): %s", person_id, e)
+            return {}
         persons = data.get("persons") or []
         return persons[0] if persons else {}
 
     def search_persons(self, given: str = "", surname: str = "",
                        birth_year: int | None = None) -> list[dict]:
-        """Personensuche; gibt normalisierte Dicts (import-fähig) zurück."""
+        """Personensuche; gibt normalisierte Dicts (import-fähig) zurück.
+        Fail-soft: bei HTTP-Fehler (401/429/5xx) leere Liste statt Abbruch."""
+        if not self.access_token:
+            raise RuntimeError("Nicht authentifiziert – erst exchange_code() aufrufen.")
         q_parts = []
         if given:
             q_parts.append(f'givenName:"{given}"')
@@ -104,7 +118,11 @@ class FamilySearchClient:
         if birth_year:
             q_parts.append(f"birthLikeDate:from {birth_year - 2} to {birth_year + 2}")
         query = urllib.parse.urlencode({"q": " ".join(q_parts)})
-        data = self._get(f"/platform/tree/search?{query}")
+        try:
+            data = self._get(f"/platform/tree/search?{query}")
+        except Exception as e:
+            log.warning("FamilySearch search_persons: %s", e)
+            return []
         entries = (data.get("entries") or [])
         out = []
         for e in entries:
