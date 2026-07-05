@@ -257,3 +257,4 @@ class Database:
     def get_segments(self, *a, **kw) -> list:            return self._segs.get_segments(*a, **kw)
     def get_x_dna_matches(self, *a, **kw) -> list:       return self._segs.get_x_dna_matches(*a, **kw)
     def get_ibd2_matches(self, *a, **kw) -> list:        return self._segs.get_ibd2_matches(*a, **kw)
+    def get_x_ancestors(self, *a, **kw) -> list:         return self._segs.get_x_ancestors(*a, **kw)

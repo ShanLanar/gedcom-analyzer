@@ -97,3 +97,35 @@ class SegmentsRepo:
                 ORDER BY ibd2_cm DESC
             """, (test_guid, min_cm))
             return [dict(r) for r in cur.fetchall()]
+
+    # ── X-Ahnen-Fächer (echte Linien-Eingrenzung) ──────────────────────────────
+
+    def get_x_ancestors(self, tester_sex: str) -> list[dict]:
+        """Vorfahren (aus gedcom_persons) die X-DNA beitragen KÖNNEN.
+
+        Filtert die Ahnen mit Sosa-Nummer auf die X-validen Positionen für das
+        Geschlecht des Testers (x_inheritance). So sieht man, aus welchen Linien
+        ein X-DNA-Match überhaupt stammen kann. Leere Liste, wenn keine
+        Sosa-Nummern gesetzt sind (GEDCOM-Import ohne root_id/families)."""
+        from ancestry.core.x_inheritance import is_x_ancestor
+        try:
+            with self._db._cursor() as cur:
+                rows = cur.execute("""
+                    SELECT sosa_number, given_name, surname, birth_year, sex
+                    FROM gedcom_persons
+                    WHERE sosa_number > 0
+                    ORDER BY sosa_number
+                """).fetchall()
+        except Exception:
+            return []
+        out = []
+        for r in rows:
+            sosa = r["sosa_number"]
+            if is_x_ancestor(sosa, tester_sex):
+                out.append({
+                    "sosa":       sosa,
+                    "generation": int(sosa).bit_length(),   # Sosa 1→1, 2-3→2, 4-7→3 …
+                    "name":       f"{r['given_name'] or ''} {r['surname'] or ''}".strip(),
+                    "birth_year": r["birth_year"],
+                })
+        return out

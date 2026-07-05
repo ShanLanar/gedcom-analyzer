@@ -107,5 +107,49 @@ def show_dna_segments(parent, db, test_guid, *, set_status=None) -> None:
             "(keine IBD2-Segmente – Standard-CSV enthält keine FIR-Daten)", "", ""))
     i_tv.pack(fill="both", expand=True)
 
+    # ── X-Ahnen-Fächer (echte Linien-Eingrenzung, braucht Testergeschlecht) ────
+    xa_frame = ttk.LabelFrame(
+        win, text="X-Ahnen-Fächer – aus welchen Linien X-DNA stammen KANN", padding=6)
+    xa_frame.pack(fill="both", expand=True, padx=12, pady=(4, 10))
+    ctl = ttk.Frame(xa_frame)
+    ctl.pack(fill="x")
+    ttk.Label(ctl, text="Geschlecht der Testperson:").pack(side="left")
+    sex_var = tk.StringVar(value="männlich")
+    ttk.Combobox(ctl, textvariable=sex_var, width=12, state="readonly",
+                 values=["männlich", "weiblich"]).pack(side="left", padx=(4, 8))
+    info_var = tk.StringVar(value="")
+    ttk.Label(xa_frame, textvariable=info_var, foreground="#555566",
+              wraplength=660, justify="left").pack(anchor="w", pady=(4, 2))
+
+    xa_tv = ttk.Treeview(xa_frame, columns=("sosa", "gen", "name", "yr"),
+                         show="headings", height=6)
+    for col, lbl, w in [("sosa", "Sosa", 60), ("gen", "Gen", 45),
+                        ("name", "Ahn", 320), ("yr", "geb.", 70)]:
+        xa_tv.heading(col, text=lbl)
+        xa_tv.column(col, width=w, anchor="w" if col == "name" else "center")
+    xa_tv.pack(fill="both", expand=True, pady=(2, 0))
+
+    def _refresh_x_fan(*_):
+        from ancestry.core.x_inheritance import x_ancestor_count_per_gen
+        sex = sex_var.get()
+        counts = x_ancestor_count_per_gen(sex, 6)
+        try:
+            ancestors = db.get_x_ancestors(sex)
+        except Exception:
+            ancestors = []
+        info_var.set(
+            "X-Ahnen je Generation (Gen 2–6): "
+            + ", ".join(str(c) for c in counts[1:])
+            + f"  ·  im Stammbaum X-relevant: {len(ancestors)}"
+            + ("" if ancestors else
+               "  (keine Sosa-Nummern — GEDCOM mit Root/Familien laden)"))
+        xa_tv.delete(*xa_tv.get_children())
+        for a in ancestors:
+            xa_tv.insert("", "end", values=(
+                a["sosa"], a["generation"], a["name"] or "?", a["birth_year"] or ""))
+
+    sex_var.trace_add("write", _refresh_x_fan)
+    _refresh_x_fan()
+
     if set_status:
         set_status(f"DNA-Segmente: {len(x_rows)} X-Matches, {len(ibd2_rows)} IBD2.")
