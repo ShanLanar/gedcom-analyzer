@@ -717,6 +717,15 @@ def _save_entries(
 
 # ── Playwright-Seiten-Scanner ──────────────────────────────────────────────────
 
+def _safe_seg(seg: str) -> str:
+    """Ein Pfadsegment auf sichere Zeichen reduzieren (kein '/', '\\', '..').
+    Verhindert Path-Traversal über gescrapte book_id-/Label-Werte."""
+    seg = (seg or "").strip().replace("\\", "/").split("/")[-1]
+    seg = re.sub(r"[^\w.\-]", "_", seg, flags=re.UNICODE)
+    seg = seg.strip(".") or "_"          # keine reinen Punkte ('.', '..')
+    return seg[:120]
+
+
 def _archive_path(
     archive_dir: Path,
     book_id: str,
@@ -733,13 +742,19 @@ def _archive_path(
     Nur die letzten zwei Segmente werden als Verzeichnis verwendet.
     """
     parts       = book_id.split("/")
-    parish_slug = parts[-2] if len(parts) >= 2 else book_id
-    book_slug   = parts[-1]
+    parish_slug = _safe_seg(parts[-2] if len(parts) >= 2 else book_id)
+    book_slug   = _safe_seg(parts[-1])
     if label:
-        fname = f"{parish_slug}_{book_slug}_{label}.jpg"
+        fname = f"{parish_slug}_{book_slug}_{_safe_seg(label)}.jpg"
     else:
         fname = f"{page_nr:04d}.jpg"
-    return archive_dir / parish_slug / book_slug / fname
+    # book_id/label stammen aus gescraptem Matricula-JS → gegen Path-Traversal
+    # absichern: nach dem Zusammenbau muss der Pfad im Archiv-Verzeichnis liegen.
+    target = archive_dir / parish_slug / book_slug / fname
+    root = archive_dir.resolve()
+    if not str(target.resolve()).startswith(str(root)):
+        raise ValueError(f"Archiv-Pfad verlässt das Zielverzeichnis: {target}")
+    return target
 
 
 def _count_up(start: int = 1):
@@ -847,9 +862,32 @@ def _scan_book(
                 (book_id,),
             )
         done_pages: set[int] = set()
-        # enumerate statt int(stem) — funktioniert auch mit Label-basierten Dateinamen
-        archived_by_nr = {i: p for i, p in enumerate(archived, 1)}
-        page_range: list[int] | None = list(archived_by_nr.keys())
+        # Reale page_nr aus matricula_page_scans (image_path→page_nr) statt blindem
+        # enumerate: Letzteres vergab 1..N nach LEXIKOGRAFISCher Sortierung und
+        # divergierte damit von den beim Download geschriebenen echten Seitenzahlen
+        # (→ pending-Waisen, Fehl-Zuordnung korrigierter Seiten). Fallbacks:
+        # Ziffern aus dem Dateinamen, sonst der Laufindex.
+        name_to_nr: dict[str, int] = {}
+        try:
+            for row in parish_db.execute(
+                "SELECT page_nr, image_path FROM matricula_page_scans WHERE book_id=?",
+                (book_id,),
+            ).fetchall():
+                if row["image_path"]:
+                    name_to_nr[Path(row["image_path"]).name] = row["page_nr"]
+        except Exception:
+            pass
+        archived_by_nr = {}
+        for idx, p in enumerate(archived, 1):
+            nr = name_to_nr.get(p.name)
+            if nr is None:
+                if p.stem.isdigit():
+                    nr = int(p.stem)
+                else:
+                    m = re.search(r"(\d+)$", p.stem)
+                    nr = int(m.group(1)) if m else idx
+            archived_by_nr[nr] = p
+        page_range: list[int] | None = sorted(archived_by_nr.keys())
     else:
         # download_only überspringt bereits geladene Seiten ('downloaded'),
         # ein normaler Lauf überspringt nur transkribierte ('done') und nutzt

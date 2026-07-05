@@ -54,3 +54,18 @@ def test_cache_key_is_model_aware():
     assert _cache_key("prompt", "haiku", 450) != _cache_key("prompt", "sonnet", 450)
     assert _cache_key("prompt", "haiku", 450) != _cache_key("prompt", "haiku", 900)
     assert _cache_key("p", "m", 1) == _cache_key("p", "m", 1)
+
+
+def test_in_memory_lru_roundtrip_and_bound():
+    """Der In-Memory-LRU liefert zurück, was er speichert, und wächst nicht
+    über _CACHE_MAX (P1-2: Speicherleck vermeiden)."""
+    import ancestry.core.ai_copilot as ac
+    ac._CACHE.clear()
+    ac._cache_put("k1", "v1")
+    assert ac._cache_get("k1") == "v1"
+    assert ac._cache_get("fehlt") is None
+    # über die Deckelung hinaus füllen → Größe bleibt begrenzt
+    for i in range(ac._CACHE_MAX + 50):
+        ac._cache_put(f"key{i}", "x")
+    assert len(ac._CACHE) <= ac._CACHE_MAX
+    ac._CACHE.clear()

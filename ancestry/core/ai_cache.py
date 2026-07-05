@@ -39,7 +39,16 @@ def _conn() -> sqlite3.Connection:
     if _CONN is None:
         path = _db_path()
         Path(path).parent.mkdir(parents=True, exist_ok=True)
-        _CONN = sqlite3.connect(path, check_same_thread=False)
+        _CONN = sqlite3.connect(path, check_same_thread=False, timeout=30.0)
+        # WAL + busy_timeout: Massenläufe (Berufs-Normalisierung, Brick-Wall-
+        # Hypothesen) laufen oft in mehreren Prozessen. Ohne das kollidiert put()
+        # mit SQLITE_BUSY → Antwort UND Token-Usage (Kostenkontrolle) gingen
+        # still verloren (Exception nur als log.debug).
+        try:
+            _CONN.execute("PRAGMA journal_mode=WAL")
+            _CONN.execute("PRAGMA busy_timeout=30000")
+        except sqlite3.OperationalError:
+            pass
         _CONN.execute("""
             CREATE TABLE IF NOT EXISTS ai_cache (
                 key         TEXT PRIMARY KEY,

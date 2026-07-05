@@ -11,7 +11,7 @@ import hashlib
 import logging
 import os
 import threading
-from collections import Counter
+from collections import Counter, OrderedDict
 from typing import Callable
 
 from ancestry.core import ai_cache
@@ -23,7 +23,31 @@ _MODEL      = os.environ.get("AI_COPILOT_MODEL", "claude-sonnet-4-6")
 # z. B. Hypothesen für hunderte Brick Walls): ~10× billiger als Sonnet.
 _BULK_MODEL = os.environ.get("AI_COPILOT_BULK_MODEL", "claude-haiku-4-5")
 _MAX_TOKENS = 450
-_CACHE: dict[str, str] = {}  # SHA-256[:20] → vollständiger Response
+
+# In-Memory-LRU über dem persistenten SQLite-Cache. OrderedDict + Deckelung
+# verhindert unbegrenztes Wachstum über lange Sitzungen (Speicherleck).
+_CACHE: "OrderedDict[str, str]" = OrderedDict()
+_CACHE_MAX = 512
+_CACHE_LOCK = threading.Lock()
+# Schlüssel, für die gerade ein API-Call läuft — verhindert, dass zwei
+# gleichzeitige explain_async(prompt) denselben (kostenpflichtigen) Call feuern.
+_IN_FLIGHT: set[str] = set()
+
+
+def _cache_get(k: str) -> str | None:
+    with _CACHE_LOCK:
+        if k in _CACHE:
+            _CACHE.move_to_end(k)
+            return _CACHE[k]
+    return None
+
+
+def _cache_put(k: str, v: str) -> None:
+    with _CACHE_LOCK:
+        _CACHE[k] = v
+        _CACHE.move_to_end(k)
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
 
 
 # ── Verfügbarkeitsprüfung ─────────────────────────────────────────────────────
@@ -79,19 +103,30 @@ def explain_async(
     """
     model = _BULK_MODEL if bulk else _MODEL
     k = _cache_key(prompt, model, max_tokens)
-    # Zwei Cache-Ebenen: schneller In-Memory-dict über dem persistenten
+    # Zwei Cache-Ebenen: schneller In-Memory-LRU über dem persistenten
     # SQLite-Cache (überlebt Neustarts, sammelt Token-Usage).
-    full = _CACHE.get(k)
+    full = _cache_get(k)
     if full is None:
         full = ai_cache.get(k)
         if full is not None:
-            _CACHE[k] = full
+            _cache_put(k, full)
     if full is not None:
         if on_chunk:
             on_chunk(full)
         if on_done:
             on_done(full)
         return
+
+    # In-Flight-Dedupe: läuft für denselben Key bereits ein Call, keinen
+    # zweiten (kostenpflichtigen) feuern — leeres Ergebnis liefern statt Doppel-
+    # Call. (GUI ruft denselben Prompt selten exakt gleichzeitig; Bulk-Läufe
+    # dedupen Keys ohnehin vorab, aber das ist die harte Absicherung.)
+    with _CACHE_LOCK:
+        if k in _IN_FLIGHT:
+            if on_done:
+                on_done("")
+            return
+        _IN_FLIGHT.add(k)
 
     def _run():
         try:
@@ -115,7 +150,7 @@ def explain_async(
                 except Exception:
                     pass
             result = "".join(buf)
-            _CACHE[k] = result
+            _cache_put(k, result)
             ai_cache.put(k, model, result, t_in, t_out)
             if on_done:
                 on_done(result)
@@ -126,6 +161,9 @@ def explain_async(
                 on_chunk(err)
             if on_done:
                 on_done(err)
+        finally:
+            with _CACHE_LOCK:
+                _IN_FLIGHT.discard(k)
 
     threading.Thread(target=_run, daemon=True).start()
 
