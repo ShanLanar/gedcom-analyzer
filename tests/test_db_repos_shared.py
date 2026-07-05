@@ -219,3 +219,45 @@ class TestBulkUpsertShared:
         count = db.bulk_upsert_shared(items)
         assert count == 2
         assert db.get_shared_match_count("kit-T1", "m-A") == 2
+
+
+# ── FK-Cleanup: synchron, kein Race mit nachträglichen Inserts ─────────────────
+
+class TestFkCleanupNoRace:
+    """Der Waisen-Cleanup läuft SYNCHRON beim Öffnen (nicht im Hintergrund).
+
+    Regressionstest für einen nichtdeterministischen Bug: ein Daemon-Thread
+    löschte shared_matches, deren Anker (match_guid_a) noch nicht in `matches`
+    stand — und zwar potenziell NACH dem Öffnen, sodass er gerade erst
+    eingefügte Zeilen als „Waisen" wegräumte. Bei frisch geöffneter (leerer) DB
+    findet der Cleanup nichts; danach eingefügte Zeilen müssen bestehen bleiben,
+    weil kein nebenläufiger Cleanup mehr läuft.
+    """
+
+    def test_shared_inserted_after_open_survives(self, tmp_path):
+        from ancestry.core.database import Database
+        d = Database(str(tmp_path / "race.db"))
+        # bewusst KEINE matches-Zeilen für X/Y anlegen: aus Sicht des Cleanups
+        # wären das „Waisen". Vor dem Fix konnte der Hintergrund-Thread sie
+        # nichtdeterministisch löschen.
+        d.upsert_shared_match(SharedMatch(
+            test_guid="kit-Z", match_guid_a="X", match_guid_b="Y",
+            shared_cm_ab=30.0, fetched_at="2026-01-01"))
+        # Kein sleep/join nötig: es gibt keinen Hintergrund-Thread mehr.
+        assert d.get_shared_match_count("kit-Z", "X") == 1
+        pairs = d.get_shared_pairs_set("kit-Z", min_cm=7.0)
+        assert frozenset(("X", "Y")) in pairs
+
+    def test_preexisting_orphans_are_cleaned_on_open(self, tmp_path):
+        """Echte Alt-Waisen (beim Öffnen bereits vorhanden) werden entfernt."""
+        from ancestry.core.database import Database
+        path = str(tmp_path / "orphan.db")
+        d = Database(path)
+        d.upsert_shared_match(SharedMatch(
+            test_guid="kit-Z", match_guid_a="ghost", match_guid_b="Y",
+            shared_cm_ab=30.0, fetched_at="2026-01-01"))
+        d.close()
+        # Neu öffnen: "ghost" hat keinen Match → beim Öffnen synchron bereinigt.
+        d2 = Database(path)
+        assert d2.get_shared_match_count("kit-Z", "ghost") == 0
+        d2.close()

@@ -129,37 +129,41 @@ class Database:
         except Exception as e:
             log.debug("mkm-Reparatur: %s", e)
         # Waisenzeilen bereinigen (FK=OFF → manuelle Integrität).
-        # Läuft im Hintergrund und NUR wenn tatsächlich Waisen vorhanden sind
-        # (EXISTS-Check zuerst — verhindert unnötige DELETEs auf gefüllten DBs).
-        def _fk_cleanup():
-            try:
-                from ancestry.core.db.connection import _open
-                bg = _open(self.db_file)
-                # shared_matches hat KEINE Spalte match_guid (nur match_guid_a/_b)
-                # — die frühere "match_guid" warf still und der Cleanup lief nie.
-                # Waise = Anker match_guid_a ohne zugehörigen Match.
-                for tbl, col in (("shared_matches", "match_guid_a"),
-                                 ("match_pedigree", "match_guid")):
-                    has_orphan = bg.execute(
-                        f"SELECT 1 FROM {tbl} t "
-                        f"WHERE NOT EXISTS (SELECT 1 FROM matches m WHERE m.match_guid=t.{col}) "
-                        "LIMIT 1"
-                    ).fetchone()
-                    if has_orphan:
-                        # Kein Tabellen-Alias: SQLite erlaubt bei DELETE keinen
-                        # Alias — mit Alias schlug der Cleanup bisher still fehl.
-                        cur = bg.execute(
-                            f"DELETE FROM {tbl} "
-                            f"WHERE NOT EXISTS (SELECT 1 FROM matches m "
-                            f"WHERE m.match_guid={tbl}.{col})"
-                        )
-                        log.info("FK-Cleanup: %d Waisenzeilen in %s bereinigt",
-                                 cur.rowcount, tbl)
-                bg.commit()
-                bg.close()
-            except Exception as e:
-                log.debug("FK-Cleanup übersprungen: %s", e)
-        threading.Thread(target=_fk_cleanup, daemon=True, name="fk_cleanup").start()
+        # Läuft SYNCHRON beim Öffnen und NUR wenn tatsächlich Waisen vorhanden
+        # sind (EXISTS-Check zuerst — verhindert unnötige DELETEs auf gesunden
+        # DBs; dort kostet der Cleanup nur zwei indexierte EXISTS-Abfragen).
+        #
+        # Bewusst KEIN Hintergrund-Thread mehr: der frühere Daemon öffnete eine
+        # zweite Verbindung und löschte Zeilen nebenläufig, während der Vorder-
+        # grund dieselbe DB las/schrieb. Das war ein Race — er konnte gerade erst
+        # eingefügte shared_matches als „Waisen" löschen, bevor sie verankert
+        # waren (nichtdeterministisch, u. a. in der Triangulations-Testsuite).
+        # Synchron beim Öffnen ist die DB in einem konsistenten Zustand und es
+        # gibt keinen nebenläufigen Schreiber, mit dem kollidiert werden könnte.
+        try:
+            # shared_matches hat KEINE Spalte match_guid (nur match_guid_a/_b)
+            # — die frühere "match_guid" warf still und der Cleanup lief nie.
+            # Waise = Anker match_guid_a ohne zugehörigen Match.
+            for tbl, col in (("shared_matches", "match_guid_a"),
+                             ("match_pedigree", "match_guid")):
+                has_orphan = conn.execute(
+                    f"SELECT 1 FROM {tbl} t "
+                    f"WHERE NOT EXISTS (SELECT 1 FROM matches m WHERE m.match_guid=t.{col}) "
+                    "LIMIT 1"
+                ).fetchone()
+                if has_orphan:
+                    # Kein Tabellen-Alias: SQLite erlaubt bei DELETE keinen
+                    # Alias — mit Alias schlug der Cleanup bisher still fehl.
+                    cur = conn.execute(
+                        f"DELETE FROM {tbl} "
+                        f"WHERE NOT EXISTS (SELECT 1 FROM matches m "
+                        f"WHERE m.match_guid={tbl}.{col})"
+                    )
+                    log.info("FK-Cleanup: %d Waisenzeilen in %s bereinigt",
+                             cur.rowcount, tbl)
+            conn.commit()
+        except Exception as e:
+            log.debug("FK-Cleanup übersprungen: %s", e)
         log.debug("DB initialisiert: %s (Schema v%d)", self.db_file, self.SCHEMA_VERSION)
 
     # ── Kits ──────────────────────────────────────────────────────────────────
