@@ -33,10 +33,11 @@ def _make_authorizer(writable: Optional[frozenset]):
     return authorizer
 
 
-def _open(path: str, writable: Optional[frozenset] = None) -> sqlite3.Connection:
-    conn = sqlite3.connect(str(path), check_same_thread=False)
-    conn.row_factory = sqlite3.Row
-    # Performance Pragmas
+def tune_connection(conn: sqlite3.Connection) -> None:
+    """Einheitliche Performance-/Concurrency-PRAGMAs für alle Kern-Verbindungen.
+
+    Einzige Quelle für diesen Block — früher byte-identisch in db/connection.py
+    UND ancestry/core/database.py gepflegt (Drift-Risiko)."""
     conn.execute("PRAGMA journal_mode=WAL")           # Write-Ahead Logging
     conn.execute("PRAGMA foreign_keys=OFF")           # Keine FK-Constraints prüfen
     conn.execute("PRAGMA synchronous=NORMAL")         # Weniger fsync (sicherer als OFF)
@@ -44,6 +45,12 @@ def _open(path: str, writable: Optional[frozenset] = None) -> sqlite3.Connection
     conn.execute("PRAGMA temp_store=MEMORY")          # Temp-Tabellen im RAM
     conn.execute("PRAGMA mmap_size=268435456")        # Memory-Mapped I/O (256MB)
     conn.execute("PRAGMA busy_timeout=5000")          # 5s auf Lock warten statt SQLITE_BUSY
+
+
+def _open(path: str, writable: Optional[frozenset] = None) -> sqlite3.Connection:
+    conn = sqlite3.connect(str(path), check_same_thread=False)
+    conn.row_factory = sqlite3.Row
+    tune_connection(conn)
     if writable is not None:
         conn.set_authorizer(_make_authorizer(writable))
     return conn

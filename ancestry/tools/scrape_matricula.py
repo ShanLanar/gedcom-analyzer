@@ -32,6 +32,9 @@ import sys
 import time
 from pathlib import Path
 
+from ancestry.tools._matricula_common import jh_to_year as _jh_to_year
+from ancestry.tools._matricula_common import norm_village as _norm
+
 if sys.platform == "win32":
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")   # type: ignore[attr-defined]
@@ -47,22 +50,9 @@ BESTANDE_URL  = "https://data.matricula-online.eu/de/bestande/"
 MATRICULA_BASE = "https://data.matricula-online.eu"
 
 _ABPFARR_LINE = re.compile(r"(\d{4})\s+(.+)")
-_JH_YEAR      = re.compile(r"(\d+)\.\s*Jh\b")
-_YEAR_RE      = re.compile(r"\b(1[0-9]{3}|20\d{2})\b")
 
 
 # ── Hilfsfunktionen ───────────────────────────────────────────────────────────
-
-def _jh_to_year(text: str) -> int | None:
-    m = _JH_YEAR.search(text)
-    if m:
-        return (int(m.group(1)) - 1) * 100 + 50
-    m = _YEAR_RE.search(text)
-    return int(m.group()) if m else None
-
-
-def _norm(v: str) -> str:
-    return v.strip().rstrip(".,;")
 
 
 # ── Datenbank ─────────────────────────────────────────────────────────────────

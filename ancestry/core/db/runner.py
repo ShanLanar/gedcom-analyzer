@@ -1,13 +1,58 @@
 """Führt nummerierte SQL-Migrations-Dateien gegen eine SQLite-Verbindung aus."""
 import logging
-import re
 import sqlite3
 from pathlib import Path
 
 log = logging.getLogger(__name__)
 
 MIGRATIONS_DIR = Path(__file__).parent / "migrations"
-TARGET_VERSION = 41
+TARGET_VERSION = 42
+
+
+def _split_statements(sql: str) -> list[str]:
+    """Zerlegt eine SQL-Datei in Einzel-Statements — komment- und string-bewusst.
+
+    Splittet nur an top-level ';', nicht an ';' innerhalb von '…'-Strings,
+    ``--``-Zeilen- oder ``/* */``-Blockkommentaren (das naive re.split(';')
+    zerbrach genau daran, z. B. bei Semikolon in einem Kommentar). Hinweis:
+    CREATE TRIGGER mit internem ';' wird NICHT unterstützt — bislang nutzt keine
+    Migration Trigger; falls doch, muss dieser Splitter erweitert werden."""
+    stmts: list[str] = []
+    buf: list[str] = []
+    i, n = 0, len(sql)
+    in_str = False
+    while i < n:
+        c = sql[i]
+        if in_str:
+            buf.append(c)
+            if c == "'":
+                if i + 1 < n and sql[i + 1] == "'":   # '' = Escape
+                    buf.append(sql[i + 1]); i += 2; continue
+                in_str = False
+            i += 1; continue
+        if c == "'":
+            in_str = True; buf.append(c); i += 1; continue
+        if c == "-" and i + 1 < n and sql[i + 1] == "-":   # Zeilenkommentar
+            while i < n and sql[i] != "\n":
+                buf.append(sql[i]); i += 1
+            continue
+        if c == "/" and i + 1 < n and sql[i + 1] == "*":   # Blockkommentar
+            buf.append("/*"); i += 2
+            while i < n and not (sql[i] == "*" and i + 1 < n and sql[i + 1] == "/"):
+                buf.append(sql[i]); i += 1
+            if i < n:
+                buf.append("*/"); i += 2
+            continue
+        if c == ";":
+            s = "".join(buf).strip()
+            if s:
+                stmts.append(s)
+            buf = []; i += 1; continue
+        buf.append(c); i += 1
+    tail = "".join(buf).strip()
+    if tail:
+        stmts.append(tail)
+    return stmts
 
 
 def _strip_leading_comments(stmt: str) -> str:
@@ -42,9 +87,7 @@ def run(conn: sqlite3.Connection) -> int:
             continue   # Lücke (z. B. 0005) – bewusst
         log.debug("Migrations-Schritt %04d: %s", n, sql_path.name)
         sql = sql_path.read_text(encoding="utf-8")
-        statements = [s.strip() for s in re.split(r';', sql) if s.strip()]
-        migration_ok = True
-        for stmt in statements:
+        for stmt in _split_statements(sql):
             try:
                 conn.execute(stmt)
             except sqlite3.OperationalError as e:
@@ -60,10 +103,8 @@ def run(conn: sqlite3.Connection) -> int:
                     log.debug("Migration: Index/View übersprungen (Tabelle fehlt): %s", e)
                     continue
                 log.warning("Migration %s: %s", sql_path.name, e)
-                migration_ok = False
-                raise
-        if migration_ok:
-            log.info("Migration %s angewendet", sql_path.name)
+                raise   # nicht-idempotenter Fehler → Lauf abbrechen
+        log.info("Migration %s angewendet", sql_path.name)
 
     if row:
         conn.execute("UPDATE schema_version SET version=?", (TARGET_VERSION,))

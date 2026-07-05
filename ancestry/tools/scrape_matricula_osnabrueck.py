@@ -57,22 +57,10 @@ DIOCESE_PATH: str = _m.group(1) if _m else "deutschland/osnabrueck"
 _ABPFARR_LINE = re.compile(
     r"(\d{4})\s+(.+)",          # "1667 Bohmte"  oder  "13. Jh. Venne"
 )
-_JH_YEAR = re.compile(r"(\d+)\.\s*Jh\b")   # "13. Jh." → ca. 1250
 
-_YEAR_RE = re.compile(r"\b(1[0-9]{3}|20\d{2})\b")
-
-
-def _jh_to_year(text: str) -> int | None:
-    """'13. Jh.' → 1250  (Mitte des Jahrhunderts)."""
-    m = _JH_YEAR.search(text)
-    if m:
-        return (int(m.group(1)) - 1) * 100 + 50
-    m = _YEAR_RE.search(text)
-    return int(m.group()) if m else None
-
-
-def _norm_village(v: str) -> str:
-    return v.strip().rstrip(".,;")
+# jh_to_year/norm_village gemeinsam in _matricula_common (früher hier dupliziert)
+from ancestry.tools._matricula_common import jh_to_year as _jh_to_year  # noqa: E402
+from ancestry.tools._matricula_common import norm_village as _norm_village  # noqa: E402
 
 
 # ── Datenbank ─────────────────────────────────────────────────────────────────

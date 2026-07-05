@@ -1,7 +1,5 @@
 """
 Leeds-Cluster-Algorithmus für DNA-Matches.
-Enthält außerdem compute_wrights_f() für eine DNA-basierte Schätzung des
-Inzuchtkoeffizienten F nach Wright (Hinweis auf Endogamie).
 
 Grundprinzip (Leeds-Methode):
   Matches >= min_cm_primary cM (Standard: 20 cM) werden als primäre
@@ -432,49 +430,14 @@ def cluster_summary(clusters: dict[int, list[dict]]) -> list[dict]:
     return summary
 
 
-def compute_wrights_f(
-    clusters: dict[int, list[dict]],
-    shared_data: list[dict],
-) -> dict[str, dict]:
-    """DNA-basierte Schätzung des Wright'schen Inzuchtkoeffizienten F pro Match.
-
-    Methode: Ein nicht-endogames Match teilt DNA über genau eine Linie mit uns.
-    Endogamie zeigt sich darin, dass ein Match in mehreren Clustern auftaucht
-    ODER innerhalb seines Clusters eine überdurchschnittlich hohe Segmentanzahl
-    relativ zur Gesamt-cM hat (viele kleine Fragmente = mehrfache Ahnenlinien).
-
-    Formel (strukturelle Approximation):
-        F_struct  = (cluster_memberships − 1) / 3   (max. 4 Linien → max. F≈1)
-
-    shared_data liefert keine Segmentanzahl, daher wird F_excess nicht berechnet.
-    Liefert {match_guid: {"f": float 0..1, "label": str, "n_clusters": int, "cm": float}}.
-    """
-    # Cluster-Zugehörigkeit (ein Match kann in mehreren Clustern stecken,
-    # wenn er Shared-Match-Verbindungen zu mehreren Primär-Clustern hat)
-    guid_clusters: dict[str, set] = {}
-    for cid, members in clusters.items():
-        for m in members:
-            guid_clusters.setdefault(m["guid"], set()).add(cid)
-
-    result: dict[str, dict] = {}
-    for cid, members in clusters.items():
-        for m in members:
-            guid = m["guid"]
-            cm      = m.get("cm") or 0
-            n_clust = len(guid_clusters.get(guid, {cid}))
-            f_approx = round(min(1.0, (n_clust - 1) / 3.0), 3)
-
-            label = ("Endogamie sehr wahrscheinlich (F≥0.5)" if f_approx >= 0.5 else
-                     "Endogamie möglich (F≥0.2)"             if f_approx >= 0.2 else
-                     "keine Endogamie-Signatur")
-
-            result[guid] = {
-                "f":          f_approx,
-                "label":      label,
-                "n_clusters": n_clust,
-                "cm":         cm,
-            }
-    return result
+# Entfernt (Scrum-Review P2-7): compute_wrights_f() war nirgends aufgerufener,
+# nicht funktionierender Code — durch die Union-Find-Partitionierung von
+# build_clusters lag jeder Match in genau EINEM Cluster, sodass die Formel
+# (n_clusters-1)/3 immer 0 ergab (Endogamie nie erkannt). Zudem hat
+# "(n-1)/3" nichts mit dem Wright'schen Inzuchtkoeffizienten F zu tun (der eine
+# IBD-Wahrscheinlichkeit ist) — der Name war irreführend. Eine echte
+# Endogamie-Schätzung (Segment-Fragmentierung / Mehrfach-Cluster über
+# shared_data) ist ein eigenes Thema und sollte nicht "Wright's F" heißen.
 
 
 # Klassische Leeds-Methode: vier Farben für die vier Großelternlinien.
