@@ -221,43 +221,62 @@ class TestBulkUpsertShared:
         assert db.get_shared_match_count("kit-T1", "m-A") == 2
 
 
-# ── FK-Cleanup: synchron, kein Race mit nachträglichen Inserts ─────────────────
+# ── Waisen-Handling: KEIN Auto-Delete beim Öffnen, nur opt-in ─────────────────
 
-class TestFkCleanupNoRace:
-    """Der Waisen-Cleanup läuft SYNCHRON beim Öffnen (nicht im Hintergrund).
+class TestOrphanHandling:
+    """Beim Öffnen wird NICHTS gelöscht — Aufräumen ist ausdrücklich opt-in.
 
-    Regressionstest für einen nichtdeterministischen Bug: ein Daemon-Thread
-    löschte shared_matches, deren Anker (match_guid_a) noch nicht in `matches`
-    stand — und zwar potenziell NACH dem Öffnen, sodass er gerade erst
-    eingefügte Zeilen als „Waisen" wegräumte. Bei frisch geöffneter (leerer) DB
-    findet der Cleanup nichts; danach eingefügte Zeilen müssen bestehen bleiben,
-    weil kein nebenläufiger Cleanup mehr läuft.
+    Regressionstest für zwei Bugs derselben Cleanup-Logik: (1) ein Daemon-
+    Thread löschte shared_matches nichtdeterministisch nach dem Öffnen (Race →
+    Flaky-Tests, konnte gerade eingefügte Zeilen wegräumen); (2) die synchrone
+    Variante blockierte den Start und löschte ungefragt Nutzerdaten. Jetzt gilt:
+    Öffnen fasst keine Zeilen an; nur repair_orphans() löscht — und zwar erst
+    auf ausdrücklichen Wunsch.
     """
 
-    def test_shared_inserted_after_open_survives(self, tmp_path):
+    def test_open_never_deletes_anything(self, tmp_path):
         from ancestry.core.database import Database
-        d = Database(str(tmp_path / "race.db"))
-        # bewusst KEINE matches-Zeilen für X/Y anlegen: aus Sicht des Cleanups
-        # wären das „Waisen". Vor dem Fix konnte der Hintergrund-Thread sie
-        # nichtdeterministisch löschen.
+        path = str(tmp_path / "keep.db")
+        d = Database(path)
+        # bewusst KEINE matches-Zeilen für X/Y: aus Sicht des alten Cleanups
+        # „Waisen". Sie müssen trotzdem bestehen bleiben.
         d.upsert_shared_match(SharedMatch(
             test_guid="kit-Z", match_guid_a="X", match_guid_b="Y",
             shared_cm_ab=30.0, fetched_at="2026-01-01"))
-        # Kein sleep/join nötig: es gibt keinen Hintergrund-Thread mehr.
-        assert d.get_shared_match_count("kit-Z", "X") == 1
-        pairs = d.get_shared_pairs_set("kit-Z", min_cm=7.0)
-        assert frozenset(("X", "Y")) in pairs
+        d.close()
+        # Neu öffnen darf nichts löschen.
+        d2 = Database(path)
+        assert d2.get_shared_match_count("kit-Z", "X") == 1
+        assert frozenset(("X", "Y")) in d2.get_shared_pairs_set("kit-Z", min_cm=7.0)
+        # Diagnose zählt die Waise, ohne sie anzufassen.
+        assert d2.count_orphans()["shared_matches"] == 1
+        assert d2.get_shared_match_count("kit-Z", "X") == 1
+        d2.close()
 
-    def test_preexisting_orphans_are_cleaned_on_open(self, tmp_path):
-        """Echte Alt-Waisen (beim Öffnen bereits vorhanden) werden entfernt."""
+    def test_repair_orphans_is_opt_in(self, tmp_path):
+        """repair_orphans() löscht Waisen nur auf ausdrücklichen Aufruf."""
         from ancestry.core.database import Database
-        path = str(tmp_path / "orphan.db")
-        d = Database(path)
+        d = Database(str(tmp_path / "repair.db"))
         d.upsert_shared_match(SharedMatch(
             test_guid="kit-Z", match_guid_a="ghost", match_guid_b="Y",
             shared_cm_ab=30.0, fetched_at="2026-01-01"))
+        assert d.get_shared_match_count("kit-Z", "ghost") == 1   # vorher da
+        deleted = d.repair_orphans()
+        assert deleted["shared_matches"] == 1
+        assert d.get_shared_match_count("kit-Z", "ghost") == 0   # jetzt weg
         d.close()
-        # Neu öffnen: "ghost" hat keinen Match → beim Öffnen synchron bereinigt.
-        d2 = Database(path)
-        assert d2.get_shared_match_count("kit-Z", "ghost") == 0
-        d2.close()
+
+    def test_repair_keeps_anchored_rows(self, tmp_path):
+        """Verankerte Zeilen (Anker in `matches`) bleiben bei repair erhalten."""
+        from ancestry.core.database import Database
+        d = Database(str(tmp_path / "anchored.db"))
+        with d._cursor() as cur:
+            cur.execute("INSERT INTO matches (match_guid, test_guid, shared_cm) "
+                        "VALUES (?,?,?)", ("real", "kit-Z", 50.0))
+        d.upsert_shared_match(SharedMatch(
+            test_guid="kit-Z", match_guid_a="real", match_guid_b="Y",
+            shared_cm_ab=30.0, fetched_at="2026-01-01"))
+        deleted = d.repair_orphans()
+        assert deleted["shared_matches"] == 0
+        assert d.get_shared_match_count("kit-Z", "real") == 1
+        d.close()

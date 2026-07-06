@@ -128,43 +128,62 @@ class Database:
                 log.info("match_kit_membership repariert: %d Einträge ergänzt", m_cnt - mkm_cnt)
         except Exception as e:
             log.debug("mkm-Reparatur: %s", e)
-        # Waisenzeilen bereinigen (FK=OFF → manuelle Integrität).
-        # Läuft SYNCHRON beim Öffnen und NUR wenn tatsächlich Waisen vorhanden
-        # sind (EXISTS-Check zuerst — verhindert unnötige DELETEs auf gesunden
-        # DBs; dort kostet der Cleanup nur zwei indexierte EXISTS-Abfragen).
-        #
-        # Bewusst KEIN Hintergrund-Thread mehr: der frühere Daemon öffnete eine
-        # zweite Verbindung und löschte Zeilen nebenläufig, während der Vorder-
-        # grund dieselbe DB las/schrieb. Das war ein Race — er konnte gerade erst
-        # eingefügte shared_matches als „Waisen" löschen, bevor sie verankert
-        # waren (nichtdeterministisch, u. a. in der Triangulations-Testsuite).
-        # Synchron beim Öffnen ist die DB in einem konsistenten Zustand und es
-        # gibt keinen nebenläufigen Schreiber, mit dem kollidiert werden könnte.
-        try:
-            # shared_matches hat KEINE Spalte match_guid (nur match_guid_a/_b)
-            # — die frühere "match_guid" warf still und der Cleanup lief nie.
-            # Waise = Anker match_guid_a ohne zugehörigen Match.
-            for tbl, col in (("shared_matches", "match_guid_a"),
-                             ("match_pedigree", "match_guid")):
-                has_orphan = conn.execute(
-                    f"SELECT 1 FROM {tbl} t "
-                    f"WHERE NOT EXISTS (SELECT 1 FROM matches m WHERE m.match_guid=t.{col}) "
-                    "LIMIT 1"
-                ).fetchone()
-                if has_orphan:
-                    # Kein Tabellen-Alias: SQLite erlaubt bei DELETE keinen
-                    # Alias — mit Alias schlug der Cleanup bisher still fehl.
-                    cur = conn.execute(
-                        f"DELETE FROM {tbl} "
-                        f"WHERE NOT EXISTS (SELECT 1 FROM matches m "
-                        f"WHERE m.match_guid={tbl}.{col})"
-                    )
-                    log.info("FK-Cleanup: %d Waisenzeilen in %s bereinigt",
-                             cur.rowcount, tbl)
-            conn.commit()
-        except Exception as e:
-            log.debug("FK-Cleanup übersprungen: %s", e)
+        # WICHTIG: Es werden beim Öffnen KEINE Daten mehr gelöscht.
+        # Früher lief hier ein „FK-Cleanup", der verwaiste shared_matches/
+        # match_pedigree-Zeilen entfernte — erst in einem Hintergrund-Thread
+        # (→ Race, konnte gerade eingefügte Zeilen löschen), dann synchron
+        # (→ blockierte den Start auf großen DBs und löschte ungefragt Daten).
+        # Beides ist unerwünscht: Waisenzeilen stören den Normalbetrieb NICHT
+        # (alle Abfragen JOINen auf `matches` und blenden sie ohnehin aus), und
+        # ein automatischer DELETE von Nutzerdaten beim Start ist zu riskant.
+        # Aufräumen ist jetzt ausdrücklich opt-in über repair_orphans().
         log.debug("DB initialisiert: %s (Schema v%d)", self.db_file, self.SCHEMA_VERSION)
+
+    def count_orphans(self) -> dict:
+        """Zählt verwaiste Zeilen (Anker-Match fehlt in `matches`), OHNE zu
+        löschen. Rein diagnostisch für eine bewusste Wartung."""
+        out: dict[str, int] = {}
+        conn = self._get_conn()
+        for tbl, col in (("shared_matches", "match_guid_a"),
+                         ("match_pedigree", "match_guid")):
+            try:
+                out[tbl] = conn.execute(
+                    f"SELECT COUNT(*) FROM {tbl} t "
+                    f"WHERE NOT EXISTS (SELECT 1 FROM matches m "
+                    f"WHERE m.match_guid=t.{col})"
+                ).fetchone()[0]
+            except Exception as e:
+                log.debug("count_orphans(%s): %s", tbl, e)
+                out[tbl] = 0
+        return out
+
+    def repair_orphans(self) -> dict:
+        """Löscht verwaiste Zeilen (Anker-Match fehlt in `matches`).
+
+        AUSDRÜCKLICH opt-in — wird nie automatisch beim Öffnen aufgerufen.
+        Nur für eine bewusste Wartung durch den Nutzer gedacht. Gibt die Anzahl
+        gelöschter Zeilen je Tabelle zurück.
+        """
+        deleted: dict[str, int] = {}
+        conn = self._get_conn()
+        for tbl, col in (("shared_matches", "match_guid_a"),
+                         ("match_pedigree", "match_guid")):
+            try:
+                # Kein Tabellen-Alias: SQLite erlaubt bei DELETE keinen Alias.
+                cur = conn.execute(
+                    f"DELETE FROM {tbl} "
+                    f"WHERE NOT EXISTS (SELECT 1 FROM matches m "
+                    f"WHERE m.match_guid={tbl}.{col})"
+                )
+                deleted[tbl] = cur.rowcount
+                if cur.rowcount:
+                    log.info("repair_orphans: %d Waisenzeilen in %s gelöscht",
+                             cur.rowcount, tbl)
+            except Exception as e:
+                log.debug("repair_orphans(%s): %s", tbl, e)
+                deleted[tbl] = 0
+        conn.commit()
+        return deleted
 
     # ── Kits ──────────────────────────────────────────────────────────────────
 
