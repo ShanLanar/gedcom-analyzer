@@ -172,6 +172,14 @@ def get_parish_status(db_path: Path | str | None = None,
     if db is None:
         return []
     try:
+        # Index für den 'done'-Seiten-Zähler sicherstellen (einmalig, IF NOT
+        # EXISTS). Ohne ihn scannt der Aggregat-Subquery matricula_page_scans
+        # voll — bei großen Archiven zäh.
+        try:
+            db.execute("CREATE INDEX IF NOT EXISTS idx_mps_status_book "
+                       "ON matricula_page_scans(status, book_id)")
+        except sqlite3.OperationalError:
+            pass
         # total_pages existiert erst nach dem ersten Scan-Lauf
         has_totals = any(
             r[1] == "total_pages"
@@ -180,21 +188,27 @@ def get_parish_status(db_path: Path | str | None = None,
         total_col = "kb.total_pages" if has_totals else "NULL"
         diocese_where = "AND p.diocese=?" if diocese else ""
         params = (diocese,) if diocese else ()
+        # WICHTIG: KEIN korrelierter Subquery pro Pfarrei mehr (der scannte
+        # matricula_page_scans einmal JE Pfarrei → auf großen Archiven Minuten
+        # und fror das GUI ein). Stattdessen die 'done'-Seiten EINMAL je Buch
+        # vor-aggregieren und per LEFT JOIN anhängen. dpb hat höchstens eine
+        # Zeile pro book_id, daher bleibt die SUM über total_pages korrekt
+        # (eine Zeile je Buch).
         rows = db.execute(f"""
             SELECT p.id, p.name, p.diocese,
                    COUNT(DISTINCT kb.book_id)            AS n_books,
                    COUNT(DISTINCT CASE WHEN {total_col} IS NULL
                                        THEN kb.book_id END) AS n_books_unsized,
                    COALESCE(SUM({total_col}), 0)         AS pages_total,
-                   COALESCE((
-                       SELECT COUNT(*) FROM matricula_page_scans mps
-                       WHERE mps.status = 'done'
-                         AND mps.book_id IN (
-                             SELECT book_id FROM kirchenbuecher
-                             WHERE parish_id = p.id)
-                   ), 0)                                  AS pages_done
+                   COALESCE(SUM(dpb.done), 0)            AS pages_done
             FROM parishes p
             LEFT JOIN kirchenbuecher kb ON kb.parish_id = p.id
+            LEFT JOIN (
+                SELECT book_id, COUNT(*) AS done
+                FROM matricula_page_scans
+                WHERE status = 'done'
+                GROUP BY book_id
+            ) dpb ON dpb.book_id = kb.book_id
             WHERE 1=1 {diocese_where}
             GROUP BY p.id, p.name
             ORDER BY p.name

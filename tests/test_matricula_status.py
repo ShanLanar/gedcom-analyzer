@@ -117,6 +117,52 @@ def test_missing_db_returns_empty(tmp_path):
     assert mstat.get_parish_status(tmp_path / "nope.db") == []
 
 
+def test_multiple_parishes_isolated(parish_db):
+    """Kernrisiko der JOIN-Umschreibung: 'done'-Seiten dürfen NICHT über
+    Pfarreien hinweg vermischt werden. Jede Pfarrei zählt nur ihre Bücher."""
+    db, path = parish_db
+    _add_parish(db, "p/a", "Alpha")
+    _add_book(db, "p/a/b1", "p/a", total_pages=100)
+    _scan_pages(db, "p/a/b1", 30)
+    _add_parish(db, "p/b", "Beta")
+    _add_book(db, "p/b/b1", "p/b", total_pages=10)
+    _scan_pages(db, "p/b/b1", 10)
+    _add_parish(db, "p/c", "Gamma")   # ganz ohne Bücher
+    db.commit()
+    res = {p["name"]: p for p in mstat.get_parish_status(path)}
+    assert res["Alpha"]["pages_done"] == 30 and res["Alpha"]["pages_total"] == 100
+    assert res["Alpha"]["status"] == mstat.STATUS_PARTIAL
+    assert res["Beta"]["pages_done"] == 10 and res["Beta"]["status"] == mstat.STATUS_DONE
+    assert res["Gamma"]["n_books"] == 0 and res["Gamma"]["pages_done"] == 0
+    assert res["Gamma"]["status"] == mstat.STATUS_OPEN
+
+
+def test_diocese_filter(parish_db):
+    db, path = parish_db
+    db.execute("INSERT INTO parishes (id, name, diocese) VALUES (?,?,?)",
+               ("p/os1", "OsPfarrei", "deutschland/osnabrueck"))
+    db.execute("INSERT INTO parishes (id, name, diocese) VALUES (?,?,?)",
+               ("p/mz1", "MzPfarrei", "deutschland/mainz"))
+    db.commit()
+    res = mstat.get_parish_status(path, diocese="deutschland/osnabrueck")
+    assert [p["name"] for p in res] == ["OsPfarrei"]
+
+
+def test_index_created_on_status_query(parish_db):
+    """get_parish_status legt den Beschleunigungs-Index einmalig an."""
+    db, path = parish_db
+    _add_parish(db, "p/a", "Alpha")
+    db.commit()
+    mstat.get_parish_status(path)
+    check = sqlite3.connect(str(path))
+    try:
+        names = {r[0] for r in check.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'")}
+    finally:
+        check.close()
+    assert "idx_mps_status_book" in names
+
+
 def test_format_labels(parish_db):
     db, path = parish_db
     _add_parish(db, "p/a", "Alpha")
