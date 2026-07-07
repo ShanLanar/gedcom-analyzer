@@ -334,6 +334,16 @@ def main():
 if __name__ == "__main__":
     logging.basicConfig(level=logging.WARNING,
                         format="%(levelname)s %(name)s: %(message)s")
+    # Hang-Watchdog GANZ zuerst scharf schalten – noch vor den (teils schweren)
+    # Imports und dem synchronen GUI-Aufbau. Friert der Start ein, landet die
+    # hängende Code-Stelle in hang_traceback.log NEBEN unified.py (Startordner).
+    try:
+        from ancestry.utils.watchdog import arm as _arm_watchdog
+        _hang_log = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                 "hang_traceback.log")
+        _arm_watchdog(_hang_log, timeout=30.0)
+    except Exception:
+        pass
     try:
         main()
     except Exception:
