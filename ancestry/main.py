@@ -114,6 +114,13 @@ def main():
     if args.cli:
         run_cli(args)
     else:
+        # Hang-Watchdog: friert das GUI ein, landet die hängende Stelle in
+        # data/logs/hang_traceback.log (rein diagnostisch, kein Verhalten geändert).
+        try:
+            from ancestry.utils.watchdog import arm as _arm_watchdog
+            _arm_watchdog(str(LOG_DIR / "hang_traceback.log"), timeout=30.0)
+        except Exception:
+            pass
         run_gui(gedcom_path=args.gedcom or "")
 
 

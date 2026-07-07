@@ -125,6 +125,18 @@ class AncestryDnaApp(tk.Frame):
         self.after(300, self._update_matches_kit_combo)
         self.after(400, self._load_lang_setting)
         self.after(600, self._maybe_show_checklist)
+        self.after(1000, self._heartbeat)
+
+    def _heartbeat(self):
+        """Lebenszeichen für den Hang-Watchdog: solange die Tk-Hauptschleife
+        läuft, wird dies im Sekundentakt aufgerufen. Bleibt es aus, weiß der
+        Watchdog, dass der Main-Thread hängt, und schreibt einen Stack-Dump."""
+        try:
+            from ancestry.utils.watchdog import beat
+            beat()
+        except Exception:
+            pass
+        self.after(1000, self._heartbeat)
 
     def mainloop(self, *a, **k):
         """Standalone-Kompatibilität: leitet an das Toplevel weiter."""
