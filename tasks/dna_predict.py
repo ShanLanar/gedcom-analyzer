@@ -16,6 +16,9 @@ import math
 
 from lib.gedcom import safe_extract_year
 from tasks.genetics import _kinship_coefficient
+from ancestry.core.treematch.genetics import (
+    endogamy_flag, resolve_endogamy_factor,
+)
 
 
 # ── Verteilungen ──────────────────────────────────────────────────────────────
@@ -83,34 +86,77 @@ def predict_relationship_from_cm(target_cm):
     return normalized[:5]
 
 
-def predict_relationship_detailed(target_cm):
-    """Wie predict_relationship_from_cm, aber mit Konfidenzintervall je Grad.
+# Segmentform-Heuristik → Endogamie-Faktor. Konservativ und transparent aus
+# dem vorhandenen endogamy_flag()-Score (0..1, viele kleine Segmente = hoch)
+# abgeleitet, KEIN literaturbasierter Wert wie ENDOGAMY_FACTORS — deshalb
+# bewusst gedeckelt auf max. 1.5 statt der bis zu 1.8 bekannter Populationen.
+_AUTO_ENDOGAMY_CAP = 1.5
+
+
+def predict_relationship_detailed(target_cm, shared_segments=None,
+                                  longest_segment=None,
+                                  population: str = "",
+                                  endogamy_factor: float = 1.0):
+    """Wie predict_relationship_from_cm, aber mit Konfidenzintervall je Grad
+    und optionaler Endogamie-Korrektur.
+
+    Endogamie (Verwandtenehen, isolierte Populationen) lässt zwei Personen
+    MEHR cM teilen, als ihre wahre Verwandtschaft erwarten ließe — die rohe
+    cM-Zahl würde die Beziehung sonst systematisch zu NAH einordnen. Zwei
+    unabhängige Korrekturwege, beide optional:
+
+    population / endogamy_factor:
+        Wie ``ancestry.core.treematch.genetics.cm_to_mrca`` — ein bekannter
+        Populationsfaktor (``ENDOGAMY_FACTORS``) oder ein expliziter Wert.
+        Gewinnt, wenn gesetzt.
+    shared_segments / longest_segment:
+        Ohne expliziten Faktor wird aus der Segmentform (viele kurze Segmente
+        = typische Endogamie-Signatur, siehe ``endogamy_flag``) automatisch
+        ein konservativer Faktor (≤ 1.5) abgeleitet, FALLS beide Werte
+        übergeben werden. Das ist eine Heuristik aus der Segmentform dieses
+        EINEN Matches, kein literaturbasierter Populationswert.
+
+    Die 95%-KI-Bänder (ci_low/ci_high) bleiben die unkorrigierten
+    Literaturwerte je Beziehungsgrad — korrigiert wird nur, welcher Grad zum
+    beobachteten cM-Wert passt (target_cm wird vor dem Dichte-Vergleich durch
+    den Faktor geteilt).
 
     Returns
     -------
     list[dict]
         Absteigend nach Wahrscheinlichkeit, je Eintrag:
-        ``{label, probability, mean_cm, ci_low, ci_high}``. Das 95%-KI zeigt
-        die beobachtete cM-Streuung dieses Grades (Shared cM Project) — so ist
-        sichtbar, dass etwa 1.750 cM sowohl Halbgeschwister als auch
-        Großelternteil sein kann statt einer trügerischen Punktschätzung.
+        ``{label, probability, mean_cm, ci_low, ci_high, raw_cm,
+        effective_cm, endogamy_factor}``. Das 95%-KI zeigt die beobachtete
+        cM-Streuung dieses Grades (Shared cM Project) — so ist sichtbar, dass
+        etwa 1.750 cM sowohl Halbgeschwister als auch Großelternteil sein
+        kann statt einer trügerischen Punktschätzung.
     """
     try:
         target = float(target_cm)
     except (TypeError, ValueError):
         return []
 
+    factor = resolve_endogamy_factor(endogamy_factor, population)
+    if factor == 1.0 and shared_segments is not None and longest_segment is not None:
+        _label, score = endogamy_flag(target, shared_segments, longest_segment)
+        factor = 1.0 + min(score, 1.0) * (_AUTO_ENDOGAMY_CAP - 1.0)
+
+    effective = target / max(factor, 0.5)
+
     dist_by_label = {lbl: (mu, sigma) for lbl, mu, sigma in _RELATIONSHIP_DIST}
     detailed = []
-    for lbl, prob in predict_relationship_from_cm(target):
+    for lbl, prob in predict_relationship_from_cm(effective):
         mu, sigma = dist_by_label[lbl]
         lo, hi = _ci95(mu, sigma)
         detailed.append({
-            "label":       lbl,
-            "probability": prob,
-            "mean_cm":     mu,
-            "ci_low":      round(lo, 0),
-            "ci_high":     round(hi, 0),
+            "label":            lbl,
+            "probability":      prob,
+            "mean_cm":          mu,
+            "ci_low":           round(lo, 0),
+            "ci_high":          round(hi, 0),
+            "raw_cm":           round(target, 1),
+            "effective_cm":     round(effective, 1),
+            "endogamy_factor":  round(factor, 3),
         })
     return detailed
 

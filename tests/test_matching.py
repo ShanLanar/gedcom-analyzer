@@ -9,6 +9,7 @@ from ancestry.core.bridge.matching import (
     path_to_sosa,
     infer_side_from_links,
     run_match_all,
+    get_gedcom_relationship_summary,
 )
 from ancestry.core.bridge.gedcom_import import ensure_tables
 from ancestry.core.database import Database
@@ -176,3 +177,82 @@ def test_infer_side_deep_paternal(db):
 def test_run_match_all_empty_returns_zero(db):
     total = run_match_all(db, "TEST_NO_DATA")
     assert total == 0
+
+
+# ── get_gedcom_relationship_summary: Voll- vs. Halbgeschwister ────────────────
+#
+# Regressionstest für einen Bug, den ein Scrum-Review fand: das Label kam
+# bisher IMMER "Geschwister", egal ob root und match wirklich beide Eltern
+# oder nur einen Elternteil gemeinsam hatten — der `half`-Parameter von
+# _cm_consistency existierte, wurde am Aufrufer aber nie gesetzt.
+
+def _insert_match(db, test_guid, match_guid, shared_cm, name="Test"):
+    with db._cursor() as cur:
+        cur.execute(
+            "INSERT OR REPLACE INTO matches "
+            "(match_guid, test_guid, display_name, shared_cm) "
+            "VALUES (?,?,?,?)",
+            (match_guid, test_guid, name, shared_cm),
+        )
+
+
+def _insert_match_pedigree_gen(db, test_guid, match_guid, ahnen_path, generation):
+    with db._cursor() as cur:
+        cur.execute(
+            "INSERT OR IGNORE INTO match_pedigree "
+            "(test_guid, match_guid, given_name, surname, generation, ahnen_path) "
+            "VALUES (?,?,'','',?,?)",
+            (test_guid, match_guid, generation, ahnen_path),
+        )
+
+
+def test_full_siblings_detected_when_both_parents_linked(db):
+    _insert_person(db, "ROOT_FATHER", "Hein", "Kovermann", sosa_number=2)
+    _insert_person(db, "ROOT_MOTHER", "Grete", "Kovermann", sosa_number=3)
+    _insert_match(db, "TG1", "M1", shared_cm=2500.0)
+    # Match verlinkt BEIDE root-Elternteile auf match_gen==1 (Vater UND Mutter
+    # des Matches sind dieselben Personen wie roots Vater/Mutter).
+    _insert_link(db, "TG1", "M1", "F", "ROOT_FATHER")
+    _insert_link(db, "TG1", "M1", "M", "ROOT_MOTHER")
+    _insert_match_pedigree_gen(db, "TG1", "M1", "F", 1)
+    _insert_match_pedigree_gen(db, "TG1", "M1", "M", 1)
+
+    res = get_gedcom_relationship_summary(db, "TG1")
+    assert len(res) == 1
+    row = res[0]
+    assert row["ged_relationship"] == "Geschwister"
+    assert row["half_sibling"] is False
+
+
+def test_half_siblings_detected_when_only_one_parent_linked(db):
+    _insert_person(db, "ROOT_FATHER", "Hein", "Kovermann", sosa_number=2)
+    _insert_person(db, "ROOT_MOTHER", "Grete", "Kovermann", sosa_number=3)
+    _insert_match(db, "TG2", "M2", shared_cm=1700.0)
+    # Match verlinkt NUR roots Vater (sosa=2) auf match_gen==1 — die Mutter
+    # ist eine andere Person → nur EIN gemeinsamer Elternteil.
+    _insert_link(db, "TG2", "M2", "F", "ROOT_FATHER")
+    _insert_match_pedigree_gen(db, "TG2", "M2", "F", 1)
+
+    res = get_gedcom_relationship_summary(db, "TG2")
+    assert len(res) == 1
+    row = res[0]
+    assert row["ged_relationship"] == "Halbgeschwister"
+    assert row["half_sibling"] is True
+    # Die erwartete cM-Bande ist halbiert (ein statt zwei gemeinsame Ahnen) —
+    # ohne den half-Fix würde hier fälschlich die Vollgeschwister-Bande
+    # (1613–3488) statt der halbierten (~807–1744) verwendet.
+    assert "1744" in row["cm_expected_band"] or "807" in row["cm_expected_band"]
+
+
+def test_non_sibling_depth_unaffected_by_half_logic(db):
+    """1. Cousin (root_depth=2, match_depth=2) bleibt unverändert — die
+    Halb-Erkennung greift ausschließlich bei der direkten Geschwister-Ebene."""
+    _insert_person(db, "GP", "Opa", "Kovermann", sosa_number=4)
+    _insert_match(db, "TG3", "M3", shared_cm=900.0)
+    _insert_link(db, "TG3", "M3", "FF", "GP")
+    _insert_match_pedigree_gen(db, "TG3", "M3", "FF", 2)
+
+    res = get_gedcom_relationship_summary(db, "TG3")
+    assert len(res) == 1
+    assert res[0]["ged_relationship"] == "Cousin 1. Grades"
+    assert res[0]["half_sibling"] is False

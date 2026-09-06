@@ -352,7 +352,7 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
     try:
         from lib.helpers import relationship_label
     except ImportError:
-        def relationship_label(rd, td, anc=False):
+        def relationship_label(rd, td, anc=False, full_share=True):
             return f"Grad {rd}+{td}" if rd and td else ""
 
     MULT_MAP = {2: "double", 3: "triple", 4: "quadruple",
@@ -401,8 +401,28 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
         root_depth  = math.floor(math.log2(sosa)) if sosa >= 1 else 0
         match_depth = best["match_gen"] or len(best["ahnen_path"] or "")
 
+        # Voll- vs. Halbgeschwister: root_depth==1 heißt sosa∈{2,3} (Vater ODER
+        # Mutter von root). Sind BEIDE Elternteile (sosa=2 UND sosa=3) unter den
+        # Links dieses Matches bei match_depth==1 vertreten, teilen root und
+        # match wirklich beide Eltern (Vollgeschwister). Ist nur EINE der beiden
+        # sosa-Positionen verknüpft, ist nur ein Elternteil gemeinsam →
+        # Halbgeschwister. Bisher war das kein Unterschied — "Geschwister" kam
+        # unabhängig davon, ob eine oder zwei sosa-Positionen bestätigt waren.
+        full_share = True
+        is_half_sibling = False
+        if root_depth == 1 and match_depth == 1:
+            sibling_sosa = {2, 3}
+            matched_sosa = {
+                l["sosa_number"] for l in links
+                if l["sosa_number"] in sibling_sosa
+                and (l["match_gen"] or len(l["ahnen_path"] or "")) == 1
+            }
+            full_share = matched_sosa == sibling_sosa
+            is_half_sibling = not full_share
+
         if root_depth > 0 and match_depth > 0:
-            ged_rel = relationship_label(root_depth, match_depth)
+            ged_rel = relationship_label(root_depth, match_depth,
+                                         full_share=full_share)
         else:
             ged_rel = ""
 
@@ -416,8 +436,12 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
         # Erwartungsbande massiv auf und schaltete 'high'-Verdikte faktisch ab.
         # Echte Doppel-Cousin-Erkennung (distinkte MRCA-Paare) ist ein eigenes
         # Thema; bis dahin ohne Multiplikator (konservativ korrekt).
+        # half=is_half_sibling: bei bestätigter Halbgeschwister-Beziehung wird
+        # die erwartete cM halbiert (ein statt zwei gemeinsame Ahnen) — der
+        # half-Parameter existierte bereits, wurde hier aber nie gesetzt.
         cm_verdict, cm_band = _cm_consistency(
-            best["shared_cm"], (root_depth or 0) + (match_depth or 0))
+            best["shared_cm"], (root_depth or 0) + (match_depth or 0),
+            half=is_half_sibling)
 
         result.append({
             "match_guid":           match_guid,
@@ -432,6 +456,7 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
             "ged_ancestor_year":    best["ged_year"] or "",
             "root_gen_depth":       root_depth,
             "match_gen_depth":      match_depth,
+            "half_sibling":         is_half_sibling,
             "cm_consistency":       cm_verdict,    # ''|'ok'|'high'|'low'
             "cm_expected_band":     cm_band,
         })

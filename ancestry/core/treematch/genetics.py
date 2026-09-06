@@ -138,6 +138,23 @@ ENDOGAMY_FACTORS: dict[str, float] = {
 }
 
 
+def resolve_endogamy_factor(endogamy_factor: float = 1.0,
+                            population: str = "") -> float:
+    """Löst den effektiven Endogamie-Korrekturfaktor auf.
+
+    Ist ``endogamy_factor`` bereits explizit gesetzt (≠ 1.0), gewinnt er.
+    Sonst wird ``population`` (Freitext, z. B. Ethnizitäts-Region oder
+    Herkunfts-Tag) case-insensitiv als Teilstring gegen ``ENDOGAMY_FACTORS``
+    geprüft. Ohne Treffer bleibt der Faktor 1.0 (keine Korrektur).
+    """
+    if endogamy_factor == 1.0 and population:
+        key = population.lower().strip()
+        for k, v in ENDOGAMY_FACTORS.items():
+            if k in key or key in k:
+                return v
+    return endogamy_factor
+
+
 def cm_to_mrca(cm: float, endogamy_factor: float = 1.0,
                population: str = "") -> tuple[str, int]:
     """Schätzt aus geteilten cM die Beziehung und die Pedigree-Generation des
@@ -158,13 +175,7 @@ def cm_to_mrca(cm: float, endogamy_factor: float = 1.0,
     -------
     (label, gen) — gen = erwartete Generation des gemeinsamen Vorfahren.
     """
-    if endogamy_factor == 1.0 and population:
-        key = population.lower().strip()
-        for k, v in ENDOGAMY_FACTORS.items():
-            if k in key or key in k:
-                endogamy_factor = v
-                break
-
+    endogamy_factor = resolve_endogamy_factor(endogamy_factor, population)
     c = (cm or 0) / max(endogamy_factor, 0.5)
     table = [
         (1300, "Großeltern-/Onkel-/Tante-Ebene", 2),

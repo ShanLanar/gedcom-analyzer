@@ -1261,13 +1261,30 @@ def _cli_main(argv: list[str] | None = None) -> int | None:
                         help="Output-Pfad für --merge (default: merged.ged)")
     parser.add_argument("--predict-cm", type=float, metavar="CM",
                         help="DNA-cM-Wert in Verwandtschafts-Wahrscheinlichkeiten umrechnen")
+    parser.add_argument("--predict-segments", type=int, metavar="N",
+                        help="Segmentzahl für --predict-cm (Endogamie-Hinweis "
+                             "aus Segmentform, siehe --predict-longest)")
+    parser.add_argument("--predict-longest", type=float, metavar="CM",
+                        help="Längstes Segment (cM) für --predict-cm")
+    parser.add_argument("--predict-population", default="",
+                        help="Population/Region für --predict-cm "
+                             "(z. B. ashkenazi, mennonite, osnabrück) — "
+                             "bekannter Endogamie-Korrekturfaktor")
     args = parser.parse_args(argv)
 
     # ── Eigenständige CLI-Sub-Tools ────────────────────────────────────────
     if args.predict_cm is not None:
         from tasks.dna_predict import predict_relationship_detailed
-        result = predict_relationship_detailed(args.predict_cm)
+        result = predict_relationship_detailed(
+            args.predict_cm,
+            shared_segments=args.predict_segments,
+            longest_segment=args.predict_longest,
+            population=args.predict_population)
         print(f"\nDNA-Vorhersage für {args.predict_cm:.0f} cM:")
+        if result and result[0]["endogamy_factor"] > 1.01:
+            print(f"  ⚠ Endogamie-Korrektur aktiv (Faktor "
+                 f"{result[0]['endogamy_factor']:.2f}) → effektiv "
+                 f"~{result[0]['effective_cm']:.0f} cM für die Einordnung\n")
         for d in result:
             bar = "█" * int(d["probability"] * 30)
             ci = f"95%-KI {d['ci_low']:.0f}–{d['ci_high']:.0f} cM"

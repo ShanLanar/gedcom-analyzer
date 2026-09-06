@@ -88,3 +88,65 @@ def test_ambiguous_cm_lists_multiple_relations():
     Prädiktor liefert mehrere plausible Grade, nicht nur einen."""
     labels = [d["label"] for d in predict_relationship_detailed(1750)]
     assert len(labels) >= 3
+
+
+# ── Endogamie-Korrektur in predict_relationship_detailed ──────────────────────
+
+def test_no_correction_by_default():
+    """Ohne Segment-/Populationsangabe bleibt der Faktor 1.0 (kein
+    Verhaltenswechsel für bestehende Aufrufer)."""
+    res = predict_relationship_detailed(1750)
+    assert res[0]["endogamy_factor"] == 1.0
+    assert res[0]["raw_cm"] == 1750.0
+    assert res[0]["effective_cm"] == 1750.0
+
+
+def test_explicit_population_shifts_effective_cm():
+    """Ein bekannter Populationsfaktor (ashkenazi=1.7) senkt die effektive cM
+    für den Dichte-Vergleich, die KI-Bänder selbst bleiben unverändert."""
+    plain = predict_relationship_detailed(1000)
+    endo  = predict_relationship_detailed(1000, population="ashkenazi")
+    assert endo[0]["endogamy_factor"] == 1.7
+    assert endo[0]["effective_cm"] < plain[0]["effective_cm"]
+    assert endo[0]["raw_cm"] == 1000.0
+    # Bänder sind Literaturwerte je Grad, unabhängig vom Faktor (die
+    # Top-5-AUSWAHL selbst darf sich verschieben, da sie auf effective_cm
+    # basiert — nur das Band eines gemeinsam vorkommenden Grades muss identisch
+    # bleiben).
+    plain_by_label = {d["label"]: (d["ci_low"], d["ci_high"]) for d in plain}
+    common = [d for d in endo if d["label"] in plain_by_label]
+    assert common
+    for d in common:
+        assert plain_by_label[d["label"]] == (d["ci_low"], d["ci_high"])
+
+
+def test_explicit_endogamy_factor_wins_over_segments():
+    """Ein expliziter endogamy_factor hat Vorrang vor der Segmentform-Heuristik."""
+    res = predict_relationship_detailed(
+        1000, shared_segments=20, longest_segment=8, endogamy_factor=1.3)
+    assert res[0]["endogamy_factor"] == 1.3
+
+
+def test_segment_shape_auto_derives_conservative_factor():
+    """Viele kurze Segmente (typische Endogamie-Signatur, endogamy_flag)
+    leiten automatisch einen Faktor > 1.0 ab, gedeckelt auf 1.5."""
+    res = predict_relationship_detailed(
+        200, shared_segments=20, longest_segment=8)
+    assert 1.0 < res[0]["endogamy_factor"] <= 1.5
+
+
+def test_clean_single_segment_no_auto_correction():
+    """Ein einzelnes langes Segment ist das Gegenteil von Endogamie
+    (endogamy_flag zieht dafür sogar Score ab) → Faktor bleibt 1.0."""
+    res = predict_relationship_detailed(
+        900, shared_segments=1, longest_segment=900)
+    assert res[0]["endogamy_factor"] == 1.0
+
+
+def test_predict_relationship_rows_unaffected():
+    """predict_relationship_rows() (Report-Generator) bleibt kompatibel —
+    ruft weiterhin ohne die neuen Parameter auf."""
+    from tasks.dna_predict import predict_relationship_rows, PREDICT_HEADERS
+    rows = predict_relationship_rows(1750)
+    assert rows
+    assert len(rows[0]) == len(PREDICT_HEADERS)

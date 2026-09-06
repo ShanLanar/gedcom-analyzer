@@ -1942,8 +1942,9 @@ class MatchesTab(ttk.Frame):
 
         # Update relationship probability bars
         self.after(10, lambda: self._update_rel_prob(cm))
-        # C1: cM Predictor aktualisieren
-        self._update_cm_predictor(cm)
+        # C1: cM Predictor aktualisieren (Segmentform fließt für die
+        # Endogamie-Korrektur mit ein, siehe _update_cm_predictor)
+        self._update_cm_predictor(cm, match.shared_segments, match.longest_segment)
 
         # Load research checklist
         flags = getattr(match, "research_flags", 0) or 0
@@ -2230,24 +2231,6 @@ class MatchesTab(ttk.Frame):
                           text=f"{label}  {pct*100:.0f}%",
                           anchor="w", font=("Segoe UI", 8),
                           fill=COLORS["text"])
-
-    def _update_cm_predictor(self, cm: float):
-        """C1: Aktualisiert die top-5 Verwandtschaftsgrad-Liste im Detail-Panel."""
-        if not hasattr(self, "_cm_predict_labels"):
-            return
-        try:
-            from ancestry.core.shared_cm import relationship_probabilities
-            probs = relationship_probabilities(cm, top=5)
-        except Exception:
-            probs = []
-        for i, lbl in enumerate(self._cm_predict_labels):
-            if i < len(probs):
-                p = probs[i]
-                names = " / ".join(p["labels"][:2])
-                pct = p["probability"] * 100
-                lbl.configure(text=f"  {pct:.0f}%  {names}")
-            else:
-                lbl.configure(text="")
 
     # ── A4: Filter-Profil ────────────────────────────────────────────────────
 
@@ -2692,30 +2675,58 @@ class MatchesTab(ttk.Frame):
                 return label
         return "Sehr entfernte Verwandtschaft oder kein Verwandter"
 
-    def _update_cm_predictor(self, cm: float) -> None:
-        """C1: Aktualisiert das Verwandtschafts-Predictor-Label im Detail-Panel.
+    def _update_cm_predictor(self, cm: float, shared_segments: int = 0,
+                             longest_segment: float = 0.0) -> None:
+        """C1: Aktualisiert Predictor-Label + Top-5-Panel im Detail-Panel.
 
-        Zeigt die 2 wahrscheinlichsten Grade mit 95%-Konfidenzintervall (statt
+        Zeigt die wahrscheinlichsten Grade mit 95%-Konfidenzintervall (statt
         einer trügerischen Punktschätzung): 1750 cM ist z. B. sowohl
-        Halbgeschwister als auch Großelternteil.
+        Halbgeschwister als auch Großelternteil. Segmentzahl/längstes Segment
+        des Matches fließen als Endogamie-Hinweis ein (viele kurze Segmente →
+        echte Verwandtschaft vermutlich entfernter als die rohe cM-Zahl zeigt).
+
+        Speist zwei Widgets aus DERSELBEN Berechnung (früher zwei gleichnamige
+        Methoden in dieser Klasse — die zweite überschrieb beim Klassenaufbau
+        die erste, wodurch das 5-Zeilen-Panel _cm_predict_labels nie befüllt
+        wurde und dauerhaft leer blieb):
+          - _cm_predictor_var:    eine Zeile, Top 2, im Status-Detailfeld.
+          - _cm_predict_labels:   bis zu 5 Zeilen im "Mögliche Verwandtschaft"-
+            Panel.
         """
-        if not hasattr(self, "_cm_predictor_var"):
-            return
-        if not (cm and cm > 0):
-            self._cm_predictor_var.set("—")
-            return
         try:
             from tasks.dna_predict import predict_relationship_detailed
-            top = predict_relationship_detailed(cm)[:2]
+            top = (predict_relationship_detailed(
+                cm, shared_segments=shared_segments or None,
+                longest_segment=longest_segment or None)
+                if cm and cm > 0 else [])
         except Exception:
             top = []
-        if top:
-            parts = [f"{d['label']} ({d['ci_low']:.0f}–{d['ci_high']:.0f} cM)"
-                     for d in top]
-            self._cm_predictor_var.set(f"~{cm:.0f} cM  →  " + "  ·  ".join(parts))
-        else:
-            # Außerhalb aller Verteilungen → Bereichstabelle als Fallback
-            self._cm_predictor_var.set(f"~{cm:.0f} cM  →  {self._predict_relationship(cm)}")
+
+        if hasattr(self, "_cm_predictor_var"):
+            if not (cm and cm > 0):
+                self._cm_predictor_var.set("—")
+            elif top:
+                parts = [f"{d['label']} ({d['ci_low']:.0f}–{d['ci_high']:.0f} cM)"
+                         for d in top[:2]]
+                text = f"~{cm:.0f} cM  →  " + "  ·  ".join(parts)
+                if top[0]["endogamy_factor"] > 1.01:
+                    text += (f"  ⚠ Segmentform spricht für Endogamie "
+                            f"(korrigiert: ~{top[0]['effective_cm']:.0f} cM)")
+                self._cm_predictor_var.set(text)
+            else:
+                # Außerhalb aller Verteilungen → Bereichstabelle als Fallback
+                self._cm_predictor_var.set(
+                    f"~{cm:.0f} cM  →  {self._predict_relationship(cm)}")
+
+        if hasattr(self, "_cm_predict_labels"):
+            for i, lbl in enumerate(self._cm_predict_labels):
+                if i < len(top):
+                    d = top[i]
+                    lbl.configure(text=(
+                        f"  {d['probability']*100:.0f}%  {d['label']} "
+                        f"({d['ci_low']:.0f}–{d['ci_high']:.0f} cM)"))
+                else:
+                    lbl.configure(text="")
 
     # ── C2: Export CSV / XLSX ────────────────────────────────────────────────
 

@@ -187,22 +187,31 @@ def get_ancestor_paths(start_id: str, individuals, families, cache=None):
 
 
 def relationship_label(root_d: int, target_d: int,
-                        is_target_ancestor: bool = False) -> str:
+                        is_target_ancestor: bool = False,
+                        full_share: bool = True) -> str:
     """Liefert eine deutsche Verwandtschaftsbezeichnung.
     Wird gleichermaßen in Excel-Spalten und in tasks/migration._rel_distance
-    konsumiert; letztere Funktion parst die deutschen Begriffe."""
+    konsumiert; letztere Funktion parst die deutschen Begriffe.
+
+    full_share=False: root und target teilen auf der direkten Geschwister-
+    Ebene (root_d==1 und target_d==1, bzw. Onkel/Tante- und Neffe/Nichte-Fälle
+    eine Generation davon entfernt) nur EINEN statt beider gemeinsamer Eltern-
+    teile → 'Halb-'-Präfix. Default True erhält das bisherige Verhalten für
+    alle Aufrufer, die das nicht ermitteln (z. B. wenn nur die Generations-
+    tiefe, aber nicht die tatsächliche Elternüberschneidung bekannt ist)."""
     if is_target_ancestor:
         if root_d == 1: return "Elternteil"
         if root_d == 2: return "Großelternteil"
         if root_d == 3: return "Urgroßelternteil"
         return f"{root_d-2}-fach Urgroßelternteil"
-    if root_d == 1 and target_d == 1: return "Geschwister"
+    if root_d == 1 and target_d == 1:
+        return "Geschwister" if full_share else "Halbgeschwister"
     if target_d == 1 and root_d > 1:
-        if root_d == 2: return "Onkel/Tante"
+        if root_d == 2: return "Onkel/Tante" if full_share else "Halbonkel/-tante"
         if root_d == 3: return "Großonkel/-tante"
         return f"{root_d-1}-fach Urgroßonkel/-tante"
     if root_d == 1 and target_d > 1:
-        if target_d == 2: return "Neffe/Nichte"
+        if target_d == 2: return "Neffe/Nichte" if full_share else "Halbneffe/-nichte"
         if target_d == 3: return "Großneffe/-nichte"
         return f"{target_d-1}-fach Urgroßneffe/-nichte"
     removed = abs(root_d - target_d)

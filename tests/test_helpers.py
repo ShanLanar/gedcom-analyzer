@@ -29,6 +29,24 @@ def test_relationship_label_cousins():
     assert relationship_label(2, 3, False) == "Cousin 1. Grades, 1x entfernt"
 
 
+def test_relationship_label_full_share_default_unchanged():
+    """full_share ist standardmäßig True → bestehendes Verhalten bleibt exakt
+    erhalten für alle Aufrufer, die den neuen Parameter nicht kennen."""
+    assert relationship_label(1, 1) == "Geschwister"
+    assert relationship_label(2, 1) == "Onkel/Tante"
+    assert relationship_label(1, 2) == "Neffe/Nichte"
+
+
+def test_relationship_label_half_variants():
+    """full_share=False: nur ein gemeinsamer Elternteil → 'Halb-'-Präfix."""
+    assert relationship_label(1, 1, full_share=False) == "Halbgeschwister"
+    assert relationship_label(2, 1, full_share=False) == "Halbonkel/-tante"
+    assert relationship_label(1, 2, full_share=False) == "Halbneffe/-nichte"
+    # Großonkel/-tante und Cousin-Grade sind von full_share unberührt
+    # (keine belastbare Halb-Ableitung auf dieser Ebene ohne weitere Prüfung).
+    assert relationship_label(3, 1, full_share=False) == "Großonkel/-tante"
+
+
 # ── get_ancestor_paths ────────────────────────────────────────────────────────
 
 def _mini_tree():
