@@ -46,3 +46,10 @@ data/
 # Editable-Install-Artefakte
 *.egg-info/
 build/
+
+# pytest-cov Laufzeit-Artefakte (lokal per `pytest --cov` erzeugt, CI druckt
+# nur den Bericht). .coverage war versehentlich getrackt — s. Bestandsaufnahme.
+.coverage
+.coverage.*
+htmlcov/
+coverage.xml

@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install ruff pytest curl_cffi
+          pip install ruff pytest pytest-cov curl_cffi
           pip install -e . 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true
 
       - name: Lint with ruff
@@ -30,4 +30,11 @@ jobs:
       - name: Run tests
         # Kein tail-Pipe (verschluckt den Exit-Code) und kein continue-on-error
         # mehr: rote Tests MÜSSEN den Job rot machen, sonst ist das Gate wirkungslos.
-        run: python -m pytest -q --tb=short
+        # --cov nutzt automatisch [tool.coverage.*] aus pyproject.toml (source,
+        # omit, exclude_lines). BEWUSST kein --cov-fail-under: die Suite ist
+        # noch im Aufbau, das soll sie nicht rot machen (siehe Kommentar dort) —
+        # das hier macht die Zahl nur wieder SICHTBAR (vorher installierte CI
+        # pytest-cov gar nicht, obwohl [tool.coverage.*] es voraussetzt).
+        run: >
+          python -m pytest -q --tb=short
+          --cov=ancestry --cov-report=term-missing

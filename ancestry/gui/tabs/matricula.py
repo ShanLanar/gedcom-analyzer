@@ -554,12 +554,38 @@ class MatriculaTab(ttk.Frame):
         self._render_diocese_tiles(lf)
 
     def _render_diocese_tiles(self, container: tk.Widget):
-        """Tiles in *container* aufbauen (beim Refresh wird der Inhalt ersetzt)."""
+        """Tiles in *container* aufbauen (beim Refresh wird der Inhalt ersetzt).
+
+        Die beiden DB-Abfragen (Bistümer + Pfarrei-Status ALLER Pfarreien für
+        die Aggregation) laufen in einem Hintergrund-Thread, damit ein großes
+        oder gerade beschäftigtes Archiv den GUI-Aufbau nicht blockiert (siehe
+        matricula_status.get_parish_status — dort ist die Query selbst zwar
+        inzwischen indexgestützt schnell, ein zusätzlicher Thread-Wrap hier
+        ist aber eine günstige Absicherung gegen künftige Verlangsamungen,
+        z. B. durch ein Netzlaufwerk oder einen parallel laufenden Scan).
+        """
+        def _worker():
+            try:
+                dioceses = mstat.get_dioceses()
+                all_parishes = mstat.get_parish_status() if dioceses else []
+            except Exception:
+                log.exception("Bistums-Übersicht: Laden fehlgeschlagen")
+                dioceses, all_parishes = [], []
+            if container.winfo_exists():
+                self.after(0, lambda: self._render_diocese_tiles_apply(
+                    container, dioceses, all_parishes))
+        threading.Thread(target=_worker, daemon=True,
+                         name="matricula-overview").start()
+
+    def _render_diocese_tiles_apply(self, container: tk.Widget,
+                                    dioceses: list, all_parishes: list):
+        """Baut die Tiles aus bereits geladenen Daten auf (Main-Thread)."""
+        if not container.winfo_exists():
+            return
         for child in container.winfo_children():
             child.destroy()
 
         bg = self._state.colors().get("bg", "#F0F4F8")
-        dioceses = mstat.get_dioceses()
 
         if not dioceses:
             tk.Label(
@@ -573,8 +599,7 @@ class MatriculaTab(ttk.Frame):
             ).pack(anchor="w", pady=2)
             return
 
-        # --- Pfarrei-Status einmal laden und nach Diözesen-Pfad aggregieren ---
-        all_parishes = mstat.get_parish_status()
+        # --- Pfarrei-Status nach Diözesen-Pfad aggregieren ---------------------
         counts: dict[str, dict[str, int]] = {}
         for p in all_parishes:
             key = p["diocese"]
@@ -726,30 +751,50 @@ class MatriculaTab(ttk.Frame):
     # ── Pfarrei-Status ────────────────────────────────────────────────────────
 
     def refresh_parishes(self):
-        """Dropdown + Übersicht aus matricula_parishes.db neu laden."""
-        # Bistümer-Liste aktualisieren
-        dioceses = mstat.get_dioceses()
+        """Dropdown + Übersicht aus matricula_parishes.db neu laden.
+
+        Die beiden DB-Abfragen laufen in einem Hintergrund-Thread (siehe
+        _render_diocese_tiles) — dieselbe Absicherung gegen ein großes/gerade
+        beschäftigtes Archiv, das den Aufruf sonst auf dem Main-Thread
+        blockieren würde (u. a. beim Tab-Aufbau selbst aufgerufen).
+        """
+        # cur_dioc ist ein Widget-Zustand → nur auf dem Main-Thread lesbar,
+        # deshalb VOR dem Thread-Start erfasst.
+        cur_dioc = self._diocese_var.get()
+
+        def _worker():
+            try:
+                dioceses = mstat.get_dioceses()
+                diocese_filter: Optional[str] = None
+                if cur_dioc and cur_dioc != "(alle)":
+                    slug = cur_dioc.split("  —  ")[0].strip()
+                    diocese_filter = next(
+                        (d["path"] for d in dioceses
+                         if d["slug"] == slug or d["path"] == slug),
+                        None)
+                parishes = mstat.get_parish_status(diocese=diocese_filter)
+            except Exception:
+                log.exception("refresh_parishes: Laden fehlgeschlagen")
+                dioceses, parishes = [], []
+            if self.winfo_exists():
+                self.after(0, lambda: self._apply_parish_refresh(
+                    dioceses, parishes, cur_dioc))
+        threading.Thread(target=_worker, daemon=True,
+                         name="matricula-parishes").start()
+
+    def _apply_parish_refresh(self, dioceses: list, parishes: list,
+                              cur_dioc: str) -> None:
+        """Wendet bereits geladene Bistums-/Pfarrei-Daten auf die Widgets an
+        (Main-Thread)."""
         dioc_labels = ["(alle)"] + [
             f"{d['slug']}  —  {d['name']}" if d.get("name") and d["name"] != d["path"]
             else d["path"]
             for d in dioceses
         ]
-        cur_dioc = self._diocese_var.get()
         self._diocese_combo.configure(values=dioc_labels)
         if cur_dioc not in dioc_labels:
             self._diocese_var.set("(alle)")
 
-        # Diözesen-Filter bestimmen
-        diocese_filter: Optional[str] = None
-        if cur_dioc and cur_dioc != "(alle)":
-            # Slug aus dem Label extrahieren
-            slug = cur_dioc.split("  —  ")[0].strip()
-            # In DB-Pfad übersetzen (z.B. "osnabrueck" → "deutschland/osnabrueck")
-            diocese_filter = next(
-                (d["path"] for d in dioceses if d["slug"] == slug or d["path"] == slug),
-                None)
-
-        parishes = mstat.get_parish_status(diocese=diocese_filter)
         self._tv.delete(*self._tv.get_children())
         self._label_to_id.clear()
 
