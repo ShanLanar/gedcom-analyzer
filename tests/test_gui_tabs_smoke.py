@@ -281,6 +281,7 @@ def test_dna_segments_dialog_renders(fake_tk):
 
     from ancestry.core.database import Database
     from ancestry.gui.analysis.segment_views import show_dna_segments
+    from ancestry.models import DnaKit
 
     fd, path = _tmp.mkstemp(suffix=".db")
     _os.close(fd); _os.unlink(path)
@@ -304,6 +305,22 @@ def test_dna_segments_dialog_renders(fake_tk):
         status2 = []
         show_dna_segments(ttk.Frame(), db, "kit-1", set_status=status2.append)
         assert status2 and "1 X-Matches" in status2[0]
+
+        # zweites Kit + reine autosomale Segmente (kein X/IBD2) — testet den
+        # Geschwister-Segmentabgleich-Abschnitt (Kit-Liste, Checkboxen) UND den
+        # Fall "Segmente vorhanden, aber keine X-/IBD2-Treffer" (häufigster Fall)
+        db.upsert_kit(DnaKit(guid="kit-2", name="Schwester", test_type="autosomal"))
+        db.bulk_upsert_segments([
+            {"test_guid": "kit-1", "match_guid": "C", "chromosome": 5,
+             "start_location": 10_000_000, "end_location": 60_000_000,
+             "length_cm": 20.0, "snp_count": 3000, "fetched_at": "2026-01-01"},
+            {"test_guid": "kit-2", "match_guid": "C", "chromosome": 5,
+             "start_location": 15_000_000, "end_location": 65_000_000,
+             "length_cm": 18.0, "snp_count": 2800, "fetched_at": "2026-01-01"},
+        ])
+        status3 = []
+        show_dna_segments(ttk.Frame(), db, "kit-1", set_status=status3.append)
+        assert status3  # baut fehlerfrei, auch ohne X-/IBD2-Treffer
 
         # kein test_guid → Info-Dialog, kein Absturz
         show_dna_segments(ttk.Frame(), db, "")

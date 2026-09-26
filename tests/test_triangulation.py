@@ -11,6 +11,7 @@ import pytest
 from ancestry.core.database import Database
 from ancestry.core.triangulation import (
     build_triangulation_groups, chromosome_label, X_CHROMOSOME,
+    find_sibling_shared_segments,
 )
 from ancestry.models import DnaMatch, SharedMatch
 from ancestry.tools import import_segments
@@ -210,6 +211,102 @@ def test_ibd2_defaults_to_zero(db):
     }])
     assert db.get_ibd2_matches("kit-1") == []
     assert db.get_segments("kit-1")[0]["is_ibd2"] == 0
+
+
+# ── Geschwister-Segmentabgleich (ohne Eltern-Kit) ─────────────────────────────
+
+def test_sibling_overlap_confirmed_without_parent_kit(db):
+    """Zwei Geschwister-Kits teilen mit demselben Match ein überlappendes
+    Segment auf demselben Chromosom → wird als Kreuzbestätigung erkannt."""
+    db.bulk_upsert_segments([
+        _seg("X", 5, 10 * MBP, 60 * MBP, 20.0, test_guid="sib-1"),
+        _seg("X", 5, 15 * MBP, 65 * MBP, 18.0, test_guid="sib-2"),
+    ])
+    res = find_sibling_shared_segments(db, ["sib-1", "sib-2"])
+    assert len(res) == 1
+    tg = res[0]
+    assert tg["match_guid"] == "X"
+    assert tg["chromosome"] == 5
+    assert tg["region_start"] == 15 * MBP
+    assert tg["region_end"] == 60 * MBP
+    assert {s["test_guid"] for s in tg["siblings"]} == {"sib-1", "sib-2"}
+
+
+def test_single_sibling_has_match_no_cross_confirmation(db):
+    """Nur EIN Geschwister hat das Match → keine Kreuzbestätigung möglich."""
+    db.bulk_upsert_segments([
+        _seg("X", 5, 10 * MBP, 60 * MBP, 20.0, test_guid="sib-1"),
+    ])
+    assert find_sibling_shared_segments(db, ["sib-1", "sib-2"]) == []
+
+
+def test_non_overlapping_segments_not_confirmed(db):
+    """Gleiches Match, gleiches Chromosom, aber KEINE Überlappung → kein Treffer."""
+    db.bulk_upsert_segments([
+        _seg("X", 5, 10 * MBP, 20 * MBP, 15.0, test_guid="sib-1"),
+        _seg("X", 5, 80 * MBP, 95 * MBP, 14.0, test_guid="sib-2"),
+    ])
+    assert find_sibling_shared_segments(db, ["sib-1", "sib-2"]) == []
+
+
+def test_overlap_below_min_cm_threshold_rejected(db):
+    """Sehr geringe cM-Dichte im Overlap-Bereich → unter min_overlap_cm verworfen."""
+    db.bulk_upsert_segments([
+        _seg("X", 8, 10 * MBP, 60 * MBP, 1.0, test_guid="sib-1"),
+        _seg("X", 8, 15 * MBP, 65 * MBP, 1.0, test_guid="sib-2"),
+    ])
+    assert find_sibling_shared_segments(db, ["sib-1", "sib-2"], min_overlap_cm=5.0) == []
+
+
+def test_three_siblings_only_two_overlap(db):
+    """Von drei Geschwistern überlappen nur zwei — die Untergruppe muss genau
+    diese zwei enthalten, nicht das dritte (nicht überlappende) Geschwister."""
+    db.bulk_upsert_segments([
+        _seg("X", 3, 10 * MBP, 30 * MBP, 15.0, test_guid="sib-1"),
+        _seg("X", 3, 15 * MBP, 35 * MBP, 15.0, test_guid="sib-2"),
+        _seg("X", 3, 60 * MBP, 90 * MBP, 15.0, test_guid="sib-3"),
+    ])
+    res = find_sibling_shared_segments(db, ["sib-1", "sib-2", "sib-3"])
+    assert len(res) == 1
+    assert {s["test_guid"] for s in res[0]["siblings"]} == {"sib-1", "sib-2"}
+
+
+def test_different_chromosomes_not_merged(db):
+    """Dasselbe Match auf verschiedenen Chromosomen bei den Geschwistern
+    darf NICHT als überlappend gelten."""
+    db.bulk_upsert_segments([
+        _seg("X", 5, 10 * MBP, 60 * MBP, 20.0, test_guid="sib-1"),
+        _seg("X", 9, 10 * MBP, 60 * MBP, 20.0, test_guid="sib-2"),
+    ])
+    assert find_sibling_shared_segments(db, ["sib-1", "sib-2"]) == []
+
+
+def test_fewer_than_two_kits_returns_empty(db):
+    db.bulk_upsert_segments([_seg("X", 5, 10 * MBP, 60 * MBP, 20.0, test_guid="sib-1")])
+    assert find_sibling_shared_segments(db, ["sib-1"]) == []
+    assert find_sibling_shared_segments(db, []) == []
+
+
+def test_min_cm_filters_per_sibling_segment(db):
+    """min_cm filtert bereits VOR der Überlappungsprüfung (wie bei
+    build_triangulation_groups) — ein zu kurzes Einzelsegment fällt raus."""
+    db.bulk_upsert_segments([
+        _seg("X", 5, 10 * MBP, 60 * MBP, 6.0, test_guid="sib-1"),
+        _seg("X", 5, 15 * MBP, 65 * MBP, 20.0, test_guid="sib-2"),
+    ])
+    assert find_sibling_shared_segments(db, ["sib-1", "sib-2"], min_cm=7.0) == []
+    assert len(find_sibling_shared_segments(db, ["sib-1", "sib-2"], min_cm=5.0)) == 1
+
+
+def test_unrelated_matches_not_cross_reported(db):
+    """Verschiedene Matches werden unabhängig ausgewertet, keine Vermischung."""
+    db.bulk_upsert_segments([
+        _seg("X", 5, 10 * MBP, 60 * MBP, 20.0, test_guid="sib-1"),
+        _seg("X", 5, 15 * MBP, 65 * MBP, 20.0, test_guid="sib-2"),
+        _seg("Y", 5, 10 * MBP, 60 * MBP, 20.0, test_guid="sib-1"),  # kein sib-2-Pendant
+    ])
+    res = find_sibling_shared_segments(db, ["sib-1", "sib-2"])
+    assert [r["match_guid"] for r in res] == ["X"]
 
 
 # ── Segment-Import ────────────────────────────────────────────────────────────

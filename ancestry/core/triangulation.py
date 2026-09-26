@@ -295,3 +295,109 @@ def annotate_tg_candidate_mrca(
             tg["candidate_mrca"] = []
 
     return tgs
+
+
+# ── Geschwister-Segmentabgleich (Rekonstruktion ohne Eltern-Kit) ──────────────
+
+def _group_overlap_cm(group: list[dict], overlap_bp: int) -> float:
+    """Wie _overlap_cm, aber für eine ganze Gruppe (>=2) statt nur ein Paar:
+    Durchschnitt der cM/bp-Dichten aller Mitglieder mit bekannter Dichte."""
+    densities = [d for d in (_seg_density(s) for s in group) if d > 0]
+    if densities:
+        return overlap_bp * (sum(densities) / len(densities))
+    return overlap_bp / 1_000_000.0
+
+
+def find_sibling_shared_segments(
+    db: "Database",
+    kit_guids: list[str],
+    min_cm: float = 7.0,
+    min_overlap_cm: float = 5.0,
+) -> list[dict]:
+    """Findet Drittanbieter-Matches, die bei ZWEI ODER MEHR der angegebenen
+    Kits (typischerweise Geschwister) auf ÜBERLAPPENDEN Segmenten erscheinen.
+
+    Genealogische Begründung
+    -------------------------
+    Geschwister erben von jedem Elternteil ~50 % der DNA, aber bei jedem
+    Kind eine ANDERE Rekombination. Teilt ein Match X mit ZWEI Geschwistern
+    ein ÜBERLAPPENDES Segment an derselben chromosomalen Stelle, können beide
+    dieses Stück nur identisch geerbt haben, wenn es an dieser Stelle NICHT
+    rekombiniert wurde — starkes Indiz, dass X über einen gemeinsamen Vorfahren
+    JENSEITS der Eltern (Großeltern-Ebene oder weiter) verwandt ist. Das
+    grenzt die Linie ein, OHNE dass ein Eltern-Kit vorliegen muss — deckt also
+    genau den Fall ab, für den die Eltern-Kit-Phasing (get_paternal_maternal_
+    overlap) nicht greift.
+
+    Parameters
+    ----------
+    kit_guids:
+        Mindestens 2 DNA-Kit-GUIDs (Geschwister-Kits). Kits ohne importierte
+        Segmentdaten tragen einfach nichts bei (Ancestry liefert keine
+        Segmentpositionen — braucht GEDmatch/MyHeritage/FTDNA-Import).
+    min_cm:
+        Mindestlänge je Einzelsegment (Rauschfilter, wie bei build_
+        triangulation_groups).
+    min_overlap_cm:
+        Mindest-Overlap in cM (nicht bp — cM/bp schwankt regional), damit
+        zufällige kleine Überschneidungen nicht mitzählen.
+
+    Returns
+    -------
+    list[dict]
+        Je gemeinsam bestätigtem Segment: ``{match_guid, chromosome,
+        chromosome_label, region_start, region_end, siblings}``, wobei
+        ``siblings`` eine Liste ``{test_guid, length_cm, start, end}`` ist
+        (eine pro beitragendem Kit). Sortiert nach Chromosom, dann Start.
+    """
+    if len(kit_guids) < 2:
+        return []
+
+    # Segmente je (match_guid, chromosome) über ALLE Kits sammeln.
+    by_key: dict[tuple[str, int], list[dict]] = defaultdict(list)
+    for kit_guid in kit_guids:
+        for seg in db.get_segments(kit_guid, min_cm=min_cm):
+            by_key[(seg["match_guid"], seg["chromosome"])].append(
+                {**seg, "test_guid": kit_guid})
+
+    results: list[dict] = []
+    emitted: set[frozenset] = set()
+    for (match_guid, chrom), segs in sorted(by_key.items()):
+        if len({s["test_guid"] for s in segs}) < 2:
+            continue  # nur bei EINEM Geschwister → keine Kreuzbestätigung möglich
+
+        segs_sorted = sorted(segs, key=lambda s: s["start_location"])
+        for group in _common_region_subgroups(segs_sorted):
+            distinct_kits = {s["test_guid"] for s in group}
+            if len(distinct_kits) < 2:
+                continue  # Untergruppe stammt nur von einem einzigen Kit
+
+            region_start = max(s["start_location"] for s in group)
+            region_end = min(s["end_location"] for s in group)
+            overlap_bp = region_end - region_start
+            if overlap_bp <= 0:
+                continue
+            if _group_overlap_cm(group, overlap_bp) < min_overlap_cm:
+                continue
+
+            key = frozenset((s["test_guid"], s["start_location"], s["end_location"])
+                            for s in group)
+            if key in emitted:
+                continue
+            emitted.add(key)
+
+            results.append({
+                "match_guid":        match_guid,
+                "chromosome":        chrom,
+                "chromosome_label":  chromosome_label(chrom),
+                "region_start":      region_start,
+                "region_end":        region_end,
+                "siblings": [
+                    {"test_guid": s["test_guid"], "length_cm": s["length_cm"],
+                     "start": s["start_location"], "end": s["end_location"]}
+                    for s in group
+                ],
+            })
+
+    results.sort(key=lambda r: (r["chromosome"], r["region_start"]))
+    return results
