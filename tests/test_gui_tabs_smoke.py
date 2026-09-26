@@ -359,6 +359,47 @@ def test_ancestry_dna_app_constructs(fake_tk, monkeypatch):
                 pass
 
 
+def test_copilot_explain_cluster_reads_cluster_tab(fake_tk, monkeypatch):
+    """Regression: _copilot_explain_cluster griff auf self._clusters zu — das
+    Attribut existiert nur auf ClusterTab, nie auf AncestryDnaApp, weshalb der
+    Dialog IMMER 'Bitte erst Clustering durchführen' zeigte, selbst mit
+    vorhandenen Clustern. Der Fix liest jetzt self._cluster_tab.get_clusters()."""
+    import os as _os
+    import sys
+    import tempfile as _tmp
+
+    import ancestry.gui.app as app_module
+
+    fd, path = _tmp.mkstemp(suffix=".db")
+    _os.close(fd); _os.unlink(path)
+    monkeypatch.setattr(app_module, "DB_PATH", path)
+    # messagebox.showinfo-Aufrufe mitschneiden (fake_tk macht es sonst zum No-Op).
+    calls = []
+    monkeypatch.setattr(sys.modules["tkinter.messagebox"], "showinfo",
+                        lambda *a, **k: calls.append(a))
+    try:
+        app = app_module.AncestryDnaApp(master=None)
+
+        # Ohne Cluster (leerer ClusterTab): die 'bitte erst clustern'-Meldung.
+        app._copilot_explain_cluster()
+        assert len(calls) == 1
+
+        # Mit Clustern (wie nach echtem Clustering im Cluster-Tab gesetzt):
+        # der Dialog darf NICHT mehr die 'bitte erst clustern'-Meldung zeigen.
+        app._cluster_tab._clusters = {
+            1: [{"guid": "g1", "name": "Maria Beispiel", "cm": 45.0, "rel": "?"}],
+        }
+        calls.clear()
+        app._copilot_explain_cluster()
+        assert calls == []
+    finally:
+        for suf in ("", "-wal", "-shm"):
+            try:
+                _os.unlink(path + suf)
+            except FileNotFoundError:
+                pass
+
+
 def test_tooltip_helper(fake_tk):
     """Der Tooltip-Helfer bindet sich an ein Widget und überlebt
     schedule/show/hide ohne Ausnahme (defensiv)."""

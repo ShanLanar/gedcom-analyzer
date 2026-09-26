@@ -53,7 +53,13 @@ class ResearchDialogsMixin:
             is_available,
         )
 
-        clusters = getattr(self, "_clusters", {}) or {}
+        # self._clusters existiert NICHT auf AncestryDnaApp — die Cluster leben
+        # auf dem ClusterTab (self._cluster_tab._clusters, gefüllt beim
+        # Clustering). Über den öffentlichen Accessor get_clusters() holen,
+        # nicht das private Attribut direkt anfassen (Rückwärtskompatibilitäts-
+        # Zugriffspunkt, den auch _assign_cluster_side schon so nutzt).
+        cluster_tab = getattr(self, "_cluster_tab", None)
+        clusters = cluster_tab.get_clusters() if cluster_tab is not None else {}
         if not clusters:
             messagebox.showinfo(self._t("dlg.explain_cluster"),
                                 self._t("dlg.m_do_clustering"))
