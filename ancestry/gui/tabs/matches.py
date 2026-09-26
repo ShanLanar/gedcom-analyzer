@@ -14,6 +14,7 @@ from urllib.parse import quote
 
 from ancestry.gui.state import AppState
 from ancestry.gui.tabs._matches_kirchenbuch import KirchenbuchPanelMixin
+from ancestry.gui.tabs._matches_online_research import OnlineResearchPanelMixin
 from ancestry.gui.tabs._matches_wikitree import WikiTreePanelMixin
 from ancestry.gui.widgets.theme import register_lang, COLORS
 from ancestry.gui.widgets.tooltip import register_tooltip
@@ -28,13 +29,15 @@ except Exception:
 log = logging.getLogger(__name__)
 
 
-class MatchesTab(KirchenbuchPanelMixin, WikiTreePanelMixin, ttk.Frame):
+class MatchesTab(KirchenbuchPanelMixin, OnlineResearchPanelMixin,
+                 WikiTreePanelMixin, ttk.Frame):
     """Matches-Tab des Ancestry-DNA-Tools.
 
     Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
     Verhaltensänderung) — bisher ausgelagert: WikiTreePanelMixin
     (ancestry/gui/tabs/_matches_wikitree.py), KirchenbuchPanelMixin
-    (ancestry/gui/tabs/_matches_kirchenbuch.py).
+    (ancestry/gui/tabs/_matches_kirchenbuch.py), OnlineResearchPanelMixin
+    (ancestry/gui/tabs/_matches_online_research.py).
 
     Parameters
     ----------
@@ -779,99 +782,6 @@ class MatchesTab(KirchenbuchPanelMixin, WikiTreePanelMixin, ttk.Frame):
                    command=self._ged_link_apply).pack(side="left")
 
         self._selected_match: Optional[DnaMatch] = None
-
-    # ── C3: Externe Recherche-Links ───────────────────────────────────────────
-
-    def _build_online_research_panel(self, parent):
-        """C3: Baut den Block mit Online-Recherche-Buttons im Detail-Panel."""
-        lf = ttk.LabelFrame(parent, text="🔗 Online-Recherche")
-        lf.pack(fill="x", padx=8, pady=(0, 4))
-        self._online_research_frame = lf
-
-        # 5 Buttons in einem Grid (2 Zeilen × 3 Spalten)
-        _link_defs = [
-            ("FamilySearch", self._open_research_familysearch),
-            ("Grabstein.de",  self._open_research_grabstein),
-            ("Geni",          self._open_research_geni),
-            ("MyHeritage",    self._open_research_myheritage),
-            ("WikiTree",      self._open_research_wikitree),
-        ]
-        self._online_research_btns: list[ttk.Button] = []
-        for i, (label, cmd) in enumerate(_link_defs):
-            btn = ttk.Button(lf, text=label, command=cmd, state="disabled", width=12)
-            btn.grid(row=i // 3, column=i % 3, padx=3, pady=2, sticky="w")
-            self._online_research_btns.append(btn)
-
-    def _update_online_research_panel(self, match: "Optional[DnaMatch]"):
-        """C3: Aktiviert/deaktiviert die Recherche-Buttons je nach Selektion."""
-        state = "normal" if match else "disabled"
-        for btn in getattr(self, "_online_research_btns", []):
-            btn.configure(state=state)
-
-    def _open_research_familysearch(self):
-        """FamilySearch-Suche nach dem Match-Nachnamen."""
-        m = self._selected_match
-        if not m:
-            return
-        from urllib.parse import quote_plus
-        name = m.display_name or ""
-        if not name or name in ("Anonym", "?"):
-            return
-        lastname = name.split()[-1]
-        webbrowser.open(
-            f"https://www.familysearch.org/search/record/results?q.surname={quote_plus(lastname)}"
-        )
-
-    def _open_research_grabstein(self):
-        """Grabstein.de-Suche nach dem Match-Nachnamen."""
-        m = self._selected_match
-        if not m:
-            return
-        from urllib.parse import quote_plus
-        name = m.display_name or ""
-        if not name or name in ("Anonym", "?"):
-            return
-        lastname = name.split()[-1]
-        webbrowser.open(f"https://www.grabstein.de/suche/?ln={quote_plus(lastname)}")
-
-    def _open_research_geni(self):
-        """Geni-Suche nach dem Match-Namen."""
-        m = self._selected_match
-        if not m:
-            return
-        from urllib.parse import quote_plus
-        name = m.display_name or ""
-        if not name or name in ("Anonym", "?"):
-            return
-        webbrowser.open(
-            f"https://www.geni.com/search?search_type=people&names={quote_plus(name)}"
-        )
-
-    def _open_research_myheritage(self):
-        """MyHeritage-Namensuche."""
-        m = self._selected_match
-        if not m:
-            return
-        from urllib.parse import quote_plus
-        name = m.display_name or ""
-        if not name or name in ("Anonym", "?"):
-            return
-        webbrowser.open(
-            f"https://www.myheritage.de/names/search?name={quote_plus(name)}"
-        )
-
-    def _open_research_wikitree(self):
-        """WikiTree-Suche nach dem Match-Namen."""
-        m = self._selected_match
-        if not m:
-            return
-        from urllib.parse import quote_plus
-        name = m.display_name or ""
-        if not name or name in ("Anonym", "?"):
-            return
-        webbrowser.open(
-            f"https://www.wikitree.com/index.php?search=&name={quote_plus(name)}"
-        )
 
     def _build_segments_panel(self, parent):
         """Sub-Tab 7: GEDmatch-Segment-Browser."""
