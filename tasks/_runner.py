@@ -419,15 +419,30 @@ def run_parallel_group(group: list[tuple[str, str]], progress_cb=None,
                        stop_event=None) -> None:
     """Öffentlicher Einstieg für die GUI: führt eine bereits als parallel-sicher
     erkannte Gruppe (fn_name, label) nebenläufig aus (Fork), sonst sequenziell.
+
+    Setzt _state["stop_event"] am Ende IMMER auf den vorherigen Wert zurück
+    (auch im sequenziellen Fallback bei <2 Tasks) — sonst bleibt ein bereits
+    ausgelöstes (`.set()`) Event dauerhaft in _state hängen, weil nur der
+    Parallel-Zweig (_run_group_parallel) das bisher in einem finally tat.
+    is_aborted() liest _state["stop_event"] global; ein Leck hier lässt JEDEN
+    späteren Aufruf, der is_aborted() prüft, fälschlich sofort abbrechen —
+    real folgenlos (die GUI setzt vor jedem neuen Lauf ein frisches Event),
+    aber in der Testsuite ein waschechter Reihenfolge-Bug: ein Test mit
+    bereits ausgelöstem stop_event vergiftete alle nachfolgenden Tasks im
+    selben Prozess (AbortedError trotz keinerlei Abbruchwunsch).
     """
+    prev_stop = _state.get("stop_event")
     _set_stop_event(stop_event)
-    if _fork_available() and len(group) >= 2:
-        _run_group_parallel(group, progress_cb, stop_event)
-    else:
-        for fn_name, label in group:
-            fn = globals().get(f"run_{fn_name}")
-            if fn is not None:
-                fn(progress_cb=progress_cb, stop_event=stop_event)
+    try:
+        if _fork_available() and len(group) >= 2:
+            _run_group_parallel(group, progress_cb, stop_event)
+        else:
+            for fn_name, label in group:
+                fn = globals().get(f"run_{fn_name}")
+                if fn is not None:
+                    fn(progress_cb=progress_cb, stop_event=stop_event)
+    finally:
+        _state["stop_event"] = prev_stop
 
 
 def run_all_with_progress(

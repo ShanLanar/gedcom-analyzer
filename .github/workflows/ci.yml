@@ -21,7 +21,7 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install ruff pytest pytest-cov curl_cffi
+          pip install ruff pytest pytest-cov pytest-randomly curl_cffi
           pip install -e . 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true
 
       - name: Lint with ruff
@@ -35,6 +35,12 @@ jobs:
         # noch im Aufbau, das soll sie nicht rot machen (siehe Kommentar dort) —
         # das hier macht die Zahl nur wieder SICHTBAR (vorher installierte CI
         # pytest-cov gar nicht, obwohl [tool.coverage.*] es voraussetzt).
+        # pytest-randomly ist installiert → die Testreihenfolge ist ab jetzt
+        # PRO LAUF zufällig (genau das hätte den in database.py behobenen
+        # Waisenzeilen-Race früher sichtbar gemacht). Bei einem roten Lauf
+        # druckt pytest-randomly den Seed ("Using --randomly-seed=…") — damit
+        # lokal reproduzieren: `pytest -p randomly --randomly-seed=<seed>`,
+        # bevor man den Fehler als reinen Reihenfolge-Zufall abtut.
         run: >
           python -m pytest -q --tb=short
           --cov=ancestry --cov-report=term-missing

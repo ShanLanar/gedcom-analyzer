@@ -100,6 +100,52 @@ def test_parallel_abort_propagates_to_children(fake_tasks):
     assert elapsed < 3.0
 
 
+# ── Regressionstest: stop_event darf nicht in _state hängen bleiben ───────────
+#
+# Von pytest-randomly aufgedeckter Bug: run_parallel_group setzte
+# _state["stop_event"] unbedingt, stellte den vorherigen Wert aber NUR im
+# Parallel-Zweig (_run_group_parallel, >=2 Tasks) wieder her. Bei einer
+# EINZELNEN Task (sequenzieller Fallback) blieb ein bereits ausgelöstes Event
+# dauerhaft in _state hängen — jeder SPÄTERE Aufruf im selben Prozess, der
+# is_aborted() prüft (z. B. analyze_dna_cm_estimates, cousins.run,
+# analyze_inbreeding_all), brach dann fälschlich sofort mit AbortedError ab,
+# obwohl niemand einen Abbruch wollte. Real folgenlos (die GUI setzt vor jedem
+# neuen Lauf ein frisches Event), in der Testsuite aber ein reihenfolge-
+# abhängiger Cross-Test-Bug (nur mit echter Zufallsreihenfolge sichtbar, nicht
+# mit bloß variierendem PYTHONHASHSEED).
+
+def test_stop_event_restored_after_single_task_group(fake_tasks):
+    """Ein-Task-Gruppe (sequenzieller Fallback) mit bereits ausgelöstem Event
+    darf _state["stop_event"] danach NICHT auf dem ausgelösten Event belassen."""
+    prev = R._state.get("stop_event")
+    already_set = threading.Event()
+    already_set.set()
+    try:
+        R.run_parallel_group([("fake_a", "A")], stop_event=already_set)
+        assert R._state.get("stop_event") is prev
+        assert R.is_aborted() == (prev is not None and prev.is_set())
+    finally:
+        R._state["stop_event"] = prev
+
+
+def test_no_cross_test_abort_leak_via_run_parallel_group(fake_tasks):
+    """Direkte Regression für den gefundenen Bug: nach einem 'abgebrochenen'
+    Lauf darf eine völlig unabhängige spätere is_aborted()-Prüfung NICHT
+    fälschlich True liefern."""
+    prev = R._state.get("stop_event")
+    R._state["stop_event"] = None  # definierte, saubere Ausgangslage
+    triggered = threading.Event()
+    triggered.set()
+    try:
+        R.run_parallel_group([("fake_a", "A")], stop_event=triggered)
+        # Simuliert einen späteren, komplett unabhängigen Long-Running-Task
+        # OHNE eigenes stop_event (wie es reale run_*-Funktionen viele Male
+        # in der Suite tun) — vor dem Fix hier fälschlich True.
+        assert R.is_aborted() is False
+    finally:
+        R._state["stop_event"] = prev
+
+
 def test_sequential_fallback_without_fork(fake_tasks, monkeypatch):
     """Ohne fork läuft die Gruppe sequenziell im selben Prozess."""
     monkeypatch.setattr(R, "_fork_available", lambda: False)
