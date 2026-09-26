@@ -30,6 +30,7 @@ from ancestry.core.scraper import DownloadResult, Scraper
 from ancestry.gui.state import AppState
 from ancestry.gui.tabs.cluster import ClusterTab
 from ancestry.gui._app_recent_files import RecentFilesMixin
+from ancestry.gui._app_shortcuts import ShortcutsMixin
 
 # Eager loads (häufig genutzt)
 from ancestry.gui.tabs.download import DownloadTab
@@ -51,10 +52,11 @@ def _lazy_import(module_path: str, class_name: str):
     return getattr(module, class_name)
 
 
-class AncestryDnaApp(RecentFilesMixin, tk.Frame):
+class AncestryDnaApp(RecentFilesMixin, ShortcutsMixin, tk.Frame):
     # Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
     # Verhaltensänderung) — bisher ausgelagert: RecentFilesMixin
-    # (ancestry/gui/_app_recent_files.py).
+    # (ancestry/gui/_app_recent_files.py), ShortcutsMixin
+    # (ancestry/gui/_app_shortcuts.py).
 
     # cM-Bereiche → wahrscheinliche Verwandtschaft (lo, hi, Label, Generation).
     # Einzige Quelle der Wahrheit auch für analysis/mrca.py.
@@ -2778,101 +2780,6 @@ class AncestryDnaApp(RecentFilesMixin, tk.Frame):
         except Exception as e: log.debug("shutdown _save_settings: %s", e)
         try: self._db.close()
         except Exception as e: log.debug("shutdown _db.close: %s", e)
-
-    # ── Tastaturkürzel ────────────────────────────────────────────────────────
-
-    def _active_tab(self):
-        """Gibt die aktuell sichtbare Tab-Instanz zurück (oder None)."""
-        try:
-            return self._nb.nametowidget(self._nb.select())
-        except Exception:
-            return None
-
-    def _bind_shortcuts(self):
-        root = self.winfo_toplevel()
-        # A3: Tastaturkürzel
-        self.bind_all("<Control-f>", lambda _: self._shortcut_focus_search())
-        self.bind_all("<F5>",        lambda _: self._shortcut_refresh())
-        self.bind_all("<Escape>",    lambda _: self._shortcut_clear_filter())
-        self.bind_all("<Control-e>", lambda _: self._shortcut_export())
-        # Ältere globale Kürzel beibehalten
-        root.bind("<Control-E>", lambda _: self._export_all_xlsx())
-        root.bind("<Control-m>", lambda _: self._shortcut_toggle_star())
-
-    def _refresh_current_tab(self):
-        """F5: aktuellen Tab aktualisieren."""
-        try:
-            tab = self._nb.nametowidget(self._nb.select())
-            if hasattr(tab, "refresh"):
-                tab.refresh()
-            elif hasattr(tab, "_refresh"):
-                tab._refresh()
-        except Exception:
-            pass
-
-    def _shortcut_toggle_star(self):
-        """Ctrl+M: ausgewählten Match markieren/demarkieren."""
-        try:
-            if self._selected_match and self._matches_tab is not None:
-                self._matches_tab._toggle_starred_match(self._selected_match)
-        except Exception:
-            pass
-
-    def _shortcut_focus_search(self):
-        """Ctrl+F: Suchfeld im aktiven Tab fokussieren (oder Matches-Tab als Fallback)."""
-        try:
-            tab = self._active_tab()
-            fn = getattr(tab, "focus_search", None)
-            if callable(fn):
-                fn()
-                return
-            # Fallback: Matches-Tab-Suchfeld direkt suchen
-            if self._matches_tab is not None and hasattr(self._matches_tab, "_search_var"):
-                def _find_entry(w):
-                    for c in w.winfo_children():
-                        if isinstance(c, ttk.Entry):
-                            return c
-                        found = _find_entry(c)
-                        if found:
-                            return found
-                    return None
-                entry = _find_entry(self._matches_tab)
-                if entry:
-                    entry.focus_set()
-        except Exception:
-            pass
-
-    def _shortcut_refresh(self):
-        """F5: on_show() oder refresh() des aktiven Tabs aufrufen."""
-        try:
-            tab = self._active_tab()
-            fn = getattr(tab, "on_show", None) or getattr(tab, "refresh", None)
-            if callable(fn):
-                fn()
-        except Exception:
-            pass
-
-    def _shortcut_clear_filter(self):
-        """Escape: clear_filter() des aktiven Tabs aufrufen."""
-        try:
-            tab = self._active_tab()
-            fn = getattr(tab, "clear_filter", None)
-            if callable(fn):
-                fn()
-        except Exception:
-            pass
-
-    def _shortcut_export(self):
-        """Ctrl+E: export_current() des aktiven Tabs aufrufen; Fallback: XLSX-Export."""
-        try:
-            tab = self._active_tab()
-            fn = getattr(tab, "export_current", None)
-            if callable(fn):
-                fn()
-            else:
-                self._export_xlsx()
-        except Exception:
-            pass
 
     # ── A2: Live-Zähler-Statuszeile ──────────────────────────────────────────
 
