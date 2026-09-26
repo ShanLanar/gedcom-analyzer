@@ -333,6 +333,32 @@ def test_dna_segments_dialog_renders(fake_tk):
                 pass
 
 
+def test_ancestry_dna_app_constructs(fake_tk, monkeypatch):
+    """AncestryDnaApp (das Hauptfenster, aus Mixins zusammengesetzt) baut sich
+    fehlerfrei auf — fängt Import-/MRO-/Tippfehler in der Mixin-Aufteilung ab.
+
+    DB_PATH wird auf eine Wegwerf-Datenbank umgebogen: der Konstruktor öffnet
+    fest db=Database(str(DB_PATH)), es gibt keinen Injection-Punkt."""
+    import os as _os
+    import tempfile as _tmp
+
+    import ancestry.gui.app as app_module
+
+    fd, path = _tmp.mkstemp(suffix=".db")
+    _os.close(fd); _os.unlink(path)
+    monkeypatch.setattr(app_module, "DB_PATH", path)
+    try:
+        app = app_module.AncestryDnaApp(master=None)
+        assert app is not None
+        assert hasattr(app, "_recent_menu_rebuild")  # aus RecentFilesMixin
+    finally:
+        for suf in ("", "-wal", "-shm"):
+            try:
+                _os.unlink(path + suf)
+            except FileNotFoundError:
+                pass
+
+
 def test_tooltip_helper(fake_tk):
     """Der Tooltip-Helfer bindet sich an ein Widget und überlebt
     schedule/show/hide ohne Ausnahme (defensiv)."""
