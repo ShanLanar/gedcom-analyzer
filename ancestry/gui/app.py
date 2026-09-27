@@ -38,6 +38,7 @@ from ancestry.gui._app_research_dialogs import ResearchDialogsMixin
 from ancestry.gui._app_settings import SettingsMixin
 from ancestry.gui._app_shortcuts import ShortcutsMixin
 from ancestry.gui._app_stats_bridge import StatsBridgeMixin
+from ancestry.gui._app_status import StatusMixin
 
 # Eager loads (häufig genutzt)
 from ancestry.gui.tabs.download import DownloadTab
@@ -61,7 +62,8 @@ def _lazy_import(module_path: str, class_name: str):
 
 class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, MatchesBridgeMixin,
                      MiscDialogsMixin, RecentFilesMixin, ResearchDialogsMixin,
-                     SettingsMixin, ShortcutsMixin, StatsBridgeMixin, tk.Frame):
+                     SettingsMixin, ShortcutsMixin, StatsBridgeMixin,
+                     StatusMixin, tk.Frame):
     # Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
     # Verhaltensänderung) — bisher ausgelagert: RecentFilesMixin
     # (ancestry/gui/_app_recent_files.py), ShortcutsMixin
@@ -72,7 +74,8 @@ class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, MatchesBridgeMixin,
     # (ancestry/gui/_app_matches_bridge.py), StatsBridgeMixin
     # (ancestry/gui/_app_stats_bridge.py), ExportMixin
     # (ancestry/gui/_app_export.py), SettingsMixin
-    # (ancestry/gui/_app_settings.py).
+    # (ancestry/gui/_app_settings.py), StatusMixin
+    # (ancestry/gui/_app_status.py).
 
     # cM-Bereiche → wahrscheinliche Verwandtschaft (lo, hi, Label, Generation).
     # Einzige Quelle der Wahrheit auch für analysis/mrca.py.
@@ -1105,37 +1108,6 @@ class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, MatchesBridgeMixin,
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="origin-infer").start()
-
-    def _set_status(self, msg: str, level: str = "default"):
-        if hasattr(self, "_status_bar"):
-            self._status_bar.set(msg, level)
-        else:
-            # Fallback während __init__ bevor _status_bar gebaut wird
-            if hasattr(self, "_status_var"):
-                self._status_var.set(msg)
-        if msg.endswith("…"):
-            self._animate_status_spinner()
-        else:
-            self._spinner_idx = 0
-
-    def _animate_status_spinner(self):
-        """Zeigt einen rotierenden Spinner für Status-Nachrichten mit "…"."""
-        if self._status_var.get().endswith("…"):
-            spinners = ["◐ ", "◓ ", "◑ ", "◒ "]
-            idx = getattr(self, "_spinner_idx", 0)
-            base_msg = self._status_var.get()[2:-3]  # Entferne Spinner + "…"
-            self._status_var.set(f"{spinners[idx]}{base_msg}…")
-            self._spinner_idx = (idx + 1) % 4
-            self.after(150, self._animate_status_spinner)
-
-    def _on_progress(self, fetched, total, label):
-        """Delegation stub — updates DownloadTab progress display."""
-        self._download_tab.on_progress(fetched, total, label)
-
-    def _get_kit_guid(self) -> Optional[str]:
-        if getattr(self, "_download_tab", None) is not None:
-            return self._download_tab.get_kit_guid()
-        return None
 
     def _run_gedmatch_bridge(self):
         """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches (Name+cM-Ähnlichkeit)."""
