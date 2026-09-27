@@ -842,53 +842,6 @@ class AncestryDnaApp(AnalysisDialogsMixin, EnrichmentRunsMixin, ExportMixin,
             except Exception as e:
                 log.debug("persons invalidate_tree_cache: %s", e)
 
-    def _run_endogamy_transfer(self):
-        """Überträgt GEDCOM-Endogamie-Scores via Geburtsort-Abgleich auf Matches."""
-        ged = getattr(self, "_gedcom", None)
-        if not ged:
-            messagebox.showinfo(self._t("dlg.gedcom"), self._t("md.ged_none"))
-            return
-        test_guid = self._state.current_test_guid or self._get_kit_guid()
-        if not test_guid:
-            return
-
-        self._ged_link_status.set("Endogamie-Transfer läuft …")
-
-        def _worker():
-            try:
-                import importlib.util as _ilu
-                import os as _os
-
-                from ancestry.core import bridge as _bridge
-                # GEDCOM-Endogamie aus dem Haupt-Analyzer (tasks ist installiert)
-                _root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
-                from lib.places import load_location_data
-                from tasks.endogamy import compute_endogamy_with_detailed_places
-                # Root-config direkt laden (nicht über sys.modules["config"],
-                # der auf ancestry/config.py zeigt)
-                _cfg_spec = _ilu.spec_from_file_location(
-                    "_root_config", _os.path.join(_root, "config.py"))
-                _cfg_root = _ilu.module_from_spec(_cfg_spec)
-                _cfg_spec.loader.exec_module(_cfg_root)
-                loc = load_location_data(
-                    _cfg_root.DEFAULT_CONFIG.get("location_data_json", ""))
-                endo_results = compute_endogamy_with_detailed_places(
-                    ged["individuals"], ged["families"],
-                    root_id="", location_data=loc)
-                n = _bridge.apply_gedcom_endogamy_to_matches(
-                    self._db, test_guid, endo_results,
-                    progress_cb=lambda m, **kw: self.after(
-                        0, lambda mm=m: self._ged_link_status.set(mm)))
-                self.after(0, lambda: self._ged_link_status.set(
-                    f"Endogamie-Transfer fertig: {n} Matches markiert"))
-                self.after(0, self._refresh_match_table)
-            except Exception as exc:
-                log.warning("endogamy-transfer: %s", exc)
-                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
-
-        import threading
-        threading.Thread(target=_worker, daemon=True, name="endo-transfer").start()
-
     def _open_xref_review(self):
         """Fenster zum Prüfen grenzwertiger Duplikat-Verknüpfungen (gedcom_person_xref)."""
         try:
