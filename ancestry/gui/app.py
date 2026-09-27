@@ -35,6 +35,7 @@ from ancestry.gui._app_matches_bridge import MatchesBridgeMixin
 from ancestry.gui._app_misc_dialogs import MiscDialogsMixin
 from ancestry.gui._app_recent_files import RecentFilesMixin
 from ancestry.gui._app_research_dialogs import ResearchDialogsMixin
+from ancestry.gui._app_settings import SettingsMixin
 from ancestry.gui._app_shortcuts import ShortcutsMixin
 from ancestry.gui._app_stats_bridge import StatsBridgeMixin
 
@@ -43,7 +44,7 @@ from ancestry.gui.tabs.download import DownloadTab
 from ancestry.gui.tabs.matches import MatchesTab
 from ancestry.gui.widgets.log_handler import install_gui_log_handler
 from ancestry.gui.widgets.status_bar import StatusBar
-from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_style, translate
+from ancestry.gui.widgets.theme import COLORS, COLORS_DARK, TRANSLATIONS, apply_style
 from ancestry.models import DnaKit, DnaMatch, SharedMatch
 from ancestry.paths import DB_PATH
 
@@ -60,7 +61,7 @@ def _lazy_import(module_path: str, class_name: str):
 
 class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, MatchesBridgeMixin,
                      MiscDialogsMixin, RecentFilesMixin, ResearchDialogsMixin,
-                     ShortcutsMixin, StatsBridgeMixin, tk.Frame):
+                     SettingsMixin, ShortcutsMixin, StatsBridgeMixin, tk.Frame):
     # Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
     # Verhaltensänderung) — bisher ausgelagert: RecentFilesMixin
     # (ancestry/gui/_app_recent_files.py), ShortcutsMixin
@@ -70,7 +71,8 @@ class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, MatchesBridgeMixin,
     # (ancestry/gui/_app_misc_dialogs.py), MatchesBridgeMixin
     # (ancestry/gui/_app_matches_bridge.py), StatsBridgeMixin
     # (ancestry/gui/_app_stats_bridge.py), ExportMixin
-    # (ancestry/gui/_app_export.py).
+    # (ancestry/gui/_app_export.py), SettingsMixin
+    # (ancestry/gui/_app_settings.py).
 
     # cM-Bereiche → wahrscheinliche Verwandtschaft (lo, hi, Label, Generation).
     # Einzige Quelle der Wahrheit auch für analysis/mrca.py.
@@ -651,109 +653,6 @@ class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, MatchesBridgeMixin,
             threading.Thread(target=_worker, daemon=True, name="gedcom-match").start()
 
         self._ensure_gedcom_loaded(_after_load)
-
-    def _settings_path(self):
-        import os
-        base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        d = os.path.join(base, "data")
-        os.makedirs(d, exist_ok=True)
-        return os.path.join(d, "ui_settings.json")
-
-    def _load_ui_settings(self) -> dict:
-        import json
-        import os
-        try:
-            with open(self._settings_path(), encoding="utf-8") as f:
-                data = json.load(f)
-                return data if isinstance(data, dict) else {}
-        except (OSError, ValueError):
-            return {}
-
-    def _save_ui_settings(self, **kw):
-        import json
-        s = self._load_ui_settings(); s.update(kw)
-        try:
-            with open(self._settings_path(), "w", encoding="utf-8") as f:
-                json.dump(s, f, ensure_ascii=False, indent=2)
-        except Exception as e:
-            log.debug("Settings speichern fehlgeschlagen: %s", e)
-            self._set_status(f"⚠ UI-Einstellungen speichern: {e}", "warn")
-        # P20: GEDCOM-Pfad in config_user.json spiegeln, damit tasks/_runner.py
-        # dieselbe Datei sieht wie die GUI.
-        if "gedcom_path" in kw and kw["gedcom_path"]:
-            try:
-                import config as _cfg
-                _cfg.save_overrides({"gedfile": kw["gedcom_path"]})
-            except Exception as e:
-                log.debug("config_user.json sync fehlgeschlagen: %s", e)
-                self._set_status(f"⚠ config_user.json sync: {e}", "warn")
-
-    # ── Sprache / Localisation ────────────────────────────────────────────────
-
-    def _t(self, key: str) -> str:
-        return translate(key, self._lang)
-
-    def _update_lang_btn(self):
-        if hasattr(self, "_lang_btn"):
-            self._lang_btn.configure(
-                text="🌐 → EN" if self._lang == "de" else "🌐 → DE")
-
-    def _toggle_lang(self):
-        self._lang = "en" if self._lang == "de" else "de"
-        self._apply_lang()
-        self._save_ui_settings(lang=self._lang)
-
-    def set_language(self, lang: str):
-        """Setzt die Sprache explizit (für die globale Sprachauswahl)."""
-        self._lang = "en" if str(lang).lower().startswith("en") else "de"
-        self._state.lang = self._lang
-        try:
-            self._apply_lang()
-            self._save_ui_settings(lang=self._lang)
-        except Exception:
-            pass
-
-    def _apply_lang(self):
-        self._update_lang_btn()
-        for frame, key in self._lang_nb_tabs:
-            try:
-                self._nb.tab(frame, text=self._t(key))
-            except tk.TclError:
-                pass
-        for tv, col, key in self._lang_headings:
-            try:
-                tv.heading(col, text=self._t(key))
-            except tk.TclError:
-                pass
-        for item in self._lang_widgets:
-            widget, key = item[0], item[1]
-            suffix = item[2] if len(item) > 2 else ""
-            try:
-                text = self._t(key) + suffix
-                if isinstance(widget, tk.StringVar):
-                    widget.set(text)
-                else:
-                    widget.configure(text=text)
-            except tk.TclError:
-                pass
-        for menu, index, key in self._lang_menus:
-            try:
-                menu.entryconfigure(index, label=self._t(key))
-            except tk.TclError:
-                pass
-        for nb, frame, key in self._lang_inner_nb_tabs:
-            try:
-                nb.tab(frame, text=self._t(key))
-            except tk.TclError:
-                pass
-        for tip, key in self._state.lang_tooltips:
-            tip.text = self._t(key)
-
-    def _load_lang_setting(self):
-        lang = self._load_ui_settings().get("lang", "de")
-        if lang in ("de", "en"):
-            self._lang = lang
-            self._apply_lang()
 
     def _maybe_show_checklist(self):
         """Zeigt beim ersten Start eine Setup-Checkliste, wenn noch keine Daten vorhanden sind."""
