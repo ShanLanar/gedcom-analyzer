@@ -26,12 +26,12 @@ from ancestry.core.auth import AncestryAuth
 # — spart ~4.5s Startup (openpyxl wird erst beim Export geladen)
 from ancestry.core.cluster import build_clusters, suggest_grandparent_lines
 from ancestry.core.database import Database
-from ancestry.core.scraper import DownloadResult, Scraper
 from ancestry.gui.state import AppState
 from ancestry.gui.tabs.cluster import ClusterTab
 from ancestry.gui._app_analysis_dialogs import AnalysisDialogsMixin
 from ancestry.gui._app_export import ExportMixin
 from ancestry.gui._app_genealogy_export import GenealogyExportMixin
+from ancestry.gui._app_kit_maintenance import KitMaintenanceMixin
 from ancestry.gui._app_lifecycle import LifecycleMixin
 from ancestry.gui._app_matches_bridge import MatchesBridgeMixin
 from ancestry.gui._app_misc_dialogs import MiscDialogsMixin
@@ -63,9 +63,10 @@ def _lazy_import(module_path: str, class_name: str):
 
 
 class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, GenealogyExportMixin,
-                     LifecycleMixin, MatchesBridgeMixin, MiscDialogsMixin,
-                     RecentFilesMixin, ResearchDialogsMixin, SettingsMixin,
-                     ShortcutsMixin, StatsBridgeMixin, StatusMixin, tk.Frame):
+                     KitMaintenanceMixin, LifecycleMixin, MatchesBridgeMixin,
+                     MiscDialogsMixin, RecentFilesMixin, ResearchDialogsMixin,
+                     SettingsMixin, ShortcutsMixin, StatsBridgeMixin,
+                     StatusMixin, tk.Frame):
     # Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
     # Verhaltensänderung) — bisher ausgelagert: RecentFilesMixin
     # (ancestry/gui/_app_recent_files.py), ShortcutsMixin
@@ -79,7 +80,8 @@ class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, GenealogyExportMixin,
     # (ancestry/gui/_app_settings.py), StatusMixin
     # (ancestry/gui/_app_status.py), LifecycleMixin
     # (ancestry/gui/_app_lifecycle.py), GenealogyExportMixin
-    # (ancestry/gui/_app_genealogy_export.py).
+    # (ancestry/gui/_app_genealogy_export.py), KitMaintenanceMixin
+    # (ancestry/gui/_app_kit_maintenance.py).
 
     # cM-Bereiche → wahrscheinliche Verwandtschaft (lo, hi, Label, Generation).
     # Einzige Quelle der Wahrheit auch für analysis/mrca.py.
@@ -529,71 +531,6 @@ class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, GenealogyExportMixin,
             cookie_var=self._cookie_file_var,
             guid_var=self._manual_guid_var,
         )
-
-    # ── Überlagerung: gemeinsame Vorfahren ─────────────────────────────────────
-
-    def _current_guid(self):
-        dl = self._download_tab.get_kit_guid() if self._download_tab else None
-        return dl or self._state.current_test_guid
-
-    def _change_gedcom_settings(self):
-        """GEDCOM-Datei + Wurzelperson neu wählen (überschreibt die gemerkten)."""
-        self._gedcom = None   # Cache verwerfen → Neuladen
-        self._ensure_gedcom_loaded(
-            lambda ged: self._set_status(
-                f"GEDCOM/Wurzelperson gesetzt: {len(ged['people'])} Personen, "
-                f"{len(ged['amap'])} Vorfahren auf deiner Linie."),
-            force_ask=True)
-
-    def _refresh_links(self):
-        """Zieht 'View in tree' + gemeinsamer Vorfahr für ALLE Matches nach."""
-        guid = self._get_kit_guid()
-        if not guid:
-            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
-            return
-        if not self._client:
-            messagebox.showwarning(self._t("dlg.not_logged"), self._t("dlg.m_login_first"))
-            return
-        self._state.current_test_guid = guid
-        self._names_stop_btn.configure(state="normal")
-        self._scraper = Scraper(self._client, self._db,
-                                on_progress=self._on_progress,
-                                on_status=lambda m: self.after(0, lambda: self._set_status(m)),
-                                on_done=lambda r: self.after(0, lambda: (
-                                    self._names_stop_btn.configure(state="disabled"),
-                                    self._refresh_match_table(),
-                                    messagebox.showinfo(self._t("dlg.links"), r.message))))
-        self._scraper.start_refresh_links(guid)
-
-    def _reset_name_attempts(self):
-        """Setzt die Fehlversuch-Zähler zurück, damit übersprungene Profile beim
-        nächsten 'Namen laden' erneut versucht werden."""
-        test_guid = self._current_guid()
-        if not test_guid:
-            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
-            return
-        n = self._db.reset_name_attempts(test_guid)
-        self._set_status(f"Namens-Versuche zurückgesetzt: {n} Matches.")
-        messagebox.showinfo(self._t("dlg.reset_done"),
-            f"{n} Matches werden beim nächsten 'Namen & Stammbaum laden' "
-            "erneut versucht.")
-
-    def _reset_shared_matches(self):
-        """Leert die Shared-Matches-Tabelle (alte, mit falschem Endpunkt geladene
-        Daten) – danach Schritt B neu ausführen."""
-        test_guid = self._current_guid()
-        if not test_guid:
-            messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
-            return
-        if not messagebox.askyesno(
-                self._t("dlg.reset_shared"),
-                self._t("dlg.m_reset_shared")):
-            return
-        n = self._db.reset_shared_matches(test_guid)
-        self._set_status(f"Shared Matches zurückgesetzt: {n} Zeilen gelöscht.")
-        messagebox.showinfo(self._t("dlg.reset_done"),
-            f"{n} Shared-Match-Zeilen gelöscht.\n"
-            "Jetzt Schritt B (Shared Matches herunterladen) neu starten.")
 
     def _match_own_tree(self):
         """Gleicht alle geladenen Match-Ahnentafeln gegen den eigenen GEDCOM ab
