@@ -35,6 +35,7 @@ from ancestry.gui._app_misc_dialogs import MiscDialogsMixin
 from ancestry.gui._app_recent_files import RecentFilesMixin
 from ancestry.gui._app_research_dialogs import ResearchDialogsMixin
 from ancestry.gui._app_shortcuts import ShortcutsMixin
+from ancestry.gui._app_stats_bridge import StatsBridgeMixin
 
 # Eager loads (häufig genutzt)
 from ancestry.gui.tabs.download import DownloadTab
@@ -57,7 +58,8 @@ def _lazy_import(module_path: str, class_name: str):
 
 
 class AncestryDnaApp(AnalysisDialogsMixin, MatchesBridgeMixin, MiscDialogsMixin,
-                     RecentFilesMixin, ResearchDialogsMixin, ShortcutsMixin, tk.Frame):
+                     RecentFilesMixin, ResearchDialogsMixin, ShortcutsMixin,
+                     StatsBridgeMixin, tk.Frame):
     # Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
     # Verhaltensänderung) — bisher ausgelagert: RecentFilesMixin
     # (ancestry/gui/_app_recent_files.py), ShortcutsMixin
@@ -65,7 +67,8 @@ class AncestryDnaApp(AnalysisDialogsMixin, MatchesBridgeMixin, MiscDialogsMixin,
     # (ancestry/gui/_app_analysis_dialogs.py), ResearchDialogsMixin
     # (ancestry/gui/_app_research_dialogs.py), MiscDialogsMixin
     # (ancestry/gui/_app_misc_dialogs.py), MatchesBridgeMixin
-    # (ancestry/gui/_app_matches_bridge.py).
+    # (ancestry/gui/_app_matches_bridge.py), StatsBridgeMixin
+    # (ancestry/gui/_app_stats_bridge.py).
 
     # cM-Bereiche → wahrscheinliche Verwandtschaft (lo, hi, Label, Generation).
     # Einzige Quelle der Wahrheit auch für analysis/mrca.py.
@@ -1201,43 +1204,6 @@ class AncestryDnaApp(AnalysisDialogsMixin, MatchesBridgeMixin, MiscDialogsMixin,
 
         import threading
         threading.Thread(target=_worker, daemon=True, name="origin-infer").start()
-
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # ─────────────────────────────────────────────────────────────────────────
-    # TAB 5: STATISTIKEN
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def _refresh_stats(self):
-        # Nach einem Download: Statistik als veraltet markieren und alle
-        # Listener benachrichtigen; on_show() sorgt für Neuberechnung beim
-        # nächsten Öffnen des Reiters (oder sofort, wenn er gerade sichtbar ist).
-        self._state.notify_data_changed("download")
-
-    def _on_nb_tab_changed(self, _evt=None):
-        """Berechnet die Statistik beim Öffnen des Statistik-Reiters
-        (nur wenn als veraltet markiert — siehe StatsTab.on_show())."""
-        tab = getattr(self, "_stats_tab", None)
-        if tab is None:
-            return
-        try:
-            if self._nb.nametowidget(self._nb.select()) is tab:
-                tab.on_show()
-        except Exception as e:
-            log.debug("nb tab-changed stats on_show: %s", e)
-
-    def _invalidate_stats(self):
-        """Markiert die Statistik als veraltet (z. B. nach GEDCOM-Änderung)
-        und berechnet sofort neu, falls der Reiter gerade sichtbar ist."""
-        tab = getattr(self, "_stats_tab", None)
-        if tab is None:
-            return
-        tab.mark_dirty()
-        try:
-            if self._nb.nametowidget(self._nb.select()) is tab:
-                tab.on_show()
-        except Exception as e:
-            log.debug("invalidate_stats on_show: %s", e)
 
     # ─────────────────────────────────────────────────────────────────────────
     # Export
