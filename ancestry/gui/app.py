@@ -30,6 +30,7 @@ from ancestry.core.scraper import DownloadResult, Scraper
 from ancestry.gui.state import AppState
 from ancestry.gui.tabs.cluster import ClusterTab
 from ancestry.gui._app_analysis_dialogs import AnalysisDialogsMixin
+from ancestry.gui._app_misc_dialogs import MiscDialogsMixin
 from ancestry.gui._app_recent_files import RecentFilesMixin
 from ancestry.gui._app_research_dialogs import ResearchDialogsMixin
 from ancestry.gui._app_shortcuts import ShortcutsMixin
@@ -54,14 +55,15 @@ def _lazy_import(module_path: str, class_name: str):
     return getattr(module, class_name)
 
 
-class AncestryDnaApp(AnalysisDialogsMixin, RecentFilesMixin, ResearchDialogsMixin,
-                     ShortcutsMixin, tk.Frame):
+class AncestryDnaApp(AnalysisDialogsMixin, MiscDialogsMixin, RecentFilesMixin,
+                     ResearchDialogsMixin, ShortcutsMixin, tk.Frame):
     # Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
     # Verhaltensänderung) — bisher ausgelagert: RecentFilesMixin
     # (ancestry/gui/_app_recent_files.py), ShortcutsMixin
     # (ancestry/gui/_app_shortcuts.py), AnalysisDialogsMixin
     # (ancestry/gui/_app_analysis_dialogs.py), ResearchDialogsMixin
-    # (ancestry/gui/_app_research_dialogs.py).
+    # (ancestry/gui/_app_research_dialogs.py), MiscDialogsMixin
+    # (ancestry/gui/_app_misc_dialogs.py).
 
     # cM-Bereiche → wahrscheinliche Verwandtschaft (lo, hi, Label, Generation).
     # Einzige Quelle der Wahrheit auch für analysis/mrca.py.
@@ -1873,10 +1875,6 @@ class AncestryDnaApp(AnalysisDialogsMixin, RecentFilesMixin, ResearchDialogsMixi
                                 f"✅ Seitenzuweisung für {n} Matches entfernt\n"
                                 f"Cluster #{cid} ({len(members)} Mitglieder)")
 
-    def _show_cluster_timeline(self):
-        from ancestry.gui.analysis.cluster_views import show_cluster_timeline
-        show_cluster_timeline(self)
-
     def _export_gedcom(self):
         """Exportiert Vorfahren-Gruppen als GEDCOM 5.5.1."""
         test_guid = self._current_guid()
@@ -2082,14 +2080,6 @@ class AncestryDnaApp(AnalysisDialogsMixin, RecentFilesMixin, ResearchDialogsMixi
                 r["population"][:45], f"{r['self_score']:.1f}",
                 f"{r['maternal_score']:.1f}", f"{r['paternal_estimate']:.1f}",
                 r["origin"]))
-
-    def _show_about(self):
-        messagebox.showinfo(self._t("dlg.about_title"),
-            self._t("dlg.about_body") + "\n" + str(DB_PATH))
-
-    def _show_shortcuts(self):
-        messagebox.showinfo(self._t("mn.shortcuts").rstrip(" …"),
-                            self._t("dlg.shortcuts_body"))
 
     # ── Persistente Einstellungen ──────────────────────────────────────────────
 
