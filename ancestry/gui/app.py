@@ -29,6 +29,7 @@ from ancestry.core.database import Database
 from ancestry.gui.state import AppState
 from ancestry.gui.tabs.cluster import ClusterTab
 from ancestry.gui._app_analysis_dialogs import AnalysisDialogsMixin
+from ancestry.gui._app_enrichment_runs import EnrichmentRunsMixin
 from ancestry.gui._app_export import ExportMixin
 from ancestry.gui._app_genealogy_export import GenealogyExportMixin
 from ancestry.gui._app_kit_maintenance import KitMaintenanceMixin
@@ -62,11 +63,11 @@ def _lazy_import(module_path: str, class_name: str):
     return getattr(module, class_name)
 
 
-class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, GenealogyExportMixin,
-                     KitMaintenanceMixin, LifecycleMixin, MatchesBridgeMixin,
-                     MiscDialogsMixin, RecentFilesMixin, ResearchDialogsMixin,
-                     SettingsMixin, ShortcutsMixin, StatsBridgeMixin,
-                     StatusMixin, tk.Frame):
+class AncestryDnaApp(AnalysisDialogsMixin, EnrichmentRunsMixin, ExportMixin,
+                     GenealogyExportMixin, KitMaintenanceMixin, LifecycleMixin,
+                     MatchesBridgeMixin, MiscDialogsMixin, RecentFilesMixin,
+                     ResearchDialogsMixin, SettingsMixin, ShortcutsMixin,
+                     StatsBridgeMixin, StatusMixin, tk.Frame):
     # Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
     # Verhaltensänderung) — bisher ausgelagert: RecentFilesMixin
     # (ancestry/gui/_app_recent_files.py), ShortcutsMixin
@@ -81,7 +82,8 @@ class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, GenealogyExportMixin,
     # (ancestry/gui/_app_status.py), LifecycleMixin
     # (ancestry/gui/_app_lifecycle.py), GenealogyExportMixin
     # (ancestry/gui/_app_genealogy_export.py), KitMaintenanceMixin
-    # (ancestry/gui/_app_kit_maintenance.py).
+    # (ancestry/gui/_app_kit_maintenance.py), EnrichmentRunsMixin
+    # (ancestry/gui/_app_enrichment_runs.py).
 
     # cM-Bereiche → wahrscheinliche Verwandtschaft (lo, hi, Label, Generation).
     # Einzige Quelle der Wahrheit auch für analysis/mrca.py.
@@ -952,117 +954,6 @@ class AncestryDnaApp(AnalysisDialogsMixin, ExportMixin, GenealogyExportMixin,
         ttk.Label(btns, text=self._t("dlg.l_multiselect"),
                   foreground="#777").pack(side="right")
         reload()
-
-    def _run_ml_origin(self):
-        """Trainiert (falls nötig) das ML-Herkunftsmodell auf dem GEDCOM und
-        wendet es als 'zweite Meinung' auf alle Matches an (ml_origin-Spalte)."""
-        test_guid = self._state.current_test_guid or self._get_kit_guid()
-        if not test_guid:
-            return
-        self._ged_link_status.set("ML-Herkunft: starte …")
-
-        def _worker():
-            try:
-                from ancestry.core import ml_origin as _ml
-                cb = lambda m: self.after(0, lambda mm=m: self._ged_link_status.set(mm))
-                if not _ml.load():
-                    cb("ML: trainiere Modell auf GEDCOM …")
-                    metrics = _ml.train(self._db, progress_cb=cb)
-                    cb(f"ML: trainiert ({metrics['n_train']} Personen, "
-                       f"{metrics['n_regions']} Regionen, "
-                       f"{metrics['train_acc']:.0%})")
-                n = _ml.apply_to_matches(self._db, test_guid, progress_cb=cb)
-                self.after(0, lambda: self._ged_link_status.set(
-                    f"ML-Herkunft fertig: {n} Matches gelabelt"))
-                self.after(0, self._refresh_match_table)
-            except Exception as exc:
-                log.warning("ml-origin: %s", exc)
-                msg = str(exc).split("\n")[0]
-                self.after(0, lambda: self._ged_link_status.set(f"ML-Fehler: {msg}"))
-                self.after(0, lambda exc=exc: messagebox.showwarning(self._t("dlg.ml_origin"), str(exc)))
-
-        import threading
-        threading.Thread(target=_worker, daemon=True, name="ml-origin").start()
-
-    def _run_wikitree_extend(self):
-        """Verlängert die Ahnenlinie des gewählten Matches über die WikiTree-API."""
-        match = getattr(self, "_selected_match", None)
-        if not match:
-            messagebox.showinfo(self._t("dlg.wikitree"), self._t("dlg.m_choose_match"))
-            return
-        test_guid = self._state.current_test_guid or self._get_kit_guid()
-        if not test_guid:
-            return
-
-        self._ged_link_status.set("WikiTree-Abgleich läuft …")
-
-        def _worker(mguid=match.match_guid, mname=match.display_name):
-            try:
-                from ancestry.core import bridge as _bridge
-                results = _bridge.wikitree_extend_match(
-                    self._db, test_guid, mguid,
-                    progress_cb=lambda m: self.after(
-                        0, lambda mm=m: self._ged_link_status.set(mm)),
-                )
-                found = sum(1 for r in results if r.get("best"))
-                self.after(0, lambda: self._ged_link_status.set(
-                    f"WikiTree: {found} Linie(n) gefunden"))
-                self.after(0, lambda: self._show_wikitree_results(mname, results))
-            except Exception as exc:
-                log.warning("wikitree-extend: %s", exc)
-                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
-
-        import threading
-        threading.Thread(target=_worker, daemon=True, name="wikitree").start()
-
-    def _show_wikitree_results(self, match_name: str, results: list):
-        from ancestry.gui.analysis.gedcom_results import show_wikitree_results
-        show_wikitree_results(self, match_name, results)
-
-    def _run_origin_inference(self):
-        """Leitet wahrscheinliche Herkunftsregionen aus Pedigree-Nachnamen × GEDCOM-Orten ab."""
-        ged = getattr(self, "_gedcom", None)
-        if not ged:
-            messagebox.showinfo(self._t("dlg.gedcom"), self._t("md.ged_none"))
-            return
-        test_guid = self._state.current_test_guid or self._get_kit_guid()
-        if not test_guid:
-            return
-
-        self._ged_link_status.set("Herkunfts-Analyse läuft …")
-
-        def _worker():
-            try:
-                from ancestry.core import bridge as _bridge
-                results = _bridge.infer_match_origins(
-                    self._db, test_guid,
-                    progress_cb=lambda m, **kw: self.after(
-                        0, lambda mm=m: self._ged_link_status.set(mm)),
-                )
-                n = len(results)
-                self.after(0, lambda: self._ged_link_status.set(
-                    f"Herkunfts-Analyse fertig: {n} Matches zugeordnet"))
-                self.after(0, self._refresh_match_table)
-            except Exception as exc:
-                log.warning("origin-inference: %s", exc)
-                self.after(0, lambda exc=exc: self._ged_link_status.set(f"Fehler: {exc}"))
-
-        import threading
-        threading.Thread(target=_worker, daemon=True, name="origin-infer").start()
-
-    def _run_gedmatch_bridge(self):
-        """Verknüpft GEDmatch-Matches mit Ancestry/MH-Matches (Name+cM-Ähnlichkeit)."""
-        import threading
-        def _do():
-            try:
-                n = self._db.link_gedmatch_bridges()
-                msg = (f"{n} GEDmatch-Match/es mit Ancestry/MH-Matches verknüpft.\n"
-                       "⚡-Badge erscheint in der Match-Liste wenn Brücke bekannt.")
-                self.after(0, lambda m=msg: messagebox.showinfo(self._t("dlg.gedmatch_bridge"), m))
-                self.after(50, self._refresh_match_table)
-            except Exception as e:
-                self.after(0, lambda e=e: messagebox.showerror(self._t("dlg.error"), str(e)))
-        threading.Thread(target=_do, daemon=True).start()
 
     def _auto_assign_sides(self):
         """Weist Seiten (väterlich/mütterlich) zu — via Mutter-Kit oder GEDCOM-Baum."""
