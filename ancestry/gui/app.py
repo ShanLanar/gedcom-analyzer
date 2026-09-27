@@ -30,6 +30,7 @@ from ancestry.core.scraper import DownloadResult, Scraper
 from ancestry.gui.state import AppState
 from ancestry.gui.tabs.cluster import ClusterTab
 from ancestry.gui._app_analysis_dialogs import AnalysisDialogsMixin
+from ancestry.gui._app_matches_bridge import MatchesBridgeMixin
 from ancestry.gui._app_misc_dialogs import MiscDialogsMixin
 from ancestry.gui._app_recent_files import RecentFilesMixin
 from ancestry.gui._app_research_dialogs import ResearchDialogsMixin
@@ -55,15 +56,16 @@ def _lazy_import(module_path: str, class_name: str):
     return getattr(module, class_name)
 
 
-class AncestryDnaApp(AnalysisDialogsMixin, MiscDialogsMixin, RecentFilesMixin,
-                     ResearchDialogsMixin, ShortcutsMixin, tk.Frame):
+class AncestryDnaApp(AnalysisDialogsMixin, MatchesBridgeMixin, MiscDialogsMixin,
+                     RecentFilesMixin, ResearchDialogsMixin, ShortcutsMixin, tk.Frame):
     # Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
     # Verhaltensänderung) — bisher ausgelagert: RecentFilesMixin
     # (ancestry/gui/_app_recent_files.py), ShortcutsMixin
     # (ancestry/gui/_app_shortcuts.py), AnalysisDialogsMixin
     # (ancestry/gui/_app_analysis_dialogs.py), ResearchDialogsMixin
     # (ancestry/gui/_app_research_dialogs.py), MiscDialogsMixin
-    # (ancestry/gui/_app_misc_dialogs.py).
+    # (ancestry/gui/_app_misc_dialogs.py), MatchesBridgeMixin
+    # (ancestry/gui/_app_matches_bridge.py).
 
     # cM-Bereiche → wahrscheinliche Verwandtschaft (lo, hi, Label, Generation).
     # Einzige Quelle der Wahrheit auch für analysis/mrca.py.
@@ -933,35 +935,6 @@ class AncestryDnaApp(AnalysisDialogsMixin, MiscDialogsMixin, RecentFilesMixin,
     def _show_gedcom_results(self, results, n_people, n_peds, cluster_lookup=None):
         from ancestry.gui.analysis.gedcom_results import show_gedcom_results
         show_gedcom_results(self, results, n_people, n_peds, cluster_lookup)
-
-    # ─────────────────────────────────────────────────────────────────────────
-    # TAB 3: MATCHES  →  siehe ancestry/gui/tabs/matches.py
-    # ─────────────────────────────────────────────────────────────────────────
-
-    def _refresh_match_table(self, *_):
-        """Delegation stub — aktualisiert die Match-Tabelle im Matches-Tab."""
-        if getattr(self, "_matches_tab", None) is None:
-            return  # Tab noch nicht aufgebaut (Aufruf während früherem Tab-Init)
-        self._matches_tab.refresh()
-
-    def _update_matches_kit_combo(self):
-        """Delegation stub — befüllt den Kit-Selektor im Matches-Tab."""
-        if getattr(self, "_matches_tab", None) is None:
-            return  # Tab noch nicht aufgebaut; after(300, …) füllt später nach
-        self._matches_tab.update_kit_combo()
-        self._set_status("Fertig", "ok")
-
-    def _load_gedcom_link_panel(self, match: "DnaMatch"):
-        """Delegation stub — füllt den GEDCOM-Treffer-Tab im Matches-Tab."""
-        if getattr(self, "_matches_tab", None) is None:
-            return
-        self._matches_tab.load_gedcom_link_panel(match)
-
-    @property
-    def _selected_match(self) -> Optional[DnaMatch]:
-        """Aktuell gewählter Match — lebt im Matches-Tab."""
-        tab = getattr(self, "_matches_tab", None)
-        return tab.selected_match if tab is not None else None
 
     def _run_gedcom_match_all(self):
         """Bulk-Abgleich aller Matches gegen den GEDCOM-Baum."""
