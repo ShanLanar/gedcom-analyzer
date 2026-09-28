@@ -16,7 +16,6 @@ import tkinter as tk
 import webbrowser
 from importlib import import_module
 from tkinter import messagebox, ttk
-from typing import Optional
 from urllib.parse import quote
 
 from ancestry.core.api import AncestryApiClient
