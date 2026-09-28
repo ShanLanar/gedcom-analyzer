@@ -401,3 +401,112 @@ def find_sibling_shared_segments(
 
     results.sort(key=lambda r: (r["chromosome"], r["region_start"]))
     return results
+
+
+# ── Hypothetischer Baum (Herleitung eines vermuteten Vorfahren) ──────────────
+
+def build_hypothetical_tree_data(
+    db: "Database",
+    test_guid: str,
+    tg: dict,
+    candidate_ged_id: str,
+) -> dict | None:
+    """Baut die Datengrundlage für den 'Hypothetischen Baum' einer
+    Triangulationsgruppe: ein bereits im eigenen GEDCOM bekannter Vorfahre
+    (``candidate_ged_id``, typischerweise aus ``annotate_tg_candidate_mrca``)
+    als vermuteter gemeinsamer Ursprung, darunter alle TG-Mitglieder als
+    vermutete Nachkommen.
+
+    Genealogische Einordnung
+    -------------------------
+    Der Vorfahre selbst ist real und im eigenen Baum dokumentiert — die
+    HYPOTHESE betrifft nur, DASS er der gemeinsame Vorfahre für GENAU DIESE
+    Triangulationsgruppe ist. Mitglieder, die per ``gedcom_links`` bereits mit
+    exakt diesem ``ged_id`` verknüpft sind, gelten als "bestätigt" (diese
+    Verknüpfung entstand unabhängig vom Segment-Overlap, über Namens-/
+    Pedigree-Abgleich). Mitglieder OHNE eine solche Verknüpfung sind reine
+    "Hypothese": ihre Zugehörigkeit stützt sich ausschließlich auf das
+    geteilte DNA-Segment (der Overlap + die Shared-Match-Bestätigung, die die
+    TG selbst begründen), nicht auf dokumentierte Abstammung.
+
+    Returns
+    -------
+    dict mit:
+      ``ancestor``:   ``{ged_id, given_name, surname, sex, birth_year,
+                       birth_place, death_year, death_place, ahnen_path,
+                       sosa}``
+      ``confirmed``:  TG-Mitglieder (``match_guid, display_name, length_cm,
+                      start, end``), zusätzlich per ``gedcom_links`` mit dem
+                      Vorfahren verknüpft — nach ``length_cm`` absteigend.
+      ``hypothesis``: TG-Mitglieder ohne diese Verknüpfung (nur DNA-Beleg) —
+                      nach ``length_cm`` absteigend.
+
+    ``None``, wenn ``candidate_ged_id`` nicht in ``gedcom_persons`` existiert.
+    Reine SELECTs, fail-soft bei DB-Fehlern (siehe ``annotate_tg_candidate_mrca``).
+    """
+    try:
+        with db._cursor() as cur:
+            row = cur.execute(
+                "SELECT ged_id, given_name, surname, sex, birth_year, "
+                "birth_place, death_year, death_place FROM gedcom_persons "
+                "WHERE ged_id=?", (candidate_ged_id,)
+            ).fetchone()
+    except Exception as e:
+        log.debug("build_hypothetical_tree_data ancestor: %s", e)
+        return None
+    if not row:
+        return None
+
+    ahnen_path = ""
+    confirmed_guids: set[str] = set()
+    try:
+        with db._cursor() as cur:
+            link_rows = cur.execute(
+                "SELECT match_guid, ahnen_path FROM gedcom_links "
+                "WHERE test_guid=? AND ged_id=?",
+                (test_guid, candidate_ged_id),
+            ).fetchall()
+        for r in link_rows:
+            confirmed_guids.add(r["match_guid"])
+            if not ahnen_path and r["ahnen_path"]:
+                ahnen_path = r["ahnen_path"]
+    except Exception as e:
+        log.debug("build_hypothetical_tree_data links: %s", e)
+
+    from ancestry.core.bridge import path_to_sosa
+    ancestor = {
+        "ged_id":      row["ged_id"],
+        "given_name":  row["given_name"] or "",
+        "surname":     row["surname"] or "",
+        "sex":         row["sex"] or "",
+        "birth_year":  row["birth_year"],
+        "birth_place": row["birth_place"] or "",
+        "death_year":  row["death_year"],
+        "death_place": row["death_place"] or "",
+        "ahnen_path":  ahnen_path,
+        "sosa":        path_to_sosa(ahnen_path) if ahnen_path else 0,
+    }
+
+    names: dict[str, str] = {}
+    try:
+        names = {m.match_guid: m.display_name for m in db.get_matches(test_guid=test_guid)}
+    except Exception as e:
+        log.debug("build_hypothetical_tree_data names: %s", e)
+
+    confirmed: list[dict] = []
+    hypothesis: list[dict] = []
+    for m in tg.get("members", []):
+        guid = m["match_guid"]
+        entry = {
+            "match_guid":   guid,
+            "display_name": names.get(guid, guid[:12]),
+            "length_cm":    m["length_cm"],
+            "start":        m["start"],
+            "end":          m["end"],
+        }
+        (confirmed if guid in confirmed_guids else hypothesis).append(entry)
+
+    confirmed.sort(key=lambda e: -e["length_cm"])
+    hypothesis.sort(key=lambda e: -e["length_cm"])
+
+    return {"ancestor": ancestor, "confirmed": confirmed, "hypothesis": hypothesis}

@@ -8,10 +8,11 @@ import tempfile
 
 import pytest
 
+from ancestry.core.bridge import ensure_tables, import_gedcom_persons, path_to_sosa
 from ancestry.core.database import Database
 from ancestry.core.triangulation import (
-    build_triangulation_groups, chromosome_label, X_CHROMOSOME,
-    find_sibling_shared_segments,
+    build_hypothetical_tree_data, build_triangulation_groups, chromosome_label,
+    X_CHROMOSOME, find_sibling_shared_segments,
 )
 from ancestry.models import DnaMatch, SharedMatch
 from ancestry.tools import import_segments
@@ -307,6 +308,75 @@ def test_unrelated_matches_not_cross_reported(db):
     ])
     res = find_sibling_shared_segments(db, ["sib-1", "sib-2"])
     assert [r["match_guid"] for r in res] == ["X"]
+
+
+# ── Hypothetischer Baum ────────────────────────────────────────────────────────
+
+def _tg_two_members() -> dict:
+    return {
+        "chromosome": 5, "chromosome_label": "5",
+        "region_start": 10 * MBP, "region_end": 20 * MBP,
+        "members": [
+            {"match_guid": "A", "length_cm": 25.0, "start": 5 * MBP, "end": 25 * MBP},
+            {"match_guid": "B", "length_cm": 15.0, "start": 8 * MBP, "end": 22 * MBP},
+        ],
+    }
+
+
+def test_hypothetical_tree_splits_confirmed_and_hypothesis(db):
+    """Nur A ist per gedcom_links mit dem Vorfahren verknüpft → A gilt als
+    'bestätigt' (echter Baum-Beleg), B nur als 'Hypothese' (reiner DNA-Beleg)."""
+    ensure_tables(db)
+    import_gedcom_persons(db, {
+        "@I1@": {"NAME": "Johann /Müller/", "SEX": "M",
+                 "BIRT": {"YEAR": 1820, "PLAC": "Osnabrück"}},
+    }, "t.ged")
+    db.upsert_match(DnaMatch(match_guid="A", test_guid="kit-1",
+                             display_name="Match A", shared_cm=30))
+    db.upsert_match(DnaMatch(match_guid="B", test_guid="kit-1",
+                             display_name="Match B", shared_cm=25))
+    with db._cursor() as cur:
+        cur.execute(
+            "INSERT INTO gedcom_links (test_guid, match_guid, ahnen_path, "
+            "ped_given, ped_surname, ped_year, ged_id, ged_given, ged_surname, "
+            "ged_year, match_method, total_score) VALUES "
+            "(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            ("kit-1", "A", "FM", "Johann", "Müller", 1820,
+             "@I1@", "Johann", "Müller", 1820, "name", 0.95),
+        )
+
+    data = build_hypothetical_tree_data(db, "kit-1", _tg_two_members(), "@I1@")
+
+    assert data is not None
+    assert data["ancestor"]["given_name"] == "Johann"
+    assert data["ancestor"]["surname"] == "Müller"
+    assert data["ancestor"]["ahnen_path"] == "FM"
+    assert data["ancestor"]["sosa"] == path_to_sosa("FM")
+    assert [m["match_guid"] for m in data["confirmed"]] == ["A"]
+    assert data["confirmed"][0]["display_name"] == "Match A"
+    assert [m["match_guid"] for m in data["hypothesis"]] == ["B"]
+    assert data["hypothesis"][0]["display_name"] == "Match B"
+
+
+def test_hypothetical_tree_all_hypothesis_without_links(db):
+    """Kein Mitglied per gedcom_links verknüpft → beide gelten als Hypothese."""
+    ensure_tables(db)
+    import_gedcom_persons(db, {
+        "@I1@": {"NAME": "Johann /Müller/", "SEX": "M"},
+    }, "t.ged")
+
+    data = build_hypothetical_tree_data(db, "kit-1", _tg_two_members(), "@I1@")
+
+    assert data is not None
+    assert data["confirmed"] == []
+    assert {m["match_guid"] for m in data["hypothesis"]} == {"A", "B"}
+    assert data["ancestor"]["ahnen_path"] == ""
+    assert data["ancestor"]["sosa"] == 0
+
+
+def test_hypothetical_tree_unknown_ancestor_returns_none(db):
+    ensure_tables(db)
+    assert build_hypothetical_tree_data(db, "kit-1", _tg_two_members(), "@IX@") is None
 
 
 # ── Segment-Import ────────────────────────────────────────────────────────────

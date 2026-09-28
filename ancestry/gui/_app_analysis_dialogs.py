@@ -1,5 +1,6 @@
 """Analyse-Dialoge-Mixin für AncestryDnaApp (Namenskarte, Ahnentafel,
-Shared-Cluster/Triangulation, kombinierter Cluster-Stammbaum).
+Shared-Cluster (Leeds-Methode), Segment-Triangulation, kombinierter
+Cluster-Stammbaum).
 
 Dritter Baustein der Mixin-Aufteilung (siehe _app_recent_files.py für die
 Begründung). Diese Methoden lesen nur gemeinsamen App-Zustand
@@ -27,8 +28,8 @@ log = logging.getLogger(__name__)
 
 
 class AnalysisDialogsMixin:
-    """Namenskarte/Nachname/Ort/MRCA/Netzwerkgraph/Ahnentafel/Shared-Cluster/
-    Triangulation/kombinierter Cluster-Stammbaum."""
+    """Namenskarte/Nachname/Ort/MRCA/Netzwerkgraph/Ahnentafel/Shared-Cluster
+    (Leeds)/Segment-Triangulation/kombinierter Cluster-Stammbaum."""
 
     def _open_namenskarte(self, surname: str):
         from ancestry.gui.analysis.names import open_namenskarte
@@ -168,14 +169,18 @@ class AnalysisDialogsMixin:
         show_pedigree_overlay(self)
 
     def _show_shared_clusters(self):
-        """Triangulations-Cluster aus den Shared Matches (Connected Components)."""
+        """Leeds-Cluster aus den Shared Matches (Connected Components).
+
+        Rein cM-/ICW-basiert (kein Segment-Abgleich) — NICHT zu verwechseln
+        mit echter Segment-Triangulation (self._show_triangulation), die
+        überlappende Chromosom-Segmente prüft."""
         test_guid = self._current_guid()
         if not test_guid:
             messagebox.showwarning(self._t("dlg.no_kit"), self._t("dlg.m_choose_kit"))
             return
 
         win = tk.Toplevel(self)
-        win.title("Shared-Cluster – Triangulationsgruppen")
+        win.title("Shared-Cluster – Leeds-Gruppen (ICW, kein Segment-Abgleich)")
         win.geometry("820x600")
 
         top = ttk.Frame(win); top.pack(fill="x", padx=10, pady=(10,4))
@@ -185,6 +190,13 @@ class AnalysisDialogsMixin:
         ttk.Label(top, text="bis").pack(side="left")
         ttk.Entry(top, textvariable=hi_var, width=6).pack(side="left", padx=4)
         ttk.Label(top, text="cM   (sehr enge/weite Matches verbinden alles)").pack(side="left")
+
+        ttk.Label(win,
+            text="ℹ Leeds-Methode: gruppiert Matches rein über gegenseitige Shared-Match-"
+                 "Treffer (cM), OHNE DNA-Segmente zu vergleichen. Für echte Segment-"
+                 "Triangulation → Menü Analyse → Segment-Triangulation.",
+            foreground="#555", wraplength=780, justify="left",
+            font=("Segoe UI", 8)).pack(anchor="w", padx=10, pady=(0, 2))
 
         info = ttk.Label(win, text="", style="Bold.TLabel")
         info.pack(anchor="w", padx=10, pady=(4,2))

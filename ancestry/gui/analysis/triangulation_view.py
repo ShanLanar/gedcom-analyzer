@@ -74,6 +74,22 @@ def show_triangulation(app) -> None:
     ttk.Button(top, text=app._t("av.tg_export"),
                command=_export_report).pack(side="left", padx=4)
 
+    def _open_hypo_tree():
+        from tkinter import messagebox
+
+        from ancestry.gui.analysis.triangulation_tree_view import show_hypothetical_tree
+        sel = tv.selection()
+        if not sel:
+            messagebox.showinfo(app._t("dlg.no_data"), app._t("av.tg_choose_group"))
+            return
+        tg = store.get(sel[0])
+        if not tg:
+            return
+        show_hypothetical_tree(app, tg)
+
+    ttk.Button(top, text=app._t("av.tg_hypo_tree"),
+               command=_open_hypo_tree).pack(side="left", padx=4)
+
     # Phasing-Hinweis
     ttk.Label(win,
         text=app._t("av.phasing_warn"),
