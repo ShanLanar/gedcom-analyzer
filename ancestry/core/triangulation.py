@@ -488,10 +488,13 @@ def build_hypothetical_tree_data(
     }
 
     names: dict[str, str] = {}
-    try:
-        names = {m.match_guid: m.display_name for m in db.get_matches(test_guid=test_guid)}
-    except Exception as e:
-        log.debug("build_hypothetical_tree_data names: %s", e)
+    member_guids = [m["match_guid"] for m in tg.get("members", [])]
+    if member_guids:
+        try:
+            names = {m.match_guid: m.display_name for m in db.get_matches(
+                test_guid=test_guid, guid_filter=member_guids)}
+        except Exception as e:
+            log.debug("build_hypothetical_tree_data names: %s", e)
 
     confirmed: list[dict] = []
     hypothesis: list[dict] = []

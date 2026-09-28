@@ -62,16 +62,22 @@ def show_hypothetical_tree(app, tg: dict) -> None:
               foreground="#a06000", wraplength=880, justify="left",
               font=("Segoe UI", 8)).pack(anchor="w", padx=10, pady=(0, 4))
 
+    # Scrollbars zuerst packen (mit ihrem jeweiligen side), Canvas mit
+    # expand=True zuletzt — sonst nimmt sich das expandierende Widget die
+    # gesamte Cavity und die Scrollbars bleiben unsichtbar (Tk-Pack-Reihenfolge).
+    sb_x = ttk.Scrollbar(win, orient="horizontal")
+    sb_x.pack(side="bottom", fill="x", padx=10)
+
     canvas_frame = ttk.Frame(win)
     canvas_frame.pack(fill="both", expand=True, padx=10, pady=4)
-    canvas = tk.Canvas(canvas_frame, bg="#f8f8f8", highlightthickness=1,
-                       highlightbackground="#cccccc")
-    sb_y = ttk.Scrollbar(canvas_frame, orient="vertical", command=canvas.yview)
-    sb_x = ttk.Scrollbar(win, orient="horizontal", command=canvas.xview)
-    canvas.configure(yscrollcommand=sb_y.set, xscrollcommand=sb_x.set)
-    canvas.pack(side="left", fill="both", expand=True)
+    sb_y = ttk.Scrollbar(canvas_frame, orient="vertical")
     sb_y.pack(side="right", fill="y")
-    sb_x.pack(fill="x", padx=10)
+    canvas = tk.Canvas(canvas_frame, bg="#f8f8f8", highlightthickness=1,
+                       highlightbackground="#cccccc",
+                       yscrollcommand=sb_y.set, xscrollcommand=sb_x.set)
+    canvas.pack(side="left", fill="both", expand=True)
+    sb_y.configure(command=canvas.yview)
+    sb_x.configure(command=canvas.xview)
 
     def _draw(_evt=None) -> None:
         idx = opts.index(sel_var.get()) if sel_var.get() in opts else 0
@@ -86,13 +92,13 @@ def show_hypothetical_tree(app, tg: dict) -> None:
             canvas.create_text(20, 20, anchor="nw", text=app._t("av.tg_no_mrca"),
                                font=("Segoe UI", 9), fill="#888")
             return
-        _render_tree(canvas, data)
+        _render_tree(canvas, data, app._t)
 
     cb.bind("<<ComboboxSelected>>", _draw)
     win.after(50, _draw)
 
 
-def _render_tree(canvas: tk.Canvas, data: dict) -> None:
+def _render_tree(canvas: tk.Canvas, data: dict, _t) -> None:
     ancestor = data["ancestor"]
     confirmed = data["confirmed"]
     hypothesis = data["hypothesis"]
@@ -153,7 +159,7 @@ def _render_tree(canvas: tk.Canvas, data: dict) -> None:
         canvas.create_text(cx0 + 8, cy0 + 40, anchor="nw",
                            text=f"{m['start']/1e6:.1f}–{m['end']/1e6:.1f} Mbp",
                            font=("Segoe UI", 7), fill="#666")
-        badge = "✓ Baum" if is_confirmed else "🧬 nur DNA"
+        badge = _t("av.tg_confirmed") if is_confirmed else _t("av.tg_hypothesis")
         canvas.create_text(cx1 - 6, cy0 + 6, anchor="ne", text=badge,
                            font=("Segoe UI", 7, "bold"),
                            fill="#2d8a3a" if is_confirmed else "#a06000")
