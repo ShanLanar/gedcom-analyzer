@@ -7,7 +7,7 @@ import logging
 import threading
 import tkinter as tk
 import webbrowser
-from tkinter import messagebox, ttk
+from tkinter import ttk
 from typing import Callable, Optional
 from urllib.parse import quote
 
@@ -19,25 +19,20 @@ from ancestry.gui.tabs._matches_export import ExportMatchesMixin
 from ancestry.gui.tabs._matches_kirchenbuch import KirchenbuchPanelMixin
 from ancestry.gui.tabs._matches_online_research import OnlineResearchPanelMixin
 from ancestry.gui.tabs._matches_relationship import RelationshipPredictorMixin
+from ancestry.gui.tabs._matches_row_actions import RowActionsMixin
 from ancestry.gui.tabs._matches_segments import SegmentsPanelMixin
 from ancestry.gui.tabs._matches_wikitree import WikiTreePanelMixin
 from ancestry.gui.widgets.theme import register_lang, COLORS
 from ancestry.gui.widgets.tooltip import register_tooltip
 from ancestry.models import DnaMatch
 
-try:
-    from ancestry.gui.undo import UndoStack as _UndoStack
-    _UNDO = _UndoStack.get()
-except Exception:
-    _UNDO = None
-
 log = logging.getLogger(__name__)
 
 
 class MatchesTab(AncestorsPanelMixin, ChipFilterMixin, DetailActionsMixin,
                  ExportMatchesMixin, KirchenbuchPanelMixin, OnlineResearchPanelMixin,
-                 RelationshipPredictorMixin, SegmentsPanelMixin, WikiTreePanelMixin,
-                 ttk.Frame):
+                 RelationshipPredictorMixin, RowActionsMixin, SegmentsPanelMixin,
+                 WikiTreePanelMixin, ttk.Frame):
     """Matches-Tab des Ancestry-DNA-Tools.
 
     Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
@@ -50,7 +45,8 @@ class MatchesTab(AncestorsPanelMixin, ChipFilterMixin, DetailActionsMixin,
     (ancestry/gui/tabs/_matches_chips.py), DetailActionsMixin
     (ancestry/gui/tabs/_matches_actions.py), RelationshipPredictorMixin
     (ancestry/gui/tabs/_matches_relationship.py), ExportMatchesMixin
-    (ancestry/gui/tabs/_matches_export.py).
+    (ancestry/gui/tabs/_matches_export.py), RowActionsMixin
+    (ancestry/gui/tabs/_matches_row_actions.py).
 
     Parameters
     ----------
@@ -1258,127 +1254,6 @@ class MatchesTab(AncestorsPanelMixin, ChipFilterMixin, DetailActionsMixin,
             menu.add_command(label="✖ Endogamie-Markierung entfernen",
                              command=lambda: self._clear_endogamy_cluster(match))
         menu.tk_popup(event.x_root, event.y_root)
-
-    def _set_endogamy_cluster(self, match):
-        """Dialog: Endogamie-Cluster-Namen eingeben oder aus bekannten wählen."""
-        known = self._load_ui_settings().get("endogamy_clusters", [])
-        current = getattr(match, "endogamy_cluster", "") or ""
-
-        dlg = tk.Toplevel(self)
-        dlg.title("Endogamie-Cluster zuweisen")
-        dlg.geometry("420x180")
-        dlg.grab_set()
-        dlg.resizable(False, False)
-
-        ttk.Label(dlg, text=f"Match: {match.display_name}",
-                  font=("Segoe UI", 9, "bold")).pack(anchor="w", padx=14, pady=(12,2))
-        ttk.Label(dlg,
-                  text="Cluster-Name (z. B. 'Ostercappeln/Seymour') — "
-                       "leer lassen zum Entfernen:").pack(anchor="w", padx=14)
-
-        var = tk.StringVar(value=current)
-        cb = ttk.Combobox(dlg, textvariable=var, values=known, width=38)
-        cb.pack(padx=14, pady=8, fill="x")
-        cb.focus()
-
-        def _save():
-            name = var.get().strip()
-            self._state.db.set_endogamy_cluster(match.match_guid, name)
-            match.endogamy_cluster = name
-            if name and name not in known:
-                known.append(name)
-                self._save_ui_settings(endogamy_clusters=known)
-            self._refresh_and_reselect(match.match_guid)
-            dlg.destroy()
-
-        bf = ttk.Frame(dlg); bf.pack(anchor="e", padx=14, pady=4)
-        ttk.Button(bf, text=self._state.t("dlg.cancel"), command=dlg.destroy).pack(side="left", padx=4)
-        ttk.Button(bf, text=self._state.t("dlg.save"), command=_save).pack(side="left")
-        dlg.bind("<Return>", lambda _: _save())
-
-    def _clear_endogamy_cluster(self, match):
-        self._state.db.set_endogamy_cluster(match.match_guid, "")
-        match.endogamy_cluster = ""
-        self._refresh_and_reselect(match.match_guid)
-
-    def _auto_flag_endogamy(self):
-        """Markiert Endogamie-verdächtige Matches (viele kurze Segmente)
-        automatisch als endogamy_cluster='(auto)'."""
-        from tkinter import messagebox
-        guid = self._get_test_guid()
-        if not guid:
-            messagebox.showwarning(self._state.t("dlg.no_kit"),
-                                   self._state.t("dlg.m_choose_kit"))
-            return
-        n = self._state.db.auto_flag_endogamy(guid)
-        self.refresh()
-        self._set_status(self._state.t("mf.endo_auto_done").format(n=n))
-        messagebox.showinfo(self._state.t("mf.endo_auto"),
-                            self._state.t("mf.endo_auto_done").format(n=n))
-
-    def _refresh_and_reselect(self, guid: str):
-        """Aktualisiert die Tabelle und stellt Auswahl + Scroll-Position wieder her,
-        damit man nach einer Bearbeitung tief in der Liste nicht den Platz verliert.
-        Die Tabelle wird asynchron befüllt — die Auswahl setzt _fill_match_table."""
-        self._pending_reselect = guid
-        # Seite NICHT zurücksetzen — der bearbeitete Match liegt auf der
-        # aktuellen Seite und soll sichtbar bleiben.
-        self._do_refresh()
-
-    def _set_custom_rel(self, match, rel: str):
-        self._state.db.update_note(match.match_guid,
-                                   match.note or "")
-        with self._state.db._cursor() as cur:
-            cur.execute("UPDATE matches SET custom_relationship=? WHERE match_guid=?",
-                        (rel, match.match_guid))
-        self._set_status(f"{match.display_name} → {rel}")
-        self._refresh_and_reselect(match.match_guid)
-
-    def _prompt_name(self, match):
-        """Einfacher Dialog um einen Namen manuell einzutragen."""
-        import tkinter.simpledialog as sd
-        name = sd.askstring(
-            "Name eintragen",
-            "Name eintragen (cM: " + str(round(match.shared_cm)) + ")",
-            initialvalue=match.display_name if match.display_name != "Anonym" else "",
-            parent=self,
-        )
-        if name is not None and name.strip():
-            with self._state.db._cursor() as cur:
-                cur.execute("UPDATE matches SET display_name=? WHERE match_guid=?",
-                            (name.strip(), match.match_guid))
-            self._set_status(f"Name gespeichert: {name.strip()}")
-            self._refresh_and_reselect(match.match_guid)
-    def _toggle_starred_match(self, match):
-        """Toggles the starred flag for a match and updates the table display."""
-        try:
-            old_starred = bool(match.starred)
-            new_state = self._state.db.toggle_starred(match.match_guid)
-            match.starred = new_state
-            status_label = "Zu Favoriten hinzugefügt" if new_state else "Aus Favoriten entfernt"
-            self._set_status(f"{match.display_name}: {status_label}")
-            self._refresh_and_reselect(match.match_guid)
-            if _UNDO is not None:
-                _name = getattr(match, "display_name", str(match.match_guid))
-                _was = old_starred
-                _now = new_state
-                _m = match
-                _UNDO.push(
-                    f"Stern {'setzen' if _now else 'entfernen'}: {_name}",
-                    lambda: self._set_starred(_m, _was),
-                    lambda: self._set_starred(_m, _now),
-                )
-        except Exception as e:
-            log.warning("toggle_starred failed: %s", e)
-
-    def _set_starred(self, match, value: bool):
-        """Setzt den Stern-Status ohne Undo-Eintrag (für Undo/Redo)."""
-        try:
-            self._state.db.set_match_starred(match.match_guid, value)
-            match.starred = value
-            self._do_refresh()
-        except Exception as e:
-            log.debug("_set_starred: %s", e)
 
     def _ged_link_search(self):
         """Sucht GEDCOM-Personen nach GED-ID oder Name."""
