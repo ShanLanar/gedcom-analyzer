@@ -23,6 +23,7 @@ from ancestry.gui.tabs._matches_relationship import RelationshipPredictorMixin
 from ancestry.gui.tabs._matches_row_actions import RowActionsMixin
 from ancestry.gui.tabs._matches_tree_nav import TreeNavigationMixin
 from ancestry.gui.tabs._matches_segments import SegmentsPanelMixin
+from ancestry.gui.tabs._matches_shared_panel import SharedPanelMixin
 from ancestry.gui.tabs._matches_wikitree import WikiTreePanelMixin
 from ancestry.gui.widgets.theme import register_lang, COLORS
 from ancestry.gui.widgets.tooltip import register_tooltip
@@ -35,7 +36,7 @@ class MatchesTab(AncestorsPanelMixin, ChipFilterMixin, CopilotMixin,
                  DetailActionsMixin, ExportMatchesMixin, GedcomLinkPanelMixin,
                  KirchenbuchPanelMixin, OnlineResearchPanelMixin, PaginationMixin,
                  RelationshipPredictorMixin, RowActionsMixin, SegmentsPanelMixin,
-                 TreeNavigationMixin, WikiTreePanelMixin, ttk.Frame):
+                 SharedPanelMixin, TreeNavigationMixin, WikiTreePanelMixin, ttk.Frame):
     """Matches-Tab des Ancestry-DNA-Tools.
 
     Wird schrittweise in Mixins aufgeteilt (Wartbarkeit, keine
@@ -53,7 +54,8 @@ class MatchesTab(AncestorsPanelMixin, ChipFilterMixin, CopilotMixin,
     (ancestry/gui/tabs/_matches_gedcom_link.py), CopilotMixin
     (ancestry/gui/tabs/_matches_copilot.py), PaginationMixin
     (ancestry/gui/tabs/_matches_pagination.py), TreeNavigationMixin
-    (ancestry/gui/tabs/_matches_tree_nav.py).
+    (ancestry/gui/tabs/_matches_tree_nav.py), SharedPanelMixin
+    (ancestry/gui/tabs/_matches_shared_panel.py).
 
     Parameters
     ----------
@@ -1299,37 +1301,4 @@ class MatchesTab(AncestorsPanelMixin, ChipFilterMixin, CopilotMixin,
 
         # C3: Recherche-Buttons aktivieren
         self._update_online_research_panel(match)
-
-    def _load_shared_panel(self, match: DnaMatch):
-        """Lädt Shared Matches für den ausgewählten primären Match (im Hintergrund)."""
-        test_guid = self._get_test_guid()
-        if not test_guid:
-            return
-        self._sm_count_var.set("…")
-        def _worker():
-            shared = self._state.db.get_shared_matches(test_guid, match.match_guid)
-            self.after(0, lambda: self._fill_shared_panel(match, shared, test_guid))
-        threading.Thread(target=_worker, daemon=True).start()
-
-    def _fill_shared_panel(self, match: DnaMatch, shared, test_guid: str):
-        # Stale-Guard: Auswahl könnte während des Worker-Laufs gewechselt haben
-        if not self._selected_match or self._selected_match.match_guid != match.match_guid:
-            return
-        self._sm_tree.delete(*self._sm_tree.get_children())
-        if not shared:
-            fetched = self._state.db.is_shared_fetched(test_guid, match.match_guid)
-            self._sm_count_var.set(
-                "Shared Matches wurden abgefragt, aber keine gefunden."
-                if fetched else
-                "Noch nicht heruntergeladen. → Tab »Herunterladen« → Schritt B"
-            )
-            return
-        self._sm_count_var.set(f"{len(shared)} Shared Match(es) mit {match.display_name}")
-        for sm in shared:
-            self._sm_tree.insert("", "end", values=(
-                sm.display_name_b or "(unbekannt)",
-                f"{sm.shared_cm_b:.0f}" if sm.shared_cm_b else "—",
-                f"{sm.shared_cm_ab:.0f}" if sm.shared_cm_ab else "—",
-                sm.relationship_b or "—",
-            ))
 
