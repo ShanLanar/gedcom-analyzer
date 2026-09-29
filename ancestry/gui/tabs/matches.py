@@ -18,6 +18,7 @@ from ancestry.gui.tabs._matches_export import ExportMatchesMixin
 from ancestry.gui.tabs._matches_gedcom_link import GedcomLinkPanelMixin
 from ancestry.gui.tabs._matches_kirchenbuch import KirchenbuchPanelMixin
 from ancestry.gui.tabs._matches_online_research import OnlineResearchPanelMixin
+from ancestry.gui.tabs._matches_pagination import PaginationMixin
 from ancestry.gui.tabs._matches_relationship import RelationshipPredictorMixin
 from ancestry.gui.tabs._matches_row_actions import RowActionsMixin
 from ancestry.gui.tabs._matches_segments import SegmentsPanelMixin
@@ -31,7 +32,7 @@ log = logging.getLogger(__name__)
 
 class MatchesTab(AncestorsPanelMixin, ChipFilterMixin, CopilotMixin,
                  DetailActionsMixin, ExportMatchesMixin, GedcomLinkPanelMixin,
-                 KirchenbuchPanelMixin, OnlineResearchPanelMixin,
+                 KirchenbuchPanelMixin, OnlineResearchPanelMixin, PaginationMixin,
                  RelationshipPredictorMixin, RowActionsMixin, SegmentsPanelMixin,
                  WikiTreePanelMixin, ttk.Frame):
     """Matches-Tab des Ancestry-DNA-Tools.
@@ -49,7 +50,8 @@ class MatchesTab(AncestorsPanelMixin, ChipFilterMixin, CopilotMixin,
     (ancestry/gui/tabs/_matches_export.py), RowActionsMixin
     (ancestry/gui/tabs/_matches_row_actions.py), GedcomLinkPanelMixin
     (ancestry/gui/tabs/_matches_gedcom_link.py), CopilotMixin
-    (ancestry/gui/tabs/_matches_copilot.py).
+    (ancestry/gui/tabs/_matches_copilot.py), PaginationMixin
+    (ancestry/gui/tabs/_matches_pagination.py).
 
     Parameters
     ----------
@@ -198,49 +200,6 @@ class MatchesTab(AncestorsPanelMixin, ChipFilterMixin, CopilotMixin,
                     self._match_count_var.set(f"⚠ Fehler: {exc}")
             except Exception as e:
                 log.debug("match_count_var update: %s", e)
-
-    # ── P3: Seiten-Navigation (Pagination) ────────────────────────────────────
-    def _page_next(self):
-        """Nächste Seite — nur wenn aktuelle Seite voll war (mehr Treffer da)."""
-        if getattr(self, "_has_next_page", False):
-            self._current_offset += self._MAX_DISPLAY_ROWS
-            page = self._current_offset // self._MAX_DISPLAY_ROWS + 1
-            if hasattr(self, "_match_count_var"):
-                self._match_count_var.set(f"Lade Seite {page} …")
-            self._do_refresh()
-
-    def _page_prev(self):
-        if self._current_offset > 0:
-            self._current_offset = max(0, self._current_offset - self._MAX_DISPLAY_ROWS)
-            page = self._current_offset // self._MAX_DISPLAY_ROWS + 1
-            if hasattr(self, "_match_count_var"):
-                self._match_count_var.set(f"Lade Seite {page} …")
-            self._do_refresh()
-
-    # ── S2-6: Scroll-getriggerte Pagination ──────────────────────────────────
-
-    def _on_match_scroll(self, event):
-        """Windows-Mausrad: delta > 0 = nach oben, < 0 = nach unten."""
-        if event.delta < 0:
-            self._on_match_scroll_down(event)
-        else:
-            self._on_match_scroll_up(event)
-
-    def _on_match_scroll_up(self, event):
-        """Scroll past first row → previous page."""
-        if not self._tree.get_children():
-            return
-        if self._tree.yview()[0] <= 0.0:
-            self._page_prev()
-
-    def _on_match_scroll_down(self, event):
-        """Scroll past last row → next page."""
-        if not self._tree.get_children():
-            return
-        if self._tree.yview()[1] >= 1.0:
-            self._page_next()
-
-    # ── A1: user_prefs Helfer ─────────────────────────────────────────────────
 
     def _pref_get(self, key: str, default: str = "") -> str:
         try:
