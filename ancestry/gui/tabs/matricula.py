@@ -498,11 +498,14 @@ class MatriculaTab(ttk.Frame):
                 where_sql = ""
                 params: list = []
                 if parish_id:
-                    # parish_id ist in source_matrikula_books, nicht direkt in entries —
-                    # prüfe ob parish_id-Spalte direkt existiert oder via book_id joinen
-                    if "parish_id" in existing_cols:
-                        where_sql = "WHERE parish_id = ?"
-                        params.append(parish_id)
+                    # parish_id steht nicht in source_matrikula_entries selbst,
+                    # sondern in source_matrikula_books (via book_id) — Filter
+                    # über eine Subquery auf die zugehörigen Bücher dieser Pfarrei.
+                    where_sql = (
+                        "WHERE book_id IN "
+                        "(SELECT book_id FROM source_matrikula_books WHERE parish_id = ?)"
+                    )
+                    params.append(parish_id)
 
                 col_list = ", ".join(export_cols)
                 rows = cur.execute(
