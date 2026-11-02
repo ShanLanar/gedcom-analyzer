@@ -33,6 +33,7 @@ ancestry_dna.db-*
 ancestry/ancestry_dna.db
 ancestry/ancestry_dna.db-*
 ancestry/data/
+ancestry/settings.json
 ancestry/tools/webtrees_crawl.db
 ancestry/tools/matricula_parishes.db
 ancestry/tools/webtrees_training/

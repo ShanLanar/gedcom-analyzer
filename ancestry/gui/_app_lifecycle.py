@@ -92,6 +92,7 @@ class LifecycleMixin:
         try:
             with open(path, 'w', encoding='utf-8') as f:
                 json.dump(s, f, ensure_ascii=False, indent=2)
+            os.chmod(path, 0o600)  # enthält manual_guid/Cookie-Pfad: nur Besitzer
         except Exception as e:
             log.warning('Einstellungen konnten nicht gespeichert werden: %s', e)
             self._set_status(f"⚠ Einstellungen speichern: {e}", "warn")

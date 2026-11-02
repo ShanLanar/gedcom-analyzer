@@ -62,6 +62,10 @@ def _save_cookies(cookies: list[dict], path: str | Path) -> None:
         if c.get("name") and c.get("value")
     ]
     Path(path).write_text(json.dumps(normalised, indent=2, ensure_ascii=False), encoding="utf-8")
+    try:
+        os.chmod(path, 0o600)  # Session-Cookies: nur Besitzer darf lesen/schreiben
+    except OSError:
+        pass  # z. B. Windows ohne POSIX-Bits, oder exotisches Dateisystem
 
 
 # ── Backend 1: Chrome via Playwright ─────────────────────────────────────────
