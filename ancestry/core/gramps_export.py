@@ -113,7 +113,7 @@ def export_gramps(
 
     def _register(label: str, birth_year: str, death_year: str,
                   count: int, matches: list, sosas: set,
-                  birth_place: str = "") -> tuple:
+                  birth_place: str = "", death_place: str = "") -> tuple:
         nonlocal indi_count
         key = (_clean(label).lower(), _clean(birth_year))
         if key not in indi_meta:
@@ -135,6 +135,7 @@ def export_gramps(
                 "birth_year": "" if living else _clean(birth_year),
                 "death_year": _clean(death_year),
                 "birth_place": "" if living else _clean(birth_place),
+                "death_place": "" if living else _clean(death_place),
                 "count": count, "total_cm": total_cm, "median_cm": median_cm,
                 "match_names": match_names,
                 "extra_matches": max(0, len(matches) - len(match_names)),
@@ -167,12 +168,13 @@ def export_gramps(
         birth_year  = detail.lstrip("*").strip()
         death_year  = _clean(group.get("death_year", ""))
         birth_place = _clean(group.get("birth_place", ""))
+        death_place = _clean(group.get("death_place", ""))
         sosas: set[int] = set()
         for m in matches:
             path = m[2] if len(m) > 2 else ""
             if path:
                 sosas.add(_sosa_from_path(path))
-        _register(label, birth_year, death_year, count, matches, sosas, birth_place)
+        _register(label, birth_year, death_year, count, matches, sosas, birth_place, death_place)
 
     # ── Phase 2: Familienstruktur aus Sosa-Arithmetik ────────────────────────
     fam_count = 0
@@ -237,6 +239,19 @@ def export_gramps(
                 _sub(ev, "place", hlink=_handle("P" + meta["birth_place"][:20]))
             meta["birth_event_handle"] = ehnd
 
+        # Sterbe-Event
+        if meta["death_year"]:
+            event_count += 1
+            eid = f"E{event_count:05d}"
+            ehnd = _handle(eid)
+            ev = _sub(events_el, "event", handle=ehnd, id=eid)
+            _sub(ev, "type", "Death")
+            dv = _sub(ev, "dateval")
+            dv.set("val", meta["death_year"])
+            if meta.get("death_place"):
+                _sub(ev, "place", hlink=_handle("P" + meta["death_place"][:20]))
+            meta["death_event_handle"] = ehnd
+
         # DNA-Notiz
         if not meta["living"] and meta["count"] > 0:
             note_count += 1
@@ -288,6 +303,11 @@ def export_gramps(
         if meta.get("birth_event_handle"):
             er = _sub(p, "eventref", hlink=meta["birth_event_handle"], role="Primary")
             er.set("type", "Birth")
+
+        # Sterbe-Event-Referenz
+        if meta.get("death_event_handle"):
+            er = _sub(p, "eventref", hlink=meta["death_event_handle"], role="Primary")
+            er.set("type", "Death")
 
         # Sosa-Attribute
         sosas_sorted = sorted(meta["sosas"])[:8]
