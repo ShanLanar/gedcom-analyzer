@@ -401,23 +401,29 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
         root_depth  = math.floor(math.log2(sosa)) if sosa >= 1 else 0
         match_depth = best["match_gen"] or len(best["ahnen_path"] or "")
 
-        # Voll- vs. Halbgeschwister: root_depth==1 heißt sosa∈{2,3} (Vater ODER
-        # Mutter von root). Sind BEIDE Elternteile (sosa=2 UND sosa=3) unter den
-        # Links dieses Matches bei match_depth==1 vertreten, teilen root und
-        # match wirklich beide Eltern (Vollgeschwister). Ist nur EINE der beiden
-        # sosa-Positionen verknüpft, ist nur ein Elternteil gemeinsam →
-        # Halbgeschwister. Bisher war das kein Unterschied — "Geschwister" kam
-        # unabhängig davon, ob eine oder zwei sosa-Positionen bestätigt waren.
+        # Voll- vs. Halb-Beziehung: bei match_depth==1 ist der Match ein
+        # DIREKTES Kind des verknüpften Vorfahren (sosa) — root und match
+        # teilen diesen Vorfahren wirklich BEIDE Elternteile gemeinsam (Voll-)
+        # nur dann, wenn auch dessen Partner (sosa±1, dasselbe Elternpaar)
+        # bei match_depth==1 verknüpft ist. Das gilt generation-unabhängig:
+        # root_depth==1 → Geschwister/Halbgeschwister (sibling_sosa={2,3}),
+        # root_depth==2 → Onkel-Tante/Halbonkel-Tante (z. B. {4,5} oder {6,7}).
+        # Ab root_depth==3 unterscheidet relationship_label() ohnehin nicht
+        # zwischen voll/halb (kein "Halbgroßonkel"-Label vorhanden), daher
+        # bleibt die Prüfung auf root_depth<=2 begrenzt. Ist nur EINE der
+        # beiden sosa-Positionen verknüpft, ist nur ein Elternteil gemeinsam
+        # → Halb-Beziehung, mit entsprechend halbierter erwarteter cM.
         full_share = True
         is_half_sibling = False
-        if root_depth == 1 and match_depth == 1:
-            sibling_sosa = {2, 3}
+        if match_depth == 1 and root_depth in (1, 2):
+            partner = sosa + 1 if sosa % 2 == 0 else sosa - 1
+            pair_sosa = {sosa, partner}
             matched_sosa = {
                 l["sosa_number"] for l in links
-                if l["sosa_number"] in sibling_sosa
+                if l["sosa_number"] in pair_sosa
                 and (l["match_gen"] or len(l["ahnen_path"] or "")) == 1
             }
-            full_share = matched_sosa == sibling_sosa
+            full_share = matched_sosa == pair_sosa
             is_half_sibling = not full_share
 
         if root_depth > 0 and match_depth > 0:

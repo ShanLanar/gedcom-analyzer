@@ -246,7 +246,8 @@ def test_half_siblings_detected_when_only_one_parent_linked(db):
 
 def test_non_sibling_depth_unaffected_by_half_logic(db):
     """1. Cousin (root_depth=2, match_depth=2) bleibt unverändert — die
-    Halb-Erkennung greift ausschließlich bei der direkten Geschwister-Ebene."""
+    Halb-Erkennung greift ausschließlich bei der direkten Geschwister-/
+    Onkel-Tante-Ebene (match_depth==1)."""
     _insert_person(db, "GP", "Opa", "Kovermann", sosa_number=4)
     _insert_match(db, "TG3", "M3", shared_cm=900.0)
     _insert_link(db, "TG3", "M3", "FF", "GP")
@@ -256,3 +257,38 @@ def test_non_sibling_depth_unaffected_by_half_logic(db):
     assert len(res) == 1
     assert res[0]["ged_relationship"] == "Cousin 1. Grades"
     assert res[0]["half_sibling"] is False
+
+
+def test_full_uncle_detected_when_both_grandparents_linked(db):
+    """Onkel/Tante (root_depth=2, match_depth=1): Match ist Kind BEIDER
+    Großeltern (sosa 4 UND 5) → Vollonkel/-tante, nicht 'immer voll'."""
+    _insert_person(db, "GRANDFATHER", "Opa", "Kovermann", sosa_number=4)
+    _insert_person(db, "GRANDMOTHER", "Oma", "Kovermann", sosa_number=5)
+    _insert_match(db, "TG4", "M4", shared_cm=1750.0)
+    _insert_link(db, "TG4", "M4", "FF", "GRANDFATHER")
+    _insert_link(db, "TG4", "M4", "FM", "GRANDMOTHER")
+    _insert_match_pedigree_gen(db, "TG4", "M4", "FF", 1)
+    _insert_match_pedigree_gen(db, "TG4", "M4", "FM", 1)
+
+    res = get_gedcom_relationship_summary(db, "TG4")
+    assert len(res) == 1
+    row = res[0]
+    assert row["ged_relationship"] == "Onkel/Tante"
+    assert row["half_sibling"] is False
+
+
+def test_half_uncle_detected_when_only_one_grandparent_linked(db):
+    """Onkel/Tante (root_depth=2, match_depth=1): Match ist nur mit EINEM
+    Großelternteil verknüpft (sosa 4, nicht 5) → Halbonkel/-tante statt
+    (vorher immer) 'Onkel/Tante'."""
+    _insert_person(db, "GRANDFATHER", "Opa", "Kovermann", sosa_number=4)
+    _insert_person(db, "GRANDMOTHER", "Oma", "Kovermann", sosa_number=5)
+    _insert_match(db, "TG5", "M5", shared_cm=900.0)
+    _insert_link(db, "TG5", "M5", "FF", "GRANDFATHER")
+    _insert_match_pedigree_gen(db, "TG5", "M5", "FF", 1)
+
+    res = get_gedcom_relationship_summary(db, "TG5")
+    assert len(res) == 1
+    row = res[0]
+    assert row["ged_relationship"] == "Halbonkel/-tante"
+    assert row["half_sibling"] is True
