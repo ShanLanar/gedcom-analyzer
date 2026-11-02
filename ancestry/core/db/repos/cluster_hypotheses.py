@@ -15,7 +15,7 @@ if TYPE_CHECKING:
 class ClusterHypothesesRepo:
     def __init__(self, db: "Database"):
         self._db = db
-        self._cache = {}  # {kit_guid: (timestamp, result)}
+        self._cache: dict[str, tuple[float, list[dict]]] = {}  # {kit_guid: (timestamp, result)}
         self._cache_ttl = 300  # 5 Minuten TTL
 
     def set_hypothesis(self, kit_guid: str, cluster_id: int,

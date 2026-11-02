@@ -21,11 +21,17 @@ jobs:
       - name: Install dependencies
         run: |
           pip install --upgrade pip
-          pip install ruff pytest pytest-cov pytest-randomly curl_cffi
+          pip install ruff mypy pytest pytest-cov pytest-randomly curl_cffi
           pip install -e . 2>/dev/null || pip install -r requirements.txt 2>/dev/null || true
 
       - name: Lint with ruff
         run: python -m ruff check .
+
+      - name: Type-check with mypy
+        # Nur die in [tool.mypy].files gelisteten, schrittweise aufgenommenen
+        # Kernmodule — siehe Kommentar dort. Lief bisher nicht in CI, obwohl
+        # konfiguriert; Typ-Regressionen in diesen Modulen wurden nicht erkannt.
+        run: python -m mypy
 
       - name: Run tests
         # Kein tail-Pipe (verschluckt den Exit-Code) und kein continue-on-error

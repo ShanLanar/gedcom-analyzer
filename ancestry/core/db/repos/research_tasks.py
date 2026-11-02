@@ -32,7 +32,7 @@ class ResearchTasksRepo:
                 (entity_type or "", entity_key or "", entity_label or "",
                  title, int(priority or 2), due_date or ""),
             )
-            return int(cur.lastrowid)
+            return int(cur.lastrowid or 0)
 
     def update_task(self, task_id: int, **fields) -> None:
         """Aktualisiert beliebige Felder (title, status, priority, due_date,
