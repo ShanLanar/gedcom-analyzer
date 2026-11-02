@@ -852,6 +852,126 @@ def test_get_shared_clusters_min_size_filter(db):
 
 
 # ===========================================================================
+# 8b. Chunking-Regression: IN-Listen über 900 Platzhalter hinweg
+#
+# SQLite begrenzt die Anzahl gebundener Parameter pro Statement (historisch
+# 999). Mehrere Repo-Methoden bauten eine IN(...)-Klausel direkt aus einer
+# ungechunkten GUID-Liste — bei 300k+-Matches real erreichbar. Diese Tests
+# erzwingen >900 Elemente, um die 900er-Chunking-Grenze selbst zu testen
+# (kleine Testdaten unter 900 hätten den Bug nie gezeigt).
+# ===========================================================================
+
+_CHUNK_N = 950  # > 900, damit mind. 2 Chunks durchlaufen werden
+
+
+def test_get_shared_clusters_many_small_clusters_over_chunk_boundary(db):
+    """950 unabhängige 2er-Cluster (1900 Mitglieder insgesamt) — die
+    geflattete guids-Liste überschreitet die 900er-Chunk-Grenze deutlich."""
+    db.upsert_kit(make_kit(guid="kit-BIG"))
+    matches = []
+    shared = []
+    for i in range(_CHUNK_N):
+        a, b = f"big-a{i}", f"big-b{i}"
+        matches.append(make_match(match_guid=a, test_guid="kit-BIG", shared_cm=100.0))
+        matches.append(make_match(match_guid=b, test_guid="kit-BIG", shared_cm=90.0))
+        shared.append(make_shared(test_guid="kit-BIG", match_guid_a=a, match_guid_b=b,
+                                  shared_cm_ab=30.0))
+        shared.append(make_shared(test_guid="kit-BIG", match_guid_a=b, match_guid_b=a,
+                                  shared_cm_ab=30.0))
+    db.bulk_upsert(matches)
+    db.bulk_upsert_shared(shared)
+
+    clusters = db.get_shared_clusters("kit-BIG", min_cm=20.0, max_cm=400.0, min_size=2)
+
+    assert len(clusters) == _CHUNK_N
+    assert all(c["size"] == 2 for c in clusters)
+    all_members = {g for c in clusters for g, _n, _cm in c["members"]}
+    assert len(all_members) == _CHUNK_N * 2
+
+
+def test_get_pairwise_shared_over_chunk_boundary(db):
+    """guids-Liste > 900 Elemente; nur ein einziges Paar davon hat tatsächlich
+    einen shared_matches-Eintrag — muss trotz Chunking gefunden werden."""
+    db.upsert_kit(make_kit(guid="kit-PW"))
+    guids = [f"pw{i}" for i in range(_CHUNK_N)]
+    db.bulk_upsert([make_match(match_guid=g, test_guid="kit-PW") for g in guids])
+    db.bulk_upsert_shared([
+        make_shared(test_guid="kit-PW", match_guid_a=guids[10], match_guid_b=guids[920],
+                   shared_cm_ab=42.0),
+    ])
+
+    pairs = db.get_pairwise_shared("kit-PW", guids)
+
+    assert pairs == [(guids[10], guids[920], 42.0)]
+
+
+def test_get_all_pedigrees_over_chunk_boundary(db):
+    """>900 match_guids im Filter — jeder Match muss trotz Chunking im
+    Ergebnis-Dict landen, mit genau seiner eigenen Pedigree-Zeile."""
+    db.upsert_kit(make_kit(guid="kit-PED"))
+    guids = [f"ped{i}" for i in range(_CHUNK_N)]
+    db.bulk_upsert([make_match(match_guid=g, test_guid="kit-PED") for g in guids])
+    for g in guids:
+        db.save_match_pedigree("kit-PED", g, [{
+            "generation": 2, "ahnen_path": "F", "person_id": f"anc-{g}",
+            "given_name": "Anna", "surname": "Beispiel", "is_male": False,
+            "birth_year": "1850", "birth_date": "", "birth_place": "",
+            "death_year": "", "death_date": "", "death_place": "",
+        }])
+
+    peds = db.get_all_pedigrees("kit-PED", match_guids=guids)
+
+    assert set(peds.keys()) == set(guids)
+    assert all(len(v["rows"]) == 1 for v in peds.values())
+
+
+def test_get_match_birthplaces_over_chunk_boundary(db):
+    """>900 match_guids im Filter — jede Geburtsort-Zeile muss trotz
+    Chunking im Ergebnis auftauchen."""
+    db.upsert_kit(make_kit(guid="kit-BP"))
+    guids = [f"bp{i}" for i in range(_CHUNK_N)]
+    db.bulk_upsert([make_match(match_guid=g, test_guid="kit-BP") for g in guids])
+    for g in guids:
+        db.save_match_ancestors("kit-BP", g, [], [
+            {"side": "match", "place_name": f"Ort-{g}", "coords": "52.0,8.0",
+             "person_count": 1},
+        ])
+
+    rows = db.get_match_birthplaces("kit-BP", match_guids=guids)
+
+    assert {r["match_guid"] for r in rows} == set(guids)
+    assert len(rows) == _CHUNK_N
+
+
+def test_get_cluster_ancestor_years_over_chunk_boundary(db):
+    """>900 match_guids im Filter — Ergebnis muss alle Jahre enthalten UND
+    nach dem Zusammenführen der Chunks weiterhin global nach Jahr sortiert
+    sein (die SQL-ORDER-BY gilt nur innerhalb eines Chunks)."""
+    db.upsert_kit(make_kit(guid="kit-YR"))
+    guids = [f"yr{i}" for i in range(_CHUNK_N)]
+    db.bulk_upsert([make_match(match_guid=g, test_guid="kit-YR") for g in guids])
+    for i, g in enumerate(guids):
+        # Jahre modulo durchmischt (nicht einfach i absteigend — der gültige
+        # Bereich 1600..1960 hat nur 361 Werte für 950 Zeilen) und bewusst
+        # NICHT in Einfüge-Reihenfolge sortiert, damit die reine Chunk-
+        # Reihenfolge nicht zufällig schon global sortiert wäre (würde einen
+        # fehlenden Merge-Sort verschleiern).
+        year = 1600 + ((i * 137) % 361)
+        db.save_match_pedigree("kit-YR", g, [{
+            "generation": 2, "ahnen_path": "F", "person_id": f"anc-{g}",
+            "given_name": "Anna", "surname": "Beispiel", "is_male": False,
+            "birth_year": str(year), "birth_date": "", "birth_place": "",
+            "death_year": "", "death_date": "", "death_place": "",
+        }])
+
+    rows = db.get_cluster_ancestor_years("kit-YR", guids)
+
+    assert len(rows) == _CHUNK_N
+    years = [int(r["birth_year"]) for r in rows]
+    assert years == sorted(years)
+
+
+# ===========================================================================
 # 9. get_statistics (5 tests)
 # NOTE: get_statistics(test_guid=...) has a SQL bug (double WHERE clause) in
 # the implementation; we therefore call get_statistics() without test_guid

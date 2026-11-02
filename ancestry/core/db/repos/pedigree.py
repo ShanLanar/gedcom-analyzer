@@ -82,14 +82,7 @@ class PedigreeRepo:
 
     def get_all_pedigrees(self, test_guid: str,
                           match_guids: "list[str] | None" = None) -> dict:
-        extra = ""
-        params: list = [test_guid]
-        if match_guids:
-            placeholders = ",".join("?" * len(match_guids))
-            extra = f" AND p.match_guid IN ({placeholders})"
-            params.extend(match_guids)
-        with self._db._cursor() as cur:
-            cur.execute(f"""
+        base_sql = """
                 SELECT p.match_guid, m.display_name, m.shared_cm,
                        m.has_common_ancestor,
                        COALESCE(m.linked_in_tree,0) AS linked_in_tree,
@@ -100,9 +93,26 @@ class PedigreeRepo:
                 JOIN matches m ON m.match_guid=p.match_guid AND m.test_guid=p.test_guid
                 WHERE p.test_guid=? AND p.generation>=2{extra}
                 ORDER BY m.shared_cm DESC, p.generation, p.ahnen_path
-            """, params)
-            rows = cur.fetchall()
+            """
         out: dict = {}
+        with self._db._cursor() as cur:
+            if not match_guids:
+                cur.execute(base_sql.format(extra=""), [test_guid])
+                rows = cur.fetchall()
+            else:
+                # IN-Liste chunken (SQLite-Variablen-Limit, siehe
+                # get_shared_pairs_set) — jeder match_guid liefert seine Zeilen
+                # komplett aus EINEM Chunk, daher bleibt die Gruppierung unten
+                # pro Match intakt, nur der globale Sort über alle Matches
+                # hinweg entfällt (hier ohnehin nur ein dict-Key, keine Liste).
+                rows = []
+                for start in range(0, len(match_guids), 900):
+                    chunk = match_guids[start:start + 900]
+                    placeholders = ",".join("?" * len(chunk))
+                    cur.execute(
+                        base_sql.format(extra=f" AND p.match_guid IN ({placeholders})"),
+                        [test_guid, *chunk])
+                    rows.extend(cur.fetchall())
         for r in rows:
             g = out.setdefault(r["match_guid"], {
                 "name": r["display_name"], "cm": r["shared_cm"],
@@ -297,31 +307,43 @@ class PedigreeRepo:
     def get_match_birthplaces(self, test_guid: str, match_guids: Optional[list[Any]] = None) -> list:
         """Geburtsorte (mit Koordinaten) aus den Match-Stammbäumen – Rohzeilen
         für die MRCA-Karte. Optional auf bestimmte Matches eingegrenzt."""
-        sql = ("SELECT match_guid, place_name, coords, side, person_count "
-               "FROM match_birthplaces WHERE test_guid=? "
-               "AND COALESCE(coords,'') <> ''")
-        params: list = [test_guid]
-        if match_guids:
-            sql += " AND match_guid IN (%s)" % ",".join("?" * len(match_guids))
-            params.extend(match_guids)
+        base_sql = ("SELECT match_guid, place_name, coords, side, person_count "
+                    "FROM match_birthplaces WHERE test_guid=? "
+                    "AND COALESCE(coords,'') <> ''")
+        out: list = []
         with self._db._cursor() as cur:
-            cur.execute(sql, params)
-            return [dict(r) for r in cur.fetchall()]
+            if not match_guids:
+                cur.execute(base_sql, [test_guid])
+                return [dict(r) for r in cur.fetchall()]
+            # IN-Liste chunken (SQLite-Variablen-Limit, siehe get_shared_pairs_set).
+            for start in range(0, len(match_guids), 900):
+                chunk = match_guids[start:start + 900]
+                sql = base_sql + " AND match_guid IN (%s)" % ",".join("?" * len(chunk))
+                cur.execute(sql, [test_guid, *chunk])
+                out.extend(dict(r) for r in cur.fetchall())
+        return out
 
     def get_cluster_ancestor_years(self, test_guid: str, match_guids: list) -> list:
         if not match_guids:
             return []
-        placeholders = ",".join("?" * len(match_guids))
+        match_guids = list(match_guids)
+        out: list = []
         with self._db._cursor() as cur:
-            rows = cur.execute(
-                f"""SELECT a.given_name, a.surname, a.birth_year, a.birth_place, a.generation
-                    FROM match_pedigree a
-                    JOIN matches m ON m.match_guid = a.match_guid
-                    WHERE m.test_guid = ?
-                      AND a.match_guid IN ({placeholders})
-                      AND a.birth_year != ''
-                      AND CAST(a.birth_year AS INTEGER) BETWEEN 1600 AND 1960
-                    ORDER BY CAST(a.birth_year AS INTEGER)""",
-                [test_guid] + list(match_guids)
-            ).fetchall()
-        return [dict(r) for r in rows]
+            # IN-Liste chunken (SQLite-Variablen-Limit, siehe get_shared_pairs_set);
+            # die globale ORDER BY wird nach dem Zusammenführen neu angewandt.
+            for start in range(0, len(match_guids), 900):
+                chunk = match_guids[start:start + 900]
+                placeholders = ",".join("?" * len(chunk))
+                rows = cur.execute(
+                    f"""SELECT a.given_name, a.surname, a.birth_year, a.birth_place, a.generation
+                        FROM match_pedigree a
+                        JOIN matches m ON m.match_guid = a.match_guid
+                        WHERE m.test_guid = ?
+                          AND a.match_guid IN ({placeholders})
+                          AND a.birth_year != ''
+                          AND CAST(a.birth_year AS INTEGER) BETWEEN 1600 AND 1960""",
+                    [test_guid, *chunk]
+                ).fetchall()
+                out.extend(dict(r) for r in rows)
+        out.sort(key=lambda r: int(r["birth_year"]))
+        return out

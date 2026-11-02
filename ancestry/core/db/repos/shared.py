@@ -151,19 +151,24 @@ class SharedRepo:
         info: dict = {}
         if guids:
             with self._db._cursor() as cur:
-                qmarks = ",".join("?" * len(guids))
-                cur.execute(f"""SELECT match_guid, display_name, shared_cm,
-                                       shared_segments, longest_segment,
-                                       has_common_ancestor,
-                                       COALESCE(linked_in_tree,0) AS linked_in_tree
-                                FROM matches WHERE test_guid=? AND match_guid IN ({qmarks})""",
-                            (test_guid, *guids))
-                for r in cur.fetchall():
-                    info[r["match_guid"]] = (r["display_name"], r["shared_cm"],
-                                             r["shared_segments"] or 0,
-                                             r["longest_segment"] or 0,
-                                             r["has_common_ancestor"] or 0,
-                                             r["linked_in_tree"] or 0)
+                # IN-Liste chunken (SQLite-Variablen-Limit, siehe
+                # get_shared_pairs_set) — guids kann die Mitgliedschaft ALLER
+                # Cluster umfassen, bei 300k+ Matches potenziell groß.
+                for start in range(0, len(guids), 900):
+                    chunk = guids[start:start + 900]
+                    qmarks = ",".join("?" * len(chunk))
+                    cur.execute(f"""SELECT match_guid, display_name, shared_cm,
+                                           shared_segments, longest_segment,
+                                           has_common_ancestor,
+                                           COALESCE(linked_in_tree,0) AS linked_in_tree
+                                    FROM matches WHERE test_guid=? AND match_guid IN ({qmarks})""",
+                                (test_guid, *chunk))
+                    for r in cur.fetchall():
+                        info[r["match_guid"]] = (r["display_name"], r["shared_cm"],
+                                                 r["shared_segments"] or 0,
+                                                 r["longest_segment"] or 0,
+                                                 r["has_common_ancestor"] or 0,
+                                                 r["linked_in_tree"] or 0)
 
         from ancestry.core.treematch import endogamy_flag
         out = []
@@ -206,25 +211,32 @@ class SharedRepo:
     def get_pairwise_shared(self, test_guid: str, guids: list) -> list:
         if not guids:
             return []
+        guids = list(guids)
         gset = set(guids)
-        qmarks = ",".join("?" * len(guids))
+        seen: set = set()
+        out: list = []
         with self._db._cursor() as cur:
-            cur.execute(f"""
-                SELECT match_guid_a, match_guid_b, shared_cm_ab
-                FROM shared_matches
-                WHERE test_guid=? AND match_guid_a IN ({qmarks})
-                  AND match_guid_b IN ({qmarks}) AND shared_cm_ab > 0
-            """, (test_guid, *guids, *guids))
-            seen, out = set(), []
-            for r in cur.fetchall():
-                a, b = r["match_guid_a"], r["match_guid_b"]
-                if a not in gset or b not in gset:
-                    continue
-                key = (a, b) if a < b else (b, a)
-                if key in seen:
-                    continue
-                seen.add(key)
-                out.append((a, b, r["shared_cm_ab"] or 0))
+            # IN-Liste chunken (SQLite-Variablen-Limit, siehe
+            # get_shared_pairs_set) — nur auf match_guid_a filtern, match_guid_b
+            # wird wie bisher in Python gegen gset geprüft (spart zusätzlich die
+            # Hälfte der Parameter pro Chunk).
+            for start in range(0, len(guids), 900):
+                chunk = guids[start:start + 900]
+                qmarks = ",".join("?" * len(chunk))
+                cur.execute(f"""
+                    SELECT match_guid_a, match_guid_b, shared_cm_ab
+                    FROM shared_matches
+                    WHERE test_guid=? AND match_guid_a IN ({qmarks}) AND shared_cm_ab > 0
+                """, (test_guid, *chunk))
+                for r in cur.fetchall():
+                    a, b = r["match_guid_a"], r["match_guid_b"]
+                    if a not in gset or b not in gset:
+                        continue
+                    key = (a, b) if a < b else (b, a)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    out.append((a, b, r["shared_cm_ab"] or 0))
         out.sort(key=lambda x: -(x[2] or 0))
         return out
 
