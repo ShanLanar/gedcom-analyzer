@@ -10,8 +10,10 @@ import tkinter as tk
 from tkinter import ttk
 
 from ancestry.core.triangulation import (
+    annotate_pileup_risk,
     annotate_tg_candidate_mrca,
     build_triangulation_groups,
+    find_pileup_regions,
 )
 
 log = logging.getLogger(__name__)
@@ -116,6 +118,7 @@ def show_triangulation(app) -> None:
     ]:
         tv.heading(col, text=lbl)
         tv.column(col, width=w, anchor=anchor)
+    tv.tag_configure("pileup", background="#ffe0b2")
     tv.pack(side="left", fill="both", expand=True)
     sb = ttk.Scrollbar(tframe, orient="vertical", command=tv.yview)
     sb.pack(side="right", fill="y")
@@ -183,15 +186,22 @@ def show_triangulation(app) -> None:
             annotate_tg_candidate_mrca(app._db, test_guid, tgs)
         except Exception as e:
             log.debug("Triangulation candidate MRCA: %s", e)
+        try:
+            pileup_regions = find_pileup_regions(app._db, test_guid, min_cm=min_cm)
+            annotate_pileup_risk(tgs, pileup_regions)
+        except Exception as e:
+            log.debug("Triangulation pile-up detection: %s", e)
         tv.delete(*tv.get_children())
         store.clear()
         for tg in tgs:
             n      = len(tg["members"])
             avg_cm = sum(m["length_cm"] for m in tg["members"]) / n if n else 0
+            region = f"{tg['region_start']/1_000_000:.1f} – {tg['region_end']/1_000_000:.1f}"
+            tags = ("pileup",) if tg.get("pileup_risk") else ()
+            if tg.get("pileup_risk"):
+                region = f"⚠ {region}"
             iid = tv.insert("", "end", values=(
-                tg["chromosome_label"],
-                f"{tg['region_start']/1_000_000:.1f} – {tg['region_end']/1_000_000:.1f}",
-                n, f"{avg_cm:.1f}"))
+                tg["chromosome_label"], region, n, f"{avg_cm:.1f}"), tags=tags)
             store[iid] = tg
         if tgs:
             info.configure(text=(
@@ -213,6 +223,8 @@ def show_triangulation(app) -> None:
         s_mbp = tg["region_start"] / 1_000_000
         e_mbp = tg["region_end"]   / 1_000_000
         detail.insert("end", f"Chr {tg['chromosome_label']}  {s_mbp:.2f} – {e_mbp:.2f} Mbp\n")
+        if tg.get("pileup_risk"):
+            detail.insert("end", app._t("av.tg_pileup_warn") + "\n")
         try:
             cand = tg.get("candidate_mrca") or []
             if cand:

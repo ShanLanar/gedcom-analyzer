@@ -11,8 +11,8 @@ import pytest
 from ancestry.core.bridge import ensure_tables, import_gedcom_persons, path_to_sosa
 from ancestry.core.database import Database
 from ancestry.core.triangulation import (
-    build_hypothetical_tree_data, build_triangulation_groups, chromosome_label,
-    X_CHROMOSOME, find_sibling_shared_segments,
+    annotate_pileup_risk, build_hypothetical_tree_data, build_triangulation_groups,
+    chromosome_label, X_CHROMOSOME, find_pileup_regions, find_sibling_shared_segments,
 )
 from ancestry.models import DnaMatch, SharedMatch
 from ancestry.tools import import_segments
@@ -377,6 +377,63 @@ def test_hypothetical_tree_all_hypothesis_without_links(db):
 def test_hypothetical_tree_unknown_ancestor_returns_none(db):
     ensure_tables(db)
     assert build_hypothetical_tree_data(db, "kit-1", _tg_two_members(), "@IX@") is None
+
+
+# ── Pile-up-Regionen (datengetrieben) ─────────────────────────────────────────
+
+
+def test_pileup_region_detected_from_dense_overlap(db):
+    segs = [
+        _seg(f"bg{i}", 10, i * 40 * MBP, i * 40 * MBP + 30 * MBP, 15.0)
+        for i in range(5)
+    ]
+    segs += [
+        _seg(f"pile{i}", 10, 150 * MBP, 155 * MBP, 8.0)
+        for i in range(25)
+    ]
+    db.bulk_upsert_segments(segs)
+
+    regions = find_pileup_regions(db, "kit-1", min_matches=10)
+
+    assert len(regions) == 1
+    r = regions[0]
+    assert r["chromosome"] == 10
+    assert r["region_start"] == 150 * MBP
+    assert r["region_end"] == 155 * MBP
+    assert r["match_count"] == 25
+    assert r["baseline_depth"] < 4.0
+
+
+def test_no_pileup_region_for_scattered_segments(db):
+    segs = [
+        _seg(f"bg{i}", 11, i * 40 * MBP, i * 40 * MBP + 30 * MBP, 15.0)
+        for i in range(10)
+    ]
+    db.bulk_upsert_segments(segs)
+
+    assert find_pileup_regions(db, "kit-1", min_matches=10) == []
+
+
+def test_find_pileup_regions_no_segments_returns_empty(db):
+    assert find_pileup_regions(db, "kit-1") == []
+
+
+def test_annotate_pileup_risk_flags_overlapping_tg_only():
+    tgs = [
+        {"chromosome": 10, "region_start": 149 * MBP, "region_end": 152 * MBP},
+        {"chromosome": 10, "region_start": 200 * MBP, "region_end": 210 * MBP},
+    ]
+    pileup_regions = [
+        {"chromosome": 10, "region_start": 150 * MBP, "region_end": 155 * MBP,
+         "match_count": 25, "baseline_depth": 1.0},
+    ]
+
+    annotate_pileup_risk(tgs, pileup_regions)
+
+    assert tgs[0]["pileup_risk"] is True
+    assert tgs[0]["pileup_match_count"] == 25
+    assert tgs[1]["pileup_risk"] is False
+    assert tgs[1]["pileup_match_count"] == 0
 
 
 # ── Segment-Import ────────────────────────────────────────────────────────────

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import logging
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Optional
 
 if TYPE_CHECKING:
     from ancestry.core.database import Database
@@ -401,6 +401,163 @@ def find_sibling_shared_segments(
 
     results.sort(key=lambda r: (r["chromosome"], r["region_start"]))
     return results
+
+
+# ── Pile-up-Regionen (datengetriebene Erkennung, kein externes Koordinaten-
+#    Lexikon) ──────────────────────────────────────────────────────────────
+
+def _coverage_profile(segs: list[dict]) -> list[tuple[int, int, int]]:
+    """Sweep-Line über Start-/Endpunkte: [(start, end, depth)] mit depth =
+    Anzahl Segmente, die dieses (halboffene) Intervall abdecken. O(n log n)
+    statt des naiven O(n·m) Paarvergleichs."""
+    delta: dict[int, int] = defaultdict(int)
+    for s in segs:
+        delta[s["start_location"]] += 1
+        delta[s["end_location"]] -= 1
+    positions = sorted(delta)
+    profile: list[tuple[int, int, int]] = []
+    depth = 0
+    for i, pos in enumerate(positions):
+        if i > 0 and depth > 0:
+            profile.append((positions[i - 1], pos, depth))
+        depth += delta[pos]
+    return profile
+
+
+def _weighted_median_depth(profile: list[tuple[int, int, int]]) -> float:
+    """Median der Überdeckungstiefe, nach Intervall-LÄNGE gewichtet — sonst
+    würden viele kurze Hochtiefe-Intervalle den Median künstlich verzerren."""
+    total_len = sum(e - s for s, e, _ in profile)
+    if total_len <= 0:
+        return 0.0
+    half = total_len / 2
+    acc = 0
+    for s, e, d in sorted(profile, key=lambda t: t[2]):
+        acc += e - s
+        if acc >= half:
+            return float(d)
+    return float(profile[-1][2]) if profile else 0.0
+
+
+def find_pileup_regions(
+    db: "Database",
+    test_guid: str,
+    min_cm: float = 7.0,
+    min_matches: int = 20,
+    outlier_factor: float = 4.0,
+) -> list[dict]:
+    """Identifiziert Pile-up-Verdachtsregionen im EIGENEN Segment-Datensatz —
+    datengetrieben statt über ein extern kuratiertes Koordinaten-Lexikon
+    (dessen Build/Genauigkeit sich ohne Primärquelle nicht verlässlich
+    nachprüfen ließ; ein falsches Lexikon wäre schlimmer als keines).
+
+    Methodik
+    --------
+    Für jedes Chromosom wird die Überdeckungstiefe berechnet: wie viele
+    DISTINKTE Matches an jeder Position ein Segment haben (Sweep-Line über
+    Start-/Endpunkte, siehe ``_coverage_profile``). Der nach Intervall-Länge
+    gewichtete Median dieser Tiefe dient als Baseline für "normale"
+    Überdeckung (skaliert automatisch mit der Gesamtzahl der Matches dieses
+    Kits). Zusammenhängende Abschnitte, deren Tiefe ``outlier_factor``-mal
+    über der Baseline UND mindestens ``min_matches`` liegt, werden als
+    Pile-up-Verdacht gemeldet.
+
+    Genealogische Einordnung
+    -------------------------
+    Echtes IBD (identical by DESCENT, von einem gemeinsamen Vorfahren
+    geerbt) führt zu überlappenden Segmenten bei einer MODERATEN, genealogisch
+    plausiblen Anzahl verwandter Matches. Pile-up-Regionen entstehen durch
+    IBS (identical by STATE — populationsweit konservierte, wenig variable
+    DNA-Abschnitte) und zeigen sich als auffällig VIELE, meist untereinander
+    nicht verwandte Matches, die alle an derselben engen Stelle überlappen —
+    unabhängig davon, ob diese Matches sich sonst überhaupt kennen
+    (``shared_matches``). Deshalb zählt diese Funktion ALLE überlappenden
+    Segmente, nicht nur die, die zusätzlich ein Shared-Match-Paar bilden
+    (anders als ``build_triangulation_groups``).
+
+    Markiert NICHTS automatisch als ungültig — siehe ``annotate_pileup_risk``,
+    das betroffene Triangulationsgruppen nur FLAGGT (nicht entfernt), damit
+    keine Daten unbeabsichtigt verschwinden.
+
+    Returns
+    -------
+    list[dict]: ``{chromosome, chromosome_label, region_start, region_end,
+    match_count, baseline_depth}``, sortiert nach Chromosom, dann Start.
+    """
+    segments = db.get_segments(test_guid, min_cm=min_cm)
+    if not segments:
+        return []
+
+    by_chrom: dict[int, list[dict]] = defaultdict(list)
+    for s in segments:
+        by_chrom[s["chromosome"]].append(s)
+
+    results: list[dict] = []
+    for chrom, segs in by_chrom.items():
+        if len(segs) < min_matches:
+            continue
+        profile = _coverage_profile(segs)
+        if not profile:
+            continue
+        baseline = _weighted_median_depth(profile)
+        threshold = max(min_matches, baseline * outlier_factor)
+
+        # Angrenzende Intervalle über der Schwelle zu einer Region vereinen.
+        region_start: Optional[int] = None
+        region_end: Optional[int] = None
+        region_max_depth = 0
+        for s, e, d in profile:
+            if d >= threshold:
+                if region_start is None:
+                    region_start = s
+                region_end = e
+                region_max_depth = max(region_max_depth, d)
+            elif region_start is not None:
+                results.append({
+                    "chromosome": chrom,
+                    "chromosome_label": chromosome_label(chrom),
+                    "region_start": region_start,
+                    "region_end": region_end,
+                    "match_count": region_max_depth,
+                    "baseline_depth": round(baseline, 1),
+                })
+                region_start = region_end = None
+                region_max_depth = 0
+        if region_start is not None:
+            results.append({
+                "chromosome": chrom,
+                "chromosome_label": chromosome_label(chrom),
+                "region_start": region_start,
+                "region_end": region_end,
+                "match_count": region_max_depth,
+                "baseline_depth": round(baseline, 1),
+            })
+
+    results.sort(key=lambda r: (r["chromosome"], r["region_start"]))
+    return results
+
+
+def annotate_pileup_risk(tgs: list[dict], pileup_regions: list[dict]) -> list[dict]:
+    """Markiert (in place) jede Triangulationsgruppe, deren Region eine
+    Pile-up-Verdachtsregion überlappt — löscht/entfernt NICHTS, siehe
+    find_pileup_regions. Setzt ``pileup_risk`` (bool) und ``pileup_match_count``
+    (die höchste Überdeckungstiefe der überlappenden Pile-up-Region, 0 wenn
+    kein Risiko). Gibt dieselbe (annotierte) ``tgs``-Liste zurück."""
+    by_chrom: dict[int, list[dict]] = defaultdict(list)
+    for p in pileup_regions:
+        by_chrom[p["chromosome"]].append(p)
+
+    for tg in tgs:
+        tg["pileup_risk"] = False
+        tg["pileup_match_count"] = 0
+        for p in by_chrom.get(tg["chromosome"], []):
+            overlap_start = max(tg["region_start"], p["region_start"])
+            overlap_end = min(tg["region_end"], p["region_end"])
+            if overlap_end > overlap_start:
+                tg["pileup_risk"] = True
+                tg["pileup_match_count"] = max(tg["pileup_match_count"], p["match_count"])
+
+    return tgs
 
 
 # ── Hypothetischer Baum (Herleitung eines vermuteten Vorfahren) ──────────────

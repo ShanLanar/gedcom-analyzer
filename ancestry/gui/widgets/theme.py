@@ -285,6 +285,7 @@ TRANSLATIONS: dict[str, dict[str, str]] = {
     "av.tg_hypo_disclaimer": {"de": "⚠ Hypothese: Der Vorfahre ist real und in deinem Baum dokumentiert. Ob er der gemeinsame Ursprung GENAU DIESER Gruppe ist, ist aber nicht bewiesen. Gestrichelte Linien = nur DNA-Segment-Beleg, keine dokumentierte Abstammung.", "en": "⚠ Hypothesis: the ancestor is real and documented in your tree. Whether they are the shared origin of THIS group specifically is not proven. Dashed lines = DNA-segment evidence only, no documented descent."},
     "av.tg_confirmed": {"de": "✓ Baum-bestätigt", "en": "✓ Tree-confirmed"},
     "av.tg_hypothesis": {"de": "🧬 nur DNA", "en": "🧬 DNA only"},
+    "av.tg_pileup_warn": {"de": "⚠ Pile-up-Verdacht: In dieser Region überlappen auffällig viele unabhängige Matches (populationsweite IBS statt echter IBD möglich) — MRCA-Hypothese für diese Gruppe mit Vorsicht behandeln.", "en": "⚠ Suspected pile-up region: an unusually high number of independent matches overlap here (may be population-wide IBS rather than true IBD) — treat this group's MRCA hypothesis with caution."},
     "st.cm_hist": {"de": "cM-Histogramm der Matches:", "en": "cM histogram of the matches:"},
     "mat.m_choose_parish": {"de": "Bitte eine Pfarrei wählen.", "en": "Please select a parish."},
     "mat.api_missing_t": {"de": "API-Key fehlt", "en": "API key missing"},
