@@ -98,6 +98,7 @@ def _parse_row_classic(row: dict) -> dict | None:
         "predicted_relationship": _str(row.get("Suggested Relationship") or row.get("Relationship")),
         "relationship_range":   _str(row.get("Relationship Range") or ""),
         "ftdna_id":             "",
+        "x_match":              False,  # Classic-Format liefert keine X-Match-Spalte
     }
 
 
@@ -105,6 +106,7 @@ def _parse_row_modern(row: dict) -> dict | None:
     name = _str(row.get("Full Name") or row.get("Name"))
     if not name:
         return None
+    x_match = _str(row.get("X Match") or row.get("X-Match") or "").lower() in ("yes", "y", "1", "true")
     return {
         "display_name":         name,
         "shared_cm":            _float(row.get("Total Shared cM") or row.get("cM")),
@@ -112,6 +114,7 @@ def _parse_row_modern(row: dict) -> dict | None:
         "predicted_relationship": _str(row.get("Suggested Relationship") or row.get("Relationship")),
         "relationship_range":   _str(row.get("Relationship Range") or ""),
         "ftdna_id":             _str(row.get("FTDNA ID") or row.get("FTDNA_ID") or ""),
+        "x_match":              x_match,
     }
 
 
@@ -161,6 +164,16 @@ def run(path: Path, kit_guid: str = FTDNA_KIT_ID,
         if shared_cm < 7:
             skipped += 1
             continue
+        # FTDNA ist die einzige große Plattform, deren "Total Shared cM" den
+        # X-Chromosom-Anteil MIT einschließt (Ancestry/MyHeritage/GEDmatch
+        # berichten rein autosomal) — ohne Korrektur läuft dieser Wert
+        # unkorrigiert in autosomal kalibrierte Verwandtschaftsschätzungen
+        # (shared_cm.py, dna_predict.py) und schätzt X-reiche (mütterliche)
+        # Linien systematisch zu nah ein. Die Basis-CSV liefert keine
+        # separate X-cM-Zahl, daher nur als Hinweis markieren statt zu raten.
+        note = ""
+        if m.get("x_match"):
+            note = "⚠ FTDNA X-Match: Total Shared cM enthält ggf. X-DNA-Anteil"
         dm = DnaMatch(
             match_guid=guid,
             test_guid=kit_guid,
@@ -170,6 +183,7 @@ def run(path: Path, kit_guid: str = FTDNA_KIT_ID,
             predicted_relationship=m["predicted_relationship"],
             relationship_range=m["relationship_range"],
             source="ftdna",
+            note=note,
             fetched_at=now,
         )
         db.upsert_match(dm)

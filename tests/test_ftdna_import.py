@@ -51,6 +51,36 @@ def test_parse_modern_format():
         m = matches[0]
         assert m["display_name"] == "Jane Doe"
         assert m["ftdna_id"] == "87654321"
+        assert m["x_match"] is False
+    finally:
+        os.unlink(p)
+
+
+def test_parse_modern_format_x_match_yes_is_flagged():
+    """FTDNAs "Total Shared cM" enthält bei X-Match ggf. X-DNA — muss erkannt
+    werden, da dieser Wert sonst unkorrigiert in autosomal kalibrierte
+    Verwandtschaftsschätzungen läuft."""
+    p = _write_csv(
+        [["Jane Doe", "2023-01-15", "3rd Cousin", "3rd Cousin", "15.0", "42.3", "Yes", "87654321"]],
+        ["Full Name", "Match Date", "Relationship Range", "Suggested Relationship",
+         "Longest Segment", "Total Shared cM", "X Match", "FTDNA ID"],
+    )
+    try:
+        matches = parse_csv(p)
+        assert matches[0]["x_match"] is True
+    finally:
+        os.unlink(p)
+
+
+def test_parse_classic_format_has_no_x_match_flag():
+    """Classic-Format liefert keine X-Match-Spalte → immer False, nie raten."""
+    p = _write_csv(
+        [["John Smith", "2nd Cousin", "2nd Cousin", "23.67 cM", "89.45 cM"]],
+        ["Name", "Relationship Range", "Suggested Relationship", "Longest Block", "Total Shared cM"],
+    )
+    try:
+        matches = parse_csv(p)
+        assert matches[0]["x_match"] is False
     finally:
         os.unlink(p)
 
@@ -103,6 +133,36 @@ def test_run_imports_to_db():
         cnt = conn.execute("SELECT COUNT(*) FROM matches WHERE test_guid='FTDNA_TEST'").fetchone()[0]
         assert cnt == 1
         conn.close()
+    finally:
+        os.unlink(p)
+        if os.path.exists(db_path):
+            os.unlink(db_path)
+
+
+def test_run_sets_x_dna_caveat_note():
+    """X-Match=Yes → Notiz warnt vor X-DNA-Anteil im Total-cM-Wert; ohne
+    X-Match bleibt die Notiz leer."""
+    import sqlite3
+    p = _write_csv(
+        [["With X Match", "2023-01-15", "3rd Cousin", "3rd Cousin", "15.0", "42.3", "Yes", "id1"],
+         ["No X Match",   "2023-01-15", "3rd Cousin", "3rd Cousin", "15.0", "42.3", "No",  "id2"]],
+        ["Full Name", "Match Date", "Relationship Range", "Suggested Relationship",
+         "Longest Segment", "Total Shared cM", "X Match", "FTDNA ID"],
+    )
+    fd, db_path = tempfile.mkstemp(suffix=".db")
+    os.close(fd)
+    os.unlink(db_path)
+    try:
+        from ancestry.core.database import Database
+        db = Database(db_path)
+        db.close()
+        run(p, kit_guid="FTDNA_XTEST", db_file=Path(db_path))
+        conn = sqlite3.connect(db_path)
+        rows = dict(conn.execute(
+            "SELECT display_name, note FROM matches WHERE test_guid='FTDNA_XTEST'").fetchall())
+        conn.close()
+        assert "X-DNA" in rows["With X Match"]
+        assert rows["No X Match"] == ""
     finally:
         os.unlink(p)
         if os.path.exists(db_path):
