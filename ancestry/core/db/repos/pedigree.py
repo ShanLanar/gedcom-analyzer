@@ -179,6 +179,7 @@ class PedigreeRepo:
                             mode: str = "person", only_guids: Optional[list[Any]] = None) -> list:
         sql = """
             SELECT p.given_name, p.surname, p.birth_year, p.birth_place,
+                   p.death_year, p.death_place,
                    p.generation, p.ahnen_path, p.match_guid,
                    m.display_name, m.shared_cm
             FROM match_pedigree p
@@ -218,6 +219,14 @@ class PedigreeRepo:
                 bp = (r["birth_place"] or "").strip()
                 if bp:
                     g["birth_place"] = bp
+            if mode == "person" and not g.get("death_year"):
+                dy = (r["death_year"] or "").strip()
+                if dy:
+                    g["death_year"] = dy
+            if mode == "person" and not g.get("death_place"):
+                dp = (r["death_place"] or "").strip()
+                if dp:
+                    g["death_place"] = dp
             if r["match_guid"] in g["_seen"]:
                 continue
             g["_seen"].add(r["match_guid"])

@@ -759,6 +759,27 @@ def test_get_pedigree_groups_only_guids_filter(db):
     assert groups == []
 
 
+def test_get_pedigree_groups_mode_person_includes_death_data(db):
+    """mode='person' muss death_year/death_place mit ausliefern — sonst kann
+    export_gedcom()/export_gramps() weder DEAT-Tags schreiben noch vermutlich
+    lebende Personen anhand eines bekannten Sterbejahrs ausschließen."""
+    _populate_pedigree_groups(db)
+    groups = db.get_pedigree_groups("kit-PG", min_matches=2, mode="person")
+    johann = next(g for g in groups if g["label"] == "Johann Müller")
+    assert johann["death_year"] == "1910"
+    katharina = next(g for g in groups if g["label"] == "Katharina Finkeldey")
+    assert katharina["death_year"] == "1880"
+
+
+def test_get_pedigree_groups_death_place_omitted_when_empty(db):
+    """Kein death_place in den Rohdaten → kein (leerer) death_place-Key im
+    Gruppen-Dict, wie es birth_place bereits genauso handhabt."""
+    _populate_pedigree_groups(db)
+    groups = db.get_pedigree_groups("kit-PG", min_matches=2, mode="person")
+    johann = next(g for g in groups if g["label"] == "Johann Müller")
+    assert "death_place" not in johann
+
+
 def test_get_pedigree_groups_empty_result_when_no_data(db):
     """get_pedigree_groups returns empty list when no pedigree data exists."""
     groups = db.get_pedigree_groups("kit-EMPTY", min_matches=2)

@@ -375,6 +375,102 @@ def test_fam_chil_matches_famc(tmp_ged):
     assert famc_fam_id in content
 
 
+# ── Sterbedaten (DEAT) + lebende Personen maskieren ──────────────────────────
+
+def test_export_death_year_and_place_written_as_deat(tmp_ged):
+    groups = [{
+        "label":       "Heinrich Finkeldey",
+        "detail":      "*1832",
+        "count":       1,
+        "death_year":  "1890",
+        "death_place": "Osnabrück",
+        "matches":     [("G1", "Match A", "FF", 4, 75.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 DEAT" in content
+    assert "2 DATE 1890" in content
+    assert "2 PLAC Osnabrück" in content
+
+
+def test_export_no_deat_tag_when_death_data_absent(tmp_ged):
+    groups = [{
+        "label":   "Anna Müller",
+        "detail":  "*1850",
+        "count":   1,
+        "matches": [("G1", "Match B", "MF", 4, 60.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "1 DEAT" not in content
+
+
+def test_export_masks_probably_living_ancestor(tmp_ged):
+    """Geburtsjahr >=1920, kein Sterbejahr bekannt → vermutlich noch lebend:
+    Name/Geburtsdaten werden als '[privat]' maskiert (wie gramps_export.py)."""
+    groups = [{
+        "label":      "Peter Beispiel",
+        "detail":     "*1955",
+        "count":      1,
+        "birth_place": "Osnabrück",
+        "matches":    [("G1", "Match C", "F", 2, 1750.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "Peter" not in content
+    assert "Beispiel" not in content
+    assert "[privat]" in content
+    assert "1955" not in content
+    assert "Osnabrück" not in content
+
+
+def test_export_does_not_mask_when_death_year_known(tmp_ged):
+    """Geburtsjahr >=1920, aber Sterbejahr bekannt → nicht mehr lebend, keine
+    Maskierung trotz des an sich 'jungen' Geburtsjahrs."""
+    groups = [{
+        "label":      "Peter Beispiel",
+        "detail":     "*1955",
+        "count":      1,
+        "death_year": "2020",
+        "matches":    [("G1", "Match C", "F", 2, 1750.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "Beispiel" in content
+    assert "1955" in content
+    assert "[privat]" not in content
+
+
+def test_export_mask_living_false_disables_masking(tmp_ged):
+    groups = [{
+        "label":   "Peter Beispiel",
+        "detail":  "*1955",
+        "count":   1,
+        "matches": [("G1", "Match C", "F", 2, 1750.0)],
+    }]
+    export_gedcom(groups, tmp_ged, mask_living=False)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "Beispiel" in content
+    assert "1955" in content
+    assert "[privat]" not in content
+
+
+def test_export_old_birth_year_without_death_not_masked(tmp_ged):
+    """Geburtsjahr <1920 ohne Sterbejahr → nicht als lebend behandelt (die
+    Person wäre >106 Jahre alt), keine Maskierung."""
+    groups = [{
+        "label":   "Karl Alt",
+        "detail":  "*1850",
+        "count":   1,
+        "matches": [("G1", "Match D", "FF", 4, 70.0)],
+    }]
+    export_gedcom(groups, tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "Alt" in content
+    assert "1850" in content
+    assert "[privat]" not in content
+
+
 def test_no_phantom_fam_without_ancestors(tmp_ged):
     # Single ancestor only — no parent/child available → no FAM record
     groups = [{

@@ -41,8 +41,24 @@ def _sosa_from_path(path: str) -> int:
     return sosa
 
 
+def _is_living(birth_year: str, death_year: str) -> bool:
+    """True wenn die Person wahrscheinlich noch lebt (DSGVO-Schutz) — identische
+    Heuristik wie gramps_export.py: kein Sterbejahr bekannt + Geburtsjahr
+    ≥1920 (keine belastbare Information, dass die Person verstorben ist)."""
+    if death_year and str(death_year).strip():
+        return False
+    if not birth_year:
+        return False
+    try:
+        by = int(str(birth_year).lstrip("*").strip())
+        return by >= 1920
+    except (ValueError, TypeError):
+        return False
+
+
 def export_gedcom(groups: list, output_path: str,
-                  submitter_name: str = "AncestryDNATool") -> int:
+                  submitter_name: str = "AncestryDNATool",
+                  mask_living: bool = True) -> int:
     """Write pedigree groups to a GEDCOM 5.5.1 file.
 
     Parameters
@@ -57,6 +73,11 @@ def export_gedcom(groups: list, output_path: str,
         Destination file path (.ged)
     submitter_name : str
         Written into the SUBM record.
+    mask_living : bool
+        Maskiert Name/Geburtsdaten vermutlich noch lebender Personen (keine
+        Sterbedaten + Geburtsjahr ≥1920) als "[privat]" — wie gramps_export.py.
+        DNA-Matches selbst (lebende Dritte) werden bereits NAMENTLICH in NOTE-
+        Feldern referenziert; betrifft nur die Ahnen-INDI-Records.
 
     Returns
     -------
@@ -72,15 +93,17 @@ def export_gedcom(groups: list, output_path: str,
     indi_count = 0
 
     def _register(label: str, birth_year: str, count: int,
-                  matches: list, sosas: set, birth_place: str = "") -> tuple:
+                  matches: list, sosas: set, birth_place: str = "",
+                  death_year: str = "", death_place: str = "") -> tuple:
         key = (_clean(label).lower(), _clean(birth_year))
         if key not in indi_meta:
             nonlocal indi_count
             indi_count += 1
             pid = f"@I{indi_count:05d}@"
+            living = mask_living and _is_living(birth_year, death_year)
             parts = label.split()
-            given = " ".join(parts[:-1]) if len(parts) >= 2 else ""
-            surn  = parts[-1] if parts else ""
+            given = "" if living else (" ".join(parts[:-1]) if len(parts) >= 2 else "")
+            surn  = "[privat]" if living else (parts[-1] if parts else "")
             total_cm  = sum(float(m[4] or 0) for m in matches)
             s_list    = sorted(float(m[4] or 0) for m in matches)
             median_cm = s_list[len(s_list) // 2] if s_list else 0.0
@@ -88,10 +111,13 @@ def export_gedcom(groups: list, output_path: str,
             indi_meta[key] = {
                 "pid":        pid,
                 "label":      _clean(label),
-                "birth_year": _clean(birth_year),
-                "birth_place": _clean(birth_place),
+                "birth_year": "" if living else _clean(birth_year),
+                "birth_place": "" if living else _clean(birth_place),
+                "death_year": _clean(death_year),
+                "death_place": "" if living else _clean(death_place),
                 "given":      given,
                 "surn":       surn,
+                "living":     living,
                 "count":      count,
                 "total_cm":   total_cm,
                 "median_cm":  median_cm,
@@ -123,12 +149,15 @@ def export_gedcom(groups: list, output_path: str,
             continue
         birth_year  = detail.lstrip("*").strip()
         birth_place = _clean(group.get("birth_place", ""))
+        death_year  = _clean(group.get("death_year", ""))
+        death_place = _clean(group.get("death_place", ""))
         sosas: set[int] = set()
         for m in matches:
             path = m[2] if len(m) > 2 else ""
             if path:
                 sosas.add(_sosa_from_path(path))
-        _register(label, birth_year, count, matches, sosas, birth_place)
+        _register(label, birth_year, count, matches, sosas, birth_place,
+                  death_year, death_place)
 
     # ── Phase 2: Build family structure from Sosa arithmetic ─────────────────
     # Sosa 4 → father is Sosa 2, mother is Sosa 3.
@@ -234,6 +263,15 @@ def export_gedcom(groups: list, output_path: str,
                 lines.append(f"2 DATE {by}")
             if bp:
                 lines.append(f"2 PLAC {bp}")
+
+        dy = meta.get("death_year", "")
+        dp = meta.get("death_place", "")
+        if dy or dp:
+            lines.append("1 DEAT")
+            if dy:
+                lines.append(f"2 DATE {dy}")
+            if dp:
+                lines.append(f"2 PLAC {dp}")
 
         # Family links (required for GEDCOM pedigree traversal)
         for fam_id in meta["famc"]:

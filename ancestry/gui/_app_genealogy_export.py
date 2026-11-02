@@ -45,16 +45,11 @@ class GenealogyExportMixin:
             return
         try:
             from ancestry.core.gedcom_export import export_gedcom
-            # Enrich groups with ancestor data
-            enriched = []
-            for g in groups:
-                ancestors = []
-                for guid, name, path, gen, cm in g.get("matches", []):
-                    rows = self._db.get_pedigree_for_match(test_guid, guid)
-                    for r in rows:
-                        ancestors.append(r)
-                enriched.append({**g, "ancestors": ancestors})
-            n = export_gedcom(enriched, p)
+            # get_pedigree_groups() liefert birth_place/death_year/death_place
+            # bereits pro Gruppe mit (keine separate Pro-Match-Anreicherung
+            # mehr nötig — export_gedcom() liest diese Felder jetzt direkt und
+            # maskiert vermutlich lebende Personen als "[privat]").
+            n = export_gedcom(groups, p)
             messagebox.showinfo(self._t("dlg.done"), f"{n} Personen als GEDCOM exportiert → {p}")
         except ImportError:
             messagebox.showerror(self._t("dlg.error"), self._t("dlg.m_gedexport_missing"))
