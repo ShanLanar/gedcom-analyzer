@@ -205,16 +205,68 @@ Gremium: Archivar, DNA-Genetikerin, Data Engineer, Historiker, Datenschutzjurist
 6. ✅ **Unit-Tests für alle 5 Online-Module** (95 → 112 Tests)
    - gov_lookup, grabstein, externe_quellen, dfd_lookup, wikitree_lookup
 
+### Sprint 6 erledigt (2026-11) — Expertengremium Sprint 3
+
+Gremium: Archivar, DNA-Genetikerin, Data Engineer, Datenschutzjurist, Historiker.
+Schwerpunkt dieses Mal: fachliche Korrektheit der DNA-Analysen, nicht nur
+Code-Hygiene — Fehler hier erzeugen falsche Verwandtschaftsschlüsse, ohne
+dass es auffällt.
+
+1. ✅ **Triangulation vs. ICW-Clustering** entwirrt: UI-Label "Shared-Match-
+   Cluster" bezeichnete fälschlich echte Segment-Triangulation; getrennt
+   benannt (`mn.sh_cluster` / `mn.seg_triang`)
+2. ✅ **Pile-up-Region-Erkennung** in `triangulation.py` — datengetrieben
+   (Sweep-Line-Überdeckungstiefe + längengewichteter Median als Baseline)
+   statt externem, nicht verifizierbarem Koordinaten-Lexikon; markiert
+   TGs (`pileup_risk`), löscht nichts; Warnbadge in `triangulation_view.py`
+3. ✅ **Hypothetischer Baum** aus Triangulationsgruppen (`build_hypothetical_tree_data`,
+   `triangulation_tree_view.py`) — unterscheidet baumbestätigt vs. nur-DNA-Hypothese
+4. ✅ **Julianischer Kalender-Escape** (`@#DJULIAN@`) in `safe_parse_gedcom_date()`
+   konvertiert (JDN-Algorithmus, gegen 4 historische Kalenderwechsel verifiziert);
+   betraf `tasks/seasonality.py`s Epoche "vor_1800" (Monatsverschub bis 13 Tage)
+5. ✅ **SQLite-IN-Clause-Chunking** (900er-Batches) in `get_shared_clusters`,
+   `get_pairwise_shared`, `get_match_birthplaces`, `get_cluster_ancestor_years`,
+   `get_all_pedigrees` — schützt vor `SQLITE_MAX_VARIABLE_NUMBER` bei großen Kits
+6. ✅ **Credential-Dateien restriktiver geschützt** (`chmod 600` für Cookies +
+   `settings.json`) + `.gitignore`
+7. ✅ **Halbonkel/-tante erkennen** statt immer "Onkel/Tante" zu labeln
+   (`get_gedcom_relationship_summary`)
+8. ✅ **FTDNA X-Match-Caveat-Notiz** beim Import (X-Vererbungsregeln ≠ Autosomen)
+9. ✅ **GEDCOM-/Gramps-Export**: Sterbedaten (Jahr+Ort) tatsächlich geschrieben,
+   lebende Personen als "[privat]" maskiert (DSGVO) — betraf `get_pedigree_groups()`,
+   das diese Spalten bisher gar nicht selektierte
+10. ✅ **Matricula-Export**: Pfarrei-Filter-Bug behoben (immer-falsche Spaltenprüfung)
+11. ✅ **mypy-Abdeckung 12 → 33 Module** (alle sauber durchlaufenden Kandidaten aus
+    `lib/`, `ancestry/core/` Top-Level, `ancestry/core/db/repos/` aufgenommen)
+
+> Bewusst nicht in diesem Sprint (dokumentierte Scope-Entscheidungen):
+> explizite Pile-up-Koordinatentabelle (keine verifizierbare Primärquelle
+> erreichbar — Build-Mismatch GRCh37/38 wäre schlimmer als keine Prüfung);
+> implizite (nicht per Escape markierte) Julian-Daten vor dem lokalen
+> Kalenderwechsel (Wechseltermin pfarrei-/landesabhängig, nicht sicher zu
+> raten); englische Neujahrs-Konvention (für deutsche Kirchenbücher irrelevant).
+
 ## Sofort-Sprint (nächste Sitzung)
 
 1. 🟢 Live-Switch auf restliche on-demand-Dialog-Labels ausweiten
-2. 🟢 mypy-Abdeckung erweitern (weitere Kernmodule aufnehmen, sobald sauber)
-3. 🟢 i18n-Audit-Tool auf AST umstellen (fängt auch messagebox-Nachrichten)
-4. 🟡 cM-Zeitreihe: „Neu seit letztem Download"-Kennzeichnung in Match-Tab
-5. 🟡 WikiTree-Profile direkt im Matches-Detailpanel verlinken (Bridge-Tab)
-6. 🟡 Gramps XML Export (EPIC 4 🟢 M) — Gramps 5.1 XML für direkten Import
+2. 🟢 i18n-Audit-Tool auf AST umstellen (fängt auch messagebox-Nachrichten)
+3. 🟡 cM-Zeitreihe: „Neu seit letztem Download"-Kennzeichnung in Match-Tab
+4. 🟡 WikiTree-Profile direkt im Matches-Detailpanel verlinken (Bridge-Tab)
+5. 🟡 Gramps XML Export (EPIC 4 🟢 M) — Gramps 5.1 XML für direkten Import
+6. 🟡 **Flaky Test `test_y_line_trace`** (`tests/test_genealogist_100.py`): schlug
+   einmalig unter zufälliger Testreihenfolge mit einem id()-artigen `KeyError`
+   fehl, lief seither in >10 randomisierten Vollläufen wieder sauber durch —
+   Reproduktion bisher nicht gelungen; vermuteter Cross-Test-State-Leak wie
+   beim bereits gefixten `run_parallel_group`-Event-Leck, aber nicht an
+   derselben Stelle lokalisiert. Braucht gezielte Reproduktion (z. B. fixer
+   Seed aus einem fehlgeschlagenen CI-Lauf), bevor sich etwas fixen lässt.
+7. 🟢 **Restliche mypy-Kandidaten mit echten Typfehlern beheben**: `wikitree.py`,
+   `ml_origin.py`, `entity_resolution.py`, `scraper.py`, `auth.py`,
+   `core/bridge/gedcom_import.py`, `core/bridge/matching.py`, `core/api/*.py`,
+   `lib/helpers.py` — danach auch `triangulation.py`/`matricula_bridge.py`
+   aufnehmbar (zogen die bridge/api-Fehler bisher nur transitiv mit rein)
 
-> ✅ Erledigt (diese Sitzung): GESAMTE GUI zweisprachig (179 → 0 hartkodierte
+> ✅ Erledigt (vorherige Sitzung): GESAMTE GUI zweisprachig (179 → 0 hartkodierte
 > Strings) + Live-Sprachwechsel, Guard-Test + Audit-Tool, Tooltip-Helfer +
 > vollständige Ausrollung, Tastenkürzel-Hilfe, Triangulations-PDF, Endogamie-
 > Auto-Flag, mypy-Gate. Davor: Phasing-Dashboard, MRCA-Karte, Pedigree-Lücken,
