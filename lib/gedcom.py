@@ -33,11 +33,91 @@ def _log(level, msg):
 _YEAR_RE = re.compile(r"\b(1[0-9]{3}|2[01]\d{2})\b")
 
 
+# ── Julianischer Kalender (GEDCOM-Escape @#DJULIAN@) ──────────────────────────
+#
+# GEDCOM 5.5.1 kennt den Kalender-Escape "@#DJULIAN@" vor einem Datum, um
+# Tag/Monat/Jahr explizit als julianisch (statt gregorianisch) zu markieren
+# — z. B. bei Export aus Software, die den Kalenderwechsel nachbildet. Ohne
+# Konvertierung würde tasks/seasonality.py Monat/Jahreszeit um bis zu 13 Tage
+# falsch einordnen. Implizite (nicht markierte) Daten vor dem lokalen Kalender-
+# wechsel werden bewusst NICHT automatisch konvertiert: der Wechseltermin ist
+# pfarrei-/landesabhängig (katholisch meist 1582/83, protestantisches
+# Deutschland größtenteils erst 1700) und lässt sich ohne diese Information
+# nicht verlässlich raten — unverändert lassen ist hier sicherer als falsch
+# korrigieren. Ebenso wird nur bei voller Tag/Monat/Jahr-Präzision konvertiert;
+# bei fehlendem Tag (z. B. nur "FEB 1700") wird nur der Escape entfernt.
+_JULIAN_ESCAPE_RE = re.compile(r"^@#DJULIAN@\s*")
+_GREGORIAN_ESCAPE_RE = re.compile(r"^@#DGREGORIAN@\s*")
+_JULIAN_MONTH_MAP = {
+    "JAN": 1, "FEB": 2, "MAR": 3, "MRZ": 3, "APR": 4, "MAY": 5, "MAI": 5,
+    "JUN": 6, "JUL": 7, "AUG": 8, "SEP": 9, "OCT": 10, "OKT": 10,
+    "NOV": 11, "DEC": 12, "DEZ": 12,
+}
+_MONTH_NAME_BY_NUM = {
+    1: "JAN", 2: "FEB", 3: "MAR", 4: "APR", 5: "MAY", 6: "JUN",
+    7: "JUL", 8: "AUG", 9: "SEP", 10: "OCT", 11: "NOV", 12: "DEC",
+}
+_FULL_DATE_RE = re.compile(r"^(\d{1,2})\s+([A-Z]{3})\s+(\d{1,4})$")
+
+
+def _jdn_from_julian(year: int, month: int, day: int) -> int:
+    """Julianisches Kalenderdatum → Julianisches Datum (JDN).
+    Standardalgorithmus (Fliegel & van Flandern 1968) — gegen bekannte
+    historische Kalenderwechsel verifiziert (siehe tests/test_gedcom.py)."""
+    a = (14 - month) // 12
+    y = year + 4800 - a
+    m = month + 12 * a - 3
+    return day + (153 * m + 2) // 5 + 365 * y + y // 4 - 32083
+
+
+def _gregorian_from_jdn(jdn: int) -> tuple[int, int, int]:
+    """Julianisches Datum (JDN) → gregorianisches Kalenderdatum (Jahr, Monat, Tag)."""
+    a = jdn + 32044
+    b = (4 * a + 3) // 146097
+    c = a - (146097 * b) // 4
+    d = (4 * c + 3) // 1461
+    e = c - (1461 * d) // 4
+    m = (5 * e + 2) // 153
+    day = e - (153 * m + 2) // 5 + 1
+    month = m + 3 - 12 * (m // 10)
+    year = 100 * b + d - 4800 + m // 10
+    return year, month, day
+
+
+def julian_to_gregorian(year: int, month: int, day: int) -> tuple[int, int, int]:
+    """Konvertiert ein (explizit als julianisch markiertes) Kalenderdatum
+    verlustfrei ins gregorianische Kalendersystem. Reiner Tagesverschub ohne
+    die englische Neujahrs-Konvention (Jahresbeginn 25. März) — für deutsche
+    Kirchenbücher irrelevant, da hier seit jeher der 1. Januar als
+    Jahresanfang galt."""
+    return _gregorian_from_jdn(_jdn_from_julian(year, month, day))
+
+
 def safe_parse_gedcom_date(date_str: str) -> dict:
+    orig = date_str
     try:
         if not date_str:
             return {"DATE": None, "YEAR": None, "DATE_QUAL": "unknown"}
         text = date_str.strip().upper()
+        out_date = date_str
+
+        julian_match = _JULIAN_ESCAPE_RE.match(text)
+        if julian_match:
+            rest = text[julian_match.end():].strip()
+            full = _FULL_DATE_RE.match(rest)
+            mon = _JULIAN_MONTH_MAP.get(full.group(2)) if full else None
+            if full and mon:
+                gy, gm, gd = julian_to_gregorian(int(full.group(3)), mon, int(full.group(1)))
+                out_date = f"{gd} {_MONTH_NAME_BY_NUM[gm]} {gy}"
+            else:
+                out_date = rest
+            text = out_date.upper()
+        else:
+            stripped = _GREGORIAN_ESCAPE_RE.sub("", text, count=1).strip()
+            if stripped != text:
+                out_date = stripped
+                text = stripped
+
         year_match = re.search(_YEAR_RE, text)
         year_val = int(year_match.group(0)) if year_match else None
         if text.startswith("ABT"):   qual = "about"
@@ -47,10 +127,10 @@ def safe_parse_gedcom_date(date_str: str) -> dict:
         elif text.startswith("BET"): qual = "between"
         elif text.startswith("FROM"):qual = "range"
         else: qual = "exact" if year_val else "unknown"
-        return {"DATE": date_str, "YEAR": year_val, "DATE_QUAL": qual}
+        return {"DATE": out_date, "YEAR": year_val, "DATE_QUAL": qual}
     except Exception as e:
-        _log("warning", f"Fehler beim Parsen von Datum '{date_str}': {e}")
-        return {"DATE": date_str, "YEAR": None, "DATE_QUAL": "error"}
+        _log("warning", f"Fehler beim Parsen von Datum '{orig}': {e}")
+        return {"DATE": orig, "YEAR": None, "DATE_QUAL": "error"}
 
 
 @lru_cache(maxsize=131072)
