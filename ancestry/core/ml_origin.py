@@ -60,8 +60,8 @@ def _region_of(birth_place: str):
         try:
             from ancestry.core.bridge import _extract_region
         except Exception:
-            def _extract_region(s):  # einfacher Fallback
-                parts = [p.strip() for p in (s or "").split(",") if p.strip()]
+            def _extract_region(birth_place: str) -> str:  # einfacher Fallback
+                parts = [p.strip() for p in (birth_place or "").split(",") if p.strip()]
                 return parts[-2] if len(parts) >= 2 else (parts[-1] if parts else "")
     return _extract_region(birth_place or "")
 
@@ -134,8 +134,8 @@ def train(db, min_region: int = 20, sources=None, dedupe: bool = True,
     # seltene Regionen verwerfen
     counts = Counter(y)
     keep = {r for r, n in counts.items() if n >= min_region}
-    X_txt, y = zip(*[(x, t) for x, t in zip(X_txt, y) if t in keep])
-    X_txt, y = list(X_txt), list(y)
+    X_txt_t, y_t = zip(*[(x, t) for x, t in zip(X_txt, y) if t in keep])
+    X_txt, y = list(X_txt_t), list(y_t)
     p(f"{len(y)} Trainingspaare, {len(keep)} Regionen (>= {min_region}).")
 
     pipe = Pipeline([
@@ -191,7 +191,7 @@ def load() -> bool:
 
 def predict_region(surname: str, birth_year=None, top: int = 3) -> list[tuple[str, float]]:
     """Top-k (Region, Wahrscheinlichkeit) für einen Nachnamen."""
-    if not load():
+    if not load() or _MODEL is None:
         return []
     pipe = _MODEL["pipe"]
     proba = pipe.predict_proba([_featurize(surname, birth_year)])[0]
@@ -222,7 +222,7 @@ def apply_to_matches(db, test_guid: str, progress_cb=None) -> int:
             (test_guid,)).fetchall()
 
     # pro Match: Wahrscheinlichkeiten der Ahnen aufsummieren (1/Generation gewichtet)
-    per_match = defaultdict(lambda: defaultdict(float))
+    per_match: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
     surnames  = defaultdict(list)
     for r in rows:
         mg  = r["match_guid"]

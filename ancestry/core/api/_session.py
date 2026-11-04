@@ -8,7 +8,7 @@ import logging
 import random
 import time
 import uuid
-from typing import Optional
+from typing import Any, Optional
 
 from curl_cffi import requests as cfr
 
@@ -53,7 +53,7 @@ def _is_initials_only(name: str) -> bool:
     return bool(re.fullmatch(r"(?:[A-ZÄÖÜ]\.\s*){1,3}", name.strip()))
 
 
-def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
+def _api_get(session, url: str, extra_headers: Optional[dict] = None) -> Optional[Any]:
     headers = {
         "Accept"          : "application/json, text/plain, */*",
         "Accept-Language" : "de-DE,de;q=0.9,en-US;q=0.8",
@@ -75,6 +75,7 @@ def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
         headers["X-CSRF-Token"] = csrf
 
     for attempt in range(MAX_RETRIES):
+        delay: float = 0.0
         try:
             r = session.get(url, headers=headers, timeout=cfg.REQUEST_TIMEOUT,
                             allow_redirects=False)
@@ -118,7 +119,17 @@ def _api_get(session, url: str, extra_headers: dict = None) -> Optional[object]:
 
 
 class _ApiSessionMixin:
-    """JWT, CSRF und HTTP-Hilfsmethoden."""
+    """JWT, CSRF und HTTP-Hilfsmethoden.
+
+    _s/_detail_blocked/_csrf_mode/_last_jwt_refresh werden von
+    AncestryApiClient.__init__ gesetzt (siehe ancestry/core/api/__init__.py)
+    — hier nur als Typ-Deklaration für mypy, da die Mixins einzeln geprüft
+    werden und die Attribute sonst wie undeklariert erscheinen."""
+
+    _s: Any
+    _detail_blocked: bool
+    _csrf_mode: Optional[str]
+    _last_jwt_refresh: float
 
     def _jwt_remaining(self) -> int:
         """Verbleibende Gültigkeit des SecureATT JWT in Sekunden (negativ = abgelaufen)."""

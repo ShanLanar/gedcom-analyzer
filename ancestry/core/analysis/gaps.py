@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import TYPE_CHECKING, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 if TYPE_CHECKING:
     from ancestry.core.database import Database
@@ -51,11 +51,12 @@ def analyze_pedigree_gaps(db: Database, ged_id: str) -> list[dict]:
                 return gaps
 
             # BFS-Traversal: Generation → Personen in dieser Gen
-            current_gen = [(root_row["ged_id"], root_row, None)]  # (ged_id, row, side)
+            current_gen: list[tuple[str, Any, Optional[str]]] = [
+                (root_row["ged_id"], root_row, None)]  # (ged_id, row, side)
             generation = 1
 
             while current_gen and generation <= 10:  # Limit 10 Generationen
-                next_gen = []
+                next_gen: list[tuple[str, Any, Optional[str]]] = []
 
                 for person_ged_id, person_row, _ in current_gen:
                     parents_json = person_row["parents_json"] if person_row else "[]"
@@ -140,7 +141,7 @@ def get_pedigree_completeness(db: Database, ged_id: str) -> dict:
             "first_gap_gen": 3
         }
     """
-    completeness = {"root_person": "", "by_generation": {}, "first_gap_gen": None}
+    completeness: dict[str, Any] = {"root_person": "", "by_generation": {}, "first_gap_gen": None}
 
     try:
         with db._cursor() as cur:

@@ -14,6 +14,7 @@ import logging
 import math
 from collections import Counter, defaultdict
 from functools import lru_cache
+from typing import cast
 
 from ancestry.core.bridge._text import _extract_region
 
@@ -92,7 +93,7 @@ def birth_distribution(db, min_count: int = 3) -> list[dict]:
         for (d, reg), cnt in counts.items()
         if cnt >= min_count
     ]
-    result.sort(key=lambda x: (x["decade"], -x["count"]))
+    result.sort(key=lambda x: (x["decade"], -cast(int, x["count"])))
     log.info("birth_distribution: %d Jahrzehnt×Region-Paare", len(result))
     return result
 

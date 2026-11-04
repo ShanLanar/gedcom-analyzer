@@ -25,6 +25,7 @@ import json
 import logging
 import sys
 import time
+from typing import Any
 from urllib import parse, request
 from urllib.error import HTTPError, URLError
 
@@ -45,7 +46,7 @@ class WikiTreeError(RuntimeError):
     pass
 
 
-def _post(params: dict, retries: int = 2, timeout: int = 20) -> object:
+def _post(params: dict, retries: int = 2, timeout: int = 20) -> Any:
     """POST an die WikiTree-API. Gibt das geparste JSON zurück."""
     params = {**params, "format": "json"}
     body = parse.urlencode(params).encode("utf-8")
@@ -203,10 +204,10 @@ def _main(argv: list[str]):
             surname = argv[2]
             place   = argv[3] if len(argv) > 3 else ""
             year    = argv[4] if len(argv) > 4 else ""
-            res = find_ancestor_lineage(surname, place, year)
-            best = res["best"]
+            lineage_res = find_ancestor_lineage(surname, place, year)
+            best = lineage_res["best"]
             print(f"Bester Treffer: {best.get('Name') if best else '—'}")
-            print(f"Ahnenlinie: {len(res['lineage'])} Personen")
+            print(f"Ahnenlinie: {len(lineage_res['lineage'])} Personen")
         else:
             print(f"Unbekannter Befehl: {cmd}")
     except WikiTreeError as e:

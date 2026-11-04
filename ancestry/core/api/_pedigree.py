@@ -4,7 +4,7 @@ Stammbaum- und Pedigree-Mixin für den Ancestry-API-Client.
 
 import logging
 import time
-from typing import Optional
+from typing import Any, Callable, Optional
 
 import ancestry.endpoints as cfg
 
@@ -14,7 +14,17 @@ log = logging.getLogger(__name__)
 
 
 class _PedigreeMixin:
-    """Methoden für Stammbaum-Daten, gemeinsame Vorfahren und Pedigree."""
+    """Methoden für Stammbaum-Daten, gemeinsame Vorfahren und Pedigree.
+
+    _s/_detail_blocked/_signed_post/_http_lock werden von anderen API-Mixins
+    bzw. AncestryApiClient.__init__ bereitgestellt (siehe
+    ancestry/core/api/_session.py, ancestry/core/api/__init__.py) — hier nur
+    als Typ-Deklaration, da jeder Mixin einzeln geprüft wird."""
+
+    _s: Any
+    _detail_blocked: bool
+    _signed_post: Callable[[str, dict, str, str], Any]
+    _http_lock: Any
 
     def get_common_ancestors(self, test_guid: str,
                              sample_ids: list[str]) -> set:

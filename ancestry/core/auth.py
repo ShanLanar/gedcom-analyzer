@@ -7,7 +7,7 @@ Nutzt curl_cffi um Cloudflare-Bot-Detection zu umgehen
 import json
 import logging
 import re
-from typing import Optional
+from typing import Any, Optional
 
 from curl_cffi import requests as cfr
 
@@ -25,7 +25,7 @@ def _best_chrome_version() -> str:
         return "chrome124"
     for ver in CHROME_VERSIONS:
         try:
-            s = cfr.Session(impersonate=ver)
+            s: Any = cfr.Session(impersonate=ver)
             # Session-Erstellung allein reicht nicht – echten Request testen
             s.head("https://www.ancestry.com/", timeout=8)
             return ver

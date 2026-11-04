@@ -80,7 +80,7 @@ async def _capture_chrome_async(
 
     Returns True if cookies were captured successfully.
     """
-    from playwright.async_api import async_playwright  # type: ignore
+    from playwright.async_api import async_playwright
 
     cfg = SITE_CONFIG.get(site)
     if cfg is None:

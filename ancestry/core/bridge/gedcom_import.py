@@ -193,6 +193,11 @@ class ImportSummary(int):
     Bestehende Aufrufer, die den Rückgabewert als Ganzzahl verwenden
     (%d-Formatierung, f-String mit :,), bleiben vollständig kompatibel."""
 
+    imported: int
+    updated: int
+    skipped: int
+    total: int
+
     def __new__(cls, imported: int, updated: int, skipped: int):
         total = imported + updated + skipped
         obj = super().__new__(cls, total)
@@ -542,7 +547,7 @@ def get_xref_pairs(db, status: str = "", lo: float = 0.0, hi: float = 1.0,
         JOIN gedcom_persons b ON b.ged_id = x.ged_id_other
         WHERE x.score BETWEEN ? AND ?
     """
-    args = [lo, hi]
+    args: list = [lo, hi]
     if status:
         sql += " AND x.status=?"; args.append(status)
     if source:

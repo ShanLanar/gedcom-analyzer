@@ -38,7 +38,7 @@ def koelner_phonetik(name: str) -> str:
         elif ch in 'MN':     codes.append('6')
         elif ch == 'R':      codes.append('7')
         elif ch in 'SZ':     codes.append('8')
-    reduced = []
+    reduced: list[str] = []
     for c in codes:
         if not reduced or c != reduced[-1]: reduced.append(c)
     result = ''.join(reduced).lstrip('0') or '0'

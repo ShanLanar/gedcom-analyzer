@@ -125,8 +125,8 @@ class FamilySearchClient:
             return []
         entries = (data.get("entries") or [])
         out = []
-        for e in entries:
-            content = (e.get("content") or {}).get("gedcomx") or {}
+        for entry in entries:
+            content = (entry.get("content") or {}).get("gedcomx") or {}
             for p in content.get("persons") or []:
                 out.append(person_to_dict(p))
         return [d for d in out if d.get("ext_id")]

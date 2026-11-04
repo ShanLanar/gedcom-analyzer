@@ -20,6 +20,7 @@ Funktion:
 from __future__ import annotations
 
 import math
+from typing import cast
 
 # Jede Gruppe: (deutsche Labels, mean_cM, low_cM, high_cM)
 # low/high = beobachteter Bereich (näherungsweise 99-Perzentil-Spanne).
@@ -85,7 +86,7 @@ def relationship_probabilities(cm: float, top: int | None = None) -> list[dict]:
     out = [{"labels": labels, "probability": d / total,
             "mean": mean, "low": low, "high": high}
            for labels, mean, low, high, d in raw]
-    out.sort(key=lambda r: -r["probability"])
+    out.sort(key=lambda r: -cast(float, r["probability"]))
     return out[:top] if top else out
 
 

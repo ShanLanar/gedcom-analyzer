@@ -5,7 +5,7 @@ Matches-, DNA-Kits- und Notizen-Mixin für den Ancestry-API-Client.
 import logging
 import math
 import time
-from typing import Iterator, Optional
+from typing import Any, Callable, Iterator, Optional
 
 import ancestry.endpoints as cfg
 from ancestry.models import DnaKit, DnaMatch, SharedMatch
@@ -16,7 +16,18 @@ log = logging.getLogger(__name__)
 
 
 class _MatchesMixin:
-    """Methoden für DNA-Kits, Matches, Shared Matches und Notizen."""
+    """Methoden für DNA-Kits, Matches, Shared Matches und Notizen.
+
+    _s/_detail_blocked/_last_jwt_refresh/_refresh_jwt werden von anderen
+    API-Mixins bzw. AncestryApiClient.__init__ bereitgestellt (siehe
+    ancestry/core/api/_session.py, ancestry/core/api/__init__.py) — hier nur
+    als Typ-Deklaration, da jeder Mixin einzeln geprüft wird."""
+
+    _s: Any
+    _detail_blocked: bool
+    _last_jwt_refresh: float
+    _refresh_jwt: Callable[[str], None]
+    _session_expired: bool
 
     def detail_names_blocked(self) -> bool:
         return self._detail_blocked

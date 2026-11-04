@@ -79,6 +79,12 @@ class MigrationStatus(str):
     `has_marker` zu, statt den Text zu parsen.
     """
 
+    migrated: bool
+    has_marker: bool
+    from_country: str
+    to_country: str
+    died_in_battle: bool
+
     def __new__(cls, text: str, *, migrated: bool = False,
                 has_marker: bool = False, from_country: str = "",
                 to_country: str = "", died_in_battle: bool = False):
@@ -164,7 +170,7 @@ def get_ancestor_paths(start_id: str, individuals, families, cache=None):
     if cache:
         return cache.get_ancestors(start_id, individuals, families)
     from lib.cache import _MAX_PATHS_PER_ANCESTOR
-    paths = defaultdict(list)
+    paths: defaultdict[str, list] = defaultdict(list)
     if start_id not in individuals:
         return paths
     queue = deque([[start_id]])

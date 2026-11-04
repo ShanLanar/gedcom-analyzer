@@ -3,6 +3,7 @@ Namen- und Profil-Detail-Mixin für den Ancestry-API-Client.
 """
 
 import logging
+from typing import Any, Callable
 
 import ancestry.endpoints as cfg
 
@@ -12,7 +13,14 @@ log = logging.getLogger(__name__)
 
 
 class _NamesProfileMixin:
-    """Methoden für Namen-/Profil-Abfragen."""
+    """Methoden für Namen-/Profil-Abfragen.
+
+    _detail_blocked/_signed_post werden von anderen API-Mixins bereitgestellt
+    (siehe ancestry/core/api/_session.py) — hier nur als Typ-Deklaration, da
+    jeder Mixin einzeln geprüft wird."""
+
+    _detail_blocked: bool
+    _signed_post: Callable[[str, dict, str, str], Any]
 
     @staticmethod
     def _pick_name(info: dict) -> str:

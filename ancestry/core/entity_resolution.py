@@ -37,17 +37,19 @@ import json
 import logging
 import sqlite3
 from pathlib import Path
-from typing import Optional
+from typing import Callable, Optional
 
 log = logging.getLogger(__name__)
 
 from ancestry.paths import DB_PATH
 
+_kp: Optional[Callable[[str], str]]
+_lev: Optional[Callable[[str, str], int]]
 try:
     from tasks.names import _levenshtein as _lev
     from tasks.names import koelner_phonetik as _kp
 except ImportError:
-    _kp = _lev = None  # type: ignore[assignment]
+    _kp = _lev = None
 
 
 # ── DB-Zugriff ─────────────────────────────────────────────────────────────────
@@ -121,7 +123,7 @@ def _get_or_create_entity(db: sqlite3.Connection, label: str = "", notes: str = 
     cur = db.execute(
         "INSERT INTO entities (label, notes) VALUES (?,?)", (label, notes)
     )
-    return cur.lastrowid
+    return int(cur.lastrowid or 0)
 
 
 def _assign(
@@ -570,8 +572,8 @@ def phase3_name_candidates(
 
     if not dry_run:
         for *src_pair, score, evidence in pairs:
-            src_a = tuple(src_pair[:3])
-            src_b = tuple(src_pair[3:6])
+            src_a = (src_pair[0], src_pair[1], src_pair[2])
+            src_b = (src_pair[3], src_pair[4], src_pair[5])
             if _add_candidate(db, src_a, src_b, score, evidence):
                 stats["candidates"] += 1
         db.commit()
@@ -749,8 +751,9 @@ def phase3b_ner_candidates(
 
     if not dry_run:
         for *src_pair, score, evidence in pairs:
-            if _add_candidate(db, tuple(src_pair[:3]), tuple(src_pair[3:6]),
-                              score, evidence):
+            src_a = (src_pair[0], src_pair[1], src_pair[2])
+            src_b = (src_pair[3], src_pair[4], src_pair[5])
+            if _add_candidate(db, src_a, src_b, score, evidence):
                 stats["candidates"] += 1
         db.commit()
     else:

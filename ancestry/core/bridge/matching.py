@@ -73,6 +73,8 @@ def run_match_for_match(db, test_guid: str, match_guid: str,
             return []
 
     # GEDCOM-Personen: Index aus Übergabe-Parameter oder einmalig aus DB laden
+    ged_by_sn: dict[str, list]
+    ged_by_koelner: dict[str, list]
     if _ged_by_sn is not None and _ged_by_koelner is not None:
         ged_by_sn      = _ged_by_sn
         ged_by_koelner = _ged_by_koelner
@@ -83,8 +85,8 @@ def run_match_for_match(db, test_guid: str, match_guid: str,
             ).fetchall()]
         if not ged_all:
             return []
-        ged_by_sn:     dict[str, list] = defaultdict(list)
-        ged_by_koelner: dict[str, list] = defaultdict(list)
+        ged_by_sn     = defaultdict(list)
+        ged_by_koelner = defaultdict(list)
         for g in ged_all:
             ged_by_sn[g["surname_norm"]].append(g)
             if g["koelner_code"]:
@@ -352,8 +354,10 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
     try:
         from lib.helpers import relationship_label
     except ImportError:
-        def relationship_label(rd, td, anc=False, full_share=True):
-            return f"Grad {rd}+{td}" if rd and td else ""
+        def relationship_label(root_d: int, target_d: int,
+                               is_target_ancestor: bool = False,
+                               full_share: bool = True) -> str:
+            return f"Grad {root_d}+{target_d}" if root_d and target_d else ""
 
     MULT_MAP = {2: "double", 3: "triple", 4: "quadruple",
                 5: "quintuple", 6: "sextuple", 7: "septuple"}

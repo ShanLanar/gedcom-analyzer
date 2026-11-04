@@ -212,7 +212,7 @@ def load() -> bool:
 
 
 def predict_proba(feats: list[float]) -> float:
-    if not load():
+    if not load() or _MODEL is None:
         return rule_score(feats)
     try:
         return float(_MODEL["clf"].predict_proba([feats])[0][1])
