@@ -94,7 +94,28 @@ def export_gramps(
     people_el  = _sub(db_el, "people")
     families_el = _sub(db_el, "families")
     events_el  = _sub(db_el, "events")
+    places_el  = _sub(db_el, "places")   # vor notes (Gramps-XML-1.7.1-Schemareihenfolge)
     notes_el   = _sub(db_el, "notes")
+
+    # Ortsname → Handle. Events referenzieren Orte bisher nur per hlink auf
+    # einen Hash des Namens, OHNE je einen <placeobj>-Record anzulegen — ein
+    # unauflösbarer (dangling) Verweis, der den Ortsnamen beim Import nach
+    # Gramps komplett verloren gehen lässt (GEDCOM-Export schreibt denselben
+    # Ort korrekt als Klartext-PLAC-Zeile). _place_hlink() legt den Record
+    # jetzt tatsächlich an.
+    place_registry: dict[str, str] = {}
+    place_count = 0
+
+    def _place_hlink(name: str) -> str:
+        nonlocal place_count
+        if name not in place_registry:
+            place_count += 1
+            pid = f"P{place_count:05d}"
+            phnd = _handle(pid)
+            place_registry[name] = phnd
+            pl = _sub(places_el, "placeobj", handle=phnd, id=pid)
+            _sub(pl, "pname", value=name)
+        return place_registry[name]
 
     # ── Phase 1: Personen sammeln ─────────────────────────────────────────────
     # Key: (name_lower, birth_year) → deduplizierte Personen
@@ -236,7 +257,7 @@ def export_gramps(
                 dv = _sub(ev, "dateval")
                 dv.set("val", meta["birth_year"])
             if meta["birth_place"]:
-                _sub(ev, "place", hlink=_handle("P" + meta["birth_place"][:20]))
+                _sub(ev, "place", hlink=_place_hlink(meta["birth_place"]))
             meta["birth_event_handle"] = ehnd
 
         # Sterbe-Event
@@ -249,7 +270,7 @@ def export_gramps(
             dv = _sub(ev, "dateval")
             dv.set("val", meta["death_year"])
             if meta.get("death_place"):
-                _sub(ev, "place", hlink=_handle("P" + meta["death_place"][:20]))
+                _sub(ev, "place", hlink=_place_hlink(meta["death_place"]))
             meta["death_event_handle"] = ehnd
 
         # DNA-Notiz

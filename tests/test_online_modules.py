@@ -62,9 +62,12 @@ _INDIVIDUALS: dict = {
 # gov_lookup
 # ═══════════════════════════════════════════════════════════════════════════════
 
+import tasks.gov_lookup as gov_lookup_mod
 from tasks.gov_lookup import (
     _collect_places,
     _archive_links,
+    _nominatim,
+    _wikidata_place,
     GOV_LOOKUP_HEADERS,
 )
 
@@ -89,6 +92,69 @@ class TestGovLookupCollectPlaces:
     def test_full_string_in_values(self):
         places = _collect_places(_INDIVIDUALS)
         assert any("Niedersachsen" in v for v in places.values())
+
+
+class TestGovLookupDisambiguation:
+    """Scrum Sprint 8 (Archivar): gov_lookup nutzte nur die erste
+    Ortskomponente vor dem Komma für Nominatim/Wikidata — deutschsprachige
+    Ortsnamen wie "Neustadt" existieren mehrfach über mehrere Länder/
+    Regionen, der erste Treffer wurde ohne Ambiguitäts-Hinweis übernommen."""
+
+    def test_run_gov_lookup_passes_full_place_to_nominatim(self, monkeypatch):
+        """run_gov_lookup() selbst muss die VOLLE Ortskette an _nominatim()
+        weitergeben, nicht nur die erste Komponente vor dem Komma — sonst
+        bleibt der Fix in _nominatim() wirkungslos, weil der Aufrufer die
+        Information gar nicht erst durchreicht."""
+        from tasks.gov_lookup import run_gov_lookup
+        captured = {}
+
+        def fake_nominatim(place_query):
+            captured["q"] = place_query
+            return "", "", ""
+
+        monkeypatch.setattr(gov_lookup_mod, "_nominatim", fake_nominatim)
+        monkeypatch.setattr(gov_lookup_mod, "_wikidata_place", lambda name: {})
+        monkeypatch.setattr(gov_lookup_mod, "time",
+                            types.SimpleNamespace(sleep=lambda s: None))
+
+        individuals = {"@I1@": {
+            "BIRT": {"PLAC": "Neustadt, Sachsen, Deutschland"},
+        }}
+        run_gov_lookup(individuals)
+        assert captured["q"] == "Neustadt, Sachsen, Deutschland", \
+            f"erwartet volle Ortskette, bekam {captured.get('q')!r}"
+
+    def test_wikidata_multiple_distinct_places_flagged_ambiguous(self, monkeypatch):
+        """Zwei VERSCHIEDENE Wikidata-Items (unterschiedliche ?item-URIs)
+        für denselben Ortsnamen → ambiguous=True statt den ersten zu picken."""
+        def fake_get_json(url, params=None):
+            return {"results": {"bindings": [
+                {"item": {"value": "http://www.wikidata.org/entity/Q1"},
+                 "govId": {"value": "GOV_A"}},
+                {"item": {"value": "http://www.wikidata.org/entity/Q2"},
+                 "govId": {"value": "GOV_B"}},
+            ]}}
+        monkeypatch.setattr(gov_lookup_mod, "_get_json", fake_get_json)
+        result = _wikidata_place("Neustadt")
+        assert result.get("ambiguous") is True
+        assert result.get("candidate_count") == 2
+        assert "gov_id" not in result  # kein geratener Wert
+
+    def test_wikidata_single_place_not_flagged_ambiguous(self, monkeypatch):
+        """Ein einzelnes Item (ggf. mit mehreren Optional-Bindings durch
+        Kirchspiel/Diözese-Kombinationen) bleibt eindeutig."""
+        def fake_get_json(url, params=None):
+            return {"results": {"bindings": [
+                {"item": {"value": "http://www.wikidata.org/entity/Q1"},
+                 "govId": {"value": "GOV_A"}},
+                {"item": {"value": "http://www.wikidata.org/entity/Q1"},
+                 "govId": {"value": "GOV_A"}, "dioceseLabel": {"value": "Diözese X"}},
+            ]}}
+        monkeypatch.setattr(gov_lookup_mod, "_get_json", fake_get_json)
+        result = _wikidata_place("Osnabrück")
+        assert result.get("ambiguous") is not True
+        assert result.get("qid") == "Q1"
+        assert result.get("gov_id") == "GOV_A"
 
 
 class TestGovLookupArchiveLinks:

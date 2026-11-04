@@ -56,12 +56,21 @@ def _get_json(url, params=None):
 
 # ── Nominatim ─────────────────────────────────────────────────────────────────
 
-def _nominatim(place_first: str):
-    """→ (lat, lon, display_name) oder ('', '', '')."""
-    if not place_first or len(place_first) < 2:
+def _nominatim(place_query: str):
+    """→ (lat, lon, display_name) oder ('', '', '').
+
+    place_query sollte die VOLLE Ortskette (z. B. "Neustadt, Sachsen,
+    Deutschland") sein, nicht nur die erste Komponente — Nominatim ist für
+    genau solche hierarchischen Adress-Strings gebaut und nutzt Kreis/Region
+    zur Disambiguierung. Häufige deutschsprachige Ortsnamen wie "Neustadt"
+    oder "Hausen" existieren über mehrere Länder/Regionen hinweg; nur die
+    erste Komponente zu übergeben pickt sonst deterministisch den
+    Nominatim-Treffer Nummer 1, ohne dass das Risiko einer falschen Pfarrei-
+    Zuordnung irgendwo sichtbar wird."""
+    if not place_query or len(place_query) < 2:
         return "", "", ""
     data = _get_json(_NOMINATIM, {
-        "q": place_first,
+        "q": place_query,
         "countrycodes": "de,at,ch,pl,fr,nl,be,lu",
         "format": "json",
         "limit": "1",
@@ -93,11 +102,20 @@ SELECT DISTINCT ?item ?govId ?parishLabel ?dioceseLabel WHERE {{
     bd:serviceParam wikibase:language "de,en" .
   }}
 }}
-LIMIT 3
+LIMIT 10
 """
 
 
 def _wikidata_place(name: str) -> dict:
+    """Sucht einen deutschsprachigen Ortsnamen in Wikidata.
+
+    Deutschsprachige Ortsnamen wie "Neustadt" oder "Hausen" existieren
+    mehrfach über mehrere Bundesländer/Länder verteilt — ein exakter
+    Label-Match ohne Regions-/Kreisangabe aus dem GEDCOM-Ortsstring kann
+    nicht sicher disambiguiert werden. Statt deterministisch den ersten
+    Treffer zu picken (und damit riskant Koordinaten/Kirchspiel/Diözese der
+    FALSCHEN Pfarrei zuzuordnen), wird bei mehreren DISTINKTEN Orten
+    "ambiguous" zurückgegeben, statt zu raten."""
     if not name:
         return {}
     clean = re.sub(r"\([^)]*\)", "", name).strip()
@@ -108,6 +126,9 @@ def _wikidata_place(name: str) -> dict:
     bindings = (data.get("results") or {}).get("bindings") or []
     if not bindings:
         return {}
+    distinct_qids = {(b.get("item") or {}).get("value", "") for b in bindings}
+    if len(distinct_qids) > 1:
+        return {"ambiguous": True, "candidate_count": len(distinct_qids)}
     b = bindings[0]
     qid = (b.get("item") or {}).get("value", "").rsplit("/", 1)[-1]
     return {
@@ -166,14 +187,19 @@ def run_gov_lookup(individuals: dict, progress_cb=None,
         if i % 15 == 0 and i:
             p(f"  … {i}/{len(items)} Orte, {len(rows)} angereichert")
 
-        lat, lon, display = _nominatim(first)
+        lat, lon, display = _nominatim(full)
         time.sleep(_DELAY_NOMINATIM)
 
         wd = _wikidata_place(first)
         time.sleep(_DELAY_WIKIDATA)
 
-        gov_id  = wd.get("gov_id", "")
-        qid     = wd.get("qid", "")
+        ambiguous = wd.get("ambiguous", False)
+        gov_id  = "" if ambiguous else wd.get("gov_id", "")
+        qid     = "" if ambiguous else wd.get("qid", "")
+        parish  = (f"⚠ Mehrdeutig ({wd.get('candidate_count', 0)} Orte namens "
+                   f"„{first}“ in Wikidata — nicht automatisch zuordenbar)"
+                   if ambiguous else wd.get("parish", ""))
+        diocese = "" if ambiguous else wd.get("diocese", "")
         arch    = _archive_links(first, gov_id)
         wd_url  = f"https://www.wikidata.org/wiki/{qid}" if qid else ""
 
@@ -183,8 +209,8 @@ def run_gov_lookup(individuals: dict, progress_cb=None,
             lat, lon,
             qid,
             gov_id,
-            wd.get("parish", ""),
-            wd.get("diocese", ""),
+            parish,
+            diocese,
             arch["matricula"],
             arch["archion"],
             arch["arcinsys"],
