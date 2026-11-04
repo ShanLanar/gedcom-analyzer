@@ -303,3 +303,61 @@ dass es auffällt.
 > Auto-Flag, mypy-Gate. Davor: Phasing-Dashboard, MRCA-Karte, Pedigree-Lücken,
 > GEDmatch-Export, MTA-Eltern-Vergleich, inkrementeller Pedigree-Refresh,
 > Core-API-Tests, GUI-Smoke-Tests, einzelne Migrations-Tests, Coverage-CI.
+
+### Sprint 8 erledigt (2026-11, gleiche Sitzung) — Expertengremium Sprint 4
+
+Gremium: Archivar, DNA-Genetikerin, Data Engineer, Datenschutzjurist, Historiker
+— alle 5 parallel, Befunde gegen Sprint 1-7 abgeglichen (nichts doppelt
+gemeldet). Umgesetzt: alle 9 🔴- und 11 🟡-Befunde (20 von 23 Gesamtbefunden);
+bewusst ausgeklammert der große IBD2-Umbau (Aufwand L) und alle 5
+Datenschutzjuristen-Befunde (automatische Maskierung/chmod auf Export-Dateien
+— explizit vom Eigentümer abgelehnt: "verstümmele nicht meine privaten Daten,
+privatisieren tue ich selbst"), sowie 2 🟢-Kleinigkeiten (weitere mypy-
+Kandidaten, ein weiteres ungechunktes IN-Clause in cluster_hypotheses.py).
+
+**DNA-Genetikerin** (5): `cm_to_mrca()` fehlte die Eltern/Kind-Stufe (alles
+≥1300 cM fiel auf Großeltern-Ebene) · `dna_predict.py`s eigene, unvollständige
+Verwandtschaftstabelle jetzt aus `shared_cm._GROUPS` abgeleitet (eine Quelle
+statt zwei divergierender Listen) · Halb-Cousin-Erkennung in
+`get_gedcom_relationship_summary` fehlte komplett (nur Geschwister/Onkel-
+Tante-Ebene wurde geprüft) · Halbgeschwister-cM-Band wurde fälschlich per
+Halbierung statt empirischem Bereich berechnet · `population_stats.py`s
+Histogramm-Hinweistext widersprach der eigenen Referenztabelle.
+
+**Archivar** (5): GEDCOM-Export vergab DNA-Cluster-Ahnen pauschal QUAY 3
+("primäre Evidenz") unabhängig von der Beleglage, jetzt nach Matchzahl
+gestaffelt · `sources.py` erkannte nur `@...@`-Pointer-Zitate, nicht die
+ebenfalls gültige Inline-Freitext-Form · `externe_quellen.py`s Standesamt-
+Zuständigkeit prüfte nur das Geburtsjahr, nie das Sterbejahr (Übergangs-
+generation um 1874 bekam keinen Standesamt-Link) · Gramps-Export legte nie
+`<placeobj>`-Records an (dangling Place-Handle, Ortsname ging verloren) ·
+`gov_lookup.py` nutzte nur die erste Orts-Komponente für Nominatim/Wikidata
+(systematisch falsche Pfarrei-Zuordnung bei mehrfach vorkommenden Ortsnamen
+möglich) — Nominatim bekommt jetzt die volle Ortskette, Wikidata markiert
+mehrere Treffer explizit als mehrdeutig statt den ersten zu raten.
+
+**Historiker** (6): ✠★⚔‡-Symbollegende wurde blind auf importierte/gemergte
+Fremd-GEDCOMs angewendet (andere Programme nutzen ✝/✠ oft für "gestorben")
+— neuer Parameter `detect_military_symbols`, Default False beim Merge/FTM-
+Import · "Preußen"/"Österreich-Ungarn" fehlten komplett in
+`_default_location_data()`, als eigene historische Länder ergänzt · Faktenfehler
+im Migrations-Kontext-Dict (US-Bürgerkrieg falsch verortet) + beide
+Weltkriege fehlten komplett · Kölner Phonetik (deutschsprachige Heuristik)
+wird jetzt dokumentiert statt stillschweigend auf fremdsprachige Namen
+angewendet · Sterbemonats-Analyse bekommt eigene Weltkriegs-Epochen (Kriegstote
+verzerrten sonst unsichtbar die "1900-1950"-Bucket) · "Soziale Mobilität"-
+Spalte ehrlich als heutige Länderklassifikation benannt statt eine historisch
+akkurate Mobilität zu behaupten.
+
+**Data Engineer** (4): `_run_group_parallel` warf Task-Fehler nie weiter
+(main.py zeigte "Alle Tasks erfolgreich." trotz real gecrashter Analyse) ·
+`run_all_with_progress` (CLI-Pfad) hatte gar keinen Fehlerschutz je Task ·
+`get_matches()`/`get_pedigree_groups()` IN-Clauses nachträglich gechunkt
+(gleiche Bugklasse wie bereits gefixte Repos) · `online_research.py` ohne
+Typprüfung/Fehlerschutz je Kandidat — eine fehlerhafte API-Antwort riss die
+gesamte Batch-Recherche ab.
+
+Jeder Fix mit Regressionstest, der gegen den alten Code nachweislich
+fehlschlägt (`git stash` + Testlauf vor jedem Commit verifiziert). ruff +
+mypy (66 Module) + volle Testsuite (5181 Tests, deterministisch + 3×
+randomisiert) bleiben durchgehend grün.
