@@ -37,3 +37,15 @@ def test_cluster_does_not_swallow_unrelated_names():
     for cluster in all_variants:
         assert not ({"Müller", "Schmidt"} <= cluster)
         assert not ({"Mueller", "Schmidt"} <= cluster)
+
+
+def test_warns_that_phonetik_is_german_specific():
+    """Scrum Sprint 8 (Historiker): Kölner Phonetik ist eine deutschsprachige
+    Heuristik und wird hier auch auf nicht-deutsche Namen angewendet (z. B.
+    nach Auswanderung) — das muss dem Nutzer sichtbar gemacht werden statt
+    stillschweigend unzuverlässige Gruppen zu bilden."""
+    messages = []
+    analyze_name_morphology(
+        {"@I1@": {"NAME": "/Smith/", "BIRT": {"DATE": "1900"}}},
+        progress_cb=lambda m, **kw: messages.append(m))
+    assert any("deutschsprachige Heuristik" in m for m in messages)

@@ -156,6 +156,37 @@ def test_place_historical_name_does_not_crash():
         assert result is None or isinstance(result, str)
 
 
+def test_prussia_resolved_as_distinct_historical_country():
+    """Scrum Sprint 8 (Historiker): 'Preußen' fehlte in _default_location_data()
+    komplett — ein Ort wie 'Posen, Preußen' fand gar kein Land. Jetzt als
+    eigener historischer Eintrag, GETRENNT von 'Deutschland' (Ostgebiete wie
+    Posen/Schlesien/Ostpreußen liegen heute nicht in Deutschland)."""
+    from lib.places import _default_location_data, extract_country_from_place
+    loc = _default_location_data()
+    assert extract_country_from_place("Posen, Preußen", loc) == "Preußen"
+    assert extract_country_from_place("Breslau, Schlesien, Preußen", loc) == "Preußen"
+    # Darf NICHT als "Deutschland" durchgehen — genau das war der Fehler.
+    assert extract_country_from_place("Breslau, Schlesien, Preußen", loc) != "Deutschland"
+
+
+def test_austria_hungary_resolved_as_distinct_historical_country():
+    """Scrum Sprint 8 (Historiker): 'Österreich-Ungarn' fehlte ebenfalls
+    komplett und war nicht mit dem heutigen 'Österreich' aliasiert."""
+    from lib.places import _default_location_data, extract_country_from_place
+    loc = _default_location_data()
+    assert extract_country_from_place("Prag, Böhmen, Österreich-Ungarn", loc) \
+        == "Österreich-Ungarn"
+
+
+def test_modern_germany_resolution_unaffected_by_prussia_addition():
+    """Regressionsschutz: die neuen historischen Einträge sind rein additiv —
+    normale heutige deutsche/österreichische Orte bleiben unverändert."""
+    from lib.places import _default_location_data, extract_country_from_place
+    loc = _default_location_data()
+    assert extract_country_from_place("München, Bayern, Deutschland", loc) == "Deutschland"
+    assert extract_country_from_place("Wien, Österreich", loc) == "Österreich"
+
+
 def test_format_place_for_display():
     """format_place_for_display soll auch leere/None-Eingaben aushalten."""
     from lib.places import format_place_for_display
@@ -1018,6 +1049,52 @@ def test_dna_match_to_tree(small_tree):
         # Match-Score muss zwischen 0 und 1 liegen
         for r in rows:
             assert 0 <= r[4] <= 1
+
+
+def test_robust_load_gedcom_military_symbols_can_be_disabled():
+    """Scrum Sprint 8 (Historiker): die ✠★⚔‡-Legende ist eine PRIVATE
+    Projekt-Konvention, keine genealogische Norm — in vielen anderen
+    Programmen/Transkriptionen steht ✝/✠ für "gestorben", ★ für "geboren".
+    Beim Laden einer Fremddatei (detect_military_symbols=False) dürfen
+    diese Flags nicht mehr gesetzt werden."""
+    from lib.gedcom import robust_load_gedcom
+    ged = """0 HEAD
+1 GEDC
+2 VERS 5.5
+0 @I1@ INDI
+1 NAME Hans ✠ /Müller/
+1 SEX M
+0 TRLR
+"""
+    with tempfile.NamedTemporaryFile(suffix=".ged", mode="w", delete=False) as t:
+        t.write(ged)
+        path = t.name
+    try:
+        indiv_default, _ = robust_load_gedcom(path)
+        assert indiv_default["@I1@"]["GERMAN_SOLDIER"] is True
+
+        indiv_foreign, _ = robust_load_gedcom(path, detect_military_symbols=False)
+        assert indiv_foreign["@I1@"]["GERMAN_SOLDIER"] is False
+        assert indiv_foreign["@I1@"]["VETERAN"] is False
+    finally:
+        os.unlink(path)
+
+
+def test_merge_gedcoms_defaults_to_no_military_symbol_detection(monkeypatch):
+    """merge_gedcoms() kombiniert typischerweise Dateien unterschiedlicher
+    Herkunft — Default muss detect_military_symbols=False an BEIDE
+    robust_load_gedcom()-Aufrufe durchreichen."""
+    import tasks.merge_trees as merge_mod
+    calls = []
+
+    def fake_load(filepath, detect_military_symbols=True):
+        calls.append(detect_military_symbols)
+        return {}, {}
+
+    monkeypatch.setattr(merge_mod, "robust_load_gedcom", fake_load)
+    monkeypatch.setattr(merge_mod, "write_gedcom", lambda *a, **kw: None)
+    merge_mod.merge_gedcoms("a.ged", "b.ged", "out.ged")
+    assert calls == [False, False]
 
 
 def test_merge_trees_dedupes_obvious_duplicate():

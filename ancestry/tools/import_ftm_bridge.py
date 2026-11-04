@@ -199,7 +199,9 @@ def run(
         p(f"📂 Lese GEDCOM-Datei: {ftm_path}")
         sys.path.insert(0, str(REPO_DIR))
         from lib.gedcom import robust_load_gedcom
-        individuals, families = robust_load_gedcom(str(ftm_path))
+        # Fremdes Programm (Family Tree Maker) — nicht die projekteigene
+        # ✠★⚔‡-Symbollegende anwenden (siehe robust_load_gedcom-Docstring).
+        individuals, families = robust_load_gedcom(str(ftm_path), detect_military_symbols=False)
         p(f"✅ {len(individuals):,} Personen, {len(families):,} Familien gelesen.")
     else:
         p(f"📂 Lese FTM-Datei: {ftm_path}")

@@ -293,11 +293,17 @@ COMPRESSED_HEADERS = [
 
 _HIST_CONTEXT = {
     (1845, 1855): "Deutsche Revolution 1848/49, Wirtschaftskrise",
-    (1870, 1880): "Gründerkrise, Ende des Bürgerkriegs in USA",
+    # Vorher fälschlich "Ende des Bürgerkriegs in USA" — der US-Bürgerkrieg
+    # endete 1865, nicht 1870-1880 (das ist die Reconstruction-/Gilded-Age-
+    # Periode). Für Deutschland korrekt: Gründerkrise/Gründerkrach 1873 nach
+    # dem Boom der Reichsgründung 1871.
+    (1870, 1880): "Gründerkrise (Gründerkrach 1873), Hochphase der Auswanderung",
     (1880, 1890): "Industrialisierung, Landflucht",
     (1900, 1914): "Vor dem 1. Weltkrieg, Wirtschaftsboom",
+    (1914, 1918): "Erster Weltkrieg — Auswanderung nahezu zum Stillstand",
     (1919, 1933): "Weimarer Republik, Inflation, Weltwirtschaftskrise",
     (1933, 1939): "NS-Zeit, Verfolgung",
+    (1939, 1945): "Zweiter Weltkrieg — Auswanderung nahezu zum Stillstand",
     (1945, 1955): "Nachkriegszeit, Wirtschaftswunder",
 }
 
@@ -386,6 +392,14 @@ def analyze_migration_correlations(individuals, families, migration_results,
     p = progress_cb or (lambda m, **kw: None)
     p("Korrelationsanalyse Migration-Demografie …")
     rows = []
+    # HEUTIGE Länderklassifikation — bewusst NICHT historisch zeitvariabel.
+    # Auf Migrationen des 19. Jh. angewendet ist das ein Kategoriefehler:
+    # eine Auswanderung z. B. 1850 nach Iowa/Wisconsin ging damals in
+    # Siedlungsgebiet, nicht in ein "entwickeltes Land" im heutigen Sinn.
+    # Ohne verlässliche zeithistorische Entwicklungsdaten pro Land/Dekade
+    # wird hier bewusst nur ein grobes HEUTIGES Wohlstandsgefälle gemessen
+    # (siehe CORRELATION_HEADERS-Spaltenname), keine echte historische
+    # soziale Mobilität.
     DEVELOPED = ["USA", "Kanada", "Australien", "Großbritannien",
                  "Deutschland", "Frankreich"]
 
@@ -462,6 +476,6 @@ CORRELATION_HEADERS = [
     "ID", "Name", "Geburtsjahr", "Emigrationsjahr", "Alter bei Migration",
     "Lebensspanne nach Migration", "Familienstatus bei Migration",
     "Kinder bei Migration", "Geschlecht", "Bildungsniveau (geschätzt)",
-    "Migrationsgrund (geschätzt)", "Soziale Mobilität", "Erfolgsmetrik",
+    "Migrationsgrund (geschätzt)", "Wohlstandsgefälle (heutige Länderklassifikation)", "Erfolgsmetrik",
     "Migrationsroute", "Zielland"
 ]

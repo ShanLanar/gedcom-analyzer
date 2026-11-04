@@ -25,6 +25,36 @@ EPOCHS = {
     "nach_1950": (1950, 2024),
 }
 
+# Nur für die Sterbemonats-Analyse (analyze_death_months): "1900-1950" fasst
+# sonst Vorkriegszeit, beide Weltkriege und die Weimarer Republik in einem
+# Topf zusammen. Kriegstote konzentrieren sich auf Schlachten/Feldzüge statt
+# auf saisonale Witterungs-/Krankheitsmuster — ohne eigene Epoche ginge diese
+# Verzerrung unsichtbar in der groben 50-Jahre-Spanne auf, und ein Nutzer
+# könnte eine kriegsbedingte Monats-Häufung fälschlich als "typisches"
+# saisonales Sterblichkeitsmuster lesen. Geburts-/Heirats-/Empfängnismonate
+# bleiben bei den gröberen EPOCHS (dort primär gemeindeweite Konzeptions-
+# muster, kein vergleichbarer Kriegstoten-Verzerrungseffekt).
+DEATH_EPOCHS = {
+    "vor_1800":       (1500, 1799),
+    "1800-1850":      (1800, 1849),
+    "1850-1900":      (1850, 1899),
+    "1900-1914":      (1900, 1913),
+    "1.Weltkrieg":    (1914, 1918),
+    "1919-1938":      (1919, 1938),
+    "2.Weltkrieg":    (1939, 1945),
+    "1946-1950":      (1946, 1949),
+    "nach_1950":      (1950, 2024),
+}
+
+
+def _death_epoch(year: int | None) -> str | None:
+    if not year:
+        return None
+    for ep, (s, e) in DEATH_EPOCHS.items():
+        if s <= year <= e:
+            return ep
+    return None
+
 
 def _extract_month(date_str) -> int | None:
     if not date_str:
@@ -151,14 +181,14 @@ def analyze_death_months(individuals, progress_cb=None) -> list:
         age = dyear - byear
         if not 0 <= age <= 120:
             continue
-        ep = _epoch(dyear)
+        ep = _death_epoch(dyear)
         if not ep:
             continue
         counter[(_age_band(age), ep, month)] += 1
 
     rows = []
     for band in _AGE_BAND_ORDER:
-        for ep in EPOCHS:
+        for ep in DEATH_EPOCHS:
             counts = [counter.get((band, ep, m), 0) for m in range(1, 13)]
             total = sum(counts)
             if total < 5:   # zu wenig für sinnvolle Verteilung

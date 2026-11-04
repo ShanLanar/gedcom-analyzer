@@ -1,5 +1,16 @@
 # -*- coding: utf-8 -*-
-"""tasks/names.py – Namensmorphologie: Kölner Phonetik + Levenshtein"""
+"""tasks/names.py – Namensmorphologie: Kölner Phonetik + Levenshtein
+
+Die Kölner Phonetik kodiert spezifisch DEUTSCHE Aussprache-/Rechtschreib-
+regeln (z. B. "PH"→F, "TH"→T, weiches/hartes C) — sie ist eine
+deutschsprachige Heuristik, keine sprachneutrale Methode. Für nicht-
+deutsche Namen (z. B. englische, französische oder polnische Varianten
+von Auswanderern/Einwanderern, die in diesem Tool explizit analysiert
+werden, siehe tasks/migration.py) erzeugt sie unzuverlässige Varianten-
+Gruppen (falsche Positive/Negative). Eine Herkunfts-/Sprach-Vorfilterung
+(z. B. anhand des Geburtsort-Landes) existiert bewusst nicht — das würde
+ohne verlässliche Sprachzuordnung pro Namen selbst wieder Rätselraten
+bedeuten; die Einschränkung wird statt dessen offen dokumentiert."""
 
 import re
 from collections import defaultdict
@@ -87,8 +98,16 @@ def _split_by_levenshtein(variants: set) -> list:
 # ── Analyse ────────────────────────────────────────────────────────────────────
 
 def analyze_name_morphology(individuals, progress_cb=None):
+    """Gruppiert Schreibvarianten eines Nachnamens über Kölner Phonetik +
+    Levenshtein-Ähnlichkeit. ACHTUNG: Kölner Phonetik ist eine deutschsprachige
+    Heuristik (siehe Modul-Docstring) — bei vielen nicht-deutschen Namen im
+    Datenbestand (z. B. nach Auswanderung) können Gruppen falsch gebildet
+    oder übersehen werden."""
     p = progress_cb or (lambda m, **kw: None)
     p("Namensmorphologie (Kölner Phonetik + Levenshtein) …")
+    p("⚠ Kölner Phonetik ist eine deutschsprachige Heuristik — bei "
+      "fremdsprachigen Namen (z. B. nach Auswanderung) weniger zuverlässig.",
+      tag="warn")
 
     surname_to_persons: dict = defaultdict(list)
     for pid, pdata in individuals.items():

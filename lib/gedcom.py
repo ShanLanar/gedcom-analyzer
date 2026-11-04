@@ -152,12 +152,22 @@ def safe_extract_year(date_str) -> int | None:
 
 # ── GEDCOM-Loader ──────────────────────────────────────────────────────────────
 
-def robust_load_gedcom(filepath: str) -> tuple[dict, dict]:
+def robust_load_gedcom(filepath: str, detect_military_symbols: bool = True) -> tuple[dict, dict]:
     """
     Lädt GEDCOM mit umfassender Fehlerbehandlung.
     Erkennt Militär-Symbole: ✠ ★ ⚔ ‡ und mig.-Marker.
     Unterstützt EMIG/IMMI-Events.
     Gibt (individuals, families) zurück.
+
+    detect_military_symbols: Diese Legende (✠=deutscher Soldat,
+    ★=anderer Soldat, ⚔=im Gefecht gefallen, ‡=Linie endet) ist eine
+    PRIVATE Konvention dieses Projekts, keine genealogische Norm — in
+    vielen anderen Programmen/Transkriptionen steht ✝/✠ für "gestorben"
+    und ★ für "geboren", unabhängig von Militärdienst. Beim Laden einer
+    FREMDEN GEDCOM-Datei (Merge, FTM-Import u. Ä.) auf False setzen, sonst
+    würde z. B. jede verstorbene Person aus einer Fremddatei fälschlich als
+    "deutscher/anderer Soldat" gezählt. Default True erhält das bisherige
+    Verhalten für das primäre Eigen-GEDCOM.
     """
     _log("info", f"Lade GEDCOM-Datei: {filepath}")
 
@@ -240,14 +250,15 @@ def robust_load_gedcom(filepath: str) -> tuple[dict, dict]:
                         try:
                             if tag == "NAME":
                                 ind["NAME"] = data
-                                if "✠" in data:
-                                    ind["GERMAN_SOLDIER"] = ind["VETERAN"] = True
-                                if "★" in data:
-                                    ind["OTHER_SOLDIER"] = ind["VETERAN"] = True
-                                if "⚔" in data:
-                                    ind["DIED_IN_BATTLE"] = True
-                                if "‡" in data:
-                                    ind["LINE_ENDS"] = True
+                                if detect_military_symbols:
+                                    if "✠" in data:
+                                        ind["GERMAN_SOLDIER"] = ind["VETERAN"] = True
+                                    if "★" in data:
+                                        ind["OTHER_SOLDIER"] = ind["VETERAN"] = True
+                                    if "⚔" in data:
+                                        ind["DIED_IN_BATTLE"] = True
+                                    if "‡" in data:
+                                        ind["LINE_ENDS"] = True
                                 if "mig." in data.lower():
                                     ind["MIGRATED"] = True
                             elif tag == "SEX":

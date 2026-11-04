@@ -174,8 +174,16 @@ def _rewrite_refs(indi, fam, id_map):
 
 # ── Hauptfunktion ─────────────────────────────────────────────────────────────
 
-def merge_gedcoms(file_a, file_b, output_path, progress_cb=None):
+def merge_gedcoms(file_a, file_b, output_path, progress_cb=None,
+                  detect_military_symbols: bool = False):
     """Mergt zwei GEDCOM-Dateien und schreibt das Ergebnis nach output_path.
+
+    detect_military_symbols: Default False — ein Merge kombiniert typischer-
+    weise Dateien aus UNTERSCHIEDLICHEN Quellen/Programmen; die projekteigene
+    ✠★⚔‡-Symbollegende (siehe robust_load_gedcom) ist keine genealogische
+    Norm und würde auf einer Fremddatei (z. B. ✝ für "gestorben" statt
+    "Soldat") falsche Militär-/Gefallenen-Flags erzeugen. Auf True setzen,
+    wenn bekannt ist, dass BEIDE Dateien diese Konvention nutzen.
 
     Returns
     -------
@@ -183,11 +191,11 @@ def merge_gedcoms(file_a, file_b, output_path, progress_cb=None):
     """
     p = progress_cb or (lambda m, **kw: None)
     p(f"Lade A: {file_a}")
-    indi_a, fam_a = robust_load_gedcom(file_a)
+    indi_a, fam_a = robust_load_gedcom(file_a, detect_military_symbols=detect_military_symbols)
     p(f"  A: {len(indi_a):,} Personen, {len(fam_a):,} Familien")
 
     p(f"Lade B: {file_b}")
-    indi_b_raw, fam_b_raw = robust_load_gedcom(file_b)
+    indi_b_raw, fam_b_raw = robust_load_gedcom(file_b, detect_military_symbols=detect_military_symbols)
     p(f"  B: {len(indi_b_raw):,} Personen, {len(fam_b_raw):,} Familien")
 
     # B durchnummerieren

@@ -281,6 +281,42 @@ def _default_location_data() -> dict:
                                            "uk", "england"], "states": {}},
             "Polen":       {"aliases": ["polen", "poland", "pl"], "states": {}},
             "Russland":    {"aliases": ["russland", "russia", "ru"], "states": {}},
+            # Historische Staaten — bewusst GETRENNT von ihren heutigen Nach-
+            # folgestaaten, nicht als Alias von "Deutschland"/"Österreich"
+            # hinterlegt: ein Ort wie "Breslau, Schlesien, Preußen" liegt
+            # heute in Polen, nicht in Deutschland. Rein additiv, verändert
+            # bestehende Zuordnungen nicht ("Deutsches Reich" bleibt bewusst
+            # ein Alias von "Deutschland" — Ostgebiets-Orte, die so statt mit
+            # "Preußen" verzeichnet sind, bleiben eine bekannte, dokumentierte
+            # Unschärfe, da eine Korrektur ohne Regions-Analyse mehr modern-
+            # deutsche Fälle brechen würde, als sie Ostgebiets-Fälle fixt).
+            "Preußen": {
+                "aliases": ["preußen", "preussen", "prussia",
+                            "königreich preußen", "kingdom of prussia"],
+                "states": {
+                    "Schlesien":    ["schlesien", "silesia"],
+                    "Ostpreußen":   ["ostpreußen", "ostpreussen", "east prussia"],
+                    "Westpreußen":  ["westpreußen", "westpreussen", "west prussia"],
+                    "Pommern":      ["pommern", "pomerania"],
+                    "Posen":        ["posen", "provinz posen", "province of posen"],
+                    "Brandenburg":  ["brandenburg"],
+                    "Rheinprovinz": ["rheinprovinz", "rhine province"],
+                    "Westfalen":    ["westfalen", "westphalia"],
+                    "Hannover":     ["hannover", "hanover"],
+                },
+            },
+            "Österreich-Ungarn": {
+                "aliases": ["österreich-ungarn", "osterreich-ungarn",
+                            "austria-hungary", "austro-hungarian empire",
+                            "k.u.k.", "k. u. k."],
+                "states": {
+                    "Böhmen":   ["böhmen", "bohemia"],
+                    "Mähren":   ["mähren", "moravia"],
+                    "Galizien": ["galizien", "galicia"],
+                    "Tirol":    ["tirol", "tyrol"],
+                    "Steiermark": ["steiermark", "styria"],
+                },
+            },
         },
         "district_indicators":  ["county", "bezirk", "kreis", "district", "landkreis",
                                    "gemeinde", "stadtkreis", "municipality"],
