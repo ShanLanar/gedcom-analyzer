@@ -364,6 +364,17 @@ class TestExterneQuellenRun:
         assert len(rows_one) <= len(rows_all)
         assert len(rows_one) <= 1
 
+    def test_transition_generation_gets_standesamt_link(self):
+        """Scrum Sprint 8 (Archivar): @I1@ (geb. 1850, gest. 1920) wurde
+        vorher NIE ein Standesamt-Link zugewiesen, weil use_standesamt nur
+        das Geburtsjahr prüfte (1850 < 1874) — obwohl der Sterbefall 1920
+        klar ins Zivilregister-Zeitalter fällt. Index 11 = "Staatsarchiv
+        (ArcInSys)" (siehe EXTERNE_QUELLEN_HEADERS)."""
+        assert EXTERNE_QUELLEN_HEADERS[11] == "Staatsarchiv (ArcInSys)"
+        rows = run_externe_quellen({"@I1@": _INDIVIDUALS["@I1@"]})
+        assert len(rows) == 1
+        assert rows[0][11], "ArcInSys-Link fehlt für die Übergangsgeneration"
+
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # dfd_lookup

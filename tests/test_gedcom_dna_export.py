@@ -217,7 +217,25 @@ def test_export_indi_references_sour(tmp_ged):
     content = open(tmp_ged, encoding="utf-8").read()
     assert "1 SOUR @S001@" in content
     assert "2 PAGE" in content
-    assert "2 QUAY 3" in content
+    assert "2 QUAY" in content
+
+
+def test_export_quay_scales_with_match_count(tmp_ged):
+    """Scrum Sprint 8 (Archivar): QUAY wurde vorher PAUSCHAL auf 3 ('direct
+    and primary evidence') gesetzt, egal wie schwach die Beleglage war — ein
+    per DNA-Cluster erschlossener Ahne ist aber IMMER indirekte, statistische
+    Evidenz. QUAY staffelt sich jetzt nach Matchzahl (Konvergenz-Proxy)."""
+    export_gedcom(_make_groups(1, matches_per=1), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "2 QUAY 1" in content  # ein einzelner Match: fragwürdig
+
+    export_gedcom(_make_groups(1, matches_per=3), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "2 QUAY 2" in content  # wenige Matches: sekundäre Evidenz
+
+    export_gedcom(_make_groups(1, matches_per=5), tmp_ged)
+    content = open(tmp_ged, encoding="utf-8").read()
+    assert "2 QUAY 3" in content  # viele konvergierende Matches: dominant
 
 
 def test_export_sex_tag_male_from_even_sosa(tmp_ged):

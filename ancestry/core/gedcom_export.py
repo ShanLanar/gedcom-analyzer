@@ -56,6 +56,24 @@ def _is_living(birth_year: str, death_year: str) -> bool:
         return False
 
 
+def _dna_quay(match_count: int) -> int:
+    """GEDCOM-5.5.1-Beweisqualität (QUAY 0-3) für einen DNA-Cluster-Ahnen.
+
+    Ein per DNA-Cluster erschlossener Vorfahre ist IMMER indirekte,
+    statistische Evidenz (Sosa-Arithmetik + Cluster-Übereinstimmung), nie
+    eine primäre Quelle wie eine Urkunde — ein pauschales QUAY 3 ("Direct
+    and primary evidence") für jeden solchen Ahnen täuscht Fremdprogrammen
+    (Gramps, Legacy, RootsMagic) eine Beweisqualität vor, die nicht
+    vorliegt. QUAY 3 erlaubt laut Spezifikation aber auch "by dominance of
+    the evidence" — viele unabhängige, konvergierende Matches nähern sich
+    dem an. Gestaffelt nach Matchzahl als Proxy für Konvergenz."""
+    if match_count >= 5:
+        return 3
+    if match_count >= 2:
+        return 2
+    return 1
+
+
 def export_gedcom(groups: list, output_path: str,
                   submitter_name: str = "AncestryDNATool",
                   mask_living: bool = True) -> int:
@@ -287,7 +305,7 @@ def export_gedcom(groups: list, output_path: str,
                      f" · Median {mcm:.0f} cM")
         lines.append("1 SOUR @S001@")
         lines.append(f"2 PAGE {cnt} DNA-Matches · gesamt {tcm:.0f} cM · Median {mcm:.0f} cM")
-        lines.append("2 QUAY 3")
+        lines.append(f"2 QUAY {_dna_quay(cnt)}")
 
         # Sosa numbers
         sosa_str = ",".join(str(s) for s in sorted(meta["sosas"])[:8])

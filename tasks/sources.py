@@ -27,8 +27,12 @@ _RE_INDI_RECORD = re.compile(r"^\s*0\s+(@[^@]+@)\s+INDI\s*$")
 _RE_FAM_RECORD = re.compile(r"^\s*0\s+(@[^@]+@)\s+FAM\s*$")
 # beliebige 0-Level-Zeile
 _RE_LEVEL0 = re.compile(r"^\s*0\s+")
-# Verweis: <level> SOUR @S123@   (level 1, 2 oder 3)
+# Verweis auf einen SOUR-Record: <level> SOUR @S123@   (level 1, 2 oder 3)
 _RE_SOUR_REF = re.compile(r"^\s*([123])\s+SOUR\s+(@[^@]+@)\s*$")
+# Inline-Freitext-Zitat ohne SOUR-Record (ebenfalls gültig nach GEDCOM 5.5.1,
+# z. B. "1 SOUR Mündliche Überlieferung" statt eines @S123@-Verweises) —
+# viele Genealogie-Programme (Ancestry-Baum-Exporte, Legacy) zitieren so.
+_RE_SOUR_INLINE = re.compile(r"^\s*([123])\s+SOUR\s+(?!@[^@]+@\s*$)(\S.*)$")
 # 1 TITL …, 1 AUTH …, 1 PUBL …
 _RE_LEVEL1_TAG = re.compile(r"^\s*1\s+(TITL|AUTH|PUBL)\s*(.*)$")
 
@@ -114,21 +118,43 @@ def parse_sources(filepath: str) -> tuple[dict, dict, dict]:
             # Innerhalb eines INDI/FAM: SOUR-Verweise einsammeln
             if current_indi_id or current_fam_id:
                 m = _RE_SOUR_REF.match(line)
-                if m:
-                    src_id = m.group(2)
-                    sources.setdefault(src_id, {
-                        "title": "", "author": "", "publ": "",
-                        "citations": 0,
-                        "individuals": set(),
-                        "families": set(),
-                    })
-                    sources[src_id]["citations"] += 1
-                    if current_indi_id:
-                        sources[src_id]["individuals"].add(current_indi_id)
-                        indi_citations.setdefault(current_indi_id, set()).add(src_id)
-                    elif current_fam_id:
-                        sources[src_id]["families"].add(current_fam_id)
-                        fam_citations.setdefault(current_fam_id, set()).add(src_id)
+                if not m:
+                    # Kein @...@-Verweis auf einen SOUR-Record — nach GEDCOM
+                    # 5.5.1 ebenfalls gültig ist ein Inline-Freitext-Zitat
+                    # ohne eigenen Record (z. B. Ancestry-/Legacy-Exporte).
+                    # Solche Personen wurden vorher fälschlich als "ohne
+                    # Quelle" eingestuft, obwohl eine Quellenangabe vorliegt.
+                    mi = _RE_SOUR_INLINE.match(line)
+                    if mi:
+                        src_id = "FREE:" + mi.group(2).strip()
+                        sources.setdefault(src_id, {
+                            "title": mi.group(2).strip(), "author": "", "publ": "",
+                            "citations": 0,
+                            "individuals": set(),
+                            "families": set(),
+                        })
+                        sources[src_id]["citations"] += 1
+                        if current_indi_id:
+                            sources[src_id]["individuals"].add(current_indi_id)
+                            indi_citations.setdefault(current_indi_id, set()).add(src_id)
+                        elif current_fam_id:
+                            sources[src_id]["families"].add(current_fam_id)
+                            fam_citations.setdefault(current_fam_id, set()).add(src_id)
+                    continue
+                src_id = m.group(2)
+                sources.setdefault(src_id, {
+                    "title": "", "author": "", "publ": "",
+                    "citations": 0,
+                    "individuals": set(),
+                    "families": set(),
+                })
+                sources[src_id]["citations"] += 1
+                if current_indi_id:
+                    sources[src_id]["individuals"].add(current_indi_id)
+                    indi_citations.setdefault(current_indi_id, set()).add(src_id)
+                elif current_fam_id:
+                    sources[src_id]["families"].add(current_fam_id)
+                    fam_citations.setdefault(current_fam_id, set()).add(src_id)
 
     return sources, indi_citations, fam_citations
 

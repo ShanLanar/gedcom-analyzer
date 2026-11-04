@@ -540,7 +540,15 @@ def run_externe_quellen(individuals: dict, root_related_ids=None,
         is_war = by and 1870 <= by <= 1928
         is_nrw = _is_nrw(place)
         use_kirchenbuch = (not by or by < 1875)
-        use_standesamt  = (by and by >= 1874)
+        # Standesamt-Zuständigkeit richtet sich nach dem Zivilstandsereignis
+        # (Geburt ODER Tod), nicht nur nach dem Geburtsjahr — eine vor 1875
+        # geborene, aber danach verstorbene Person hat einen Sterbefall im
+        # Zivilregister, nicht im Kirchenbuch. Vorher fehlten für genau diese
+        # Übergangsgeneration (um 1874) die passenden Standesamt-Links.
+        use_standesamt = (by and by >= 1874) or (dy and dy >= 1874)
+        # Für den Standesamt-Link den Sterbeort bevorzugen (das Zivilregister
+        # des Sterbefalls, nicht den u. U. vor 1874 liegenden Geburtsort).
+        standesamt_place = dp or bp
 
         besonderheiten = []
         if is_emigrant:
@@ -564,7 +572,7 @@ def run_externe_quellen(individuals: dict, root_related_ids=None,
             _archion(given, surname, place)        if use_kirchenbuch and is_dach else "",
             _familysearch(given, surname, by, place),
             # Standesamt
-            _arcinsys(surname, place)    if use_standesamt and is_dach else "",
+            _arcinsys(surname, standesamt_place) if use_standesamt and is_dach else "",
             _archivportal(surname, place) if is_dach else "",
             # Auswanderer
             _hamburg_auswanderer(given, surname, by) if is_emigrant and is_dach else "",
