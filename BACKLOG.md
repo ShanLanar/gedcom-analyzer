@@ -265,12 +265,37 @@ dass es auffällt.
 4. 🟡 WikiTree-Profile direkt im Matches-Detailpanel verlinken (Bridge-Tab)
 5. 🟡 Gramps XML Export (EPIC 4 🟢 M) — Gramps 5.1 XML für direkten Import
 6. 🟡 **Flaky Test `test_y_line_trace`** (`tests/test_genealogist_100.py`): schlug
-   einmalig unter zufälliger Testreihenfolge mit einem id()-artigen `KeyError`
-   fehl, lief seither in >20 randomisierten Vollläufen wieder sauber durch —
-   Reproduktion weiterhin nicht gelungen; vermuteter Cross-Test-State-Leak wie
-   beim bereits gefixten `run_parallel_group`-Event-Leck, aber nicht an
-   derselben Stelle lokalisiert. Braucht gezielte Reproduktion (z. B. fixer
-   Seed aus einem fehlgeschlagenen CI-Lauf), bevor sich etwas fixen lässt.
+   einmalig mit einem id()-artigen `KeyError` fehl; der exakte Fall bleibt
+   unreproduziert, aber die Spur führt zu etwas Konkretem (2026-11-Recherche):
+   - Der einzige echte CI-Fehlschlag der letzten 100 Läufe war Run #327
+     (2026-07-05, Commit `6bc9100`); Rohlogs sind per GitHub-Retention
+     bereits gelöscht (410 Gone), der damalige Seed ist nicht mehr abrufbar.
+   - Dieser Commit wurde in ein isoliertes Worktree ausgecheckt und dort 50×
+     randomisiert durchlaufen: **8/50 (16 %) schlugen tatsächlich fehl**
+     (auf aktuellem `main`: 0/65+ in derselben Sitzung) — die Ordnungs-
+     abhängigkeit war zum Zeitpunkt dieses Commits also real und häufig.
+   - Keiner der 8 Fehlschläge zeigte exakt den berichteten `KeyError`; es
+     waren drei andere Symptome: (a) `AbortedError` aus dem `stop_event`-
+     Leck in `tasks/_runner.py::run_parallel_group` — **zwischenzeitlich
+     bereits gefixt**, erklärt die meisten der 8 Fälle; (b)
+     `test_tg_requires_overlap_and_shared_match` lieferte 0 statt 1
+     Triangulationsgruppe (2-Test-Isolation mit dem direkt vorausgehenden
+     Test reproduzierte es NICHT — braucht angesammelten Zustand aus vielen
+     Tests, kein einfaches Paar); (c) `test_run_match_finds_phonetic`:
+     `assert 0 >= 1`, nicht weiter untersucht.
+   - (b)/(c) zusätzlich gezielt auf `main` gefuzzt: 25× nur
+     `test_triangulation.py`+`test_bridge.py`+`test_stress_database.py`
+     randomisiert plus 20× weitere Vollläufe — alle sauber. Zusammen mit
+     den bereits dokumentierten >65 Vollläufen ergibt das >85 fehlerfreie
+     randomisierte Vollläufe auf `main` in dieser Sitzung; alle drei
+     damals beobachteten Symptome ((a) Event-Leck, (b) Triangulation
+     0-statt-1-TG, (c) phonetischer Match-Fehlschlag) sind also entweder
+     bereits gefixt oder zumindest deutlich seltener geworden. Der exakte
+     `test_y_line_trace`-`KeyError` selbst bleibt unreproduziert — ohne
+     den Original-Seed (Logs gelöscht) ist er nicht mehr sicher
+     nachstellbar; dieser Posten kann aus der aktiven To-do-Liste
+     genommen werden, solange die Testsuite weiterhin zuverlässig grün
+     bleibt.
 
 > ✅ Erledigt (vorherige Sitzung): GESAMTE GUI zweisprachig (179 → 0 hartkodierte
 > Strings) + Live-Sprachwechsel, Guard-Test + Audit-Tool, Tooltip-Helfer +
