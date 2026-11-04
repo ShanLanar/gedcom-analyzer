@@ -992,6 +992,65 @@ def test_get_cluster_ancestor_years_over_chunk_boundary(db):
     assert years == sorted(years)
 
 
+def test_get_matches_guid_filter_over_chunk_boundary(db):
+    """Scrum Sprint 8 (Data Engineer): guid_filter in get_matches() war
+    ungechunkt (gleiche Bugklasse wie bereits gefixte Repos) — >900
+    match_guids müssen trotzdem alle zurückkommen UND nach dem
+    Zusammenführen der Chunks weiterhin korrekt global nach shared_cm
+    sortiert sein (die SQL-ORDER-BY gilt nur innerhalb eines Chunks)."""
+    db.upsert_kit(make_kit(guid="kit-GM"))
+    guids = [f"gm{i}" for i in range(_CHUNK_N)]
+    for i, g in enumerate(guids):
+        # Durchmischt, nicht in Einfüge-Reihenfolge — sonst würde ein
+        # fehlender Merge-Sort nicht auffallen.
+        cm = float((i * 137) % _CHUNK_N)
+        db.bulk_upsert([make_match(match_guid=g, test_guid="kit-GM", shared_cm=cm)])
+
+    rows = db.get_matches(test_guid="kit-GM", guid_filter=guids)
+
+    assert {r.match_guid for r in rows} == set(guids)
+    assert len(rows) == _CHUNK_N
+    cms = [r.shared_cm for r in rows]
+    assert cms == sorted(cms, reverse=True)  # Default: DESC
+
+
+def test_get_matches_guid_filter_chunked_respects_limit_offset(db):
+    """limit/offset müssen NACH dem Zusammenführen aller Chunks angewendet
+    werden, nicht pro Chunk (sonst käme eine falsche Teilmenge zurück)."""
+    db.upsert_kit(make_kit(guid="kit-GM2"))
+    guids = [f"gm2_{i}" for i in range(_CHUNK_N)]
+    for i, g in enumerate(guids):
+        db.bulk_upsert([make_match(match_guid=g, test_guid="kit-GM2", shared_cm=float(i))])
+
+    rows_all = db.get_matches(test_guid="kit-GM2", guid_filter=guids, sort_asc=True)
+    rows_page = db.get_matches(test_guid="kit-GM2", guid_filter=guids,
+                               sort_asc=True, limit=10, offset=5)
+
+    assert len(rows_page) == 10
+    assert [r.match_guid for r in rows_page] == [r.match_guid for r in rows_all[5:15]]
+
+
+def test_get_pedigree_groups_only_guids_over_chunk_boundary(db):
+    """only_guids in get_pedigree_groups() war ebenfalls ungechunkt — >900
+    match_guids müssen trotzdem vollständig berücksichtigt werden."""
+    db.upsert_kit(make_kit(guid="kit-PG"))
+    guids = [f"pg{i}" for i in range(_CHUNK_N)]
+    db.bulk_upsert([make_match(match_guid=g, test_guid="kit-PG") for g in guids])
+    for g in guids:
+        db.save_match_pedigree("kit-PG", g, [{
+            "generation": 2, "ahnen_path": "F", "person_id": f"anc-{g}",
+            "given_name": "Anna", "surname": f"Nachname{g}", "is_male": False,
+            "birth_year": "1850", "birth_date": "", "birth_place": "",
+            "death_year": "", "death_date": "", "death_place": "",
+        }])
+
+    groups = db.get_pedigree_groups("kit-PG", min_matches=1, mode="person",
+                                    only_guids=guids)
+
+    all_guids_in_groups = {m[0] for g in groups for m in g["matches"]}
+    assert all_guids_in_groups == set(guids)
+
+
 # ===========================================================================
 # 9. get_statistics (5 tests)
 # NOTE: get_statistics(test_guid=...) has a SQL bug (double WHERE clause) in

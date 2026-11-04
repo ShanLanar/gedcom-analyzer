@@ -134,7 +134,12 @@ def _query_wikidata(given: str, surname: str,
     )
     params = {"query": sparql, "format": "json"}
     data = _get_json(_WIKIDATA_SPARQL, params=params)
-    if not data:
+    if not isinstance(data, dict):
+        # Scrum Sprint 8 (Data Engineer): _get_json() ist als dict|list|None
+        # typisiert — eine unerwartet geformte API-Antwort (z. B. Top-Level-
+        # Liste statt Dict bei einem Fehlerformat) hätte hier .get() auf ein
+        # list-Objekt aufgerufen und eine ungefangene AttributeError geworfen,
+        # die die gesamte Batch-Recherche (bis zu 300 Kandidaten) abreißt.
         return []
     bindings = (data.get("results") or {}).get("bindings") or []
     results = []
@@ -279,42 +284,50 @@ def run_online_death_research(individuals: dict, families: dict,
     p(f"Kandidaten für Online-Recherche: {len(candidates):,} "
       f"(maximal {total} werden abgefragt)")
 
-    rows = []
+    rows: list[list] = []
     for i, (pid, pdata, given, surname, by, bp) in enumerate(candidates[:total]):
         if i % 20 == 0 and i > 0:
             p(f"  … {i}/{total} abgefragt, {len(rows)} Treffer bisher")
 
-        hits = []
-        # 1. Wikidata
-        wd_hits = _query_wikidata(given, surname, by)
-        hits.extend(wd_hits)
-        time.sleep(_DELAY_S)
+        try:
+            hits = []
+            # 1. Wikidata
+            wd_hits = _query_wikidata(given, surname, by)
+            hits.extend(wd_hits)
+            time.sleep(_DELAY_S)
 
-        # 2. GND (nur für deutschsprachige Namen sinnvoll)
-        gnd_hits = _query_gnd(given, surname, by)
-        hits.extend(gnd_hits)
-        time.sleep(_DELAY_S)
+            # 2. GND (nur für deutschsprachige Namen sinnvoll)
+            gnd_hits = _query_gnd(given, surname, by)
+            hits.extend(gnd_hits)
+            time.sleep(_DELAY_S)
 
-        # Deduplizieren nach Sterbejahr (selbes Jahr aus beiden Quellen = 1 Eintrag)
-        seen_dy: set = set()
-        for hit in hits:
-            dy = hit.get("death_year")
-            if not dy or dy in seen_dy:
-                continue
-            seen_dy.add(dy)
-            konfidenz, hinweis = _confidence(given, surname, by, bp, hit)
-            rows.append([
-                pid,
-                (pdata.get("NAME") or "").strip(),
-                by,
-                _first_place_token(bp),
-                hit["source"],
-                dy,
-                hit.get("death_place") or "",
-                konfidenz,
-                hinweis,
-                hit.get("url") or "",
-            ])
+            # Deduplizieren nach Sterbejahr (selbes Jahr aus beiden Quellen = 1 Eintrag)
+            seen_dy: set = set()
+            for hit in hits:
+                dy = hit.get("death_year")
+                if not dy or dy in seen_dy:
+                    continue
+                seen_dy.add(dy)
+                konfidenz, hinweis = _confidence(given, surname, by, bp, hit)
+                rows.append([
+                    pid,
+                    (pdata.get("NAME") or "").strip(),
+                    by,
+                    _first_place_token(bp),
+                    hit["source"],
+                    dy,
+                    hit.get("death_place") or "",
+                    konfidenz,
+                    hinweis,
+                    hit.get("url") or "",
+                ])
+        except Exception as e:
+            # Scrum Sprint 8 (Data Engineer): eine einzige unerwartet
+            # geformte API-Antwort riss vorher die gesamte Batch-Recherche
+            # (bis zu 300 Kandidaten) ab — bereits gesammelte rows gingen
+            # verloren, da die Funktion dann gar nicht erst zurückkehrte.
+            p(f"  ⚠ Kandidat {pid} übersprungen: {e}", tag="warn")
+            continue
 
     _RANK = {"HOCH": 0, "MITTEL": 1, "NIEDRIG": 2}
     rows.sort(key=lambda r: (_RANK.get(r[7], 9), r[2]))

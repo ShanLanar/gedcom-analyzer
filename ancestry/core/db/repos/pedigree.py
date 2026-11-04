@@ -186,13 +186,23 @@ class PedigreeRepo:
             JOIN matches m ON m.match_guid=p.match_guid AND m.test_guid=p.test_guid
             WHERE p.test_guid=? AND p.generation>=2
         """
-        params = [test_guid]
-        if only_guids:
-            sql += " AND p.match_guid IN (%s)" % ",".join("?" * len(only_guids))
-            params.extend(only_guids)
         with self._db._cursor() as cur:
-            cur.execute(sql, params)
-            rows = cur.fetchall()
+            if not only_guids:
+                cur.execute(sql, [test_guid])
+                rows = cur.fetchall()
+            else:
+                # IN-Liste chunken (SQLite-Variablen-Limit, siehe
+                # get_shared_pairs_set) — nur der globale ORDER BY entfällt
+                # hier, da diese Methode ohnehin keinen hat (Gruppierung
+                # erfolgt unten in Python über alle Zeilen hinweg).
+                rows = []
+                for start in range(0, len(only_guids), 900):
+                    chunk = only_guids[start:start + 900]
+                    placeholders = ",".join("?" * len(chunk))
+                    cur.execute(
+                        sql + f" AND p.match_guid IN ({placeholders})",
+                        [test_guid, *chunk])
+                    rows.extend(cur.fetchall())
 
         groups: dict = {}
         for r in rows:

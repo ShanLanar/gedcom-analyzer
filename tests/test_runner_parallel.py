@@ -77,12 +77,17 @@ def test_parallel_merge_returns_child_outputs(fake_tasks):
 
 @pytest.mark.skipif(not R._fork_available(), reason="benötigt fork")
 def test_parallel_error_isolated(fake_tasks):
-    """Ein crashender Task darf die Ergebnisse der anderen nicht verhindern."""
+    """Ein crashender Task darf die Ergebnisse der anderen nicht verhindern,
+    MUSS aber am Ende als Exception weitergereicht werden (Scrum Sprint 8,
+    Data Engineer: vorher wurde der Fehler nur geloggt, nie geworfen — main.py's
+    Aufrufer fängt genau das ab, um had_errors zu setzen; ohne das hier
+    zeigte main.py "Alle Tasks erfolgreich." trotz real gecrashter Analyse)."""
     msgs = []
-    R.run_parallel_group(
-        [("fake_a", "A"), ("fake_boom", "Boom")],
-        progress_cb=lambda m, **kw: msgs.append((m, kw.get("tag"))),
-    )
+    with pytest.raises(RuntimeError, match="Boom"):
+        R.run_parallel_group(
+            [("fake_a", "A"), ("fake_boom", "Boom")],
+            progress_cb=lambda m, **kw: msgs.append((m, kw.get("tag"))),
+        )
     assert R._state["fake_a_out"] == ["A", 42]           # A überlebt
     assert any("Boom" in m and kw == "warn" for m, kw in msgs)
 
@@ -144,6 +149,40 @@ def test_no_cross_test_abort_leak_via_run_parallel_group(fake_tasks):
         assert R.is_aborted() is False
     finally:
         R._state["stop_event"] = prev
+
+
+def test_run_all_with_progress_sequential_task_error_does_not_abort_chain(fake_tasks):
+    """Scrum Sprint 8 (Data Engineer): ein Fehler in EINER sequenziellen Task
+    riss vorher die gesamte restliche Analyse-Kette ab (kein try/except in
+    _run_one) — betrifft u. a. den per Subprozess gestarteten CLI-Pfad
+    ancestry/tools/run_analysis.py. fake_boom ist NICHT in
+    PARALLEL_SAFE_TASKS → läuft hier über den sequenziellen Pfad."""
+    msgs = []
+    R.run_all_with_progress(
+        task_list=[("fake_boom", "Boom"), ("fake_a", "A")],
+        progress_cb=lambda m, **kw: msgs.append((m, kw.get("tag"))),
+    )
+    # Die Task NACH dem Fehler muss trotzdem gelaufen sein.
+    assert R._state["fake_a_out"] == ["A", 42]
+    assert any("Boom" in m and tag == "err" for m, tag in msgs)
+    assert any("abgeschlossen" in m for m, _ in msgs)  # Lauf kam bis zum Ende
+
+
+@pytest.mark.skipif(not R._fork_available(), reason="benötigt fork")
+def test_run_all_with_progress_parallel_group_error_does_not_abort_chain(fake_tasks, monkeypatch):
+    """Dieselbe Erwartung für den parallelen Gruppenpfad (>=2 parallel-sichere
+    Tasks) — _run_group_parallel wirft jetzt bei einem Task-Fehler, das darf
+    run_all_with_progress nicht mehr crashen."""
+    monkeypatch.setattr(R, "PARALLEL_SAFE_TASKS",
+                        frozenset({"fake_a", "fake_boom", *R.PARALLEL_SAFE_TASKS}))
+    msgs = []
+    R.run_all_with_progress(
+        task_list=[("fake_a", "A"), ("fake_boom", "Boom")],
+        progress_cb=lambda m, **kw: msgs.append((m, kw.get("tag"))),
+    )
+    assert R._state["fake_a_out"] == ["A", 42]
+    assert any("FEHLER (parallel)" in m and tag == "err" for m, tag in msgs)
+    assert any("abgeschlossen" in m for m, _ in msgs)
 
 
 def test_sequential_fallback_without_fork(fake_tasks, monkeypatch):

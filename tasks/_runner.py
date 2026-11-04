@@ -373,6 +373,15 @@ def _run_group_parallel(group: list[tuple[str, str]], progress_cb, stop_event) -
     stop_event ist ein threading.Event (GUI/CLI). Es wird auf ein
     multiprocessing.Event (mp_stop) gebrückt, das die Fork-Kinder sehen — so
     sind lange Tasks, die is_aborted() pollen, auch parallel abbrechbar (K3).
+
+    Ein Fehler in einer einzelnen Task bricht die Gruppe NICHT ab (alle
+    anderen laufen weiter) — wird aber am Ende als RuntimeError erneut
+    geworfen, falls mindestens eine Task fehlschlug. Vorher wurden
+    Task-Fehler nur geloggt, nie weitergereicht: main.py's Aufrufer fängt
+    Exceptions von run_parallel_group() ab, um had_errors zu setzen
+    ("Alle Tasks erfolgreich." trotz real gecrashter Analyse) — das griff
+    für Einzel-Task-Fehler INNERHALB der Gruppe nie, weil hier nie etwas
+    geworfen wurde.
     """
     import multiprocessing
     from concurrent.futures import (
@@ -389,6 +398,7 @@ def _run_group_parallel(group: list[tuple[str, str]], progress_cb, stop_event) -
     # Argument picklen — das wirft "Condition objects … through inheritance").
     prev_stop = _state.get("stop_event")
     _state["stop_event"] = mp_stop
+    errors: list[str] = []
     try:
         with ProcessPoolExecutor(max_workers=workers, mp_context=ctx) as ex:
             futs = {ex.submit(_parallel_worker, fn): fn for fn, _ in group}
@@ -406,6 +416,7 @@ def _run_group_parallel(group: list[tuple[str, str]], progress_cb, stop_event) -
                         _p(progress_cb, f"  ✓ {labels[fn]}", tag="ok")
                     except Exception as e:
                         _p(progress_cb, f"  ⚠ {labels[fn]}: {e}", tag="warn")
+                        errors.append(f"{labels[fn]}: {e}")
                 # Elternseitiges threading.Event → mp_stop brücken
                 if stop_event is not None and stop_event.is_set():
                     mp_stop.set()                   # laufende Kinder abbrechen
@@ -413,6 +424,8 @@ def _run_group_parallel(group: list[tuple[str, str]], progress_cb, stop_event) -
                     break
     finally:
         _state["stop_event"] = prev_stop
+    if errors:
+        raise RuntimeError("; ".join(errors))
 
 
 def run_parallel_group(group: list[tuple[str, str]], progress_cb=None,
@@ -480,10 +493,21 @@ def run_all_with_progress(
         if fn is None:
             _p(progress_cb, f"  ⚠ Unbekannte Task: run_{fn_name}", tag="warn")
             return
-        fn(
-            progress_cb=lambda m, **kw: _p(progress_cb, f"    {m}", **kw),
-            stop_event=stop_event,
-        )
+        try:
+            fn(
+                progress_cb=lambda m, **kw: _p(progress_cb, f"    {m}", **kw),
+                stop_event=stop_event,
+            )
+        except AbortedError:
+            raise
+        except Exception as e:
+            # Vorher ungefangen: ein Fehler in EINER Task (z. B. der im
+            # Werkzeuge-Tab per Subprozess gestartete CLI-Pfad,
+            # ancestry/tools/run_analysis.py) riss die gesamte restliche
+            # Analyse-Kette ab, statt degradiert weiterzulaufen — anders als
+            # der GUI-Hauptpfad (main.py._worker), der dasselbe Muster schon
+            # pro Task abfängt.
+            _p(progress_cb, f"  ⚠ FEHLER in '{label}': {e}", tag="err")
 
     i = 0
     while i < n:
@@ -498,7 +522,14 @@ def run_all_with_progress(
                 group.append(task_list[i])
                 i += 1
             if len(group) >= 2:
-                _run_group_parallel(group, progress_cb, stop_event)
+                try:
+                    _run_group_parallel(group, progress_cb, stop_event)
+                except Exception as e:
+                    # _run_group_parallel wirft jetzt RuntimeError, wenn
+                    # mindestens eine Task der Gruppe fehlschlug (siehe
+                    # dessen Docstring) — hier abfangen statt die ganze
+                    # restliche Analyse-Kette abzureißen.
+                    _p(progress_cb, f"  ⚠ FEHLER (parallel): {e}", tag="err")
                 continue
             fn_name, label = group[0]
             _run_one(i, fn_name, label)

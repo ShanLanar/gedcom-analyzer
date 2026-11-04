@@ -177,7 +177,11 @@ class MatchesRepo:
             conditions.append("m.paternal_maternal = ?"); params.append(paternal_maternal)
         if new_only:
             conditions.append("m.first_seen_at >= datetime('now', '-7 days')")
-        if guid_filter:
+        # IN-Liste > 900 Elemente: SQLite-Variablen-Limit (siehe
+        # get_shared_pairs_set) — die Bedingung wird dann NICHT hier
+        # eingebaut, sondern unten pro Chunk separat ausgeführt.
+        chunk_guid_filter = guid_filter is not None and len(guid_filter) > 900
+        if guid_filter and not chunk_guid_filter:
             placeholders = ",".join("?" * len(guid_filter))
             conditions.append(f"m.match_guid IN ({placeholders})")
             params.extend(guid_filter)
@@ -210,9 +214,37 @@ class MatchesRepo:
                    f"ORDER BY m.{sort_col} {direction} {limit_clause}")
 
         with self._db._cursor() as cur:
-            cur.execute(sql, params)
-            rows = cur.fetchall()
-            return [DnaMatch.from_db_row(dict(r)) for r in rows]
+            if not chunk_guid_filter:
+                cur.execute(sql, params)
+                rows = cur.fetchall()
+                return [DnaMatch.from_db_row(dict(r)) for r in rows]
+
+            # Pro Chunk eine eigene Abfrage OHNE LIMIT/OFFSET (die erst nach
+            # dem Zusammenführen aller Chunks angewendet werden dürfen),
+            # Zeilen zusammenführen und einmalig in Python neu sortieren.
+            assert guid_filter is not None  # impliziert durch chunk_guid_filter
+            all_rows = []
+            for start in range(0, len(guid_filter), 900):
+                chunk = guid_filter[start:start + 900]
+                ph = ",".join("?" * len(chunk))
+                chunk_conditions = conditions + [f"m.match_guid IN ({ph})"]
+                chunk_where = "WHERE " + " AND ".join(chunk_conditions)
+                chunk_params = params + list(chunk)
+                if use_kit_join:
+                    chunk_sql = (f"SELECT m.*, {extra_col} FROM matches m "
+                                f"JOIN match_kit_membership mkm ON mkm.match_guid = m.match_guid "
+                                f"{bridge_join} {chunk_where}")
+                else:
+                    chunk_sql = (f"SELECT m.*, {extra_col} FROM matches m "
+                                f"{bridge_join} {chunk_where}")
+                cur.execute(chunk_sql, chunk_params)
+                all_rows.extend(cur.fetchall())
+
+        matches = [DnaMatch.from_db_row(dict(r)) for r in all_rows]
+        matches.sort(key=lambda m: getattr(m, sort_col), reverse=not sort_asc)
+        if limit:
+            matches = matches[offset:offset + limit]
+        return matches
 
     def match_exists(self, match_guid: str) -> bool:
         with self._db._cursor() as cur:
