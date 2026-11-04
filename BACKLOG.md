@@ -239,6 +239,17 @@ dass es auffällt.
 11. ✅ **mypy-Abdeckung 12 → 33 Module** (alle sauber durchlaufenden Kandidaten aus
     `lib/`, `ancestry/core/` Top-Level, `ancestry/core/db/repos/` aufgenommen)
 
+### Sprint 7 erledigt (2026-11, gleiche Sitzung) — mypy vollständig
+
+12. ✅ **mypy-Restfehler behoben, 33 → 66 Module** — alle zuvor bewusst
+    ausgeschlossenen Kandidaten (`wikitree.py`, `ml_origin.py`,
+    `entity_resolution.py`, `auth.py`, `core/bridge/*.py`, `core/api/*.py`,
+    `lib/helpers.py`, `analysis/gaps.py`) jetzt tatsächlich typkorrigiert
+    (keine Verhaltensänderungen — nur Annotationen/Casts/Umbenennungen);
+    `triangulation.py`/`matricula_bridge.py` damit ebenfalls aufnehmbar.
+    `lib/`, `ancestry/core/` (rekursiv) und `ancestry/models/` sind jetzt
+    lückenlos mypy-geprüft.
+
 > Bewusst nicht in diesem Sprint (dokumentierte Scope-Entscheidungen):
 > explizite Pile-up-Koordinatentabelle (keine verifizierbare Primärquelle
 > erreichbar — Build-Mismatch GRCh37/38 wäre schlimmer als keine Prüfung);
@@ -255,16 +266,11 @@ dass es auffällt.
 5. 🟡 Gramps XML Export (EPIC 4 🟢 M) — Gramps 5.1 XML für direkten Import
 6. 🟡 **Flaky Test `test_y_line_trace`** (`tests/test_genealogist_100.py`): schlug
    einmalig unter zufälliger Testreihenfolge mit einem id()-artigen `KeyError`
-   fehl, lief seither in >10 randomisierten Vollläufen wieder sauber durch —
-   Reproduktion bisher nicht gelungen; vermuteter Cross-Test-State-Leak wie
+   fehl, lief seither in >20 randomisierten Vollläufen wieder sauber durch —
+   Reproduktion weiterhin nicht gelungen; vermuteter Cross-Test-State-Leak wie
    beim bereits gefixten `run_parallel_group`-Event-Leck, aber nicht an
    derselben Stelle lokalisiert. Braucht gezielte Reproduktion (z. B. fixer
    Seed aus einem fehlgeschlagenen CI-Lauf), bevor sich etwas fixen lässt.
-7. 🟢 **Restliche mypy-Kandidaten mit echten Typfehlern beheben**: `wikitree.py`,
-   `ml_origin.py`, `entity_resolution.py`, `scraper.py`, `auth.py`,
-   `core/bridge/gedcom_import.py`, `core/bridge/matching.py`, `core/api/*.py`,
-   `lib/helpers.py` — danach auch `triangulation.py`/`matricula_bridge.py`
-   aufnehmbar (zogen die bridge/api-Fehler bisher nur transitiv mit rein)
 
 > ✅ Erledigt (vorherige Sitzung): GESAMTE GUI zweisprachig (179 → 0 hartkodierte
 > Strings) + Live-Sprachwechsel, Guard-Test + Audit-Tool, Tooltip-Helfer +
