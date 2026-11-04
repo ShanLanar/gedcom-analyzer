@@ -31,11 +31,16 @@ CM_BINS: list[tuple[int, int]] = [
     (900, 1400), (1400, 2000), (2000, 4000),
 ]
 
-# Ungefähre Verwandtschafts-Annotation für GUI-Labels je Bin
+# Ungefähre Verwandtschafts-Annotation für GUI-Labels je Bin — gegen
+# ancestry.core.shared_cm.relationship_probabilities() am jeweiligen
+# Bin-Mittelpunkt verifiziert (Shared cM Project 4.0), nicht mehr frei
+# Hand gepflegt. Vorher widersprach z.B. Bin 7 (600–900 cM, "Halb-1C/GE")
+# der eigenen Referenztabelle: die Großelternteil/Onkel-Tante/Halbgeschwister-
+# Gruppe liegt dort real erst ab 1160 cM.
 CM_BIN_REL: list[str] = [
-    "4–5C+", "3–4C", "2–3C", "2C/1C2R",
-    "2C/1C1R", "1C1R/GGE", "1C/Onkel", "Halb-1C/GE",
-    "GE/Onkel", "GE/Geschwister", "Eltern/Geschwister",
+    "5C/6C+", "3C/Halb-3C", "Halb-2C/3C", "Halb-2C/2C",
+    "2C/1C2R", "Halb-1C/2C", "Halb-1C", "1C/Halb-Onkel",
+    "1C/Urgroßeltern", "GE/Onkel/Halbgeschw.", "Geschwister/Eltern",
 ]
 
 

@@ -326,8 +326,18 @@ def _cm_consistency(shared_cm: float, total_depth: int,
     if cm <= 0 or total_depth < _MIN_BAND_DEPTH:
         return "", ""
     d = min(max(total_depth, _MIN_BAND_DEPTH), _MAX_BAND_DEPTH)
-    low, high = _DEPTH_CM_BAND[d]
-    scale = max(1, multiplier) * (0.5 if half else 1.0)
+    if half and d == 2:
+        # Halbgeschwister NICHT per Halbierung der Vollgeschwister-Spanne
+        # (1613-3488) berechnen — Vollgeschwister-cM ist eine IBD1+IBD2-Union
+        # und skaliert nicht linear mit der reinen Kinship-Fraktion (ergäbe
+        # fälschlich 806-1744). Der empirisch beobachtete Halbgeschwister-
+        # Bereich entspricht der Großelternteil-/Onkel-Tante-Stufe (Tiefe 3),
+        # siehe ancestry/core/shared_cm.py._GROUPS.
+        low, high = _DEPTH_CM_BAND[3]
+        scale: float = max(1, multiplier)
+    else:
+        low, high = _DEPTH_CM_BAND[d]
+        scale = max(1, multiplier) * (0.5 if half else 1.0)
     low, high = low * scale, high * scale
     band = f"{low:.0f}–{high:.0f} cM erwartet"
     if cm > high * 1.4:
@@ -405,27 +415,34 @@ def get_gedcom_relationship_summary(db, test_guid: str) -> list[dict]:
         root_depth  = math.floor(math.log2(sosa)) if sosa >= 1 else 0
         match_depth = best["match_gen"] or len(best["ahnen_path"] or "")
 
-        # Voll- vs. Halb-Beziehung: bei match_depth==1 ist der Match ein
-        # DIREKTES Kind des verknüpften Vorfahren (sosa) — root und match
-        # teilen diesen Vorfahren wirklich BEIDE Elternteile gemeinsam (Voll-)
-        # nur dann, wenn auch dessen Partner (sosa±1, dasselbe Elternpaar)
-        # bei match_depth==1 verknüpft ist. Das gilt generation-unabhängig:
-        # root_depth==1 → Geschwister/Halbgeschwister (sibling_sosa={2,3}),
-        # root_depth==2 → Onkel-Tante/Halbonkel-Tante (z. B. {4,5} oder {6,7}).
+        # Voll- vs. Halb-Beziehung: root und match teilen den verknüpften
+        # Vorfahren (sosa) wirklich BEIDE Elternteile gemeinsam (Voll-) nur
+        # dann, wenn auch dessen Partner (sosa±1, dasselbe Elternpaar) über
+        # einen EIGENEN Link bei match_depth verknüpft ist. Zwei Formen:
+        #   - "Gleiche Tiefe" (match_depth == root_depth): Geschwister (1,1),
+        #     1. Cousins (2,2), 2. Cousins (3,3) — der gemeinsame Vorfahr ist
+        #     für root UND match gleich weit entfernt; die Prüfung muss bei
+        #     match_gen == match_depth ansetzen (bei Cousins ist match KEIN
+        #     direktes Kind des Vorfahren mehr, sondern Enkel/Urenkel usw.).
+        #   - "Onkel/Tante-Form" (match_depth == 1, root_depth == 2): match
+        #     ist ein DIREKTES Kind des Vorfahren, der für root aber eine
+        #     Generation tiefer (Großeltern-Ebene) liegt.
         # Ab root_depth==3 unterscheidet relationship_label() ohnehin nicht
-        # zwischen voll/halb (kein "Halbgroßonkel"-Label vorhanden), daher
-        # bleibt die Prüfung auf root_depth<=2 begrenzt. Ist nur EINE der
-        # beiden sosa-Positionen verknüpft, ist nur ein Elternteil gemeinsam
-        # → Halb-Beziehung, mit entsprechend halbierter erwarteter cM.
+        # zwischen voll/halb (kein "Halbgroßonkel"-Label), daher bleibt die
+        # Prüfung auf root_depth<=2 begrenzt. Ist nur EINE der beiden sosa-
+        # Positionen verknüpft, ist nur ein Elternteil gemeinsam → Halb-
+        # Beziehung (Halbgeschwister/Halbonkel-Tante/Halb-1.-Cousin), mit
+        # entsprechend halbierter erwarteter cM.
         full_share = True
         is_half_sibling = False
-        if match_depth == 1 and root_depth in (1, 2):
+        if (match_depth == root_depth and root_depth in (1, 2)) or \
+           (match_depth == 1 and root_depth == 2):
             partner = sosa + 1 if sosa % 2 == 0 else sosa - 1
             pair_sosa = {sosa, partner}
             matched_sosa = {
                 l["sosa_number"] for l in links
                 if l["sosa_number"] in pair_sosa
-                and (l["match_gen"] or len(l["ahnen_path"] or "")) == 1
+                and (l["match_gen"] or len(l["ahnen_path"] or "")) == match_depth
             }
             full_share = matched_sosa == pair_sosa
             is_half_sibling = not full_share

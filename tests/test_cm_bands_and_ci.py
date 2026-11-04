@@ -30,6 +30,18 @@ def test_half_relation_halves_expected_band():
     assert half[1] != full[1]                            # anderes Band angezeigt
 
 
+def test_half_sibling_uses_empirical_band_not_halved_full_sibling_band():
+    """Scrum Sprint 8 (DNA-Genetikerin): Halbgeschwister (total_depth=2,
+    half=True) nutzt die empirisch beobachtete Halbgeschwister-Spanne (=
+    Großelternteil-/Onkel-Tante-Stufe, Tiefe 3: 984-2462 cM) statt der
+    NICHT-linear skalierenden Vollgeschwister-Spanne (1613-3488) einfach zu
+    halbieren (ergäbe fälschlich 806-1744 — ein Halbgeschwister-Match am
+    oberen Normalrand, ~2440 cM, würde dann fälschlich als 'zu entfernt'
+    markiert)."""
+    verdict, band = _cm_consistency(2000, total_depth=2, half=True)
+    assert "984" in band and "2462" in band
+
+
 def test_multiplier_raises_expected_band():
     """Doppelte Cousins (multiplier=2) heben die erwartete cM an → hohe DNA ok."""
     single = _cm_consistency(2000, total_depth=4)        # > 1397*1.4=1956 → high
@@ -150,3 +162,30 @@ def test_predict_relationship_rows_unaffected():
     rows = predict_relationship_rows(1750)
     assert rows
     assert len(rows[0]) == len(PREDICT_HEADERS)
+
+
+# ── Scrum Sprint 8 (DNA-Genetikerin): _RELATIONSHIP_DIST vereinheitlicht ──────
+
+def test_relationship_dist_matches_shared_cm_groups():
+    """_RELATIONSHIP_DIST wird jetzt aus ancestry.core.shared_cm._GROUPS
+    abgeleitet (eine Quelle statt zwei divergierender Listen) — die vorher
+    hier fest kodierte Tabelle hatte Großonkel/-tante, Urgroßelternteil,
+    Halb-Onkel/Tante und alle Halb-Cousin-Grade komplett vergessen."""
+    from ancestry.core.shared_cm import _GROUPS
+    from tasks.dna_predict import _RELATIONSHIP_DIST
+    assert len(_RELATIONSHIP_DIST) == len(_GROUPS)
+    for (label, mean, _sigma_val), (group_labels, group_mean, _lo, _hi) in zip(
+            _RELATIONSHIP_DIST, _GROUPS):
+        assert mean == group_mean
+        for gl in group_labels:
+            assert gl in label
+
+
+def test_previously_missing_categories_now_reachable():
+    """866 cM lieferte vorher NUR 'Cousin 1. Grades' — Urgroßelternteil,
+    Großonkel/-tante und Halb-Onkel/Tante fehlten komplett in der alten
+    Tabelle. Jetzt müssen sie als gleichwertige Alternativen auftauchen."""
+    res = predict_relationship_detailed(866)
+    assert any("Urgroßelternteil" in d["label"] for d in res)
+    assert any("Großonkel" in d["label"] for d in res)
+    assert any("Halb-Onkel" in d["label"] for d in res)

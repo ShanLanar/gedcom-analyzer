@@ -42,9 +42,22 @@ def test_relationship_label_half_variants():
     assert relationship_label(1, 1, full_share=False) == "Halbgeschwister"
     assert relationship_label(2, 1, full_share=False) == "Halbonkel/-tante"
     assert relationship_label(1, 2, full_share=False) == "Halbneffe/-nichte"
-    # Großonkel/-tante und Cousin-Grade sind von full_share unberührt
-    # (keine belastbare Halb-Ableitung auf dieser Ebene ohne weitere Prüfung).
+    # Großonkel/-tante bleibt von full_share unberührt (keine belastbare
+    # Halb-Ableitung auf dieser Ebene ohne weitere Prüfung).
     assert relationship_label(3, 1, full_share=False) == "Großonkel/-tante"
+
+
+def test_relationship_label_half_cousin():
+    """Scrum Sprint 8 (DNA-Genetikerin): echte Halb-Cousins (nur EIN
+    gemeinsamer Großelternteil statt eines Großeltern-Paares) wurden vorher
+    IMMER als Voll-Cousin gelabelt ('Cousin 1. Grades' statt 'Halb-Cousin
+    1. Grades') — full_share wurde im Cousin-Zweig gar nicht ausgewertet."""
+    assert relationship_label(2, 2, False, full_share=False) == "Halb-Cousin 1. Grades"
+    assert relationship_label(3, 3, False, full_share=False) == "Halb-Cousin 2. Grades"
+    assert relationship_label(2, 3, False, full_share=False) == \
+        "Halb-Cousin 1. Grades, 1x entfernt"
+    # Voll-Cousin (full_share=True, Default) bleibt unverändert.
+    assert relationship_label(2, 2, False) == "Cousin 1. Grades"
 
 
 # ── get_ancestor_paths ────────────────────────────────────────────────────────

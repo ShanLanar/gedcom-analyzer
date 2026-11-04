@@ -267,6 +267,19 @@ class TestCmHistogram:
     def test_cm_bins_constant_length(self):
         assert len(CM_BINS) == len(CM_BIN_REL)
 
+    def test_rel_hint_600_900_no_longer_claims_grandparent(self):
+        """Scrum Sprint 8 (DNA-Genetikerin): Bin 7 (600-900 cM) behauptete
+        vorher "Halb-1C/GE" (GE = Großelternteil), obwohl die Großelternteil-
+        /Onkel-Tante-/Halbgeschwister-Gruppe laut shared_cm._GROUPS real erst
+        ab 1160 cM liegt — bei 750 cM Mittelpunkt ist laut
+        relationship_probabilities() mit 88% die Urgroßelternteil-/
+        Großonkel-/1.-Cousin-/Halb-Onkel-Gruppe dominant, nicht GE."""
+        from ancestry.core.shared_cm import relationship_probabilities
+        idx = CM_BINS.index((600, 900))
+        assert "GE" not in CM_BIN_REL[idx]
+        top = relationship_probabilities(750.0, top=1)[0]["labels"]
+        assert not any("Großelternteil" in lbl for lbl in top)
+
 
 # ── surname_entropy_series ────────────────────────────────────────────────────
 

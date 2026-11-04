@@ -238,16 +238,20 @@ def test_half_siblings_detected_when_only_one_parent_linked(db):
     row = res[0]
     assert row["ged_relationship"] == "Halbgeschwister"
     assert row["half_sibling"] is True
-    # Die erwartete cM-Bande ist halbiert (ein statt zwei gemeinsame Ahnen) —
-    # ohne den half-Fix würde hier fälschlich die Vollgeschwister-Bande
-    # (1613–3488) statt der halbierten (~807–1744) verwendet.
-    assert "1744" in row["cm_expected_band"] or "807" in row["cm_expected_band"]
+    # Die erwartete cM-Bande nutzt die empirisch beobachtete Halbgeschwister-
+    # Spanne (984–2462, Großelternteil-/Onkel-Tante-Stufe) — NICHT die
+    # Vollgeschwister-Bande (1613–3488) naiv halbiert (ergäbe fälschlich
+    # 807–1744), da Vollgeschwister-cM nicht linear mit der Kinship-Fraktion
+    # skaliert (IBD1+IBD2-Union statt reinem IBD1).
+    assert "984" in row["cm_expected_band"] and "2462" in row["cm_expected_band"]
 
 
-def test_non_sibling_depth_unaffected_by_half_logic(db):
-    """1. Cousin (root_depth=2, match_depth=2) bleibt unverändert — die
-    Halb-Erkennung greift ausschließlich bei der direkten Geschwister-/
-    Onkel-Tante-Ebene (match_depth==1)."""
+def test_half_cousin_detected_when_only_one_grandparent_linked_at_cousin_depth(db):
+    """Scrum Sprint 8 (DNA-Genetikerin): 1. Cousin (root_depth=2,
+    match_depth=2), aber nur EIN Großelternteil (sosa 4) verknüpft, nicht
+    dessen Partner (sosa 5) → Halb-Cousin, nicht (wie vorher IMMER) 'Cousin
+    1. Grades'. Die Halb-Erkennung griff vorher ausschließlich bei
+    match_depth==1 (Geschwister/Onkel-Tante), nie bei echten Cousins."""
     _insert_person(db, "GP", "Opa", "Kovermann", sosa_number=4)
     _insert_match(db, "TG3", "M3", shared_cm=900.0)
     _insert_link(db, "TG3", "M3", "FF", "GP")
@@ -255,8 +259,26 @@ def test_non_sibling_depth_unaffected_by_half_logic(db):
 
     res = get_gedcom_relationship_summary(db, "TG3")
     assert len(res) == 1
-    assert res[0]["ged_relationship"] == "Cousin 1. Grades"
-    assert res[0]["half_sibling"] is False
+    assert res[0]["ged_relationship"] == "Halb-Cousin 1. Grades"
+    assert res[0]["half_sibling"] is True
+
+
+def test_full_cousin_detected_when_both_grandparents_linked_at_cousin_depth(db):
+    """1. Cousin (root_depth=2, match_depth=2): BEIDE Großeltern (sosa 4 UND
+    5) bei match_depth=2 verknüpft → echter Voll-Cousin."""
+    _insert_person(db, "GRANDFATHER", "Opa", "Kovermann", sosa_number=4)
+    _insert_person(db, "GRANDMOTHER", "Oma", "Kovermann", sosa_number=5)
+    _insert_match(db, "TG6", "M6", shared_cm=866.0)
+    _insert_link(db, "TG6", "M6", "FF", "GRANDFATHER")
+    _insert_link(db, "TG6", "M6", "FM", "GRANDMOTHER")
+    _insert_match_pedigree_gen(db, "TG6", "M6", "FF", 2)
+    _insert_match_pedigree_gen(db, "TG6", "M6", "FM", 2)
+
+    res = get_gedcom_relationship_summary(db, "TG6")
+    assert len(res) == 1
+    row = res[0]
+    assert row["ged_relationship"] == "Cousin 1. Grades"
+    assert row["half_sibling"] is False
 
 
 def test_full_uncle_detected_when_both_grandparents_linked(db):

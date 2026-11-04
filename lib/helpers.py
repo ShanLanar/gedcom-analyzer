@@ -222,5 +222,6 @@ def relationship_label(root_d: int, target_d: int,
         return f"{target_d-1}-fach Urgroßneffe/-nichte"
     removed = abs(root_d - target_d)
     grade   = max(0, min(root_d, target_d) - 1)
-    base    = f"Cousin {grade}. Grades"
+    prefix  = "" if full_share else "Halb-"
+    base    = f"{prefix}Cousin {grade}. Grades"
     return f"{base}, {removed}x entfernt" if removed else base

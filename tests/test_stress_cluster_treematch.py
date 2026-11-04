@@ -258,8 +258,21 @@ def test_suggest_grandparent_lines_two_clusters_mentions_2():
 # ═══════════════════════════════════════════════════════════════════════════
 
 def test_cm_to_mrca_3500_gen1():
-    """3500 cM → grandparent/uncle tier, gen 2."""
+    """3500 cM → parent/child tier, gen 1."""
     label, gen = cm_to_mrca(3500)
+    assert gen == 1
+
+
+def test_cm_to_mrca_parent_child_label():
+    """>= 2600 cM → Label nennt explizit Elternteil/Kind, nicht Großeltern-Ebene."""
+    label, gen = cm_to_mrca(2700)
+    assert "Eltern" in label
+    assert gen == 1
+
+
+def test_cm_to_mrca_just_below_parent_child_threshold():
+    """2599 cM (knapp unter der Eltern/Kind-Schwelle) → Großeltern-Ebene, gen 2."""
+    label, gen = cm_to_mrca(2599)
     assert gen == 2
 
 

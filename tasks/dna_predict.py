@@ -16,6 +16,7 @@ import math
 
 from lib.gedcom import safe_extract_year
 from tasks.genetics import _kinship_coefficient
+from ancestry.core.shared_cm import _GROUPS as _CM_GROUPS, _sigma as _cm_sigma
 from ancestry.core.treematch.genetics import (
     endogamy_flag, resolve_endogamy_factor,
 )
@@ -23,19 +24,19 @@ from ancestry.core.treematch.genetics import (
 
 # ── Verteilungen ──────────────────────────────────────────────────────────────
 
-# (Label, mean_cM, std_cM)
+# (Label, mean_cM, std_cM) — abgeleitet aus ancestry.core.shared_cm._GROUPS
+# (Shared cM Project 4.0), damit beide Module dieselbe Referenztabelle nutzen
+# statt zwei unabhängig gepflegter Listen. Die vorherige fest kodierte Liste
+# hier ließ ganze Verwandtschaftsgrade aus (u. a. Urgroßelternteil, Großonkel/
+# -tante, Halb-Onkel/Tante, Halb-1./2./3./4. Cousin) — wer z. B. 866 cM teilte,
+# bekam nur "Cousin 1. Grades" als Option, obwohl Urgroßelternteil/Großonkel-
+# tante/Halb-Onkel-Tante im selben Fenster (shared_cm.summary_line) als
+# gleichwertige Alternativen angezeigt werden. Statistisch nicht unterscheid-
+# bare Beziehungen werden wie in shared_cm.py als EINE Gruppe behandelt, mit
+# allen Alternativ-Labels im Anzeigetext (" / "-getrennt) statt nur der ersten.
 _RELATIONSHIP_DIST = [
-    ("Elternteil/Kind",            3485, 100),
-    ("Geschwister voll",           2629, 400),
-    ("Halbgeschwister",            1759, 250),
-    ("Großelternteil",             1766, 250),
-    ("Onkel/Tante",                1759, 250),
-    ("Cousin 1. Grades",            866, 200),
-    ("Cousin 1. einmal entfernt",   433, 130),
-    ("Cousin 2. Grades",            229,  90),
-    ("Cousin 2. einmal entfernt",   122,  50),
-    ("Cousin 3. Grades",             73,  30),
-    ("Cousin 4. Grades",             35,  15),
+    (" / ".join(labels), mean, _cm_sigma(low, high))
+    for labels, mean, low, high in _CM_GROUPS
 ]
 
 

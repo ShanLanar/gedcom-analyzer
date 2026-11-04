@@ -435,26 +435,28 @@ def test_wright_f_cousin_marriage(degree, expected_f):
 
 
 @pytest.mark.parametrize("cm,top_label_options", [
-    # cM-Wert → erwartete Top-Klassifikation
-    (3500, {"Elternteil/Kind"}),
-    (3700, {"Elternteil/Kind"}),
-    (2600, {"Vollgeschwister", "Geschwister voll", "Elternteil/Kind"}),
+    # cM-Wert → erwartete Top-Klassifikation (Substrings der aus
+    # ancestry.core.shared_cm._GROUPS abgeleiteten, zusammengesetzten Labels —
+    # seit der Vereinheitlichung mit shared_cm.py die einzige Quelle)
+    (3500, {"Elternteil"}),
+    (3700, {"Elternteil"}),
+    (2600, {"Vollgeschwister", "Elternteil"}),
     (1700, {"Halbgeschwister", "Großelternteil", "Onkel/Tante"}),
     (1800, {"Halbgeschwister", "Großelternteil", "Onkel/Tante"}),
-    (1200, {"Halbgeschwister", "Großelternteil", "Onkel/Tante", "Cousin 1. Grades"}),
-    (866,  {"Cousin 1. Grades"}),
-    (700,  {"Cousin 1. Grades"}),
-    (430,  {"Cousin 1. einmal entfernt"}),
-    (220,  {"Cousin 2. Grades"}),
-    (120,  {"Cousin 2. einmal entfernt"}),
-    (75,   {"Cousin 3. Grades", "Cousin 4. Grades"}),
-    (35,   {"Cousin 4. Grades", "Cousin 3. Grades"}),
+    (1200, {"Halbgeschwister", "Großelternteil", "Onkel/Tante", "1. Cousin", "Urgroßelternteil"}),
+    (866,  {"1. Cousin", "Urgroßelternteil", "Großonkel", "Halb-Onkel"}),
+    (700,  {"1. Cousin", "Urgroßelternteil", "Großonkel", "Halb-Onkel"}),
+    (430,  {"Halb-1. Cousin", "1. Cousin 1"}),
+    (220,  {"2. Cousin", "1. Cousin 2", "Halb-1C"}),
+    (120,  {"Halb-2. Cousin", "2. Cousin 1"}),
+    (75,   {"3. Cousin", "2. Cousin 2"}),
+    (35,   {"4. Cousin", "Halb-4. Cousin", "3. Cousin 2"}),
 ])
 def test_dna_cm_prediction_top_class(cm, top_label_options):
     from tasks.dna_predict import predict_relationship_from_cm
     result = predict_relationship_from_cm(cm)
-    assert result[0][0] in top_label_options, \
-        f"{cm} cM → Top war {result[0][0]!r}, erwartet eines aus {top_label_options}"
+    assert any(opt in result[0][0] for opt in top_label_options), \
+        f"{cm} cM → Top war {result[0][0]!r}, erwartet eines von {top_label_options} darin"
 
 
 @pytest.mark.parametrize("cm", [0, 10, 50, 100, 500, 1000, 2000, 3000, 4000])

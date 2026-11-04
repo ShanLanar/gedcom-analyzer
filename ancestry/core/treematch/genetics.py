@@ -178,6 +178,7 @@ def cm_to_mrca(cm: float, endogamy_factor: float = 1.0,
     endogamy_factor = resolve_endogamy_factor(endogamy_factor, population)
     c = (cm or 0) / max(endogamy_factor, 0.5)
     table = [
+        (2600, "Elternteil / Kind",               1),
         (1300, "Großeltern-/Onkel-/Tante-Ebene", 2),
         (575,  "1. Cousin (gem. Großeltern)",     3),
         (300,  "1C1R / 2. Cousin",                 4),

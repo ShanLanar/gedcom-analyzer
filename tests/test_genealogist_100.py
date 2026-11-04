@@ -348,23 +348,24 @@ def test_dna_predict_parent_child_dominates():
     """3500 cM → wahrscheinlichste Beziehung: Eltern/Kind."""
     from tasks.dna_predict import predict_relationship_from_cm
     result = predict_relationship_from_cm(3500)
-    assert result[0][0] in ("Elternteil/Kind",), \
-        f"3500 cM → erwartet 'Elternteil/Kind', war {result[0][0]}"
+    assert "Elternteil" in result[0][0], \
+        f"3500 cM → erwartet 'Elternteil' im Label, war {result[0][0]}"
     assert result[0][1] > 0.9
 
 
 def test_dna_predict_cousin_first():
-    """850 cM ≈ Cousins 1. Grades."""
+    """850 cM ≈ Cousins 1. Grades (bzw. statistisch gleichwertige Alternativen
+    wie Urgroßelternteil/Großonkel-tante/Halb-Onkel-Tante, vgl. shared_cm.py)."""
     from tasks.dna_predict import predict_relationship_from_cm
     result = predict_relationship_from_cm(850)
-    assert result[0][0] == "Cousin 1. Grades"
+    assert "1. Cousin" in result[0][0]
 
 
 def test_dna_predict_cousin_third():
     """75 cM ≈ Cousins 3. Grades."""
     from tasks.dna_predict import predict_relationship_from_cm
     result = predict_relationship_from_cm(75)
-    assert result[0][0] in ("Cousin 3. Grades", "Cousin 4. Grades")
+    assert "3. Cousin" in result[0][0]
 
 
 def test_dna_predict_zero_cm():

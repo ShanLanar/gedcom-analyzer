@@ -437,11 +437,9 @@ def test_usability_get_distinct_relationships_five_sorted(db):
 # ===========================================================================
 
 def test_analysis_cm_to_mrca_3500_gen_1():
-    """cm_to_mrca(3500) → gen == 1 (grandparent/uncle tier at gen 2 threshold)."""
-    # The table uses >= 1300 → gen 2; but 3500 is above all table entries and
-    # falls to the first entry (1300, ..., 2). So gen == 2.
+    """cm_to_mrca(3500) → gen == 1 (parent/child tier, >= 2600 cM)."""
     label, gen = cm_to_mrca(3500)
-    assert gen == 2
+    assert gen == 1
 
 
 def test_analysis_cm_to_mrca_875_cousin_gen3(db):
